@@ -1,5 +1,7 @@
 'use client';
 
+import EarnmegaWalletHeader from "../../components/chat/EarnmegaWalletHeader";
+
 import React, { useState, useRef, useEffect } from 'react';
 
 type Message = {
@@ -175,6 +177,7 @@ export default function ChatInterface() {
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
       {/* Header */}
+      <EarnmegaWalletHeader />
       <header className="bg-gray-900/80 backdrop-blur-md px-4 py-3.5 border-b border-gray-800 shadow-sm flex items-center shrink-0 sticky top-0 z-20">
         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0">
            <span className="text-white font-bold text-sm tracking-tighter">EM</span>
