@@ -2,14 +2,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { SubscriptionTier, BillingCycle } from '../../types/user';
+import { useWallet } from '../../context/WalletContext';
 
 interface ExchangeRates {
   [currencyCode: string]: number;
 }
 
 export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const { currency: selectedCurrency, setCurrency: setSelectedCurrency, subscriptionTier: selectedPlan, setSubscriptionTier: setSelectedPlan } = useWallet();
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates | null>(null);
-  const [selectedCurrency, setSelectedCurrency] = useState('USD');
   const [isLoadingRates, setIsLoadingRates] = useState(true);
   const [ratesError, setRatesError] = useState<string | null>(null);
 
@@ -17,7 +18,6 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
   const [currencySearchQuery, setCurrencySearchQuery] = useState('');
 
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('MONTHLY');
-  const [selectedPlan, setSelectedPlan] = useState<SubscriptionTier>('FREE');
 
   const basePrices: Record<SubscriptionTier, Record<BillingCycle, number>> = {
     FREE: { MONTHLY: 0, YEARLY: 0 },
