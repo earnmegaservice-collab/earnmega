@@ -5,6 +5,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
 import { UserProfileDetails } from "../../components/profile/UserProfileModal";
+import { supabase } from "../../utils/supabase";
+import { v4 as uuidv4 } from "uuid";
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
@@ -16,6 +18,7 @@ type Message = {
   timestamp: Date;
   status?: 'sent' | 'delivered' | 'read';
   reactions: string[];
+  imageUrl?: string;
 };
 
 const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
@@ -44,6 +47,9 @@ export default function ChatInterface() {
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
+  const [isTierLockModalOpen, setIsTierLockModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const currentUserProfile: UserProfileDetails = {
     id: 'user-1',
@@ -157,6 +163,86 @@ export default function ChatInterface() {
     }, 2000);
   };
 
+  const handleMediaClick = () => {
+    if (subscriptionTier === 'FREE') {
+      setIsTierLockModalOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  const handleCameraClick = () => {
+    if (handleMediaClick()) {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${uuidv4()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('chat-media')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(filePath);
+
+      const publicUrl = data.publicUrl;
+
+      const newMessage: Message = {
+        id: uuidv4(),
+        text: '',
+        imageUrl: publicUrl,
+        sender: 'user',
+        timestamp: new Date(),
+        status: 'sent',
+        reactions: [],
+      };
+
+      setMessages((prev) => [...prev, newMessage]);
+      setTimeout(() => {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === newMessage.id ? { ...msg, status: 'delivered' } : msg
+          )
+        );
+      }, 1000);
+
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      // Fallback: mock if bucket isn't correctly configured
+      const mockUrl = URL.createObjectURL(file);
+      const newMessage: Message = {
+        id: uuidv4(),
+        text: '',
+        imageUrl: mockUrl,
+        sender: 'user',
+        timestamp: new Date(),
+        status: 'sent',
+        reactions: [],
+      };
+      setMessages((prev) => [...prev, newMessage]);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleReaction = (messageId: string, emoji: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setMessages((prev) =>
@@ -215,6 +301,38 @@ export default function ChatInterface() {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
+      {/* Tier Lock Modal */}
+      {isTierLockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100 transition-all">
+            <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-3xl">🔒</span>
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Media Sharing is a Pro Feature</h3>
+            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+              Upgrade to Pro or Premium to send images and voice notes to your network.
+            </p>
+            <div className="flex flex-col space-y-3">
+              <button
+                onClick={() => {
+                  setIsTierLockModalOpen(false);
+                  setIsStoreOpen(true);
+                }}
+                className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-xl font-bold shadow-lg shadow-blue-500/25 transition-all transform active:scale-95"
+              >
+                Upgrade Now
+              </button>
+              <button
+                onClick={() => setIsTierLockModalOpen(false)}
+                className="w-full py-3 px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium transition-colors"
+              >
+                Maybe Later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <UserProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
@@ -322,11 +440,22 @@ export default function ChatInterface() {
                       isUser
                         ? 'bg-blue-600 hover:bg-blue-700 text-white rounded-2xl rounded-tr-sm shadow-sm'
                         : 'bg-gray-800 hover:bg-gray-700 text-gray-100 border border-gray-700 shadow-sm rounded-2xl rounded-tl-sm'
-                    }`}
+                    } ${message.imageUrl && !message.text ? '!p-1.5' : ''}`}
                   >
-                    <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium">
-                      {formatText(message.text)}
-                    </p>
+                    {message.imageUrl && (
+                      <div className="mb-1.5">
+                        <img
+                          src={message.imageUrl}
+                          alt="Uploaded media"
+                          className="max-w-[200px] w-full rounded-xl object-cover"
+                        />
+                      </div>
+                    )}
+                    {message.text && (
+                      <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium">
+                        {formatText(message.text)}
+                      </p>
+                    )}
 
                     {/* Meta Row (Time & Status) */}
                     <div
@@ -374,20 +503,55 @@ export default function ChatInterface() {
             rows={1}
             className="flex-1 bg-transparent border-none focus:ring-0 text-gray-100 placeholder-gray-500 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32"
           />
-          <button
-            type="submit"
-            disabled={!inputValue.trim()}
-            className="ml-2 w-10 h-10 shrink-0 bg-blue-600 text-white rounded-full flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:bg-gray-700 transition-colors self-end mb-0.5"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              className="w-5 h-5 -mr-0.5"
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+          <div className="flex items-center space-x-1.5 ml-2 mb-0.5 self-end">
+            <button
+              type="button"
+              onClick={handleCameraClick}
+              disabled={isUploading}
+              className="w-10 h-10 shrink-0 text-gray-400 hover:text-gray-200 bg-gray-900/50 hover:bg-gray-700/80 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm disabled:opacity-50"
+              aria-label="Upload Image"
             >
-              <path d="M3.478 2.404a.75.75 0 00-.926.941l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.404z" />
-            </svg>
-          </button>
+              {isUploading ? (
+                <div className="w-4 h-4 border-2 border-t-blue-500 border-gray-400 rounded-full animate-spin"></div>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleMediaClick}
+              className="w-10 h-10 shrink-0 text-gray-400 hover:text-gray-200 bg-gray-900/50 hover:bg-gray-700/80 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
+              aria-label="Record Voice Note"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+              </svg>
+            </button>
+            <button
+              type="submit"
+              disabled={!inputValue.trim()}
+              className="w-10 h-10 shrink-0 bg-blue-600 text-white rounded-full flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:bg-gray-700 transition-colors"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                className="w-5 h-5 -mr-0.5"
+              >
+                <path d="M3.478 2.404a.75.75 0 00-.926.941l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.404z" />
+              </svg>
+            </button>
+          </div>
         </form>
         <p className="text-center text-[10px] text-gray-600 mt-2 font-medium tracking-wide">
           Double-tap a message to react
