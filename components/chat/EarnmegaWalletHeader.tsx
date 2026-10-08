@@ -5,11 +5,8 @@ import CoinStoreModal from "../../components/wallet/CoinStoreModal";
 import { useWallet } from "../../context/WalletContext";
 
 export default function EarnmegaWalletHeader() {
-  const { balance, subscriptionTier, setSubscriptionTier } = useWallet();
+  const { balance, subscriptionTier } = useWallet();
   const [isStoreOpen, setIsStoreOpen] = useState(false);
-
-  const isPremium = subscriptionTier === 'PREMIUM';
-  const toggleTier = () => setSubscriptionTier(isPremium ? 'PRO' : 'PREMIUM');
 
   const handleTopUp = () => {
     setIsStoreOpen(true);
@@ -29,17 +26,17 @@ export default function EarnmegaWalletHeader() {
             </span>
           </div>
 
-          <button
-            onClick={toggleTier}
+          <div
             className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors border ${
-              isPremium
-                ? 'bg-purple-900/30 text-purple-300 border-purple-500/50 hover:bg-purple-900/50'
-                : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
+              subscriptionTier === 'PREMIUM'
+                ? 'bg-purple-900/30 text-purple-300 border-purple-500/50'
+                : subscriptionTier === 'PRO'
+                ? 'bg-blue-900/30 text-blue-300 border-blue-500/50'
+                : 'bg-gray-800 text-gray-300 border-gray-600'
             }`}
-            title="Toggle Tier for Demo"
           >
-            {isPremium ? '💎 Premium' : '⭐ Pro'}
-          </button>
+            {subscriptionTier === 'PREMIUM' ? '💎 Premium' : subscriptionTier === 'PRO' ? '⭐ Pro' : '🛠️ Base'}
+          </div>
         </div>
 
         {/* Action Section */}
@@ -50,7 +47,7 @@ export default function EarnmegaWalletHeader() {
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
             <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 9a.75.75 0 00-1.5 0v2.25H9a.75.75 0 000 1.5h2.25V15a.75.75 0 001.5 0v-2.25H15a.75.75 0 000-1.5h-2.25V9z" clipRule="evenodd" />
           </svg>
-          <span>Top Up</span>
+          <span>Store</span>
         </button>
 
       </div>
