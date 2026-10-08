@@ -2,6 +2,12 @@
 
 import EarnmegaWalletHeader from "../../components/chat/EarnmegaWalletHeader";
 import React, { useState, useRef, useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { useWallet } from "../../context/WalletContext";
+import { UserProfileDetails } from "../../components/profile/UserProfileModal";
+
+const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
+const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
 
 type Message = {
   id: string;
@@ -34,6 +40,40 @@ const formatText = (text: string) => {
 };
 
 export default function ChatInterface() {
+  const { subscriptionTier, balance } = useWallet();
+  const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isStoreOpen, setIsStoreOpen] = useState(false);
+
+  const currentUserProfile: UserProfileDetails = {
+    id: 'user-1',
+    name: 'Current User',
+    avatarInitials: 'ME',
+    bio: 'Avid Earnmega user',
+    joinDate: 'Oct 2023',
+    tier: subscriptionTier,
+    isOnline: true,
+    coinsGifted: 1500,
+    isSelf: true,
+  };
+
+  const otherUserProfile: UserProfileDetails = {
+    id: 'other-1',
+    name: 'Earnmega Support',
+    avatarInitials: 'EM',
+    bio: 'Here to help you with anything.',
+    joinDate: 'Jan 2023',
+    tier: 'PREMIUM',
+    isOnline: true,
+    coinsGifted: 50000,
+    isSelf: false,
+  };
+
+  const openProfile = (userProfile: UserProfileDetails) => {
+    setSelectedProfile(userProfile);
+    setIsProfileOpen(true);
+  };
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -175,6 +215,19 @@ export default function ChatInterface() {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={selectedProfile}
+        onUpgradeClick={() => {
+          setIsProfileOpen(false);
+          setIsStoreOpen(true);
+        }}
+      />
+      <CoinStoreModal
+        isOpen={isStoreOpen}
+        onClose={() => setIsStoreOpen(false)}
+      />
       {/* Header */}
       <EarnmegaWalletHeader />
       <header className="bg-gray-900/80 backdrop-blur-md px-4 py-3.5 border-b border-gray-800 shadow-sm flex items-center shrink-0 sticky top-0 z-20">
@@ -204,13 +257,38 @@ export default function ChatInterface() {
               key={message.id}
               className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
             >
+              {/* Sender Name and Badge (Pro/Premium) */}
+              <div className={`flex items-center space-x-1.5 mb-1 ${isUser ? 'mr-1' : 'ml-9'}`}>
+                {isUser && subscriptionTier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
+                {isUser && subscriptionTier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
+
+                <span className="text-xs font-medium text-gray-400">
+                  {isUser ? currentUserProfile.name : otherUserProfile.name}
+                </span>
+
+                {!isUser && otherUserProfile.tier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
+                {!isUser && otherUserProfile.tier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
+              </div>
+
               {/* Message Bubble Row */}
               <div className={`flex items-end space-x-2 max-w-[85%] relative`}>
 
                 {/* Avatar for other */}
                 {!isUser && (
-                  <div className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700">
-                    <span className="text-[10px] text-gray-400">EM</span>
+                  <div
+                    onClick={() => openProfile(otherUserProfile)}
+                    className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors"
+                  >
+                    <span className="text-[10px] text-gray-400">{otherUserProfile.avatarInitials}</span>
+                  </div>
+                )}
+
+                {isUser && (
+                  <div
+                    onClick={() => openProfile(currentUserProfile)}
+                    className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors order-last ml-2"
+                  >
+                    <span className="text-[10px] text-gray-400">{currentUserProfile.avatarInitials}</span>
                   </div>
                 )}
 

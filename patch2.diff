@@ -1,0 +1,68 @@
+<<<<<<< SEARCH
+  return (
+    <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
+      {/* Header */}
+=======
+  return (
+    <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={selectedProfile}
+        onUpgradeClick={() => {
+          setIsProfileOpen(false);
+          setIsStoreOpen(true);
+        }}
+      />
+      <CoinStoreModal
+        isOpen={isStoreOpen}
+        onClose={() => setIsStoreOpen(false)}
+      />
+      {/* Header */}
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+              {/* Message Bubble Row */}
+              <div className={`flex items-end space-x-2 max-w-[85%] relative`}>
+
+                {/* Avatar for other */}
+                {!isUser && (
+                  <div className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700">
+                    <span className="text-[10px] text-gray-400">EM</span>
+                  </div>
+                )}
+=======
+              {/* Sender Name and Badge (Pro/Premium) */}
+              <div className={`flex items-center space-x-1.5 mb-1 ${isUser ? 'mr-1' : 'ml-9'}`}>
+                {isUser && subscriptionTier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
+                {isUser && subscriptionTier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
+
+                <span className="text-xs font-medium text-gray-400">
+                  {isUser ? currentUserProfile.name : otherUserProfile.name}
+                </span>
+
+                {!isUser && otherUserProfile.tier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
+                {!isUser && otherUserProfile.tier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
+              </div>
+
+              {/* Message Bubble Row */}
+              <div className={`flex items-end space-x-2 max-w-[85%] relative`}>
+
+                {/* Avatar for other */}
+                {!isUser && (
+                  <div
+                    onClick={() => openProfile(otherUserProfile)}
+                    className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors"
+                  >
+                    <span className="text-[10px] text-gray-400">{otherUserProfile.avatarInitials}</span>
+                  </div>
+                )}
+
+                {isUser && (
+                  <div
+                    onClick={() => openProfile(currentUserProfile)}
+                    className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors order-last ml-2"
+                  >
+                    <span className="text-[10px] text-gray-400">{currentUserProfile.avatarInitials}</span>
+                  </div>
+                )}
+>>>>>>> REPLACE
