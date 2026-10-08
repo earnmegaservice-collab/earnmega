@@ -20,7 +20,7 @@ interface WalletContextType {
 }
 
 const defaultState: WalletState = {
-  balance: 1250,
+  balance: 0,
   subscriptionTier: 'FREE',
   currency: 'USD'
 };
