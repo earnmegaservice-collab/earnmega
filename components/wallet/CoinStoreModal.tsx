@@ -105,7 +105,8 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
 
   const handlePayment = (amount: number, type: 'UPGRADE' | 'COIN', payload: any) => {
     // Paystack expects amount in the lowest currency unit (e.g., kobo for NGN, pesewas for GHS)
-    const convertedAmount = Math.round(getNumericPrice(amount) * 100);
+    // Always use the base amount in GHS regardless of the UI currency
+    const baseAmount = Math.round(amount * 100);
 
     if (!process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY) {
       console.error("Paystack Key Missing");
@@ -114,8 +115,8 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
     setPaymentConfig({
       reference: (new Date()).getTime().toString(),
       email: "user@example.com", // In a real app, this would come from user session
-      amount: convertedAmount,
-      currency: selectedCurrency, // Pass the converted currency code
+      amount: baseAmount,
+      currency: 'GHS', // Force currency to 'GHS'
       publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY,
       meta: { type, payload } // pass custom data to handle in onSuccess
     });
