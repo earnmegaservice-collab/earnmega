@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import CoinStoreModal from "../../components/wallet/CoinStoreModal";
+import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
+
+const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
 
 export default function EarnmegaWalletHeader() {
   const { balance, subscriptionTier } = useWallet();
