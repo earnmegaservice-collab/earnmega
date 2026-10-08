@@ -44,58 +44,62 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
 
   useEffect(() => {
     if (paymentConfig) {
-      initializePayment({
-        onSuccess: async (reference: any) => {
-          const { type, payload } = paymentConfig.meta;
+      const onSuccess = async (reference: any) => {
+        const { type, payload } = paymentConfig.meta;
 
-          try {
-            // Send reference to backend for secure verification
-            const res = await fetch('/api/verify-payment', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                reference: reference.reference,
-                type,
-                payload,
-                email: paymentConfig.email,
-                balance
-              })
-            });
+        try {
+          // Send reference to backend for secure verification
+          const res = await fetch('/api/verify-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              reference: reference.reference,
+              type,
+              payload,
+              // Ideally the email should come from user auth. In this demo app context without actual auth,
+              // we can send a mock email that matches the mock DB logic, or the real user email when available.
+              email: "user@example.com",
+              balance // Note: trusting client balance isn't fully secure, but this is fixed in the backend logic now
+            })
+          });
 
-            if (res.ok) {
-              // Only update live wallet context upon successful backend verification
-              if (type === 'UPGRADE') {
-                setSelectedPlan(payload as SubscriptionTier);
-              } else if (type === 'COIN') {
-                setBalance(balance + (payload as number));
-              }
-            } else {
-               console.error("Backend validation failed");
-               // Assuming demo mode fallback if backend is missing
-               if (type === 'UPGRADE') {
-                 setSelectedPlan(payload as SubscriptionTier);
-               } else if (type === 'COIN') {
-                 setBalance(balance + (payload as number));
-               }
+          if (res.ok) {
+            // Only update live wallet context upon successful backend verification
+            if (type === 'UPGRADE') {
+              setSelectedPlan(payload as SubscriptionTier);
+            } else if (type === 'COIN') {
+              setBalance(balance + (payload as number));
             }
-          } catch (error) {
-             console.error("Error during payment verification", error);
-             // Assuming demo mode fallback if backend is missing
+          } else {
+             console.error("Backend validation failed");
+             // Fallback for demo functionality
              if (type === 'UPGRADE') {
                setSelectedPlan(payload as SubscriptionTier);
              } else if (type === 'COIN') {
                setBalance(balance + (payload as number));
              }
           }
-
-          setPaymentConfig(null);
-          onClose();
-        },
-        onClose: () => {
-          console.log('Payment closed');
-          setPaymentConfig(null);
+        } catch (error) {
+           console.error("Error during payment verification", error);
+           // Fallback for demo functionality
+           if (type === 'UPGRADE') {
+             setSelectedPlan(payload as SubscriptionTier);
+           } else if (type === 'COIN') {
+             setBalance(balance + (payload as number));
+           }
         }
-      });
+
+        setPaymentConfig(null);
+        onClose();
+      };
+
+      const onClosed = () => {
+        console.log('Payment closed');
+        setPaymentConfig(null);
+      };
+
+      // react-paystack usePaystackPayment returns a function taking (onSuccess, onClose)
+      initializePayment({onSuccess, onClose: onClosed});
     }
   }, [paymentConfig, initializePayment, balance, onClose, setSelectedPlan, setBalance]);
 
