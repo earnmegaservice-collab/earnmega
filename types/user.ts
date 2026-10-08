@@ -1,12 +1,12 @@
-export type CurrencyCode = 'NGN' | 'USD' | 'EUR' | 'GBP';
+export type CurrencyCode = 'GHS' | 'NGN' | 'USD' | 'EUR' | 'GBP' | 'KES';
 
 export type CurrencyRate = {
   code: CurrencyCode;
   symbol: string;
-  rateToNgn: number;
+  rateToGhs: number;
 };
 
-export type SubscriptionTier = 'FREE' | 'PRO' | 'PREMIUM';
+export type SubscriptionTier = 'BASE' | 'PRO' | 'PREMIUM';
 
 export type UserWalletState = {
   balance: number;
