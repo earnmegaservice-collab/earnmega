@@ -111,6 +111,8 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
       console.error("Paystack Key Missing");
     }
 
+    console.log("Paystack init triggered");
+
     setPaymentConfig({
       reference: (new Date()).getTime().toString(),
       email: "user@example.com", // In a real app, this would come from user session
