@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../utils/supabase';
+import { countries } from 'countries-list';
 
-type Step = 'login' | 'register' | 'verify';
+type Step = 'login' | 'register';
 
 export default function HomePage() {
   const router = useRouter();
@@ -22,7 +23,24 @@ export default function HomePage() {
   const [phoneCode, setPhoneCode] = useState('+1');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [currency, setCurrency] = useState('USD');
-  const [otp, setOtp] = useState('');
+
+  // Generate lists for dropdowns
+  const { phoneCodes, currencies } = useMemo(() => {
+    const codes = new Set<string>();
+    const currs = new Set<string>();
+    Object.values(countries).forEach((country) => {
+      if (country.phone && country.phone.length > 0) {
+        country.phone.forEach((p: number) => codes.add(`+${p}`));
+      }
+      if (country.currency && country.currency.length > 0) {
+        country.currency.forEach((c: string) => currs.add(c));
+      }
+    });
+    return {
+      phoneCodes: Array.from(codes).sort((a, b) => parseInt(a.replace('+', '')) - parseInt(b.replace('+', ''))),
+      currencies: Array.from(currs).sort()
+    };
+  }, []);
 
   // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,65 +68,43 @@ export default function HomePage() {
         if (error) throw error;
         router.push('/chat');
       } else if (step === 'register') {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        setStep('verify');
-        showToast('OTP sent to your email', 'success');
+
+        if (data.session?.user) {
+          // Insert into users table
+          const { error: usersError } = await supabase
+            .from('users')
+            .insert({
+              id: data.session.user.id,
+              email: data.session.user.email,
+              balance: 0,
+              subscription_tier: 'FREE'
+            });
+
+          if (usersError) {
+            console.error("Error creating user record", usersError);
+          }
+
+          // Insert into profiles table
+          const { error: profilesError } = await supabase
+            .from('profiles')
+            .insert({
+              id: data.session.user.id,
+              username,
+              phone_number: `${phoneCode}${phoneNumber}`,
+              currency
+            });
+
+          if (profilesError) {
+             console.error("Error creating profile record", profilesError);
+          }
+        }
+        showToast('Account created successfully!', 'success');
+        router.push('/chat');
       }
     } catch (error: any) {
       showToast(error.message || 'An error occurred during authentication.', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setToast(null);
-
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token: otp,
-        type: 'signup'
-      });
-      if (error) throw error;
-
-      if (data.session?.user) {
-        // Insert into users table
-        const { error: usersError } = await supabase
-          .from('users')
-          .insert({
-            id: data.session.user.id,
-            email: data.session.user.email,
-            balance: 0,
-            subscription_tier: 'FREE'
-          });
-
-        if (usersError) {
-          console.error("Error creating user record", usersError);
-        }
-
-        // Insert into profiles table
-        const { error: profilesError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.session.user.id,
-            username,
-            phone_number: `${phoneCode}${phoneNumber}`,
-            currency
-          });
-
-        if (profilesError) {
-           console.error("Error creating profile record", profilesError);
-        }
-      }
-
-      showToast('Account verified successfully!', 'success');
-      router.push('/chat');
-    } catch (error: any) {
-       showToast(error.message || 'An error occurred during OTP verification.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -155,28 +151,7 @@ export default function HomePage() {
         </div>
       ) : (
         <div className="w-full max-w-sm bg-zinc-900/50 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl">
-           <form onSubmit={step === 'verify' ? handleVerifyOtp : handleAuth} className="w-full flex flex-col gap-4">
-             {step === 'verify' ? (
-                <>
-                  <p className="text-sm text-zinc-300 mb-2">Enter the 6-digit code sent to your email.</p>
-                  <input
-                    type="text"
-                    placeholder="Enter OTP"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    required
-                    className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all text-center tracking-[0.5em] font-mono text-xl"
-                    maxLength={6}
-                  />
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 mt-2"
-                  >
-                    {isSubmitting ? 'Verifying...' : 'Verify & Continue'}
-                  </button>
-                </>
-             ) : (
+           <form onSubmit={handleAuth} className="w-full flex flex-col gap-4">
                <>
                  <input
                   type="email"
@@ -202,11 +177,9 @@ export default function HomePage() {
                           onChange={(e) => setPhoneCode(e.target.value)}
                           className="w-1/3 px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none"
                        >
-                         <option value="+1">+1 (US/CA)</option>
-                         <option value="+44">+44 (UK)</option>
-                         <option value="+233">+233 (GH)</option>
-                         <option value="+234">+234 (NG)</option>
-                         <option value="+91">+91 (IN)</option>
+                         {phoneCodes.map((code) => (
+                           <option key={code} value={code}>{code}</option>
+                         ))}
                        </select>
                        <input
                         type="tel"
@@ -222,10 +195,9 @@ export default function HomePage() {
                         onChange={(e) => setCurrency(e.target.value)}
                         className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none"
                      >
-                       <option value="USD">USD ($)</option>
-                       <option value="EUR">EUR (€)</option>
-                       <option value="GBP">GBP (£)</option>
-                       <option value="GHS">GHS (₵)</option>
+                       {currencies.map((c) => (
+                         <option key={c} value={c}>{c}</option>
+                       ))}
                      </select>
                   </>
                 )}
@@ -243,13 +215,11 @@ export default function HomePage() {
                   disabled={isSubmitting}
                   className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 mt-4"
                 >
-                  {isSubmitting ? 'Please wait...' : step === 'login' ? 'Sign In' : 'Create Account'}
+                  {isSubmitting ? (step === 'login' ? 'Signing In...' : 'Creating Account...') : step === 'login' ? 'Sign In' : 'Create Account'}
                 </button>
                </>
-             )}
            </form>
 
-           {step !== 'verify' && (
              <div className="mt-6 pt-6 border-t border-white/5">
                 <button
                   type="button"
@@ -262,7 +232,6 @@ export default function HomePage() {
                   {step === 'login' ? "New to Earnmega? Create an account" : "Already have an account? Sign In"}
                 </button>
              </div>
-           )}
         </div>
       )}
     </div>
