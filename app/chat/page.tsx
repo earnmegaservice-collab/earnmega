@@ -4,6 +4,7 @@ import EarnmegaWalletHeader from "../../components/chat/EarnmegaWalletHeader";
 import React, { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
+import { useAuth } from "../../context/AuthContext";
 import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
@@ -45,6 +46,7 @@ const formatText = (text: string) => {
 
 export default function ChatInterface() {
   const { subscriptionTier, balance } = useWallet();
+  const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
@@ -55,17 +57,31 @@ export default function ChatInterface() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  const currentUserProfile: UserProfileDetails = {
-    id: 'user-1',
-    name: 'Current User',
-    avatarInitials: 'ME',
+  const currentUserProfile: UserProfileDetails | null = user ? {
+    id: user.id,
+    name: user.email?.split('@')[0] || 'User',
+    avatarInitials: (user.email?.[0] || 'U').toUpperCase() + (user.email?.[1] || 'S').toUpperCase(),
     bio: 'Avid Earnmega user',
     joinDate: 'Oct 2023',
     tier: subscriptionTier,
     isOnline: true,
     coinsGifted: 1500,
     isSelf: true,
-  };
+  } : null;
+
+  useEffect(() => {
+    if (!user && !isLoading) {
+      window.location.href = '/';
+    }
+  }, [user, isLoading]);
+
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center min-h-[100dvh] bg-zinc-950 text-white">
+        Loading...
+      </div>
+    );
+  }
 
   const otherUserProfile: UserProfileDetails = {
     id: 'other-1',
@@ -430,7 +446,7 @@ export default function ChatInterface() {
                 {isUser && subscriptionTier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
 
                 <span className="text-xs font-medium text-gray-400">
-                  {isUser ? currentUserProfile.name : otherUserProfile.name}
+                  {isUser && currentUserProfile ? currentUserProfile.name : otherUserProfile.name}
                 </span>
 
                 {!isUser && otherUserProfile.tier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
@@ -450,7 +466,7 @@ export default function ChatInterface() {
                   </div>
                 )}
 
-                {isUser && (
+                {isUser && currentUserProfile && (
                   <div
                     onClick={() => openProfile(currentUserProfile)}
                     className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors order-last ml-2"
