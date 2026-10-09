@@ -19,6 +19,7 @@ type Message = {
   status?: 'sent' | 'delivered' | 'read';
   reactions: string[];
   imageUrl?: string;
+  audioUrl?: string;
 };
 
 const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
@@ -50,6 +51,9 @@ export default function ChatInterface() {
   const [isTierLockModalOpen, setIsTierLockModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const currentUserProfile: UserProfileDetails = {
     id: 'user-1',
@@ -177,15 +181,53 @@ export default function ChatInterface() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const toggleRecording = async () => {
+    if (!handleMediaClick()) return;
 
+    if (isRecording) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+      }
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          stream.getTracks().forEach(track => track.stop()); // Clean up microphone
+          await uploadMediaFile(audioBlob, 'audio');
+        };
+
+        mediaRecorder.start();
+        setIsRecording(true);
+      } catch (err) {
+        console.error('Error accessing microphone:', err);
+        alert('Could not access microphone. Please check permissions.');
+      }
+    }
+  };
+
+  const uploadMediaFile = async (file: File | Blob, type: 'image' | 'audio', originalName?: string) => {
     setIsUploading(true);
-
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${uuidv4()}.${fileExt}`;
+      let fileName;
+      if (originalName) {
+        const fileExt = originalName.split('.').pop() || (type === 'audio' ? 'webm' : 'jpg');
+        fileName = `${uuidv4()}.${fileExt}`;
+      } else {
+        fileName = `${uuidv4()}.${type === 'audio' ? 'webm' : 'jpg'}`;
+      }
+
       const filePath = `${fileName}`;
 
       const { error: uploadError } = await supabase.storage
@@ -205,7 +247,7 @@ export default function ChatInterface() {
       const newMessage: Message = {
         id: uuidv4(),
         text: '',
-        imageUrl: publicUrl,
+        ...(type === 'image' ? { imageUrl: publicUrl } : { audioUrl: publicUrl }),
         sender: 'user',
         timestamp: new Date(),
         status: 'sent',
@@ -220,15 +262,14 @@ export default function ChatInterface() {
           )
         );
       }, 1000);
-
     } catch (error) {
-      console.error('Error uploading image:', error);
+      console.error(`Error uploading ${type}:`, error);
       // Fallback: mock if bucket isn't correctly configured
-      const mockUrl = URL.createObjectURL(file);
+      const mockUrl = URL.createObjectURL(file as Blob);
       const newMessage: Message = {
         id: uuidv4(),
         text: '',
-        imageUrl: mockUrl,
+        ...(type === 'image' ? { imageUrl: mockUrl } : { audioUrl: mockUrl }),
         sender: 'user',
         timestamp: new Date(),
         status: 'sent',
@@ -237,9 +278,17 @@ export default function ChatInterface() {
       setMessages((prev) => [...prev, newMessage]);
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    await uploadMediaFile(file, 'image', file.name);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -440,7 +489,7 @@ export default function ChatInterface() {
                       isUser
                         ? 'bg-blue-600 hover:bg-blue-700 text-white rounded-2xl rounded-tr-sm shadow-sm'
                         : 'bg-gray-800 hover:bg-gray-700 text-gray-100 border border-gray-700 shadow-sm rounded-2xl rounded-tl-sm'
-                    } ${message.imageUrl && !message.text ? '!p-1.5' : ''}`}
+                    } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
                     {message.imageUrl && (
                       <div className="mb-1.5">
@@ -449,6 +498,15 @@ export default function ChatInterface() {
                           alt="Uploaded media"
                           className="max-w-[200px] w-full rounded-xl object-cover"
                         />
+                      </div>
+                    )}
+                    {message.audioUrl && (
+                      <div className="mb-1.5">
+                        <audio controls className="max-w-[250px] w-full h-10 outline-none">
+                          <source src={message.audioUrl} type="audio/webm" />
+                          <source src={message.audioUrl} type="audio/mpeg" />
+                          Your browser does not support the audio element.
+                        </audio>
                       </div>
                     )}
                     {message.text && (
@@ -529,13 +587,22 @@ export default function ChatInterface() {
             </button>
             <button
               type="button"
-              onClick={handleMediaClick}
-              className="w-10 h-10 shrink-0 text-gray-400 hover:text-gray-200 bg-gray-900/50 hover:bg-gray-700/80 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
+              onClick={toggleRecording}
+              disabled={isUploading && !isRecording}
+              className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm disabled:opacity-50 ${
+                isRecording
+                  ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30 animate-pulse'
+                  : 'bg-gray-900/50 text-gray-400 hover:text-gray-200 hover:bg-gray-700/80'
+              }`}
               aria-label="Record Voice Note"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-              </svg>
+              {isRecording ? (
+                <span className="w-3 h-3 bg-red-500 rounded-sm"></span>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                </svg>
+              )}
             </button>
             <button
               type="submit"
