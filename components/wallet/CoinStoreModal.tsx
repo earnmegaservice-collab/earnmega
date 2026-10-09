@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { SubscriptionTier } from '../../types/user';
 import { useWallet } from '../../context/WalletContext';
+import { useAuth } from '../../context/AuthContext';
 import { usePaystackPayment } from 'react-paystack';
 
 interface ExchangeRates {
@@ -18,6 +19,7 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
     balance,
     setBalance
   } = useWallet();
+  const { session, user } = useAuth();
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates | null>(null);
   const [isLoadingRates, setIsLoadingRates] = useState(true);
   const [ratesError, setRatesError] = useState<string | null>(null);
@@ -49,17 +51,18 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
 
         try {
           // Send reference to backend for secure verification
+          const headers: HeadersInit = { 'Content-Type': 'application/json' };
+          if (session?.access_token) {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
+          }
+
           const res = await fetch('/api/verify-payment', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
               reference: reference.reference,
               type,
-              payload,
-              // Ideally the email should come from user auth. In this demo app context without actual auth,
-              // we can send a mock email that matches the mock DB logic, or the real user email when available.
-              email: "user@example.com",
-              balance // Note: trusting client balance isn't fully secure, but this is fixed in the backend logic now
+              payload
             })
           });
 
@@ -114,7 +117,7 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
 
     setPaymentConfig({
       reference: (new Date()).getTime().toString(),
-      email: "user@example.com", // In a real app, this would come from user session
+      email: user?.email || "user@example.com",
       amount: baseAmount,
       currency: 'GHS', // Force currency to 'GHS'
       publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY,

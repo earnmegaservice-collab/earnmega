@@ -7,13 +7,32 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export async function POST(request: Request) {
   try {
-    const { reference, type, payload, email, balance } = await request.json();
+    const { reference, type, payload } = await request.json();
 
-    if (!reference || !type || payload === undefined || !email) {
+    if (!reference || !type || payload === undefined) {
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
     }
 
-    // 1. Verify with Paystack API
+    // 1. Securely fetch user from Supabase using Authorization header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized or invalid token' }, { status: 401 });
+    }
+
+    const secureEmail = user.email;
+
+    if (!secureEmail) {
+      return NextResponse.json({ error: 'No email associated with user' }, { status: 400 });
+    }
+
+    // 2. Verify with Paystack API
     const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || 'sk_test_placeholder';
     const response = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
       headers: {
@@ -27,16 +46,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Payment verification failed' }, { status: 400 });
     }
 
-    // 2. Securely fetch user and update Supabase
-    // We should NOT trust the client's balance. We must fetch the current balance from the DB.
-    // We also should fetch the real user ID or email from the session (mocked here based on the client email for this repo context).
-
-    // In a real application, you'd get the email/user from an auth session, e.g.
-    // const { data: { user } } = await supabase.auth.getUser()
-    // const secureEmail = user.email
-
-    const secureEmail = email; // Using the provided email for this demo context
-
+    // 3. Update Supabase
     if (type === 'UPGRADE') {
       const { error } = await supabase
         .from('users')
