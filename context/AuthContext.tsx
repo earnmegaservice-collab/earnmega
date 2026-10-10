@@ -24,8 +24,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+      // Mock session for testing
+      if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
+        const mockUser = { id: 'mock-1', email: 'test@example.com' };
+        setSession({ user: mockUser } as any);
+        setUser(mockUser as any);
+      } else {
+        setSession(session);
+        setUser(session?.user ?? null);
+      }
       setIsLoading(false);
     });
 

@@ -12,6 +12,7 @@ export interface UserProfileDetails {
   joinDate: string;
   tier: SubscriptionTier;
   isOnline: boolean;
+  last_seen?: string;
   coinsGifted: number;
   isSelf: boolean;
 }

@@ -42,7 +42,9 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser }: Navi
           tier: 'FREE', // Default fallback
           isOnline: true,
           coinsGifted: 0,
-          isSelf: false
+          isSelf: false,
+          last_seen: u.updated_at || u.created_at,
+          unreadCount: 0 // Mocking unread counts requires a complex unread messages table which doesn't exist yet, we will default to 0 for now unless requested differently
         }));
 
         setUsers(formattedUsers);
@@ -92,7 +94,14 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser }: Navi
                   <span className="text-white font-bold text-sm">{u.avatarInitials}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-bold text-gray-100 truncate">{u.name}</h3>
+                  <div className="flex items-center">
+                    <h3 className="text-sm font-bold text-gray-100 truncate">{u.name}</h3>
+                    {u.unreadCount > 0 && (
+                      <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                        {u.unreadCount}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-gray-400 truncate">{u.bio}</p>
                 </div>
                 <button className="px-3 py-1 bg-blue-600/20 text-blue-400 text-xs font-bold rounded-lg hover:bg-blue-600/30 transition-colors">
