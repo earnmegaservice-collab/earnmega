@@ -14,9 +14,9 @@ interface WalletContextType {
   balance: number;
   subscriptionTier: SubscriptionTier;
   currency: string;
-  setBalance: (balance: number) => void;
-  setSubscriptionTier: (tier: SubscriptionTier) => void;
-  setCurrency: (currency: string) => void;
+  setBalance: React.Dispatch<React.SetStateAction<number>>;
+  setSubscriptionTier: React.Dispatch<React.SetStateAction<SubscriptionTier>>;
+  setCurrency: React.Dispatch<React.SetStateAction<string>>;
 }
 
 const defaultState: WalletState = {
