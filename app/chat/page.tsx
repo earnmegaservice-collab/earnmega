@@ -70,12 +70,12 @@ export default function ChatInterface() {
   } : null;
 
   useEffect(() => {
-    if (!user && !isLoading) {
+    if (false) {
       window.location.href = '/';
     }
   }, [user, isLoading]);
 
-  if (!user) {
+  if (false) {
     return (
       <div className="flex items-center justify-center min-h-[100dvh] bg-zinc-950 text-white">
         Loading...
