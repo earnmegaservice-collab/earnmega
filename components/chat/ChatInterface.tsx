@@ -11,6 +11,8 @@ import { v4 as uuidv4 } from "uuid";
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
+const GiftModal = dynamic(() => import("../../components/chat/GiftModal"), { ssr: false });
+const NavigationDrawer = dynamic(() => import("../../components/chat/NavigationDrawer"), { ssr: false });
 
 type Message = {
   id: string;
@@ -51,6 +53,8 @@ export default function ChatInterface() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [isTierLockModalOpen, setIsTierLockModalOpen] = useState(false);
+  const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -69,21 +73,8 @@ export default function ChatInterface() {
     isSelf: true,
   } : null;
 
-  useEffect(() => {
-    if (false) {
-      window.location.href = '/';
-    }
-  }, [user, isLoading]);
 
-  if (false) {
-    return (
-      <div className="flex items-center justify-center min-h-[100dvh] bg-zinc-950 text-white">
-        Loading...
-      </div>
-    );
-  }
-
-  const otherUserProfile: UserProfileDetails = {
+  const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails>({
     id: 'other-1',
     name: 'Earnmega Support',
     avatarInitials: 'EM',
@@ -93,7 +84,7 @@ export default function ChatInterface() {
     isOnline: true,
     coinsGifted: 50000,
     isSelf: false,
-  };
+  });
 
   const openProfile = (userProfile: UserProfileDetails) => {
     setSelectedProfile(userProfile);
@@ -195,6 +186,27 @@ export default function ChatInterface() {
     if (handleMediaClick()) {
       fileInputRef.current?.click();
     }
+  };
+
+  const handleGiftSent = (giftData: any) => {
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      text: `🎁 Sent a **${giftData.name}** gift!`,
+      sender: 'user',
+      timestamp: new Date(),
+      status: 'sent',
+      reactions: [],
+    };
+    setMessages((prev) => [...prev, newMessage]);
+
+    // Simulate delivery
+    setTimeout(() => {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === newMessage.id ? { ...msg, status: 'delivered' } : msg
+        )
+      );
+    }, 1000);
   };
 
   const toggleRecording = async () => {
@@ -411,14 +423,38 @@ export default function ChatInterface() {
         isOpen={isStoreOpen}
         onClose={() => setIsStoreOpen(false)}
       />
+      <GiftModal
+        isOpen={isGiftModalOpen}
+        onClose={() => setIsGiftModalOpen(false)}
+        recipientId={otherUserProfile.id}
+        onGiftSent={handleGiftSent}
+      />
+      <NavigationDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        onSelectUser={setOtherUserProfile}
+      />
+
       {/* Header */}
       <EarnmegaWalletHeader />
       <header className="bg-gray-900/80 backdrop-blur-md px-4 py-3.5 border-b border-gray-800 shadow-sm flex items-center shrink-0 sticky top-0 z-20">
-        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0">
-           <span className="text-white font-bold text-sm tracking-tighter">EM</span>
+        <button
+          onClick={() => setIsDrawerOpen(true)}
+          className="mr-3 p-1.5 rounded-full hover:bg-gray-800 text-gray-400 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+        </button>
+
+        <div
+          onClick={() => openProfile(otherUserProfile)}
+          className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer"
+        >
+           <span className="text-white font-bold text-sm tracking-tighter">{otherUserProfile.avatarInitials}</span>
         </div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base font-bold text-gray-100 leading-tight truncate">Earnmega Support</h1>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(otherUserProfile)}>
+          <h1 className="text-base font-bold text-gray-100 leading-tight truncate">{otherUserProfile.name}</h1>
           <div className="flex items-center space-x-1.5">
              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
              <p className="text-[11px] text-gray-400 font-medium">Active now</p>
@@ -619,6 +655,16 @@ export default function ChatInterface() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
                 </svg>
               )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsGiftModalOpen(true)}
+              className="w-10 h-10 shrink-0 text-gray-400 hover:text-yellow-500 bg-gray-900/50 hover:bg-gray-700/80 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
+              aria-label="Send Gift"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+              </svg>
             </button>
             <button
               type="submit"
