@@ -1,11 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../utils/supabase';
 import { countries } from 'countries-list';
+import ChatInterface from '../components/chat/ChatInterface';
 
 type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile';
 
@@ -70,7 +70,7 @@ export default function HomePage() {
         if (error || !data?.username) {
           setStep('complete-profile');
         } else {
-          router.push('/chat');
+          // No need to redirect, just render ChatInterface
         }
         setIsCheckingProfile(false);
       }
@@ -94,13 +94,22 @@ export default function HomePage() {
         if (error) throw error;
         // Navigation handled by useEffect when user state updates
       } else if (step === 'register') {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
+
+        if (data?.user?.identities && data.user.identities.length === 0) {
+          throw new Error('User already registered. Please sign in instead.');
+        }
+
         setStep('verify-otp');
         showToast('OTP sent to your email.', 'success');
       }
     } catch (error: any) {
-      showToast(error.message || 'An error occurred during authentication.', 'error');
+      let message = error.message || 'An error occurred during authentication.';
+      if (message.includes('Invalid login credentials')) {
+          message = 'Invalid credentials. Please check your email and password.';
+      }
+      showToast(message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -143,7 +152,6 @@ export default function HomePage() {
 
       // Clear flag and navigate manually
       setIsCompletingRegistration(false);
-      router.push('/chat');
     } catch (error: any) {
       showToast(error.message || 'Invalid OTP.', 'error');
       setIsCompletingRegistration(false);
@@ -179,7 +187,6 @@ export default function HomePage() {
 
       if (error) throw error;
       showToast('Profile completed successfully!', 'success');
-      router.push('/chat');
     } catch (error: any) {
       showToast(error.message || 'An error occurred saving your profile.', 'error');
     } finally {
@@ -198,6 +205,10 @@ export default function HomePage() {
       setIsSubmitting(false);
     }
   };
+
+  if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp') {
+    return <ChatInterface />;
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-zinc-950 text-zinc-100 p-6 text-center font-sans relative">
@@ -298,22 +309,6 @@ export default function HomePage() {
             className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors mt-6 w-full text-center"
           >
             Cancel
-          </button>
-        </div>
-      ) : user ? (
-        <div className="w-full max-w-sm flex flex-col gap-4 bg-zinc-900/50 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl">
-          <p className="text-sm text-zinc-300">Signed in as <span className="font-semibold text-white">{user.email}</span></p>
-          <Link
-            href="/chat"
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
-          >
-            Launch App →
-          </Link>
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors mt-2"
-          >
-            Sign Out
           </button>
         </div>
       ) : (
