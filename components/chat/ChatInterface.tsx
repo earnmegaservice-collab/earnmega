@@ -8,6 +8,7 @@ import { useAuth } from "../../context/AuthContext";
 import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
+import { motion, AnimatePresence } from 'framer-motion';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
@@ -55,11 +56,13 @@ export default function ChatInterface() {
   const [isTierLockModalOpen, setIsTierLockModalOpen] = useState(false);
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [activeGift, setActiveGift] = useState<{ id: string, icon: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const channelRef = useRef<any>(null);
 
   const currentUserProfile: UserProfileDetails | null = user ? {
     id: user.id,
@@ -119,6 +122,36 @@ export default function ChatInterface() {
   };
 
   useEffect(() => {
+    const channel = supabase.channel('chat-events')
+      .on('broadcast', { event: 'gift_sent' }, (payload) => {
+        if (payload.payload.senderId !== currentUserProfile?.id) {
+          setActiveGift({ id: payload.payload.giftData.id, icon: payload.payload.giftData.icon });
+          setTimeout(() => setActiveGift(null), 3000);
+
+          const newMessage: Message = {
+            id: Date.now().toString(),
+            text: `🎁 Received a **${payload.payload.giftData.name}** gift!`,
+            sender: 'other',
+            timestamp: new Date(),
+            reactions: [],
+          };
+          setMessages((prev) => [...prev, newMessage]);
+        }
+      });
+
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        channelRef.current = channel;
+      }
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [currentUserProfile?.id]);
+
+  useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
@@ -161,17 +194,19 @@ export default function ChatInterface() {
       }, 1500);
     }, 1000);
 
-    // Simulate automated response
-    setTimeout(() => {
-      const responseMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: 'Thanks for exploring! Let me know if you need ~help~ anything else.',
-        sender: 'other',
-        timestamp: new Date(),
-        reactions: [],
-      };
-      setMessages((prev) => [...prev, responseMessage]);
-    }, 2000);
+    // Simulate automated response only for Earnmega Support
+    if (otherUserProfile.name === 'Earnmega Support') {
+      setTimeout(() => {
+        const responseMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: 'Thanks for exploring! Let me know if you need ~help~ anything else.',
+          sender: 'other',
+          timestamp: new Date(),
+          reactions: [],
+        };
+        setMessages((prev) => [...prev, responseMessage]);
+      }, 2000);
+    }
   };
 
   const handleMediaClick = () => {
@@ -189,6 +224,10 @@ export default function ChatInterface() {
   };
 
   const handleGiftSent = (giftData: any) => {
+    // Show Full Screen Animation
+    setActiveGift({ id: giftData.id, icon: giftData.icon });
+    setTimeout(() => setActiveGift(null), 3000);
+
     const newMessage: Message = {
       id: Date.now().toString(),
       text: `🎁 Sent a **${giftData.name}** gift!`,
@@ -198,6 +237,15 @@ export default function ChatInterface() {
       reactions: [],
     };
     setMessages((prev) => [...prev, newMessage]);
+
+    // Broadcast gift event via Supabase Realtime
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'gift_sent',
+        payload: { giftData, senderId: currentUserProfile?.id }
+      });
+    }
 
     // Simulate delivery
     setTimeout(() => {
@@ -428,12 +476,35 @@ export default function ChatInterface() {
         onClose={() => setIsGiftModalOpen(false)}
         recipientId={otherUserProfile.id}
         onGiftSent={handleGiftSent}
+        onOpenStore={() => {
+          setIsGiftModalOpen(false);
+          setIsStoreOpen(true);
+        }}
       />
       <NavigationDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         onSelectUser={setOtherUserProfile}
       />
+
+      <AnimatePresence>
+        {activeGift && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 2 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.5, type: 'spring', bounce: 0.5 }}
+            className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+          >
+            <div className="relative">
+              <div className="absolute inset-0 bg-yellow-500/20 blur-3xl rounded-full scale-150 animate-pulse" />
+              <span className="text-9xl drop-shadow-[0_0_30px_rgba(255,215,0,0.8)] filter">
+                {activeGift.icon}
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Header */}
       <EarnmegaWalletHeader />
@@ -455,10 +526,17 @@ export default function ChatInterface() {
         </div>
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(otherUserProfile)}>
           <h1 className="text-base font-bold text-gray-100 leading-tight truncate">{otherUserProfile.name}</h1>
-          <div className="flex items-center space-x-1.5">
-             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <p className="text-[11px] text-gray-400 font-medium">Active now</p>
-          </div>
+          {otherUserProfile.isOnline ? (
+            <div className="flex items-center space-x-1.5">
+               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+               <p className="text-[11px] text-gray-400 font-medium">Active now</p>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-1.5">
+               <span className="w-2 h-2 rounded-full bg-gray-500" />
+               <p className="text-[11px] text-gray-400 font-medium">Last seen {otherUserProfile.last_seen ? new Date(otherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</p>
+            </div>
+          )}
         </div>
       </header>
 

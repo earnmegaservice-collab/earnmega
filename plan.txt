@@ -1,6 +1,0 @@
-1. We need to add the `GiftModal` and `NavigationDrawer` components to `app/chat/page.tsx`.
-2. Add a Gift button next to the camera/mic icons in the message input bar.
-3. Update `app/chat/page.tsx` state to handle the current chat user (so we can change from Earnmega Support to another user).
-4. Integrate the `GiftModal` component logic to deduct coins from the user's wallet when a gift is sent, and to add a new message into the chat showing the gift.
-5. In `app/chat/page.tsx`, we need to change `otherUserProfile` to be state, and have a `currentChatUser` state.
-6. Then we need to add a "Menu" or "Chats" button inside the `<header>` element that opens the `NavigationDrawer`.
