@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface NavigationDrawerProps {
   isOpen: boolean;
@@ -56,24 +58,33 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser }: Navi
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={onClose}
+          />
 
-      {/* Drawer */}
-      <div className="relative w-80 max-w-[80vw] h-full bg-gray-900 border-r border-gray-800 shadow-2xl flex flex-col transform transition-transform">
-        <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/90 backdrop-blur-md">
-          <h2 className="text-lg font-bold text-white">Explore Users</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white p-2">
-            ✕
-          </button>
-        </div>
+          {/* Drawer */}
+          <motion.div
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+            className="relative w-80 max-w-[80vw] h-full bg-white/5 backdrop-blur-2xl border-r border-white/10 shadow-2xl flex flex-col"
+          >
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5 backdrop-blur-md">
+              <h2 className="text-lg font-bold text-white">Explore Users</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-white p-2">
+                <X size={20} />
+              </button>
+            </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {isLoading ? (
@@ -111,7 +122,9 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser }: Navi
             ))
           )}
         </div>
-      </div>
+      </motion.div>
     </div>
+      )}
+    </AnimatePresence>
   );
 }

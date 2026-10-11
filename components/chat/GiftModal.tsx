@@ -1,5 +1,7 @@
 import React from 'react';
 import { useWallet } from '../../context/WalletContext';
+import { Coffee, Flower2, Gem, Crown } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 interface GiftModalProps {
   isOpen: boolean;
@@ -10,10 +12,10 @@ interface GiftModalProps {
 }
 
 const GIFTS = [
-  { id: 'coffee', name: 'Coffee', icon: '☕', cost: 10 },
-  { id: 'rose', name: 'Rose', icon: '🌹', cost: 50 },
-  { id: 'diamond', name: 'Diamond', icon: '💎', cost: 500 },
-  { id: 'crown', name: 'Crown', icon: '👑', cost: 1000 },
+  { id: 'coffee', name: 'Coffee', icon: <Coffee size={32} />, cost: 10 },
+  { id: 'rose', name: 'Rose', icon: <Flower2 size={32} className="text-red-500" />, cost: 50 },
+  { id: 'diamond', name: 'Diamond', icon: <Gem size={32} className="text-blue-400" />, cost: 500 },
+  { id: 'crown', name: 'Crown', icon: <Crown size={32} className="text-yellow-400" />, cost: 1000 },
 ];
 
 export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, onOpenStore }: GiftModalProps) {
@@ -34,7 +36,12 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+        className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+      >
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-white">Send a Gift</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white">
@@ -77,18 +84,19 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
 
         <div className="grid grid-cols-2 gap-4">
           {GIFTS.map(gift => (
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               key={gift.id}
               onClick={() => handleSendGift(gift)}
               className="flex flex-col items-center justify-center p-4 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl transition-all"
             >
-              <span className="text-3xl mb-2">{gift.icon}</span>
+              <div className="mb-2">{gift.icon}</div>
               <span className="text-sm font-bold text-white">{gift.name}</span>
               <span className="text-xs text-yellow-500 mt-1">{gift.cost} Coins</span>
-            </button>
+            </motion.button>
           ))}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

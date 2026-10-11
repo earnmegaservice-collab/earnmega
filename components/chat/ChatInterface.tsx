@@ -9,6 +9,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu } from 'lucide-react';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
@@ -56,7 +57,7 @@ export default function ChatInterface() {
   const [isTierLockModalOpen, setIsTierLockModalOpen] = useState(false);
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [activeGift, setActiveGift] = useState<{ id: string, icon: string } | null>(null);
+  const [activeGift, setActiveGift] = useState<{ id: string, icon: React.ReactNode } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -395,31 +396,9 @@ export default function ChatInterface() {
     if (!status) return null;
     return (
       <span className="ml-1 flex items-center shrink-0">
-        {status === 'sent' && (
-          <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        )}
-        {status === 'delivered' && (
-          <div className="flex -space-x-1.5">
-            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-        )}
-        {status === 'read' && (
-          <div className="flex -space-x-1.5">
-            <svg className="w-3.5 h-3.5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-            <svg className="w-3.5 h-3.5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-        )}
+        {status === 'sent' && <Check size={14} className="text-gray-400" />}
+        {status === 'delivered' && <CheckCheck size={14} className="text-gray-400" />}
+        {status === 'read' && <CheckCheck size={14} className="text-blue-400" />}
       </span>
     );
   };
@@ -490,15 +469,45 @@ export default function ChatInterface() {
       <AnimatePresence>
         {activeGift && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 2 }}
-            exit={{ opacity: 0, scale: 0.5 }}
-            transition={{ duration: 0.5, type: 'spring', bounce: 0.5 }}
+            key="gift-overlay"
+            initial={{ opacity: 0, scale: 0, y: 150, rotate: -45 }}
+            animate={{
+              opacity: [0, 1, 1, 0],
+              scale: [0, 2.5, 2.8, 0],
+              y: [150, -100, -120, -300],
+              rotate: [-45, 10, -5, 20]
+            }}
+            transition={{
+              duration: 3,
+              times: [0, 0.4, 0.8, 1],
+              ease: "easeOut"
+            }}
             className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
           >
-            <div className="relative">
-              <div className="absolute inset-0 bg-yellow-500/20 blur-3xl rounded-full scale-150 animate-pulse" />
-              <span className="text-9xl drop-shadow-[0_0_30px_rgba(255,215,0,0.8)] filter">
+            <div className="relative flex items-center justify-center">
+              {/* Radial Glow */}
+              <motion.div
+                animate={{ rotate: 360, scale: [1, 1.2, 1] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-0 bg-gradient-to-r from-yellow-500/40 to-orange-500/40 blur-3xl rounded-full w-[300px] h-[300px] -m-[150px]"
+              />
+              {/* Particles */}
+              {[...Array(6)].map((_, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 1, scale: 0, x: 0, y: 0 }}
+                  animate={{
+                    opacity: 0,
+                    scale: Math.random() * 2 + 1,
+                    x: (Math.random() - 0.5) * 400,
+                    y: (Math.random() - 0.5) * 400
+                  }}
+                  transition={{ duration: 1.5, delay: 0.2 + (i * 0.1), ease: "easeOut" }}
+                  className="absolute w-4 h-4 bg-yellow-300 rounded-full blur-[2px]"
+                />
+              ))}
+              {/* Main Icon */}
+              <span className="relative z-10 text-[12rem] drop-shadow-[0_0_50px_rgba(255,215,0,1)] filter">
                 {activeGift.icon}
               </span>
             </div>
@@ -513,9 +522,7 @@ export default function ChatInterface() {
           onClick={() => setIsDrawerOpen(true)}
           className="mr-3 p-1.5 rounded-full hover:bg-gray-800 text-gray-400 transition-colors"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-          </svg>
+          <Menu size={20} />
         </button>
 
         <div
@@ -550,7 +557,11 @@ export default function ChatInterface() {
           const isTrayOpen = activeReactionId === message.id;
 
           return (
-            <div
+            <motion.div
+              layout
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 20 }}
               key={message.id}
               className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
             >
@@ -666,7 +677,7 @@ export default function ChatInterface() {
                   )}
                 </div>
               </div>
-            </div>
+            </motion.div>
           );
         })}
         <div ref={messagesEndRef} className="h-2" />
@@ -699,7 +710,8 @@ export default function ChatInterface() {
             className="hidden"
           />
           <div className="flex items-center space-x-1.5 ml-2 mb-0.5 self-end">
-            <button
+            <motion.button
+              whileTap={{ scale: 0.9 }}
               type="button"
               onClick={handleCameraClick}
               disabled={isUploading}
@@ -709,13 +721,11 @@ export default function ChatInterface() {
               {isUploading ? (
                 <div className="w-4 h-4 border-2 border-t-blue-500 border-gray-400 rounded-full animate-spin"></div>
               ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
-                </svg>
+                <Camera size={20} />
               )}
-            </button>
-            <button
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
               type="button"
               onClick={toggleRecording}
               disabled={isUploading && !isRecording}
@@ -729,35 +739,26 @@ export default function ChatInterface() {
               {isRecording ? (
                 <span className="w-3 h-3 bg-red-500 rounded-sm"></span>
               ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                </svg>
+                <Mic size={20} />
               )}
-            </button>
-            <button
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
               type="button"
               onClick={() => setIsGiftModalOpen(true)}
               className="w-10 h-10 shrink-0 text-gray-400 hover:text-yellow-500 bg-gray-900/50 hover:bg-gray-700/80 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
               aria-label="Send Gift"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-              </svg>
-            </button>
-            <button
+              <Gift size={20} />
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
               type="submit"
               disabled={!inputValue.trim()}
               className="w-10 h-10 shrink-0 bg-blue-600 text-white rounded-full flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:bg-gray-700 transition-colors"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                className="w-5 h-5 -mr-0.5"
-              >
-                <path d="M3.478 2.404a.75.75 0 00-.926.941l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.404z" />
-              </svg>
-            </button>
+              <Send size={20} />
+            </motion.button>
           </div>
         </form>
         <p className="text-center text-[10px] text-gray-600 mt-2 font-medium tracking-wide">

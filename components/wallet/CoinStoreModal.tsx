@@ -5,6 +5,7 @@ import { SubscriptionTier } from '../../types/user';
 import { useWallet } from '../../context/WalletContext';
 import { useAuth } from '../../context/AuthContext';
 import { usePaystackPayment } from 'react-paystack';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface ExchangeRates {
   [currencyCode: string]: number;
@@ -158,12 +159,18 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
     fetchRates();
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-4xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-        <div className="flex justify-between items-center mb-6">
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-4xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]"
+          >
+            <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Earnmega Store</h2>
           <div className="flex items-center space-x-4">
             <div className="relative">
@@ -343,10 +350,12 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
           </div>
         )}
 
-        <div className="mt-8 text-center text-xs font-semibold text-gray-500">
-          SECURED BY PAYSTACK
+            <div className="mt-8 text-center text-xs font-semibold text-gray-500">
+              SECURED BY PAYSTACK
+            </div>
+          </motion.div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 }

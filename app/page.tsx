@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../utils/supabase';
 import { countries } from 'countries-list';
@@ -211,14 +212,21 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-zinc-950 text-zinc-100 p-6 text-center font-sans relative">
+    <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
 
       {/* Toast Notification */}
-      {toast && (
-        <div className={`absolute top-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full text-sm font-medium shadow-2xl z-50 transition-all transform ${toast.type === 'error' ? 'bg-red-500/20 text-red-200 border border-red-500/50' : 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/50'}`}>
-          {toast.message}
-        </div>
-      )}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ y: -50, opacity: 0, x: '-50%' }}
+            animate={{ y: 0, opacity: 1, x: '-50%' }}
+            exit={{ y: -50, opacity: 0, x: '-50%' }}
+            className={`absolute top-6 left-1/2 px-6 py-3 rounded-full text-sm font-medium shadow-2xl z-50 transition-all ${toast.type === 'error' ? 'bg-red-500/20 text-red-200 border border-red-500/50' : 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/50'}`}
+          >
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Brand Logo */}
       <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center font-bold text-3xl shadow-2xl mb-6">
@@ -234,7 +242,12 @@ export default function HomePage() {
       {isLoading || isCheckingProfile ? (
         <div className="animate-pulse w-full max-w-sm h-12 bg-zinc-800/50 rounded-2xl"></div>
       ) : step === 'complete-profile' ? (
-        <div className="w-full max-w-sm bg-zinc-900/50 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, type: 'spring' }}
+          className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl"
+        >
           <h2 className="text-xl font-bold mb-4">Complete Your Profile</h2>
           <form onSubmit={handleCompleteProfile} className="w-full flex flex-col gap-4">
             <input
@@ -273,17 +286,23 @@ export default function HomePage() {
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
-            <button
+            <motion.button
+              whileTap={{ scale: 0.97 }}
               type="submit"
               disabled={isSubmitting}
               className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 mt-4"
             >
               {isSubmitting ? 'Saving...' : 'Complete Profile'}
-            </button>
+            </motion.button>
           </form>
-        </div>
+        </motion.div>
       ) : step === 'verify-otp' ? (
-        <div className="w-full max-w-sm bg-zinc-900/50 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, type: 'spring' }}
+          className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl"
+        >
           <h2 className="text-xl font-bold mb-4">Verify Your Email</h2>
           <p className="text-sm text-zinc-400 mb-6">Enter the 6-digit code sent to your email.</p>
           <form onSubmit={handleVerifyOtp} className="w-full flex flex-col gap-4">
@@ -296,13 +315,14 @@ export default function HomePage() {
               required
               className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all text-center tracking-widest text-2xl font-mono"
             />
-            <button
+            <motion.button
+              whileTap={{ scale: 0.97 }}
               type="submit"
               disabled={isSubmitting || otp.length !== 6}
               className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-emerald-500/20 mt-4"
             >
               {isSubmitting ? 'Verifying...' : 'Verify OTP'}
-            </button>
+            </motion.button>
           </form>
           <button
             onClick={() => setStep('register')}
@@ -310,9 +330,14 @@ export default function HomePage() {
           >
             Cancel
           </button>
-        </div>
+        </motion.div>
       ) : (
-        <div className="w-full max-w-sm bg-zinc-900/50 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, type: 'spring' }}
+          className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl"
+        >
           <form onSubmit={handleAuth} className="w-full flex flex-col gap-4">
             <input
               type="email"
@@ -371,20 +396,22 @@ export default function HomePage() {
               className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
             />
 
-            <button
+            <motion.button
+              whileTap={{ scale: 0.97 }}
               type="submit"
               disabled={isSubmitting}
               className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 mt-4"
             >
               {isSubmitting ? (step === 'login' ? 'Signing In...' : 'Sending OTP...') : step === 'login' ? 'Sign In' : 'Continue with Email'}
-            </button>
+            </motion.button>
           </form>
 
           <div className="relative mt-6 pt-6 border-t border-white/5">
             <div className="absolute top-[-13px] left-1/2 -translate-x-1/2 bg-zinc-950 px-4 text-sm text-zinc-500">
               OR
             </div>
-            <button
+            <motion.button
+              whileTap={{ scale: 0.97 }}
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isSubmitting}
@@ -397,7 +424,7 @@ export default function HomePage() {
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
               </svg>
               Continue with Google
-            </button>
+            </motion.button>
 
             <button
               type="button"
@@ -410,7 +437,7 @@ export default function HomePage() {
               {step === 'login' ? "New to Earnmega? Create an account" : "Already have an account? Sign In"}
             </button>
           </div>
-        </div>
+        </motion.div>
       )}
     </div>
   );

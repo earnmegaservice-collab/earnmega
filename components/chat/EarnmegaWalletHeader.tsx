@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
+import { Store, Coins } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
 
@@ -17,12 +19,12 @@ export default function EarnmegaWalletHeader() {
   return (
     <>
       <CoinStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
-      <div className="bg-gray-900 border-b border-gray-800 p-4 shrink-0 flex items-center justify-between text-white font-sans w-full">
+      <div className="bg-white/5 backdrop-blur-md border-b border-white/10 p-4 shrink-0 flex items-center justify-between text-white font-sans w-full">
 
         {/* Balance & Badge Section */}
         <div className="flex flex-col items-start space-y-1.5">
           <div className="flex items-center space-x-2">
-            <span className="text-xl leading-none">🪙</span>
+            <Coins className="text-yellow-400" size={24} />
             <span className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 to-amber-600">
               {balance.toLocaleString()} <span className="text-sm font-semibold text-gray-400">Coins</span>
             </span>
@@ -42,15 +44,14 @@ export default function EarnmegaWalletHeader() {
         </div>
 
         {/* Action Section */}
-        <button
+        <motion.button
+          whileTap={{ scale: 0.95 }}
           onClick={handleTopUp}
-          className="flex items-center space-x-1.5 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+          className="flex items-center space-x-1.5 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-emerald-900/20 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-gray-900"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-            <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 9a.75.75 0 00-1.5 0v2.25H9a.75.75 0 000 1.5h2.25V15a.75.75 0 001.5 0v-2.25H15a.75.75 0 000-1.5h-2.25V9z" clipRule="evenodd" />
-          </svg>
+          <Store size={16} />
           <span>Store</span>
-        </button>
+        </motion.button>
 
       </div>
     </>
