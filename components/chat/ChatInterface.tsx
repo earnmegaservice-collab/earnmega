@@ -9,7 +9,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X } from 'lucide-react';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
@@ -48,34 +48,135 @@ const formatText = (text: string) => {
   });
 };
 
+
+const AudioPlayer = ({ src }: { src: string }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [durationStr, setDurationStr] = useState('Voice Note');
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const formatDuration = (seconds: number) => {
+    if (!isFinite(seconds)) return '0:00';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const togglePlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      const current = audioRef.current.currentTime;
+      const total = audioRef.current.duration;
+      setProgress((current / total) * 100);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current && isFinite(audioRef.current.duration)) {
+      setDurationStr(formatDuration(audioRef.current.duration));
+    }
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setProgress(0);
+  };
+
+  return (
+    <div className="flex items-center space-x-3 w-[200px] bg-black/20 rounded-xl p-2" onClick={e => e.stopPropagation()}>
+      <audio
+        ref={audioRef}
+        src={src}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleEnded}
+        className="hidden"
+      />
+      <button
+        onClick={togglePlay}
+        className="w-10 h-10 shrink-0 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-colors text-white"
+      >
+        {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-1" />}
+      </button>
+      <div className="flex-1">
+        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-1 relative">
+          <motion.div
+            className="h-full bg-blue-400 absolute left-0 top-0"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="flex justify-between items-center text-[10px] text-white/60 font-medium">
+          <span>{durationStr}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function ChatInterface() {
   const { subscriptionTier, balance } = useWallet();
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
+  const [storeTab, setStoreTab] = useState<'UPGRADES' | 'BUY_COINS'>('UPGRADES');
   const [isTierLockModalOpen, setIsTierLockModalOpen] = useState(false);
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeGift, setActiveGift] = useState<{ id: string, icon: React.ReactNode } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const channelRef = useRef<any>(null);
 
-  const currentUserProfile: UserProfileDetails | null = user ? {
-    id: user.id,
-    name: user.email?.split('@')[0] || 'User',
-    avatarInitials: (user.email?.[0] || 'U').toUpperCase() + (user.email?.[1] || 'S').toUpperCase(),
-    bio: 'Avid Earnmega user',
-    joinDate: 'Oct 2023',
-    tier: subscriptionTier,
-    isOnline: true,
-    coinsGifted: 1500,
-    isSelf: true,
-  } : null;
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfileDetails | null>(null);
+
+  const fetchCurrentUserProfile = async () => {
+    if (!user) return;
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+    if (!error && data) {
+      setCurrentUserProfile({
+        id: user.id,
+        name: data.username || user.email?.split('@')[0] || 'User',
+        avatarInitials: (data.username?.[0] || user.email?.[0] || 'U').toUpperCase() + (data.username?.[1] || user.email?.[1] || 'S').toUpperCase(),
+        avatarUrl: data.avatar_url,
+        bio: data.bio || 'Avid Earnmega user',
+        joinDate: data.created_at ? new Date(data.created_at).toLocaleDateString() : 'Oct 2023',
+        tier: subscriptionTier,
+        isOnline: true,
+        coinsGifted: data.coins_gifted || 0,
+        isSelf: true,
+      });
+    } else {
+      setCurrentUserProfile({
+        id: user.id,
+        name: user.email?.split('@')[0] || 'User',
+        avatarInitials: (user.email?.[0] || 'U').toUpperCase() + (user.email?.[1] || 'S').toUpperCase(),
+        bio: 'Avid Earnmega user',
+        joinDate: 'Oct 2023',
+        tier: subscriptionTier,
+        isOnline: true,
+        coinsGifted: 1500,
+        isSelf: true,
+      });
+    }
+  };
+
+  useEffect(() => { fetchCurrentUserProfile(); }, [user, subscriptionTier]);
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
@@ -558,10 +659,12 @@ export default function ChatInterface() {
           isOpen={isDrawerOpen}
           onClose={() => setIsDrawerOpen(false)}
           onSelectUser={setOtherUserProfile}
+          onProfileUpdated={fetchCurrentUserProfile}
         />
         <CoinStoreModal
           isOpen={isStoreOpen}
           onClose={() => setIsStoreOpen(false)}
+          initialTab={storeTab}
         />
       </div>
     );
@@ -592,6 +695,7 @@ export default function ChatInterface() {
                   whileTap={{ scale: 0.95 }}
                   onClick={() => {
                     setIsTierLockModalOpen(false);
+                    setStoreTab('UPGRADES');
                     setIsStoreOpen(true);
                   }}
                   className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl font-bold shadow-lg shadow-blue-500/25 transition-all"
@@ -617,12 +721,14 @@ export default function ChatInterface() {
         user={selectedProfile}
         onUpgradeClick={() => {
           setIsProfileOpen(false);
+          setStoreTab('UPGRADES');
           setIsStoreOpen(true);
         }}
       />
       <CoinStoreModal
         isOpen={isStoreOpen}
         onClose={() => setIsStoreOpen(false)}
+        initialTab={storeTab}
       />
       <GiftModal
         isOpen={isGiftModalOpen}
@@ -631,6 +737,7 @@ export default function ChatInterface() {
         onGiftSent={handleGiftSent}
         onOpenStore={() => {
           setIsGiftModalOpen(false);
+          setStoreTab('BUY_COINS');
           setIsStoreOpen(true);
         }}
       />
@@ -638,6 +745,7 @@ export default function ChatInterface() {
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         onSelectUser={setOtherUserProfile}
+        onProfileUpdated={fetchCurrentUserProfile}
       />
 
       <AnimatePresence>
@@ -685,6 +793,35 @@ export default function ChatInterface() {
                 {activeGift.icon}
               </span>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {lightboxImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setLightboxImage(null)}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-4 cursor-zoom-out"
+          >
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white backdrop-blur-md transition-colors"
+            >
+              <X size={20} />
+            </button>
+            <motion.img
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              src={lightboxImage}
+              alt="Fullscreen media"
+              className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -770,7 +907,11 @@ export default function ChatInterface() {
                     onClick={() => openProfile(currentUserProfile)}
                     className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors order-last ml-2"
                   >
-                    <span className="text-[10px] text-gray-400">{currentUserProfile.avatarInitials}</span>
+                    {currentUserProfile.avatarUrl ? (
+                      <img src={currentUserProfile.avatarUrl} alt="Avatar" className="w-full h-full rounded-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] text-gray-400">{currentUserProfile.avatarInitials}</span>
+                    )}
                   </div>
                 )}
 
@@ -807,21 +948,21 @@ export default function ChatInterface() {
                     } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
                     {message.imageUrl && (
-                      <div className="mb-1.5">
+                      <div
+                        className="mb-1.5 relative overflow-hidden rounded-xl border border-white/10 cursor-zoom-in group"
+                        onClick={(e) => { e.stopPropagation(); setLightboxImage(message.imageUrl!); }}
+                      >
                         <img
                           src={message.imageUrl}
                           alt="Uploaded media"
-                          className="max-w-[200px] w-full rounded-xl object-cover"
+                          className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
                         />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                       </div>
                     )}
                     {message.audioUrl && (
                       <div className="mb-1.5">
-                        <audio controls className="max-w-[250px] w-full h-10 outline-none">
-                          <source src={message.audioUrl} type="audio/webm" />
-                          <source src={message.audioUrl} type="audio/mpeg" />
-                          Your browser does not support the audio element.
-                        </audio>
+                        <AudioPlayer src={message.audioUrl} />
                       </div>
                     )}
                     {message.text && (

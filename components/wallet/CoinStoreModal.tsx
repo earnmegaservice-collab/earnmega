@@ -11,7 +11,7 @@ interface ExchangeRates {
   [currencyCode: string]: number;
 }
 
-export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES' }: { isOpen: boolean; onClose: () => void; initialTab?: 'UPGRADES' | 'BUY_COINS' }) {
   const {
     currency: selectedCurrency,
     setCurrency: setSelectedCurrency,
@@ -28,7 +28,13 @@ export default function CoinStoreModal({ isOpen, onClose }: { isOpen: boolean; o
   const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false);
   const [currencySearchQuery, setCurrencySearchQuery] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'UPGRADES' | 'BUY_COINS'>('UPGRADES');
+  const [activeTab, setActiveTab] = useState<'UPGRADES' | 'BUY_COINS'>(initialTab);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   const formatPrice = (basePrice: number) => {
     if (!exchangeRates || !exchangeRates[selectedCurrency]) return basePrice.toFixed(2);
