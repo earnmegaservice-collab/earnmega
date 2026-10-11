@@ -26,6 +26,9 @@ type Message = {
   reactions: string[];
   imageUrl?: string;
   audioUrl?: string;
+  replyToId?: string;
+  replyToText?: string;
+  replyToSender?: 'user' | 'other';
 };
 
 const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
@@ -285,18 +288,54 @@ export default function ChatInterface() {
         }
 
         if (data && data.length > 0) {
-          const formattedMessages: Message[] = data.map(msg => ({
-            id: msg.id,
-            text: msg.content || '',
-            sender: msg.sender_id === user.id ? 'user' : 'other',
-            timestamp: new Date(msg.created_at),
-            reactions: [],
-            status: msg.status || 'read',
-            imageUrl: msg.image_url,
-            audioUrl: msg.audio_url,
-          }));
+          const formattedMessages: Message[] = data.map(msg => {
+            let text = msg.content || '';
+            let replyToId, replyToSender, replyToText;
+
+            const replyMatch = text.match(/^\[REPLY:(.*?):(user|other):(.*?)\]\n\n/);
+            if (replyMatch) {
+               replyToId = replyMatch[1];
+               // Ensure correct reply sender attribution relative to current viewing user
+               replyToSender = replyMatch[2] === (msg.sender_id === user.id ? 'user' : 'other') ? 'user' : 'other';
+               replyToText = replyMatch[3];
+               text = text.replace(/^\[REPLY:.*?\]\n\n/, '');
+            }
+
+            return {
+              id: msg.id,
+              text,
+              sender: msg.sender_id === user.id ? 'user' : 'other',
+              timestamp: new Date(msg.created_at),
+              reactions: [],
+              status: msg.status || 'read',
+              imageUrl: msg.image_url,
+              audioUrl: msg.audio_url,
+              replyToId,
+              replyToSender,
+              replyToText
+            };
+          });
 
           setMessages(formattedMessages);
+
+          // Mark unread messages from the other user as read
+          const unreadMessageIds = data
+            .filter(msg => msg.sender_id === currentOtherUserProfile.id && msg.status !== 'read')
+            .map(msg => msg.id);
+
+          if (unreadMessageIds.length > 0) {
+            await supabase
+              .from('messages')
+              .update({ status: 'read' })
+              .in('id', unreadMessageIds);
+
+            // Broadcast read status
+            supabase.channel('chat-events').send({
+               type: 'broadcast',
+               event: 'messages_read',
+               payload: { readerId: user.id, senderId: currentOtherUserProfile.id }
+            });
+          }
         } else {
           setMessages([]);
         }
@@ -317,6 +356,9 @@ export default function ChatInterface() {
   };
   const [inputValue, setInputValue] = useState('');
   const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
+  const [activeContextMenuId, setActiveContextMenuId] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -352,19 +394,62 @@ export default function ChatInterface() {
              .single();
 
           if (!error && data) {
+             let text = data.content || '';
+             let replyToId, replyToSender, replyToText;
+
+             const replyMatch = text.match(/^\[REPLY:(.*?):(user|other):([\s\S]*?)\]\n\n/);
+             if (replyMatch) {
+               replyToId = replyMatch[1];
+               replyToSender = 'other'; // if it's incoming, the original msg was sent by us
+               if (replyMatch[2] === 'other') replyToSender = 'user';
+               replyToText = replyMatch[3];
+               text = text.replace(/^\[REPLY:[\s\S]*?\]\n\n/, '');
+             }
+
              const newMessage: Message = {
                id: data.id,
-               text: data.content || '',
+               text,
                sender: 'other',
                timestamp: new Date(data.created_at),
                reactions: [],
                status: 'delivered',
                imageUrl: data.image_url,
                audioUrl: data.audio_url,
+               replyToId,
+               replyToSender,
+               replyToText
              };
              setMessages((prev) => [...prev, newMessage]);
+
+             // If we are currently chatting with the sender, mark as read immediately
+             if (currentOtherUserProfile && payload.payload.senderId === currentOtherUserProfile.id) {
+               await supabase
+                 .from('messages')
+                 .update({ status: 'read' })
+                 .eq('id', data.id);
+
+               supabase.channel('chat-events').send({
+                 type: 'broadcast',
+                 event: 'messages_read',
+                 payload: { readerId: currentUserProfile.id, senderId: payload.payload.senderId }
+               });
+             }
           }
         }
+      })
+      .on('broadcast', { event: 'messages_read' }, (payload) => {
+        // If the other user read our messages, update our local state
+        if (payload.payload.senderId === currentUserProfile?.id) {
+          setMessages(prev => prev.map(msg =>
+            msg.sender === 'user' && msg.status !== 'read'
+              ? { ...msg, status: 'read' }
+              : msg
+          ));
+        }
+      })
+      .on('broadcast', { event: 'delete_message' }, (payload) => {
+        // Instantly remove message if sender unsent it
+        setMessages(prev => prev.filter(msg => msg.id !== payload.payload.messageId));
       });
 
     channel.subscribe((status) => {
@@ -383,19 +468,58 @@ export default function ChatInterface() {
     scrollToBottom();
   }, [messages]);
 
-  // Handle outside clicks to close reaction tray
+  // Handle outside clicks to close reaction tray & context menu
   useEffect(() => {
-    const handleClickOutside = () => setActiveReactionId(null);
+    const handleClickOutside = () => {
+      setActiveReactionId(null);
+      setActiveContextMenuId(null);
+    };
     document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    document.addEventListener('scroll', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+      document.removeEventListener('scroll', handleClickOutside, true);
+    };
   }, []);
+
+  const handleDeleteMessage = async (messageId: string) => {
+    try {
+      // Remove from DB
+      await supabase.from('messages').delete().eq('id', messageId);
+
+      // Update local state
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      setActiveContextMenuId(null);
+
+      // Broadcast deletion to other user
+      supabase.channel('chat-events').send({
+         type: 'broadcast',
+         event: 'delete_message',
+         payload: { messageId, senderId: user?.id }
+      });
+
+      toast.success("Message unsent");
+    } catch (err) {
+      console.error("Failed to delete message", err);
+      toast.error("Failed to unsend message");
+    }
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || !user || !currentOtherUserProfile) return;
 
-    const textContent = inputValue.trim();
+    let textContent = inputValue.trim();
+
+    // Format reply prefix if replying
+    let finalContentToSave = textContent;
+    if (replyingTo) {
+       finalContentToSave = `[REPLY:${replyingTo.id}:${replyingTo.sender}:${replyingTo.text.substring(0, 50).replace(/\[REPLY:[\s\S]*?\]\n\n/g, '')}]` + "\n\n" + textContent;
+    }
+
     setInputValue('');
+    const currentReplyingTo = replyingTo;
+    setReplyingTo(null);
 
     const optimisticMessage: Message = {
       id: uuidv4(),
@@ -404,6 +528,9 @@ export default function ChatInterface() {
       timestamp: new Date(),
       status: 'sent',
       reactions: [],
+      replyToId: currentReplyingTo?.id,
+      replyToText: currentReplyingTo?.text.replace(/\[REPLY:[\s\S]*?\]\n\n/g, ''),
+      replyToSender: currentReplyingTo?.sender,
     };
 
     setMessages((prev) => [...prev, optimisticMessage]);
@@ -415,7 +542,7 @@ export default function ChatInterface() {
           id: optimisticMessage.id,
           sender_id: user.id,
           receiver_id: currentOtherUserProfile.id,
-          content: textContent,
+          content: finalContentToSave,
           status: 'sent'
         })
         .select()
@@ -985,7 +1112,17 @@ export default function ChatInterface() {
                 )}
 
                 {/* Bubble Container */}
-                <div className="relative flex flex-col">
+                <motion.div
+                  className="relative flex flex-col"
+                  drag="x"
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={0.1}
+                  onDragEnd={(e, info) => {
+                    if (Math.abs(info.offset.x) > 50) {
+                      setReplyingTo(message);
+                    }
+                  }}
+                >
                   {/* Reaction Tray (Popover) */}
                   {isTrayOpen && (
                     <div
@@ -1010,12 +1147,67 @@ export default function ChatInterface() {
                       e.stopPropagation();
                       setActiveReactionId(isTrayOpen ? null : message.id);
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      if (isUser) {
+                         setActiveContextMenuId(message.id);
+                      }
+                    }}
+                    onTouchStart={() => {
+                      if (isUser) {
+                        longPressTimerRef.current = setTimeout(() => {
+                           setActiveContextMenuId(message.id);
+                        }, 500); // 500ms for long press
+                      }
+                    }}
+                    onTouchEnd={() => {
+                       if (longPressTimerRef.current) {
+                         clearTimeout(longPressTimerRef.current);
+                         longPressTimerRef.current = null;
+                       }
+                    }}
+                    onTouchMove={() => {
+                       if (longPressTimerRef.current) {
+                         clearTimeout(longPressTimerRef.current);
+                         longPressTimerRef.current = null;
+                       }
+                    }}
                     className={`px-4 py-2.5 relative transition-all duration-200 cursor-pointer ${
                       isUser
                         ? 'bg-blue-600 hover:bg-blue-700 text-white rounded-2xl rounded-tr-sm shadow-sm'
                         : 'bg-gray-800 hover:bg-gray-700 text-gray-100 border border-gray-700 shadow-sm rounded-2xl rounded-tl-sm'
                     } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
+
+                    {/* Delete Context Menu */}
+                    <AnimatePresence>
+                      {activeContextMenuId === message.id && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          className={`absolute bottom-full mb-1 ${isUser ? 'right-0' : 'left-0'} z-50`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden flex flex-col py-1 min-w-[140px]">
+                            <button
+                               onClick={() => handleDeleteMessage(message.id)}
+                               className="px-4 py-2 text-sm text-red-500 hover:bg-gray-700/50 flex items-center justify-between transition-colors w-full"
+                            >
+                               <span>Unsend</span>
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    {message.replyToText && (
+                      <div className={`mb-2 p-2 rounded-lg text-sm border-l-4 ${isUser ? 'bg-blue-800/50 border-blue-400 text-blue-100' : 'bg-gray-900/50 border-gray-500 text-gray-300'}`}>
+                         <span className="font-bold text-xs opacity-75 mb-1 block">
+                           {message.replyToSender === 'user' ? (currentUserProfile?.name || 'You') : (currentOtherUserProfile?.name || 'User')}
+                         </span>
+                         <span className="line-clamp-2">{message.replyToText}</span>
+                      </div>
+                    )}
                     {message.imageUrl && (
                       <div
                         className="mb-1.5 relative overflow-hidden rounded-xl border border-white/10 cursor-zoom-in group"
@@ -1059,7 +1251,7 @@ export default function ChatInterface() {
                        ))}
                      </div>
                   )}
-                </div>
+                </motion.div>
               </div>
             </motion.div>
           );
@@ -1068,10 +1260,30 @@ export default function ChatInterface() {
       </main>
 
       {/* Input Area */}
-      <footer className="bg-gray-900 border-t border-gray-800 p-3 pb-safe shrink-0">
+      <footer className="bg-gray-900 border-t border-gray-800 p-3 pb-safe shrink-0 flex flex-col">
+        <AnimatePresence>
+          {replyingTo && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: 'auto' }}
+              exit={{ opacity: 0, y: 10, height: 0 }}
+              className="bg-gray-800/80 backdrop-blur-md border border-gray-700 rounded-t-2xl px-4 py-2 flex items-center justify-between mb-2 shadow-lg"
+            >
+               <div className="flex flex-col flex-1 truncate pr-4">
+                 <span className="text-xs font-bold text-blue-400 mb-0.5">
+                    Replying to {replyingTo.sender === 'user' ? 'yourself' : (currentOtherUserProfile?.name || 'User')}
+                 </span>
+                 <span className="text-sm text-gray-300 truncate">{replyingTo.text}</span>
+               </div>
+               <button type="button" onClick={() => setReplyingTo(null)} className="text-gray-400 hover:text-white p-1 bg-gray-700/50 rounded-full">
+                 <X size={16} />
+               </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <form
           onSubmit={handleSendMessage}
-          className="flex items-end bg-gray-800 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-gray-700 transition-shadow shadow-inner"
+          className="flex items-end bg-gray-800 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-gray-700 transition-shadow shadow-inner relative z-10"
         >
           <textarea
             value={inputValue}
@@ -1084,7 +1296,7 @@ export default function ChatInterface() {
             }}
             placeholder="Type a message... (use **bold** or *italic*)"
             rows={1}
-            className="flex-1 bg-transparent border-none focus:ring-0 text-gray-100 placeholder-gray-500 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32"
+            className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-white/50 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32"
           />
           <input
             type="file"
