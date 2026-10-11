@@ -78,40 +78,142 @@ export default function ChatInterface() {
   } : null;
 
 
-  const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails>({
-    id: 'other-1',
-    name: 'Earnmega Support',
-    avatarInitials: 'EM',
-    bio: 'Here to help you with anything.',
-    joinDate: 'Jan 2023',
-    tier: 'PREMIUM',
-    isOnline: true,
-    coinsGifted: 50000,
-    isSelf: false,
-  });
+  const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
+  const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const presenceChannel = supabase.channel('online-users', {
+      config: {
+        presence: {
+          key: user.id,
+        },
+      },
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const newState = presenceChannel.presenceState();
+        const users = new Set<string>();
+        Object.keys(newState).forEach(key => users.add(key));
+        setOnlineUsers(users);
+      })
+      .on('presence', { event: 'join' }, ({ key }) => {
+        setOnlineUsers(prev => {
+          const newSet = new Set(prev);
+          newSet.add(key);
+          return newSet;
+        });
+      })
+      .on('presence', { event: 'leave' }, ({ key }) => {
+        setOnlineUsers(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(key);
+          return newSet;
+        });
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(presenceChannel);
+    };
+  }, [user]);
+
+  // Dynamically derive `isOnline` for `currentOtherUserProfile` based on `onlineUsers` state
+  const currentOtherUserProfile = otherUserProfile ? {
+    ...otherUserProfile,
+    isOnline: onlineUsers.has(otherUserProfile.id)
+  } : null;
+
+  useEffect(() => {
+    if (currentOtherUserProfile === null) {
+      const fetchExploreUsers = async () => {
+        const { data, error } = await supabase.from('profiles').select('*').limit(20);
+        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
+        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
+        if (!error && data) {
+          const formatted = data.filter(u => u.id !== user?.id).map(u => {
+            try {
+              return {
+                id: u.id,
+                name: u.username || 'User',
+                avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
+                bio: 'Earnmega user',
+                joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
+                tier: 'FREE' as const,
+                isOnline: onlineUsers.has(u.id),
+                coinsGifted: 0,
+                isSelf: false,
+              };
+            } catch (e) {
+              return null;
+            }
+          }).filter(Boolean) as UserProfileDetails[];
+          setExploreUsers(formatted);
+        }
+      };
+      fetchExploreUsers();
+    }
+  }, [currentOtherUserProfile, user?.id, onlineUsers]);
+
+  useEffect(() => {
+    async function fetchMessages() {
+      if (!currentOtherUserProfile || !user) return;
+      setIsLoadingMessages(true);
+      try {
+        const { data, error } = await supabase.from('messages').select('*');
+        if (error) {
+          console.error("Failed to fetch messages", error);
+          setMessages([]);
+          return;
+        }
+
+        if (data && data.length > 0) {
+          // Dynamically find columns
+          const firstRow = data[0];
+          const timeKey = Object.keys(firstRow).find(k => k.includes('time') || k.includes('date') || k === 'created_at');
+          const senderKey = Object.keys(firstRow).find(k => k.includes('sender') || k.includes('user_id'));
+          const textKey = Object.keys(firstRow).find(k => k.includes('text') || k.includes('content') || k === 'message');
+          const idKey = Object.keys(firstRow).find(k => k === 'id' || k.includes('id'));
+
+          const formattedMessages: Message[] = data.map(msg => ({
+            id: idKey ? String(msg[idKey]) : uuidv4(),
+            text: textKey ? msg[textKey] : '',
+            sender: senderKey && msg[senderKey] === user.id ? 'user' : 'other',
+            timestamp: timeKey ? new Date(msg[timeKey]) : new Date(),
+            reactions: [],
+            status: 'read'
+          }));
+
+          // Sort by timestamp if possible
+          formattedMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+          setMessages(formattedMessages);
+        } else {
+          setMessages([]);
+        }
+      } catch (e) {
+        console.error("Error fetching messages", e);
+        setMessages([]);
+      } finally {
+        setIsLoadingMessages(false);
+      }
+    }
+
+    fetchMessages();
+  }, [currentOtherUserProfile?.id, user?.id]);
 
   const openProfile = (userProfile: UserProfileDetails) => {
     setSelectedProfile(userProfile);
     setIsProfileOpen(true);
   };
-
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: 'Hello! Welcome to **Earnmega**. How can I help you today?',
-      sender: 'other',
-      timestamp: new Date(Date.now() - 1000 * 60 * 5),
-      reactions: ['👋'],
-    },
-    {
-      id: '2',
-      text: 'Hi! I wanted to check out the new features. *Looks great!*',
-      sender: 'user',
-      timestamp: new Date(Date.now() - 1000 * 60 * 4),
-      status: 'read',
-      reactions: ['❤️'],
-    },
-  ]);
   const [inputValue, setInputValue] = useState('');
   const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
 
@@ -196,7 +298,7 @@ export default function ChatInterface() {
     }, 1000);
 
     // Simulate automated response only for Earnmega Support
-    if (otherUserProfile.name === 'Earnmega Support') {
+    if (currentOtherUserProfile.name === 'Earnmega Support') {
       setTimeout(() => {
         const responseMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -403,39 +505,110 @@ export default function ChatInterface() {
     );
   };
 
+  if (!currentOtherUserProfile) {
+    return (
+      <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
+        <EarnmegaWalletHeader />
+        <header className="bg-white/5 backdrop-blur-md px-4 py-4 border-b border-white/10 shadow-sm flex items-center shrink-0 sticky top-0 z-20">
+          <button
+            onClick={() => setIsDrawerOpen(true)}
+            className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-gray-300 transition-colors"
+          >
+            <Menu size={20} />
+          </button>
+          <h1 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 tracking-tight">Explore</h1>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-4">
+          <div className="grid grid-cols-2 gap-4">
+            {exploreUsers.map((u, i) => (
+              <motion.div
+                key={u.id}
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: i * 0.05, ease: "easeOut" }}
+                className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-4 flex flex-col items-center shadow-2xl relative overflow-hidden group hover:bg-white/10 transition-colors"
+              >
+                {/* Glow effect */}
+                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/20 rounded-full blur-2xl -mr-12 -mt-12 transition-transform group-hover:scale-150" />
+
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 relative z-10 border-2 border-white/10">
+                  <span className="text-white font-bold text-lg">{u.avatarInitials}</span>
+                  {u.isOnline && (
+                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-gray-900 rounded-full shadow-sm" />
+                  )}
+                </div>
+
+                <h3 className="text-sm font-bold text-gray-100 truncate w-full text-center mb-1 relative z-10">{u.name}</h3>
+                <p className="text-[10px] text-gray-400 truncate w-full text-center mb-4 relative z-10">{u.bio}</p>
+
+                <motion.button
+                  whileTap={{ scale: 0.92 }}
+                  onClick={() => setOtherUserProfile(u)}
+                  className="w-full py-2 bg-white/10 hover:bg-white/20 text-blue-300 text-xs font-bold rounded-xl transition-colors relative z-10 border border-white/5"
+                >
+                  Start Chat
+                </motion.button>
+              </motion.div>
+            ))}
+          </div>
+        </main>
+        <NavigationDrawer
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+          onSelectUser={setOtherUserProfile}
+        />
+        <CoinStoreModal
+          isOpen={isStoreOpen}
+          onClose={() => setIsStoreOpen(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
       {/* Tier Lock Modal */}
-      {isTierLockModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center transform scale-100 transition-all">
-            <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">🔒</span>
-            </div>
-            <h3 className="text-xl font-bold text-white mb-2">Media Sharing is a Pro Feature</h3>
-            <p className="text-gray-400 text-sm mb-6 leading-relaxed">
-              Upgrade to Pro or Premium to send images and voice notes to your network.
-            </p>
-            <div className="flex flex-col space-y-3">
-              <button
-                onClick={() => {
-                  setIsTierLockModalOpen(false);
-                  setIsStoreOpen(true);
-                }}
-                className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-xl font-bold shadow-lg shadow-blue-500/25 transition-all transform active:scale-95"
-              >
-                Upgrade Now
-              </button>
-              <button
-                onClick={() => setIsTierLockModalOpen(false)}
-                className="w-full py-3 px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium transition-colors"
-              >
-                Maybe Later
-              </button>
-            </div>
+      <AnimatePresence>
+        {isTierLockModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl max-w-sm w-full p-6 text-center"
+            >
+              <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-500/30">
+                <span className="text-3xl">🔒</span>
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Media Sharing is a Pro Feature</h3>
+              <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+                Upgrade to Pro or Premium to unlock media sharing and voice notes to your network.
+              </p>
+              <div className="flex flex-col space-y-3">
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setIsTierLockModalOpen(false);
+                    setIsStoreOpen(true);
+                  }}
+                  className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl font-bold shadow-lg shadow-blue-500/25 transition-all"
+                >
+                  Upgrade Now
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setIsTierLockModalOpen(false)}
+                  className="w-full py-3 px-4 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 rounded-xl font-medium transition-colors"
+                >
+                  Maybe Later
+                </motion.button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       <UserProfileModal
         isOpen={isProfileOpen}
@@ -453,7 +626,7 @@ export default function ChatInterface() {
       <GiftModal
         isOpen={isGiftModalOpen}
         onClose={() => setIsGiftModalOpen(false)}
-        recipientId={otherUserProfile.id}
+        recipientId={currentOtherUserProfile.id}
         onGiftSent={handleGiftSent}
         onOpenStore={() => {
           setIsGiftModalOpen(false);
@@ -526,14 +699,14 @@ export default function ChatInterface() {
         </button>
 
         <div
-          onClick={() => openProfile(otherUserProfile)}
+          onClick={() => openProfile(currentOtherUserProfile)}
           className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer"
         >
-           <span className="text-white font-bold text-sm tracking-tighter">{otherUserProfile.avatarInitials}</span>
+           <span className="text-white font-bold text-sm tracking-tighter">{currentOtherUserProfile.avatarInitials}</span>
         </div>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(otherUserProfile)}>
-          <h1 className="text-base font-bold text-gray-100 leading-tight truncate">{otherUserProfile.name}</h1>
-          {otherUserProfile.isOnline ? (
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(currentOtherUserProfile)}>
+          <h1 className="text-base font-bold text-gray-100 leading-tight truncate">{currentOtherUserProfile.name}</h1>
+          {currentOtherUserProfile.isOnline ? (
             <div className="flex items-center space-x-1.5">
                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                <p className="text-[11px] text-gray-400 font-medium">Active now</p>
@@ -541,7 +714,7 @@ export default function ChatInterface() {
           ) : (
             <div className="flex items-center space-x-1.5">
                <span className="w-2 h-2 rounded-full bg-gray-500" />
-               <p className="text-[11px] text-gray-400 font-medium">Last seen {otherUserProfile.last_seen ? new Date(otherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</p>
+               <p className="text-[11px] text-gray-400 font-medium">Last seen {currentOtherUserProfile.last_seen ? new Date(currentOtherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</p>
             </div>
           )}
         </div>
@@ -571,11 +744,11 @@ export default function ChatInterface() {
                 {isUser && subscriptionTier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
 
                 <span className="text-xs font-medium text-gray-400">
-                  {isUser && currentUserProfile ? currentUserProfile.name : otherUserProfile.name}
+                  {isUser && currentUserProfile ? currentUserProfile.name : currentOtherUserProfile.name}
                 </span>
 
-                {!isUser && otherUserProfile.tier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
-                {!isUser && otherUserProfile.tier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
+                {!isUser && currentOtherUserProfile.tier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
+                {!isUser && currentOtherUserProfile.tier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
               </div>
 
               {/* Message Bubble Row */}
@@ -584,10 +757,10 @@ export default function ChatInterface() {
                 {/* Avatar for other */}
                 {!isUser && (
                   <div
-                    onClick={() => openProfile(otherUserProfile)}
+                    onClick={() => openProfile(currentOtherUserProfile)}
                     className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors"
                   >
-                    <span className="text-[10px] text-gray-400">{otherUserProfile.avatarInitials}</span>
+                    <span className="text-[10px] text-gray-400">{currentOtherUserProfile.avatarInitials}</span>
                   </div>
                 )}
 

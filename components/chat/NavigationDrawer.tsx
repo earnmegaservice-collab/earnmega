@@ -35,19 +35,25 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser }: Navi
         const filteredUsers = data.filter(u => !user || u.id !== user.id);
 
         // Map to user format expected by app
-        const formattedUsers = filteredUsers.map(u => ({
+        const formattedUsers = filteredUsers.map(u => {
+          try {
+            return {
           id: u.id,
           name: u.username || 'Unknown User',
           avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
           bio: 'Earnmega user',
-          joinDate: new Date(u.created_at).toLocaleDateString(),
+          joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
           tier: 'FREE', // Default fallback
           isOnline: true,
           coinsGifted: 0,
           isSelf: false,
           last_seen: u.updated_at || u.created_at,
           unreadCount: 0 // Mocking unread counts requires a complex unread messages table which doesn't exist yet, we will default to 0 for now unless requested differently
-        }));
+            };
+          } catch(e) {
+            return null;
+          }
+        }).filter(Boolean);
 
         setUsers(formattedUsers);
       }
