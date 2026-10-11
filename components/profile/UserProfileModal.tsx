@@ -8,6 +8,7 @@ export interface UserProfileDetails {
   id: string;
   name: string;
   avatarInitials: string;
+  avatarUrl?: string;
   bio: string;
   joinDate: string;
   tier: SubscriptionTier;
@@ -81,9 +82,13 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
               <div className={`w-20 h-20 rounded-full bg-gray-800 flex items-center justify-center border-4 border-gray-900 shrink-0 relative overflow-hidden
                  ${isPremium ? '' : 'border-gray-800'}
               `}>
-                 <span className="text-2xl font-bold text-gray-300">{user.avatarInitials}</span>
+                 {user.avatarUrl ? (
+                   <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover relative z-10" />
+                 ) : (
+                   <span className="text-2xl font-bold text-gray-300">{user.avatarInitials}</span>
+                 )}
                  {isPremium && (
-                   <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/20 to-transparent" />
+                   <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/20 to-transparent pointer-events-none z-20" />
                  )}
               </div>
 

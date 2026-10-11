@@ -146,11 +146,12 @@ export default function ChatInterface() {
                 id: u.id,
                 name: u.username || 'User',
                 avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
-                bio: 'Earnmega user',
+                avatarUrl: u.avatar_url,
+                bio: u.bio || 'Earnmega user',
                 joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
                 tier: 'FREE' as const,
                 isOnline: onlineUsers.has(u.id),
-                coinsGifted: 0,
+                coinsGifted: u.coins_gifted || 0,
                 isSelf: false,
               };
             } catch (e) {

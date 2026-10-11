@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { supabase } from '../../utils/supabase';
 import { useWallet } from '../../context/WalletContext';
 import { Coffee, Flower2, Gem, Crown } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -20,17 +21,38 @@ const GIFTS = [
 
 export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, onOpenStore }: GiftModalProps) {
   const { balance, setBalance } = useWallet();
-  const [showError, setShowError] = React.useState(false);
+  const [showError, setShowError] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSendGift = (gift: any) => {
-    if (balance >= gift.cost) {
+  const handleSendGift = async (gift: any) => {
+    if (balance < gift.cost) {
+      setShowError(true);
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const { error } = await supabase.rpc('transfer_coins', {
+        receiver_id: recipientId,
+        gift_cost: gift.cost,
+        gift_name: gift.name,
+      });
+
+      if (error) {
+        console.error('Failed to send gift:', error);
+        alert('Failed to send gift. Please try again later.'); // Consider using a custom toast later
+        return;
+      }
+
       setBalance(prev => prev - gift.cost);
       onGiftSent(gift);
       onClose();
-    } else {
-      setShowError(true);
+    } catch (err) {
+      console.error('Unexpected error sending gift:', err);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -88,7 +110,8 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
               whileTap={{ scale: 0.95 }}
               key={gift.id}
               onClick={() => handleSendGift(gift)}
-              className="flex flex-col items-center justify-center p-4 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl transition-all"
+              disabled={isProcessing}
+              className="flex flex-col items-center justify-center p-4 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl transition-all disabled:opacity-50"
             >
               <div className="mb-2">{gift.icon}</div>
               <span className="text-sm font-bold text-white">{gift.name}</span>
