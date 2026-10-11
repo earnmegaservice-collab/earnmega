@@ -121,6 +121,20 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
       setAvatarUrl(data.publicUrl);
+
+      // Auto-save the profile when avatar is successfully uploaded
+      if (user) {
+        await supabase
+          .from('profiles')
+          .update({
+            avatar_url: data.publicUrl,
+          })
+          .eq('id', user.id);
+
+        if (onProfileUpdated) {
+            onProfileUpdated();
+        }
+      }
     } catch (error) {
       console.error('Error uploading avatar:', error);
     } finally {

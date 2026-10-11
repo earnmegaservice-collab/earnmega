@@ -71,6 +71,12 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('avatars', 'avatars', true)
 ON CONFLICT (id) DO NOTHING;
 
+-- Ensure CORS is configured
+UPDATE storage.buckets
+SET allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    file_size_limit = 5242880
+WHERE id = 'avatars';
+
 -- Storage RLS Policies for avatars bucket
 -- Drop existing policies if any to avoid errors on re-run
 DROP POLICY IF EXISTS "Avatar images are publicly accessible" ON storage.objects;
@@ -91,6 +97,9 @@ WITH CHECK (
 CREATE POLICY "Users can update their own avatar"
 ON storage.objects FOR UPDATE
 USING (
+    bucket_id = 'avatars'
+    AND auth.role() = 'authenticated'
+) WITH CHECK (
     bucket_id = 'avatars'
     AND auth.role() = 'authenticated'
 );
