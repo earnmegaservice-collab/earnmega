@@ -271,7 +271,12 @@ export default function ChatInterface() {
       if (!currentOtherUserProfile || !user) return;
       setIsLoadingMessages(true);
       try {
-        const { data, error } = await supabase.from('messages').select('*');
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .or(`and(sender_id.eq.${user.id},receiver_id.eq.${currentOtherUserProfile.id}),and(sender_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${user.id})`)
+          .order('created_at', { ascending: true });
+
         if (error) {
           console.error("Failed to fetch messages", error);
           setMessages([]);
@@ -279,24 +284,17 @@ export default function ChatInterface() {
         }
 
         if (data && data.length > 0) {
-          // Dynamically find columns
-          const firstRow = data[0];
-          const timeKey = Object.keys(firstRow).find(k => k.includes('time') || k.includes('date') || k === 'created_at');
-          const senderKey = Object.keys(firstRow).find(k => k.includes('sender') || k.includes('user_id'));
-          const textKey = Object.keys(firstRow).find(k => k.includes('text') || k.includes('content') || k === 'message');
-          const idKey = Object.keys(firstRow).find(k => k === 'id' || k.includes('id'));
-
           const formattedMessages: Message[] = data.map(msg => ({
-            id: idKey ? String(msg[idKey]) : uuidv4(),
-            text: textKey ? msg[textKey] : '',
-            sender: senderKey && msg[senderKey] === user.id ? 'user' : 'other',
-            timestamp: timeKey ? new Date(msg[timeKey]) : new Date(),
+            id: msg.id,
+            text: msg.content || '',
+            sender: msg.sender_id === user.id ? 'user' : 'other',
+            timestamp: new Date(msg.created_at),
             reactions: [],
-            status: 'read'
+            status: msg.status || 'read',
+            imageUrl: msg.image_url,
+            audioUrl: msg.audio_url,
           }));
 
-          // Sort by timestamp if possible
-          formattedMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
           setMessages(formattedMessages);
         } else {
           setMessages([]);
@@ -342,6 +340,30 @@ export default function ChatInterface() {
           };
           setMessages((prev) => [...prev, newMessage]);
         }
+      })
+      .on('broadcast', { event: 'new_message' }, async (payload) => {
+        if (payload.payload.receiverId === currentUserProfile?.id) {
+          // Fetch the message from DB to get full details
+          const { data, error } = await supabase
+             .from('messages')
+             .select('*')
+             .eq('id', payload.payload.messageId)
+             .single();
+
+          if (!error && data) {
+             const newMessage: Message = {
+               id: data.id,
+               text: data.content || '',
+               sender: 'other',
+               timestamp: new Date(data.created_at),
+               reactions: [],
+               status: 'delivered',
+               imageUrl: data.image_url,
+               audioUrl: data.audio_url,
+             };
+             setMessages((prev) => [...prev, newMessage]);
+          }
+        }
       });
 
     channel.subscribe((status) => {
@@ -367,50 +389,58 @@ export default function ChatInterface() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || !user || !currentOtherUserProfile) return;
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      text: inputValue.trim(),
+    const textContent = inputValue.trim();
+    setInputValue('');
+
+    const optimisticMessage: Message = {
+      id: uuidv4(),
+      text: textContent,
       sender: 'user',
       timestamp: new Date(),
       status: 'sent',
       reactions: [],
     };
 
-    setMessages((prev) => [...prev, newMessage]);
-    setInputValue('');
+    setMessages((prev) => [...prev, optimisticMessage]);
 
-    // Simulate delivery statuses
-    setTimeout(() => {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          id: optimisticMessage.id,
+          sender_id: user.id,
+          receiver_id: currentOtherUserProfile.id,
+          content: textContent,
+          status: 'sent'
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      // We rely on real-time to update the read receipt or we can locally set to delivered
       setMessages((prev) =>
         prev.map((msg) =>
-          msg.id === newMessage.id ? { ...msg, status: 'delivered' } : msg
+          msg.id === optimisticMessage.id ? { ...msg, status: 'delivered' } : msg
         )
       );
-      setTimeout(() => {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === newMessage.id ? { ...msg, status: 'read' } : msg
-          )
-        );
-      }, 1500);
-    }, 1000);
 
-    // Simulate automated response only for Earnmega Support
-    if (currentOtherUserProfile.name === 'Earnmega Support') {
-      setTimeout(() => {
-        const responseMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: 'Thanks for exploring! Let me know if you need ~help~ anything else.',
-          sender: 'other',
-          timestamp: new Date(),
-          reactions: [],
-        };
-        setMessages((prev) => [...prev, responseMessage]);
-      }, 2000);
+      // Notify recipient via channel to trigger read receipts or notification
+      supabase.channel('chat-events').send({
+         type: 'broadcast',
+         event: 'new_message',
+         payload: { messageId: optimisticMessage.id, senderId: user.id, receiverId: currentOtherUserProfile.id }
+      });
+
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // Fallback UI or remove optimistic message
     }
   };
 
@@ -536,6 +566,25 @@ export default function ChatInterface() {
       };
 
       setMessages((prev) => [...prev, newMessage]);
+
+      if (user && currentOtherUserProfile) {
+        await supabase.from('messages').insert({
+           id: newMessage.id,
+           sender_id: user.id,
+           receiver_id: currentOtherUserProfile.id,
+           content: '',
+           image_url: type === 'image' ? publicUrl : null,
+           audio_url: type === 'audio' ? publicUrl : null,
+           status: 'sent'
+        });
+
+        supabase.channel('chat-events').send({
+           type: 'broadcast',
+           event: 'new_message',
+           payload: { messageId: newMessage.id, senderId: user.id, receiverId: currentOtherUserProfile.id }
+        });
+      }
+
       setTimeout(() => {
         setMessages((prev) =>
           prev.map((msg) =>
@@ -609,69 +658,83 @@ export default function ChatInterface() {
 
   if (!currentOtherUserProfile) {
     return (
-      <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
-        <EarnmegaWalletHeader />
-        <header className="bg-white/5 backdrop-blur-md px-4 py-4 border-b border-white/10 shadow-sm flex items-center shrink-0 sticky top-0 z-20">
-          <button
-            onClick={() => setIsDrawerOpen(true)}
-            className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-gray-300 transition-colors"
-          >
-            <Menu size={20} />
-          </button>
-          <h1 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 tracking-tight">Explore</h1>
-        </header>
+      <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
+        <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-40"></div>
+        <div className="relative z-10 flex flex-col h-full">
+          <EarnmegaWalletHeader />
+          <header className="bg-white/5 backdrop-blur-2xl px-4 py-4 border-b border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.1)] flex items-center shrink-0 sticky top-0 z-20">
+            <button
+              onClick={() => setIsDrawerOpen(true)}
+              className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
+            >
+              <Menu size={20} />
+            </button>
+            <h1 className="text-xl font-extrabold text-white drop-shadow-sm tracking-tight">Explore</h1>
+          </header>
 
-        <main className="flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-2 gap-4">
-            {exploreUsers.map((u, i) => (
-              <motion.div
-                key={u.id}
-                initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: i * 0.05, ease: "easeOut" }}
-                className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-4 flex flex-col items-center shadow-2xl relative overflow-hidden group hover:bg-white/10 transition-colors"
-              >
-                {/* Glow effect */}
-                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/20 rounded-full blur-2xl -mr-12 -mt-12 transition-transform group-hover:scale-150" />
+          <main className="flex-1 overflow-y-auto p-4 relative z-10">
+            <div className="grid grid-cols-2 gap-4">
+              <AnimatePresence>
+                {exploreUsers.map((u, i) => (
+                  <motion.div
+                    key={u.id}
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.4, delay: i * 0.05, ease: "easeOut" }}
+                    className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 flex flex-col items-center shadow-[0_4px_24px_rgba(0,0,0,0.2)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden group hover:bg-white/10 transition-all"
+                  >
+                    {/* Glow effect */}
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/20 rounded-full blur-2xl -mr-12 -mt-12 transition-transform group-hover:scale-150" />
 
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 relative z-10 border-2 border-white/10">
-                  <span className="text-white font-bold text-lg">{u.avatarInitials}</span>
-                  {u.isOnline && (
-                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-gray-900 rounded-full shadow-sm" />
-                  )}
-                </div>
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 relative z-10 border-2 border-white/20 group-hover:scale-105 transition-transform">
+                      {u.avatarUrl ? (
+                         <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
+                      ) : (
+                         <span className="text-white font-bold text-lg drop-shadow-md">{u.avatarInitials}</span>
+                      )}
+                      {u.isOnline && (
+                        <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-400 border-2 border-black/50 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+                      )}
+                    </div>
 
-                <h3 className="text-sm font-bold text-gray-100 truncate w-full text-center mb-1 relative z-10">{u.name}</h3>
-                <p className="text-[10px] text-gray-400 truncate w-full text-center mb-4 relative z-10">{u.bio}</p>
+                    <h3 className="text-sm font-bold text-white truncate w-full text-center mb-1 relative z-10 drop-shadow-sm flex items-center justify-center gap-1">
+                      {u.name}
+                      {u.tier === 'PREMIUM' && <span className="text-[8px] bg-gradient-to-r from-yellow-400 to-amber-500 text-black px-1 rounded-full font-extrabold shadow-[0_0_5px_rgba(251,191,36,0.5)]">VIP</span>}
+                    </h3>
+                    <p className="text-[10px] text-white/60 truncate w-full text-center mb-4 relative z-10 font-medium">{u.bio}</p>
 
-                <motion.button
-                  whileTap={{ scale: 0.92 }}
-                  onClick={() => setOtherUserProfile(u)}
-                  className="w-full py-2 bg-white/10 hover:bg-white/20 text-blue-300 text-xs font-bold rounded-xl transition-colors relative z-10 border border-white/5"
-                >
-                  Start Chat
-                </motion.button>
-              </motion.div>
-            ))}
-          </div>
-        </main>
-        <NavigationDrawer
-          isOpen={isDrawerOpen}
-          onClose={() => setIsDrawerOpen(false)}
-          onSelectUser={setOtherUserProfile}
-          onProfileUpdated={fetchCurrentUserProfile}
-        />
-        <CoinStoreModal
-          isOpen={isStoreOpen}
-          onClose={() => setIsStoreOpen(false)}
-          initialTab={storeTab}
-        />
+                    <motion.button
+                      whileTap={{ scale: 0.92 }}
+                      onClick={() => setOtherUserProfile(u)}
+                      className="w-full py-2 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-200 text-xs font-bold rounded-xl transition-colors relative z-10 border border-indigo-400/30 backdrop-blur-sm shadow-[0_0_15px_rgba(99,102,241,0.2)]"
+                    >
+                      Start Chat
+                    </motion.button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          </main>
+          <NavigationDrawer
+            isOpen={isDrawerOpen}
+            onClose={() => setIsDrawerOpen(false)}
+            onSelectUser={setOtherUserProfile}
+            onProfileUpdated={fetchCurrentUserProfile}
+          />
+          <CoinStoreModal
+            isOpen={isStoreOpen}
+            onClose={() => setIsStoreOpen(false)}
+            initialTab={storeTab}
+          />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-gray-950 font-sans sm:max-w-md sm:mx-auto sm:border-x sm:border-gray-800 text-gray-100 selection:bg-purple-500/30">
+    <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
+      <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-40"></div>
       {/* Tier Lock Modal */}
       <AnimatePresence>
         {isTierLockModalOpen && (
@@ -828,31 +891,35 @@ export default function ChatInterface() {
 
       {/* Header */}
       <EarnmegaWalletHeader />
-      <header className="bg-gray-900/80 backdrop-blur-md px-4 py-3.5 border-b border-gray-800 shadow-sm flex items-center shrink-0 sticky top-0 z-20">
+      <header className="bg-white/5 backdrop-blur-2xl px-4 py-3.5 border-b border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.1)] flex items-center shrink-0 sticky top-0 z-20">
         <button
           onClick={() => setIsDrawerOpen(true)}
-          className="mr-3 p-1.5 rounded-full hover:bg-gray-800 text-gray-400 transition-colors"
+          className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
         >
           <Menu size={20} />
         </button>
 
         <div
           onClick={() => openProfile(currentOtherUserProfile)}
-          className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer"
+          className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer border border-white/20"
         >
-           <span className="text-white font-bold text-sm tracking-tighter">{currentOtherUserProfile.avatarInitials}</span>
+           {currentOtherUserProfile.avatarUrl ? (
+             <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />
+           ) : (
+             <span className="text-white font-bold text-sm tracking-tighter drop-shadow-md">{currentOtherUserProfile.avatarInitials}</span>
+           )}
         </div>
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(currentOtherUserProfile)}>
-          <h1 className="text-base font-bold text-gray-100 leading-tight truncate">{currentOtherUserProfile.name}</h1>
+          <h1 className="text-base font-bold text-white leading-tight truncate drop-shadow-sm">{currentOtherUserProfile.name}</h1>
           {currentOtherUserProfile.isOnline ? (
             <div className="flex items-center space-x-1.5">
-               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-               <p className="text-[11px] text-gray-400 font-medium">Active now</p>
+               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+               <p className="text-[11px] text-white/60 font-medium">Active now</p>
             </div>
           ) : (
             <div className="flex items-center space-x-1.5">
-               <span className="w-2 h-2 rounded-full bg-gray-500" />
-               <p className="text-[11px] text-gray-400 font-medium">Last seen {currentOtherUserProfile.last_seen ? new Date(currentOtherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</p>
+               <span className="w-2 h-2 rounded-full bg-white/30" />
+               <p className="text-[11px] text-white/50 font-medium">Last seen {currentOtherUserProfile.last_seen ? new Date(currentOtherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</p>
             </div>
           )}
         </div>
@@ -861,7 +928,7 @@ export default function ChatInterface() {
       {/* Messages Area */}
       <main
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-6"
+        className="flex-1 overflow-y-auto p-4 space-y-6 relative z-10"
       >
         {messages.map((message) => {
           const isUser = message.sender === 'user';

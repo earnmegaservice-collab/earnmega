@@ -213,6 +213,7 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
+      <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-40"></div>
 
       {/* Toast Notification */}
       <AnimatePresence>
