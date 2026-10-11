@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { X, Edit2, Upload, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 
 interface NavigationDrawerProps {
   isOpen: boolean;
@@ -124,19 +125,23 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
 
       // Auto-save the profile when avatar is successfully uploaded
       if (user) {
-        await supabase
+        const { error: profileError } = await supabase
           .from('profiles')
           .update({
             avatar_url: data.publicUrl,
           })
           .eq('id', user.id);
 
+        if (profileError) throw profileError;
+
         if (onProfileUpdated) {
             onProfileUpdated();
         }
       }
-    } catch (error) {
+      toast.success('Avatar uploaded successfully!');
+    } catch (error: any) {
       console.error('Error uploading avatar:', error);
+      toast.error(error.message || 'Failed to upload avatar.');
     } finally {
       setIsUploading(false);
     }
@@ -161,10 +166,12 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
           onProfileUpdated();
       }
 
+      toast.success('Profile saved successfully!');
       // Give feedback by switching back to explore
       setActiveTab('EXPLORE');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving profile:', error);
+      toast.error(error.message || 'Failed to save profile.');
     } finally {
       setIsSaving(false);
     }

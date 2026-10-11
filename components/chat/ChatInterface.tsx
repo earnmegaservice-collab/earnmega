@@ -10,6 +10,7 @@ import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
@@ -440,7 +441,8 @@ export default function ChatInterface() {
 
     } catch (error) {
       console.error('Failed to send message:', error);
-      // Fallback UI or remove optimistic message
+      setMessages((prev) => prev.filter((msg) => msg.id !== optimisticMessage.id));
+      toast.error('Failed to send message.');
     }
   };
 
@@ -659,7 +661,7 @@ export default function ChatInterface() {
   if (!currentOtherUserProfile) {
     return (
       <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
-        <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-40"></div>
+        <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
         <div className="relative z-10 flex flex-col h-full">
           <EarnmegaWalletHeader />
           <header className="bg-white/5 backdrop-blur-2xl px-4 py-4 border-b border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.1)] flex items-center shrink-0 sticky top-0 z-20">
@@ -734,7 +736,7 @@ export default function ChatInterface() {
 
   return (
     <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
-      <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-40"></div>
+      <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
       {/* Tier Lock Modal */}
       <AnimatePresence>
         {isTierLockModalOpen && (
