@@ -1,6 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '../utils/supabase';
+import { useAuth } from './AuthContext';
 
 type SubscriptionTier = 'FREE' | 'PRO' | 'PREMIUM';
 
@@ -31,6 +33,30 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [balance, setBalance] = useState<number>(defaultState.balance);
   const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>(defaultState.subscriptionTier);
   const [currency, setCurrency] = useState<string>(defaultState.currency);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const fetchWalletData = async () => {
+      if (!user) return;
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('coins, subscription_tier')
+          .eq('id', user.id)
+          .single();
+
+        if (error) throw error;
+        if (data) {
+          if (data.coins !== undefined) setBalance(data.coins);
+          if (data.subscription_tier) setSubscriptionTier(data.subscription_tier);
+        }
+      } catch (error) {
+        console.error('Error fetching wallet data:', error);
+      }
+    };
+
+    fetchWalletData();
+  }, [user]);
 
   return (
     <WalletContext.Provider value={{ balance, subscriptionTier, currency, setBalance, setSubscriptionTier, setCurrency }}>
