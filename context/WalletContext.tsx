@@ -19,6 +19,7 @@ interface WalletContextType {
   setBalance: React.Dispatch<React.SetStateAction<number>>;
   setSubscriptionTier: React.Dispatch<React.SetStateAction<SubscriptionTier>>;
   setCurrency: React.Dispatch<React.SetStateAction<string>>;
+  refreshWallet: () => Promise<void>;
 }
 
 const defaultState: WalletState = {
@@ -35,31 +36,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [currency, setCurrency] = useState<string>(defaultState.currency);
   const { user } = useAuth();
 
-  useEffect(() => {
-    const fetchWalletData = async () => {
-      if (!user) return;
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('coins, subscription_tier')
-          .eq('id', user.id)
-          .single();
+  const refreshWallet = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('coins, subscription_tier')
+        .eq('id', user.id)
+        .single();
 
-        if (error) throw error;
-        if (data) {
-          if (data.coins !== undefined) setBalance(data.coins);
-          if (data.subscription_tier) setSubscriptionTier(data.subscription_tier);
-        }
-      } catch (error) {
-        console.error('Error fetching wallet data:', error);
+      if (error) throw error;
+      if (data) {
+        if (data.coins !== undefined) setBalance(data.coins);
+        if (data.subscription_tier) setSubscriptionTier(data.subscription_tier);
       }
-    };
+    } catch (error) {
+      console.error('Error fetching wallet data:', error);
+    }
+  };
 
-    fetchWalletData();
+  useEffect(() => {
+    refreshWallet();
   }, [user]);
 
   return (
-    <WalletContext.Provider value={{ balance, subscriptionTier, currency, setBalance, setSubscriptionTier, setCurrency }}>
+    <WalletContext.Provider value={{ balance, subscriptionTier, currency, setBalance, setSubscriptionTier, setCurrency, refreshWallet }}>
       {children}
     </WalletContext.Provider>
   );

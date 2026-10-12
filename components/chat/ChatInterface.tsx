@@ -16,6 +16,9 @@ const UserProfileModal = dynamic(() => import("../../components/profile/UserProf
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
 const GiftModal = dynamic(() => import("../../components/chat/GiftModal"), { ssr: false });
 const NavigationDrawer = dynamic(() => import("../../components/chat/NavigationDrawer"), { ssr: false });
+const StatusTab = dynamic(() => import("../../components/status/StatusTab"), { ssr: false });
+const StatusViewer = dynamic(() => import("../../components/status/StatusViewer"), { ssr: false });
+const UnlockModal = dynamic(() => import("../../components/status/UnlockModal"), { ssr: false });
 
 type Message = {
   id: string;
@@ -155,6 +158,12 @@ export default function ChatInterface() {
   const { subscriptionTier, balance } = useWallet();
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
+
+  // Status State
+  const [activeTab, setActiveTab] = useState<'CHAT' | 'STATUS'>('CHAT');
+  const [viewingStatuses, setViewingStatuses] = useState<{ groupId: string, statuses: any[], profile: any } | null>(null);
+  const [unlockModalState, setUnlockModalState] = useState<{ isOpen: boolean, creatorId: string, creatorUsername: string } | null>(null);
+  const [unlockedStatuses, setUnlockedStatuses] = useState<Set<string>>(new Set());
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [storeTab, setStoreTab] = useState<'UPGRADES' | 'BUY_COINS'>('UPGRADES');
@@ -813,24 +822,56 @@ export default function ChatInterface() {
     );
   };
 
+  const handleStatusClick = (groupId: string, statuses: any[], profile: any) => {
+    if (groupId === user?.id || unlockedStatuses.has(groupId)) {
+       setViewingStatuses({ groupId, statuses, profile });
+    } else {
+       setUnlockModalState({ isOpen: true, creatorId: groupId, creatorUsername: profile?.username || 'User' });
+       // Temporarily store what they clicked to show it after unlock
+       setViewingStatuses({ groupId, statuses, profile });
+    }
+  };
+
   if (!currentOtherUserProfile) {
     return (
       <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
         <div className="relative z-10 flex flex-col h-full">
           <EarnmegaWalletHeader />
-          <header className="bg-white/5 backdrop-blur-2xl px-4 py-4 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex items-center shrink-0 sticky top-0 z-20">
-            <button
-              onClick={() => setIsDrawerOpen(true)}
-              className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
-            >
-              <Menu size={20} />
-            </button>
-            <h1 className="text-xl font-extrabold text-white drop-shadow-sm tracking-tight">Explore</h1>
+
+          <header className="bg-white/5 backdrop-blur-2xl px-4 py-4 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col shrink-0 sticky top-0 z-20 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <button
+                  onClick={() => setIsDrawerOpen(true)}
+                  className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
+                >
+                  <Menu size={20} />
+                </button>
+                <h1 className="text-xl font-extrabold text-white drop-shadow-sm tracking-tight">Earnmega</h1>
+              </div>
+            </div>
+
+            {/* Tab Switcher */}
+            <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 shadow-inner">
+               <button
+                 onClick={() => setActiveTab('CHAT')}
+                 className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all ${activeTab === 'CHAT' ? 'bg-indigo-600/80 text-white shadow-[0_4px_16px_rgba(79,70,229,0.4)]' : 'text-white/60 hover:text-white'}`}
+               >
+                 Chats
+               </button>
+               <button
+                 onClick={() => setActiveTab('STATUS')}
+                 className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all ${activeTab === 'STATUS' ? 'bg-purple-600/80 text-white shadow-[0_4px_16px_rgba(147,51,234,0.4)]' : 'text-white/60 hover:text-white'}`}
+               >
+                 Status
+               </button>
+            </div>
           </header>
 
           <main className="flex-1 overflow-y-auto p-4 relative z-10">
-            <div className="grid grid-cols-2 gap-4">
-              <AnimatePresence>
+            {activeTab === 'CHAT' ? (
+              <div className="grid grid-cols-2 gap-4">
+                <AnimatePresence>
                 {exploreUsers.map((u, i) => (
                   <motion.div
                     key={u.id}
@@ -870,8 +911,46 @@ export default function ChatInterface() {
                   </motion.div>
                 ))}
               </AnimatePresence>
-            </div>
+              </div>
+            ) : (
+              <StatusTab onStatusClick={handleStatusClick} currentUserProfile={currentUserProfile} />
+            )}
           </main>
+
+          {/* Status Viewer */}
+          {viewingStatuses && (user?.id === viewingStatuses.groupId || unlockedStatuses.has(viewingStatuses.groupId)) && (
+            <StatusViewer
+              statuses={viewingStatuses.statuses}
+              creatorProfile={viewingStatuses.profile}
+              onClose={() => setViewingStatuses(null)}
+              hasUnlocked={true}
+              onUnlockRequired={() => {}}
+            />
+          )}
+
+          {/* Unlock Modal */}
+          {unlockModalState && unlockModalState.isOpen && (
+            <UnlockModal
+               isOpen={unlockModalState.isOpen}
+               onClose={() => {
+                 setUnlockModalState(null);
+                 setViewingStatuses(null);
+               }}
+               creatorId={unlockModalState.creatorId}
+               creatorUsername={unlockModalState.creatorUsername}
+               onSuccess={() => {
+                 setUnlockedStatuses(prev => new Set(prev).add(unlockModalState.creatorId));
+                 setUnlockModalState(null);
+                 // viewingStatuses is already set, so StatusViewer will now render
+               }}
+               onOpenStore={() => {
+                 setUnlockModalState(null);
+                 setStoreTab('BUY_COINS');
+                 setIsStoreOpen(true);
+               }}
+            />
+          )}
+
           <NavigationDrawer
             isOpen={isDrawerOpen}
             onClose={() => setIsDrawerOpen(false)}
