@@ -205,16 +205,16 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
                   <X size={20} />
                 </button>
               </div>
-              <div className="flex bg-gray-800/50 p-1 rounded-xl">
+              <div className="flex bg-white/5 backdrop-blur-md p-1 rounded-xl border border-white/10 shadow-inner">
                  <button
                    onClick={() => setActiveTab('EXPLORE')}
-                   className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'EXPLORE' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-gray-400 hover:text-gray-200'}`}
+                   className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'EXPLORE' ? 'bg-indigo-600/80 text-white shadow-[0_4px_16px_rgba(79,70,229,0.4)]' : 'text-white/60 hover:text-white'}`}
                  >
                    Explore
                  </button>
                  <button
                    onClick={() => setActiveTab('EDIT_PROFILE')}
-                   className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'EDIT_PROFILE' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-gray-400 hover:text-gray-200'}`}
+                   className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'EDIT_PROFILE' ? 'bg-indigo-600/80 text-white shadow-[0_4px_16px_rgba(79,70,229,0.4)]' : 'text-white/60 hover:text-white'}`}
                  >
                    My Profile
                  </button>
@@ -235,7 +235,7 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
                         onSelectUser(u);
                         onClose();
                       }}
-                      className="flex items-center space-x-3 p-3 bg-gray-800/50 hover:bg-gray-800 rounded-xl cursor-pointer transition-colors border border-gray-700/50 hover:border-gray-600"
+                      className="flex items-center space-x-3 p-3 bg-white/5 hover:bg-white/10 backdrop-blur-xl rounded-xl cursor-pointer transition-all border border-white/10 hover:border-white/20 shadow-[0_4px_16px_rgba(0,0,0,0.2)]"
                     >
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
                         {u.avatarUrl ? (
@@ -246,7 +246,25 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center">
-                          <h3 className="text-sm font-bold text-gray-100 truncate">{u.name}</h3>
+                          <h3 className="text-sm font-bold text-gray-100 truncate mr-2">{u.name}</h3>
+                          {u.tier === 'PREMIUM' && (
+                             <motion.span
+                               animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
+                               transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                               className="px-1.5 py-0.5 rounded-sm text-[8px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_10px_rgba(250,204,21,0.5)] border border-yellow-400/50"
+                             >
+                               PREMIUM
+                             </motion.span>
+                          )}
+                          {u.tier === 'PRO' && (
+                             <motion.span
+                               animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
+                               transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                               className="px-1.5 py-0.5 rounded-sm text-[8px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_10px_rgba(96,165,250,0.5)] border border-blue-400/50"
+                             >
+                               PRO
+                             </motion.span>
+                          )}
                           {u.unreadCount > 0 && (
                             <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                               {u.unreadCount}
@@ -265,11 +283,11 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
                 <div className="flex flex-col gap-6 pt-2">
                   <div className="flex flex-col items-center gap-3">
                     <div className="relative group">
-                      <div className="w-24 h-24 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center overflow-hidden shadow-xl">
+                      <div className="w-24 h-24 rounded-full bg-white/5 backdrop-blur-2xl border border-white/20 flex items-center justify-center overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
                         {avatarUrl ? (
                           <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                         ) : (
-                          <Camera size={32} className="text-gray-500" />
+                          <Camera size={32} className="text-white/50" />
                         )}
                       </div>
                       <button
