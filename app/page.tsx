@@ -7,12 +7,16 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../utils/supabase';
 import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
+import { AppShell } from '../components/layout/AppShell';
+import { useWallet } from '../context/WalletContext';
 
 type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile';
 
 export default function HomePage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
+  const { balance } = useWallet();
+  const [appTab, setAppTab] = useState<'explore' | 'chats' | 'status' | 'profile'>('chats');
 
   // Auth Form State
   const [step, setStep] = useState<Step>('login');
@@ -208,7 +212,9 @@ export default function HomePage() {
   };
 
   if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp') {
-    return <ChatInterface />;
+    return (
+      <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+    );
   }
 
   return (
