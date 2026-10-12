@@ -27,7 +27,7 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
       // Fetch statuses within last 24 hours
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase
-        .from('status_updates')
+        .from('statuses')
         .select(`
           id,
           user_id,
@@ -74,7 +74,7 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
     fetchStatuses();
 
     const channel = supabase.channel('status_updates_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'status_updates' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, () => {
         fetchStatuses();
       })
       .subscribe();
@@ -89,7 +89,7 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
     if (!file || !user) return;
 
     setIsUploading(true);
-    const toastId = toast.loading('Uploading status...');
+    const toastId = toast.loading('Processing Media...');
 
     try {
       const fileExt = file.name.split('.').pop() || 'jpg';
@@ -106,19 +106,44 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
         .from('statuses')
         .getPublicUrl(fileName);
 
-      const { error: insertError } = await supabase
-        .from('status_updates')
+      const { data: insertedData, error: insertError } = await supabase
+        .from('statuses')
         .insert({
           user_id: user.id,
           media_url: publicUrl,
           media_type: isVideo ? 'video' : 'image',
-        });
+        })
+        .select(`
+          id,
+          user_id,
+          media_url,
+          media_type,
+          created_at,
+          profiles:user_id (id, username, avatar_url)
+        `)
+        .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        toast.error(insertError.message || 'Failed to upload status', { id: toastId });
+        throw insertError;
+      }
 
       toast.success('Status uploaded!', { id: toastId });
       // Fetch statuses immediately to update UI optimistically
-      await fetchStatuses();
+      if (insertedData) {
+        setGroupedStatuses((prev) => {
+          const userIndex = prev.findIndex((g) => g.userId === user.id);
+          if (userIndex >= 0) {
+            const newGroups = [...prev];
+            newGroups[userIndex] = { ...newGroups[userIndex], statuses: [...newGroups[userIndex].statuses, insertedData] };
+            newGroups[userIndex].latestUpdate = insertedData.created_at;
+            return newGroups.sort((a, b) => new Date(b.latestUpdate).getTime() - new Date(a.latestUpdate).getTime());
+          }
+          // Fetch full if not existed yet
+          fetchStatuses();
+          return prev;
+        });
+      }
     } catch (error: any) {
       console.error('Failed to upload status:', error);
       toast.error(error.message || 'Failed to upload status', { id: toastId });
