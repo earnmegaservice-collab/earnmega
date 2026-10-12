@@ -3,14 +3,16 @@
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
-import { Store, Coins } from 'lucide-react';
+import { Store, Coins, Bell } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
+const NotificationDrawer = dynamic(() => import("../../components/status/NotificationDrawer"), { ssr: false });
 
 export default function EarnmegaWalletHeader() {
   const { balance, subscriptionTier } = useWallet();
   const [isStoreOpen, setIsStoreOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   const handleTopUp = () => {
     setIsStoreOpen(true);
@@ -19,7 +21,8 @@ export default function EarnmegaWalletHeader() {
   return (
     <>
       <CoinStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
-      <div className="bg-white/5 backdrop-blur-md border-b border-white/10 p-4 shrink-0 flex items-center justify-between text-white font-sans w-full">
+      <NotificationDrawer isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} />
+      <div className="bg-white/5 backdrop-blur-md border-b border-white/10 p-4 shrink-0 flex items-center justify-between text-white font-sans w-full relative z-20">
 
         {/* Balance & Badge Section */}
         <div className="flex flex-col items-start space-y-1.5">
@@ -44,15 +47,25 @@ export default function EarnmegaWalletHeader() {
         </div>
 
         {/* Action Section */}
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          transition={{ type: "spring", stiffness: 200, damping: 20 }}
-          onClick={handleTopUp}
-          className="flex items-center space-x-1.5 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 px-4 py-2 rounded-xl text-sm font-bold shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-gray-900 border border-emerald-400/30"
-        >
-          <Store size={16} />
-          <span>Store</span>
-        </motion.button>
+        <div className="flex items-center space-x-3">
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setIsNotificationsOpen(true)}
+            className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors relative"
+          >
+            <Bell size={18} className="text-white/80" />
+          </motion.button>
+
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 200, damping: 20 }}
+            onClick={handleTopUp}
+            className="flex items-center space-x-1.5 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 px-4 py-2 rounded-xl text-sm font-bold shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-gray-900 border border-emerald-400/30"
+          >
+            <Store size={16} />
+            <span>Store</span>
+          </motion.button>
+        </div>
 
       </div>
     </>
