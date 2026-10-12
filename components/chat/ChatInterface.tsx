@@ -1,6 +1,5 @@
 'use client';
 
-import EarnmegaWalletHeader from "../../components/chat/EarnmegaWalletHeader";
 import React, { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
@@ -154,13 +153,77 @@ const AudioPlayer = ({ src }: { src: string }) => {
   );
 };
 
-export default function ChatInterface() {
+import OnboardingWizard from '../profile/OnboardingWizard';
+import FacialVerification from '../profile/FacialVerification';
+
+import ExploreFeed from '../explore/ExploreFeed';
+import MyProfileView from '../profile/MyProfileView';
+
+export const renderMessageContent = (message: any, currentUserId: string) => {
+  const isMe = message.sender === 'user';
+  const rawContent = message.text || '';
+
+  // Format check for status reply: [REPLY:statusId:mediaPreview] text
+  const replyMatch = rawContent.match(/^\[REPLY:([^:]+):([^\]]+)\]\s*(.*)$/);
+
+  if (replyMatch) {
+    const [, statusId, mediaPreview, actualText] = replyMatch;
+
+    return (
+      <div className={`flex flex-col space-y-1.5 max-w-[80%] ${isMe ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
+        {/* Sleek status thumbnail reply card */}
+        <div className="flex items-center space-x-2.5 p-2 rounded-2xl bg-white/[0.06] border border-white/15 backdrop-blur-2xl shadow-lg">
+          <div className="w-10 h-12 rounded-lg overflow-hidden bg-black/50 border border-white/10 shrink-0">
+            {mediaPreview && mediaPreview.startsWith('http') ? (
+              <img src={mediaPreview} alt="Status thumbnail" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full p-1 bg-gradient-to-tr from-purple-800 to-indigo-900 flex items-center justify-center text-[7px] text-center font-bold text-white overflow-hidden">
+                {mediaPreview ? mediaPreview.slice(0, 15) + '...' : 'Status'}
+              </div>
+            )}
+          </div>
+          <div className="pr-2">
+            <span className="text-[10px] font-bold text-purple-400 block tracking-tight">Status Update</span>
+            <span className="text-[11px] text-white/70 italic">Replying to status</span>
+          </div>
+        </div>
+
+        {/* User response text */}
+        {actualText && (
+          <div className={`px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
+            isMe
+              ? 'bg-blue-600/80 backdrop-blur-xl border border-blue-500/30 text-white rounded-tr-sm shadow-[0_4px_16px_rgba(37,99,235,0.2)]'
+              : 'bg-white/5 backdrop-blur-2xl text-gray-100 border border-white/10 rounded-tl-sm'
+          }`}>
+            {formatText(actualText)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Regular standard chat message processing (handles bold, italic formatting from formatText)
+  return (
+    <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium">
+      {formatText(rawContent)}
+    </div>
+  );
+};
+
+
+import { AppShell } from '../layout/AppShell';
+
+export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'chats' | 'status' | 'profile', setAppTab: (tab: 'explore' | 'chats' | 'status' | 'profile') => void }) {
   const { subscriptionTier, balance } = useWallet();
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
 
+  // Onboarding & Verification states
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [showVerificationGateModal, setShowVerificationGateModal] = useState(false);
+
   // Status State
-  const [activeTab, setActiveTab] = useState<'CHAT' | 'STATUS'>('CHAT');
   const [viewingStatuses, setViewingStatuses] = useState<{ groupId: string, statuses: any[], profile: any } | null>(null);
   const [unlockModalState, setUnlockModalState] = useState<{ isOpen: boolean, creatorId: string, creatorUsername: string } | null>(null);
   const [unlockedStatuses, setUnlockedStatuses] = useState<Set<string>>(new Set());
@@ -185,6 +248,15 @@ export default function ChatInterface() {
     if (!user) return;
     const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     if (!error && data) {
+      if (data.has_completed_onboarding === false) {
+          setNeedsOnboarding(true);
+      }
+
+      // If completed onboarding but not verified
+      if (data.has_completed_onboarding && data.is_verified === false) {
+          setNeedsVerification(true);
+      }
+
       setCurrentUserProfile({
         id: user.id,
         name: data.username || user.email?.split('@')[0] || 'User',
@@ -196,7 +268,9 @@ export default function ChatInterface() {
         isOnline: true,
         coinsGifted: data.coins_gifted || 0,
         isSelf: true,
-      });
+        // Optional verification flag addition, can be useful later
+        isVerified: data.is_verified,
+      } as any);
     } else {
       setCurrentUserProfile({
         id: user.id,
@@ -832,45 +906,41 @@ export default function ChatInterface() {
     }
   };
 
+  if (needsOnboarding) {
+      return <OnboardingWizard onComplete={() => { setNeedsOnboarding(false); fetchCurrentUserProfile(); }} />;
+  }
+
+  if (needsVerification) {
+      return <FacialVerification onComplete={() => { setNeedsVerification(false); fetchCurrentUserProfile(); }} />;
+  }
+
   if (!currentOtherUserProfile) {
     return (
-      <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
-        <div className="relative z-10 flex flex-col h-full">
-          <EarnmegaWalletHeader />
+      <AppShell
+        activeTab={activeTab}
+        setActiveTab={setAppTab}
+        coinBalance={balance}
+        unreadCount={0}
+      >
+        <div className="flex flex-col h-full font-sans text-gray-100 selection:bg-purple-500/30 relative">
+          <div className="relative z-10 flex flex-col h-full">
 
-          <header className="bg-white/5 backdrop-blur-2xl px-4 py-4 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col shrink-0 sticky top-0 z-20 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <button
-                  onClick={() => setIsDrawerOpen(true)}
-                  className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
-                >
-                  <Menu size={20} />
-                </button>
-                <h1 className="text-xl font-extrabold text-white drop-shadow-sm tracking-tight">Earnmega</h1>
-              </div>
-            </div>
+            <main className="flex-1 overflow-y-auto relative z-10">
+              {activeTab === 'explore' && (
+                <ExploreFeed
+                   onStartChat={(u) => {
+                      if ((currentUserProfile as any)?.isVerified === false) {
+                          setShowVerificationGateModal(true);
+                          return;
+                      }
+                      setOtherUserProfile(u);
+                   }}
+                   currentUserProfile={currentUserProfile}
+                />
+              )}
 
-            {/* Tab Switcher */}
-            <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 shadow-inner">
-               <button
-                 onClick={() => setActiveTab('CHAT')}
-                 className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all ${activeTab === 'CHAT' ? 'bg-indigo-600/80 text-white shadow-[0_4px_16px_rgba(79,70,229,0.4)]' : 'text-white/60 hover:text-white'}`}
-               >
-                 Chats
-               </button>
-               <button
-                 onClick={() => setActiveTab('STATUS')}
-                 className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all ${activeTab === 'STATUS' ? 'bg-purple-600/80 text-white shadow-[0_4px_16px_rgba(147,51,234,0.4)]' : 'text-white/60 hover:text-white'}`}
-               >
-                 Status
-               </button>
-            </div>
-          </header>
-
-          <main className="flex-1 overflow-y-auto p-4 relative z-10">
-            {activeTab === 'CHAT' ? (
-              <div className="grid grid-cols-2 gap-4">
+            {activeTab === 'chats' && (
+              <div className="grid grid-cols-2 gap-4 p-4 mt-2">
                 <AnimatePresence>
                 {exploreUsers.map((u, i) => (
                   <motion.div
@@ -903,7 +973,14 @@ export default function ChatInterface() {
 
                     <motion.button
                       whileTap={{ scale: 0.92 }}
-                      onClick={() => setOtherUserProfile(u)}
+                      onClick={() => {
+                        // Check if user is verified
+                        if ((currentUserProfile as any)?.isVerified === false) {
+                            setShowVerificationGateModal(true);
+                            return;
+                        }
+                        setOtherUserProfile(u)
+                      }}
                       className="w-full py-2 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-200 text-xs font-bold rounded-xl transition-colors relative z-10 border border-indigo-400/30 backdrop-blur-sm shadow-[0_0_15px_rgba(99,102,241,0.2)]"
                     >
                       Start Chat
@@ -912,63 +989,162 @@ export default function ChatInterface() {
                 ))}
               </AnimatePresence>
               </div>
-            ) : (
+            )}
+
+            {activeTab === 'status' && (
               <StatusTab onStatusClick={handleStatusClick} currentUserProfile={currentUserProfile} />
+            )}
+
+            {activeTab === 'profile' && currentUserProfile && (
+              <MyProfileView
+                profile={currentUserProfile}
+                onEditClick={() => {
+                  setIsDrawerOpen(true);
+                }}
+              />
             )}
           </main>
 
           {/* Status Viewer */}
-          {viewingStatuses && (user?.id === viewingStatuses.groupId || unlockedStatuses.has(viewingStatuses.groupId)) && (
+          {viewingStatuses && (
             <StatusViewer
-              statuses={viewingStatuses.statuses}
-              creatorProfile={viewingStatuses.profile}
+              status={{
+                id: viewingStatuses.statuses[0].id,
+                userId: viewingStatuses.profile.id,
+                username: viewingStatuses.profile.username,
+                avatarUrl: viewingStatuses.profile.avatar_url,
+                mediaUrl: viewingStatuses.statuses[0].media_url,
+                mediaType: viewingStatuses.statuses[0].media_type,
+                textContent: viewingStatuses.statuses[0].text_content,
+                viewsCount: 0,
+                isUnlocked: user?.id === viewingStatuses.groupId || unlockedStatuses.has(viewingStatuses.groupId),
+                isOwner: user?.id === viewingStatuses.groupId
+              }}
               onClose={() => setViewingStatuses(null)}
-              hasUnlocked={true}
-              onUnlockRequired={() => {}}
+              onUnlock={async (statusId) => {
+                 try {
+                     const { error } = await supabase.rpc('transfer_coins', {
+                        receiver_id: viewingStatuses.groupId,
+                        gift_cost: 10,
+                        gift_name: 'Status Unlock'
+                     });
+
+                     if (error) throw error;
+
+                     // Record unlock in DB or state
+                     setUnlockedStatuses(prev => new Set(prev).add(viewingStatuses.groupId));
+
+                     // Trigger notification to creator via realtime
+                     supabase.channel('chat-events').send({
+                         type: 'broadcast',
+                         event: 'status_unlocked',
+                         payload: { viewerId: user?.id, creatorId: viewingStatuses.groupId }
+                     });
+
+                     toast.success("Unlocked successfully!");
+                     return true;
+                 } catch (err: any) {
+                     toast.error(err.message || 'Failed to unlock');
+                     return false;
+                 }
+              }}
+              onSendReply={async (statusId, text, mediaPreview) => {
+                 if (!user) return;
+                 const finalContent = `[REPLY:${statusId}:${mediaPreview}] ${text}`;
+                 const msgId = uuidv4();
+
+                 // Optimistic UI update could be handled here or by just letting standard chat sync
+                 await supabase.from('messages').insert({
+                    id: msgId,
+                    sender_id: user.id,
+                    receiver_id: viewingStatuses.groupId,
+                    content: finalContent,
+                    status: 'sent'
+                 });
+
+                 supabase.channel('chat-events').send({
+                    type: 'broadcast',
+                    event: 'new_message',
+                    payload: { messageId: msgId, senderId: user.id, receiverId: viewingStatuses.groupId }
+                 });
+
+                 toast.success("Reply sent!");
+                 setViewingStatuses(null); // Close viewer after reply
+              }}
+              onSendLike={async (statusId) => {
+                 if (!user) return;
+                 const msgId = uuidv4();
+                 await supabase.from('messages').insert({
+                    id: msgId,
+                    sender_id: user.id,
+                    receiver_id: viewingStatuses.groupId,
+                    content: `[STATUS_LIKE]\n\nLiked your status`,
+                    status: 'sent'
+                 });
+
+                 supabase.channel('chat-events').send({
+                    type: 'broadcast',
+                    event: 'new_message',
+                    payload: { messageId: msgId, senderId: user.id, receiverId: viewingStatuses.groupId }
+                 });
+              }}
+              userCoins={balance}
             />
           )}
 
-          {/* Unlock Modal */}
-          {unlockModalState && unlockModalState.isOpen && (
-            <UnlockModal
-               isOpen={unlockModalState.isOpen}
-               onClose={() => {
-                 setUnlockModalState(null);
-                 setViewingStatuses(null);
-               }}
-               creatorId={unlockModalState.creatorId}
-               creatorUsername={unlockModalState.creatorUsername}
-               onSuccess={() => {
-                 setUnlockedStatuses(prev => new Set(prev).add(unlockModalState.creatorId));
-                 setUnlockModalState(null);
-                 // viewingStatuses is already set, so StatusViewer will now render
-               }}
-               onOpenStore={() => {
-                 setUnlockModalState(null);
-                 setStoreTab('BUY_COINS');
-                 setIsStoreOpen(true);
-               }}
+            <NavigationDrawer
+              isOpen={isDrawerOpen}
+              onClose={() => setIsDrawerOpen(false)}
+              onSelectUser={setOtherUserProfile}
+              onProfileUpdated={fetchCurrentUserProfile}
             />
-          )}
-
-          <NavigationDrawer
-            isOpen={isDrawerOpen}
-            onClose={() => setIsDrawerOpen(false)}
-            onSelectUser={setOtherUserProfile}
-            onProfileUpdated={fetchCurrentUserProfile}
-          />
-          <CoinStoreModal
-            isOpen={isStoreOpen}
-            onClose={() => setIsStoreOpen(false)}
-            initialTab={storeTab}
-          />
+            <CoinStoreModal
+              isOpen={isStoreOpen}
+              onClose={() => setIsStoreOpen(false)}
+              initialTab={storeTab}
+            />
+          </div>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
   return (
     <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
+      {/* Verification Gate Modal */}
+      <AnimatePresence>
+          {showVerificationGateModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+               <motion.div
+                 initial={{ scale: 0.9, opacity: 0 }}
+                 animate={{ scale: 1, opacity: 1 }}
+                 exit={{ scale: 0.9, opacity: 0 }}
+                 className="bg-white/5 backdrop-blur-3xl border border-white/20 p-8 rounded-3xl shadow-2xl max-w-sm text-center relative"
+               >
+                  <button onClick={() => setShowVerificationGateModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+                     <X size={20} />
+                  </button>
+                  <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/50">
+                     <Camera size={32} className="text-red-500" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">Security Check</h3>
+                  <p className="text-gray-400 mb-6">Verify your face to unlock messaging and ensure community safety.</p>
+
+                  <motion.button
+                     whileTap={{ scale: 0.95 }}
+                     onClick={() => {
+                         setShowVerificationGateModal(false);
+                         setNeedsVerification(true);
+                     }}
+                     className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl shadow-lg transition-colors"
+                  >
+                     Verify Now
+                  </motion.button>
+               </motion.div>
+            </div>
+          )}
+      </AnimatePresence>
+
       {/* Tier Lock Modal */}
       <AnimatePresence>
         {isTierLockModalOpen && (
@@ -1125,18 +1301,17 @@ export default function ChatInterface() {
       </AnimatePresence>
 
       {/* Header */}
-      <EarnmegaWalletHeader />
-      <header className="bg-white/5 backdrop-blur-2xl px-4 py-3.5 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex items-center shrink-0 sticky top-0 z-20">
+      <header className="bg-black/60 backdrop-blur-2xl px-4 py-3 border-b border-white/[0.08] flex items-center shrink-0 sticky top-0 z-20">
         <button
-          onClick={() => setIsDrawerOpen(true)}
+          onClick={() => setOtherUserProfile(null)}
           className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
         >
-          <Menu size={20} />
+          <X size={20} />
         </button>
 
         <div
           onClick={() => openProfile(currentOtherUserProfile)}
-          className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer border border-white/20"
+          className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer border border-white/20"
         >
            {currentOtherUserProfile.avatarUrl ? (
              <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />
@@ -1361,11 +1536,9 @@ export default function ChatInterface() {
                         <AudioPlayer src={message.audioUrl} />
                       </div>
                     )}
-                    {message.text && (
-                      <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium">
-                        {formatText(message.text)}
-                      </p>
-                    )}
+
+                    {/* Render message text natively with our new function */}
+                    {message.text && renderMessageContent(message, user?.id || '')}
 
                     {/* Meta Row (Time & Status) */}
                     <div
