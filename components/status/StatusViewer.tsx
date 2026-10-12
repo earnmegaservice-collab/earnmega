@@ -79,6 +79,8 @@ export default function StatusViewer({
     await onSendReply(status.id, textToSend, status.mediaUrl || status.textContent);
   };
 
+  const isVideoUrl = status.mediaUrl?.match(/\.(mp4|mov|webm)$/i) || status.mediaType === 'video';
+
   return (
     <div className="fixed inset-0 w-screen h-screen z-[100] bg-black flex flex-col justify-between overflow-hidden select-none">
       {/* 1. TOP OVERLAY BAR */}
@@ -116,7 +118,7 @@ export default function StatusViewer({
         onDoubleClick={handleDoubleTap}
         className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden cursor-pointer"
       >
-        {status.mediaType === 'image' && status.mediaUrl && (
+        {!isVideoUrl && status.mediaType === 'image' && status.mediaUrl && (
           <img
             src={status.mediaUrl}
             alt="Status media"
@@ -126,7 +128,7 @@ export default function StatusViewer({
           />
         )}
 
-        {status.mediaType === 'video' && status.mediaUrl && (
+        {isVideoUrl && status.mediaUrl && (
           <video
             src={status.mediaUrl}
             className={`w-full h-full object-cover transition-all duration-700 ${
@@ -134,6 +136,7 @@ export default function StatusViewer({
             }`}
             autoPlay
             playsInline
+            muted
             loop={isUnlocked}
           />
         )}
