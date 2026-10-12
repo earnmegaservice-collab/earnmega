@@ -168,16 +168,18 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-3xl">
           <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-4xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]"
+            initial={{ scale: 0.95, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 20 }}
+            transition={{ type: 'spring', damping: 20, stiffness: 200 }}
+            className="bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl w-full max-w-4xl p-8 shadow-[0_0_40px_rgba(138,43,226,0.15)] overflow-y-auto max-h-[90vh]"
           >
             <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Earnmega Store</h2>
+          <h2 className="text-3xl tracking-wide font-extrabold text-white flex items-center drop-shadow-md">
+            <span className="mr-3 text-4xl drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">🏪</span> Earnmega Store
+          </h2>
           <div className="flex items-center space-x-4">
             <div className="relative">
               <button

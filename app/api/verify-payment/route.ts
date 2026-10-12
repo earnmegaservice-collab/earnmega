@@ -47,19 +47,23 @@ export async function POST(request: Request) {
     }
 
     // 3. Update Supabase
+    // We need to fetch the user's ID first from the email to update profiles table if we only have email
+    // Or we can just get user.id from the authenticated user
+    const userId = user.id;
+
     if (type === 'UPGRADE') {
       const { error } = await supabase
-        .from('users')
+        .from('profiles')
         .update({ subscription_tier: payload })
-        .eq('email', secureEmail);
+        .eq('id', userId);
 
       if (error) throw error;
     } else if (type === 'COIN') {
       // Fetch the current balance securely from the database
       const { data: userData, error: fetchError } = await supabase
-        .from('users')
-        .select('balance')
-        .eq('email', secureEmail)
+        .from('profiles')
+        .select('coins')
+        .eq('id', userId)
         .single();
 
       if (fetchError) {
@@ -68,14 +72,14 @@ export async function POST(request: Request) {
         // Let's assume the user exists, but we handle it gracefully if it fails:
       }
 
-      const currentBalance = userData?.balance || 0;
+      const currentBalance = userData?.coins || 0;
       // payload is the amount of coins purchased
       const newBalance = currentBalance + parseInt(payload);
 
       const { error } = await supabase
-        .from('users')
-        .update({ balance: newBalance })
-        .eq('email', secureEmail);
+        .from('profiles')
+        .update({ coins: newBalance })
+        .eq('id', userId);
 
       if (error) throw error;
     }

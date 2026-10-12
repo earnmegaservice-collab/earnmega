@@ -24,9 +24,9 @@ export default function EarnmegaWalletHeader() {
         {/* Balance & Badge Section */}
         <div className="flex flex-col items-start space-y-1.5">
           <div className="flex items-center space-x-2">
-            <Coins className="text-yellow-400" size={24} />
-            <span className="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 to-amber-600">
-              {balance.toLocaleString()} <span className="text-sm font-semibold text-gray-400">Coins</span>
+            <Coins className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]" size={24} />
+            <span className="text-xl font-extrabold tracking-[0.05em] bg-clip-text text-transparent bg-gradient-to-r from-yellow-300 via-yellow-400 to-amber-500 drop-shadow-[0_0_10px_rgba(251,191,36,0.3)]">
+              {balance.toLocaleString()} <span className="text-sm font-semibold text-gray-300 tracking-normal drop-shadow-none">Coins</span>
             </span>
           </div>
 
@@ -46,8 +46,9 @@ export default function EarnmegaWalletHeader() {
         {/* Action Section */}
         <motion.button
           whileTap={{ scale: 0.95 }}
+          transition={{ type: "spring", stiffness: 200, damping: 20 }}
           onClick={handleTopUp}
-          className="flex items-center space-x-1.5 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-emerald-900/20 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+          className="flex items-center space-x-1.5 bg-gradient-to-br from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 px-4 py-2 rounded-xl text-sm font-bold shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-gray-900 border border-emerald-400/30"
         >
           <Store size={16} />
           <span>Store</span>

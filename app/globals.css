@@ -5,6 +5,8 @@ body {
   padding: 0;
   color: #fff;
   background-color: #050505;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @keyframes cinematic-breath {
@@ -26,9 +28,9 @@ body {
 }
 
 .cinematic-bg {
-  background: radial-gradient(circle at 20% 30%, rgba(76, 29, 149, 0.4) 0%, transparent 50%),
-              radial-gradient(circle at 80% 80%, rgba(217, 119, 6, 0.3) 0%, transparent 50%),
-              radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 1) 0%, rgba(0, 0, 0, 1) 100%);
+  background: radial-gradient(circle at 20% 30%, rgba(138, 43, 226, 0.4) 0%, transparent 50%),
+              radial-gradient(circle at 80% 80%, rgba(76, 29, 149, 0.3) 0%, transparent 50%),
+              radial-gradient(circle at 50% 50%, rgba(5, 5, 5, 1) 0%, rgba(0, 0, 0, 1) 100%);
   background-size: 300% 300%;
   animation: cinematic-breath 20s ease-in-out infinite alternate;
 }
