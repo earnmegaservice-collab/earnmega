@@ -9,28 +9,20 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-@keyframes cinematic-breath {
-  0% {
-    background-position: 0% 50%;
-    filter: hue-rotate(0deg) brightness(1);
-    transform: scale(1);
-  }
-  50% {
-    background-position: 100% 50%;
-    filter: hue-rotate(15deg) brightness(1.2);
-    transform: scale(1.05);
-  }
-  100% {
-    background-position: 0% 50%;
-    filter: hue-rotate(0deg) brightness(1);
-    transform: scale(1);
-  }
+@keyframes cinematic-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .cinematic-bg {
-  background: radial-gradient(circle at 20% 30%, rgba(138, 43, 226, 0.4) 0%, transparent 50%),
-              radial-gradient(circle at 80% 80%, rgba(76, 29, 149, 0.3) 0%, transparent 50%),
-              radial-gradient(circle at 50% 50%, rgba(5, 5, 5, 1) 0%, rgba(0, 0, 0, 1) 100%);
-  background-size: 300% 300%;
-  animation: cinematic-breath 20s ease-in-out infinite alternate;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -999;
+  background: linear-gradient(-45deg, #09090b, #1a0b2e, #09090b, #2d1b4e);
+  background-size: 400% 400%;
+  animation: cinematic-flow 15s ease infinite;
 }

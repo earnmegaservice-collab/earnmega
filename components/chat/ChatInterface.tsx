@@ -57,7 +57,9 @@ const AudioPlayer = ({ src }: { src: string }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [durationStr, setDurationStr] = useState('Voice Note');
+  const [currentStr, setCurrentStr] = useState('0:00');
   const audioRef = useRef<HTMLAudioElement>(null);
+  const sliderRef = useRef<HTMLDivElement>(null);
 
   const formatDuration = (seconds: number) => {
     if (!isFinite(seconds)) return '0:00';
@@ -83,6 +85,7 @@ const AudioPlayer = ({ src }: { src: string }) => {
       const current = audioRef.current.currentTime;
       const total = audioRef.current.duration;
       setProgress((current / total) * 100);
+      setCurrentStr(formatDuration(current));
     }
   };
 
@@ -95,10 +98,23 @@ const AudioPlayer = ({ src }: { src: string }) => {
   const handleEnded = () => {
     setIsPlaying(false);
     setProgress(0);
+    setCurrentStr('0:00');
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (audioRef.current && sliderRef.current) {
+      const rect = sliderRef.current.getBoundingClientRect();
+      const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      const percentage = x / rect.width;
+      const newTime = percentage * audioRef.current.duration;
+      audioRef.current.currentTime = newTime;
+      setProgress(percentage * 100);
+    }
   };
 
   return (
-    <div className="flex items-center space-x-3 w-[200px] bg-black/20 rounded-xl p-2" onClick={e => e.stopPropagation()}>
+    <div className="flex items-center space-x-3 w-[220px] bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-2.5 shadow-lg" onClick={e => e.stopPropagation()}>
       <audio
         ref={audioRef}
         src={src}
@@ -107,20 +123,27 @@ const AudioPlayer = ({ src }: { src: string }) => {
         onEnded={handleEnded}
         className="hidden"
       />
-      <button
+      <motion.button
+        whileTap={{ scale: 0.9 }}
         onClick={togglePlay}
-        className="w-10 h-10 shrink-0 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-colors text-white"
+        className="w-10 h-10 shrink-0 bg-gradient-to-br from-indigo-500/80 to-purple-600/80 hover:from-indigo-400 hover:to-purple-500 rounded-full flex items-center justify-center transition-colors text-white shadow-md shadow-purple-500/20"
       >
         {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-1" />}
-      </button>
-      <div className="flex-1">
-        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-1 relative">
+      </motion.button>
+      <div className="flex-1 flex flex-col justify-center">
+        <div
+          ref={sliderRef}
+          className="h-2 bg-black/40 rounded-full overflow-hidden mb-1.5 relative cursor-pointer group"
+          onClick={handleSeek}
+        >
           <motion.div
-            className="h-full bg-blue-400 absolute left-0 top-0"
+            className="h-full bg-gradient-to-r from-indigo-400 to-purple-400 absolute left-0 top-0 shadow-[0_0_10px_rgba(167,139,250,0.5)] rounded-full"
             style={{ width: `${progress}%` }}
+            layout
           />
         </div>
-        <div className="flex justify-between items-center text-[10px] text-white/60 font-medium">
+        <div className="flex justify-between items-center text-[10px] text-white/70 font-bold tracking-wider">
+          <span>{currentStr}</span>
           <span>{durationStr}</span>
         </div>
       </div>
@@ -777,21 +800,25 @@ export default function ChatInterface() {
   const renderStatus = (status?: 'sent' | 'delivered' | 'read') => {
     if (!status) return null;
     return (
-      <span className="ml-1 flex items-center shrink-0">
-        {status === 'sent' && <Check size={14} className="text-gray-400" />}
-        {status === 'delivered' && <CheckCheck size={14} className="text-gray-400" />}
-        {status === 'read' && <CheckCheck size={14} className="text-blue-400" />}
-      </span>
+      <motion.span
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+        className="ml-1 flex items-center shrink-0"
+      >
+        {status === 'sent' && <Check size={14} className="text-white/40 drop-shadow-sm" />}
+        {status === 'delivered' && <CheckCheck size={14} className="text-white/60 drop-shadow-sm" />}
+        {status === 'read' && <CheckCheck size={14} className="text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]" />}
+      </motion.span>
     );
   };
 
   if (!currentOtherUserProfile) {
     return (
       <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
-        <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
         <div className="relative z-10 flex flex-col h-full">
           <EarnmegaWalletHeader />
-          <header className="bg-white/5 backdrop-blur-2xl px-4 py-4 border-b border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.1)] flex items-center shrink-0 sticky top-0 z-20">
+          <header className="bg-white/5 backdrop-blur-2xl px-4 py-4 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex items-center shrink-0 sticky top-0 z-20">
             <button
               onClick={() => setIsDrawerOpen(true)}
               className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
@@ -863,7 +890,6 @@ export default function ChatInterface() {
 
   return (
     <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
-      <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
       {/* Tier Lock Modal */}
       <AnimatePresence>
         {isTierLockModalOpen && (
@@ -996,7 +1022,7 @@ export default function ChatInterface() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setLightboxImage(null)}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl p-4 cursor-zoom-out"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-3xl p-4 cursor-zoom-out"
           >
             <button
               onClick={() => setLightboxImage(null)}
@@ -1005,13 +1031,14 @@ export default function ChatInterface() {
               <X size={20} />
             </button>
             <motion.img
+              layoutId={`image-${lightboxImage}`}
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               src={lightboxImage}
               alt="Fullscreen media"
-              className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+              className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl border border-white/10"
               onClick={e => e.stopPropagation()}
             />
           </motion.div>
@@ -1020,7 +1047,7 @@ export default function ChatInterface() {
 
       {/* Header */}
       <EarnmegaWalletHeader />
-      <header className="bg-white/5 backdrop-blur-2xl px-4 py-3.5 border-b border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.1)] flex items-center shrink-0 sticky top-0 z-20">
+      <header className="bg-white/5 backdrop-blur-2xl px-4 py-3.5 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex items-center shrink-0 sticky top-0 z-20">
         <button
           onClick={() => setIsDrawerOpen(true)}
           className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
@@ -1039,7 +1066,27 @@ export default function ChatInterface() {
            )}
         </div>
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(currentOtherUserProfile)}>
-          <h1 className="text-base font-bold text-white leading-tight truncate drop-shadow-sm">{currentOtherUserProfile.name}</h1>
+          <div className="flex items-center">
+            <h1 className="text-base font-bold text-white leading-tight truncate drop-shadow-sm mr-2">{currentOtherUserProfile.name}</h1>
+            {currentOtherUserProfile.tier === 'PREMIUM' && (
+               <motion.span
+                 animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
+                 transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                 className="px-1.5 py-0.5 rounded-sm text-[8px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_10px_rgba(250,204,21,0.5)] border border-yellow-400/50"
+               >
+                 PREMIUM
+               </motion.span>
+            )}
+            {currentOtherUserProfile.tier === 'PRO' && (
+               <motion.span
+                 animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
+                 transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                 className="px-1.5 py-0.5 rounded-sm text-[8px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_10px_rgba(96,165,250,0.5)] border border-blue-400/50"
+               >
+                 PRO
+               </motion.span>
+            )}
+          </div>
           {currentOtherUserProfile.isOnline ? (
             <div className="flex items-center space-x-1.5">
                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
@@ -1074,15 +1121,23 @@ export default function ChatInterface() {
             >
               {/* Sender Name and Badge (Pro/Premium) */}
               <div className={`flex items-center space-x-1.5 mb-1 ${isUser ? 'mr-1' : 'ml-9'}`}>
-                {isUser && subscriptionTier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
-                {isUser && subscriptionTier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
+                {isUser && subscriptionTier === 'PREMIUM' && (
+                   <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(250,204,21,0.5)] border border-yellow-400/50">PREMIUM</motion.span>
+                )}
+                {isUser && subscriptionTier === 'PRO' && (
+                   <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_5px_rgba(96,165,250,0.5)] border border-blue-400/50">PRO</motion.span>
+                )}
 
-                <span className="text-xs font-medium text-gray-400">
+                <span className="text-xs font-bold text-white/70 drop-shadow-sm">
                   {isUser && currentUserProfile ? currentUserProfile.name : currentOtherUserProfile.name}
                 </span>
 
-                {!isUser && currentOtherUserProfile.tier === 'PREMIUM' && <span className="text-[10px] font-bold text-yellow-500 uppercase">Premium</span>}
-                {!isUser && currentOtherUserProfile.tier === 'PRO' && <span className="text-[10px] font-bold text-blue-400 uppercase">Pro</span>}
+                {!isUser && currentOtherUserProfile.tier === 'PREMIUM' && (
+                   <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(250,204,21,0.5)] border border-yellow-400/50">PREMIUM</motion.span>
+                )}
+                {!isUser && currentOtherUserProfile.tier === 'PRO' && (
+                   <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_5px_rgba(96,165,250,0.5)] border border-blue-400/50">PRO</motion.span>
+                )}
               </div>
 
               {/* Message Bubble Row */}
@@ -1092,21 +1147,21 @@ export default function ChatInterface() {
                 {!isUser && (
                   <div
                     onClick={() => openProfile(currentOtherUserProfile)}
-                    className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors"
+                    className="w-6 h-6 rounded-full bg-white/5 backdrop-blur-md flex items-center justify-center shrink-0 mb-1 border border-white/20 cursor-pointer hover:border-white/40 transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
                   >
-                    <span className="text-[10px] text-gray-400">{currentOtherUserProfile.avatarInitials}</span>
+                    <span className="text-[10px] text-white/70 font-bold">{currentOtherUserProfile.avatarInitials}</span>
                   </div>
                 )}
 
                 {isUser && currentUserProfile && (
                   <div
                     onClick={() => openProfile(currentUserProfile)}
-                    className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center shrink-0 mb-1 border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors order-last ml-2"
+                    className="w-6 h-6 rounded-full bg-white/5 backdrop-blur-md flex items-center justify-center shrink-0 mb-1 border border-white/20 cursor-pointer hover:border-white/40 transition-colors order-last ml-2 shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
                   >
                     {currentUserProfile.avatarUrl ? (
                       <img src={currentUserProfile.avatarUrl} alt="Avatar" className="w-full h-full rounded-full object-cover" />
                     ) : (
-                      <span className="text-[10px] text-gray-400">{currentUserProfile.avatarInitials}</span>
+                      <span className="text-[10px] text-white/70 font-bold">{currentUserProfile.avatarInitials}</span>
                     )}
                   </div>
                 )}
@@ -1126,14 +1181,14 @@ export default function ChatInterface() {
                   {/* Reaction Tray (Popover) */}
                   {isTrayOpen && (
                     <div
-                      className={`absolute bottom-full mb-2 ${isUser ? 'right-0' : 'left-0'} z-30 flex items-center space-x-1 p-1.5 bg-gray-800 border border-gray-700 rounded-full shadow-xl`}
+                      className={`absolute bottom-full mb-2 ${isUser ? 'right-0' : 'left-0'} z-30 flex items-center space-x-1 p-1.5 bg-white/10 backdrop-blur-3xl border border-white/20 rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.5)]`}
                       onClick={(e) => e.stopPropagation()}
                     >
                       {DEFAULT_EMOJIS.map(emoji => (
                         <button
                           key={emoji}
                           onClick={(e) => handleReaction(message.id, emoji, e)}
-                          className="w-8 h-8 flex items-center justify-center hover:bg-gray-700 rounded-full hover:scale-110 transition-transform focus:outline-none"
+                          className="w-8 h-8 flex items-center justify-center hover:bg-white/20 rounded-full hover:scale-110 transition-transform focus:outline-none"
                         >
                           {emoji}
                         </button>
@@ -1174,8 +1229,8 @@ export default function ChatInterface() {
                     }}
                     className={`px-4 py-2.5 relative transition-all duration-200 cursor-pointer ${
                       isUser
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white rounded-2xl rounded-tr-sm shadow-sm'
-                        : 'bg-gray-800 hover:bg-gray-700 text-gray-100 border border-gray-700 shadow-sm rounded-2xl rounded-tl-sm'
+                        ? 'bg-blue-600/80 hover:bg-blue-700/80 backdrop-blur-xl border border-blue-500/30 text-white rounded-2xl rounded-tr-sm shadow-[0_4px_16px_rgba(37,99,235,0.2)]'
+                        : 'bg-white/5 hover:bg-white/10 backdrop-blur-2xl text-gray-100 border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.3)] rounded-2xl rounded-tl-sm'
                     } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
 
@@ -1189,10 +1244,10 @@ export default function ChatInterface() {
                           className={`absolute bottom-full mb-1 ${isUser ? 'right-0' : 'left-0'} z-50`}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden flex flex-col py-1 min-w-[140px]">
+                          <div className="bg-white/10 backdrop-blur-3xl border border-white/20 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col py-1 min-w-[140px]">
                             <button
                                onClick={() => handleDeleteMessage(message.id)}
-                               className="px-4 py-2 text-sm text-red-500 hover:bg-gray-700/50 flex items-center justify-between transition-colors w-full"
+                               className="px-4 py-2 text-sm font-bold text-red-400 hover:bg-white/10 flex items-center justify-between transition-colors w-full"
                             >
                                <span>Unsend</span>
                             </button>
@@ -1201,19 +1256,20 @@ export default function ChatInterface() {
                       )}
                     </AnimatePresence>
                     {message.replyToText && (
-                      <div className={`mb-2 p-2 rounded-lg text-sm border-l-4 ${isUser ? 'bg-blue-800/50 border-blue-400 text-blue-100' : 'bg-gray-900/50 border-gray-500 text-gray-300'}`}>
-                         <span className="font-bold text-xs opacity-75 mb-1 block">
+                      <div className={`mb-2 p-2 rounded-lg text-sm border-l-2 backdrop-blur-md shadow-inner ${isUser ? 'bg-white/10 border-blue-300 text-blue-50' : 'bg-black/20 border-white/30 text-gray-200'}`}>
+                         <span className="font-bold text-[10px] uppercase tracking-wider opacity-75 mb-0.5 block">
                            {message.replyToSender === 'user' ? (currentUserProfile?.name || 'You') : (currentOtherUserProfile?.name || 'User')}
                          </span>
-                         <span className="line-clamp-2">{message.replyToText}</span>
+                         <span className="line-clamp-2 text-xs italic">{message.replyToText}</span>
                       </div>
                     )}
                     {message.imageUrl && (
                       <div
-                        className="mb-1.5 relative overflow-hidden rounded-xl border border-white/10 cursor-zoom-in group"
+                        className="mb-1.5 relative overflow-hidden rounded-xl border border-white/10 cursor-zoom-in group bg-white/5 backdrop-blur-2xl"
                         onClick={(e) => { e.stopPropagation(); setLightboxImage(message.imageUrl!); }}
                       >
-                        <img
+                        <motion.img
+                          layoutId={`image-${message.imageUrl}`}
                           src={message.imageUrl}
                           alt="Uploaded media"
                           className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
@@ -1245,9 +1301,9 @@ export default function ChatInterface() {
 
                   {/* Active Reactions Display */}
                   {message.reactions.length > 0 && (
-                     <div className={`absolute -bottom-3.5 ${isUser ? 'right-2' : 'left-2'} z-10 flex items-center bg-gray-800 border border-gray-700 rounded-full px-1.5 py-0.5 shadow-sm`}>
+                     <div className={`absolute -bottom-3.5 ${isUser ? 'right-2' : 'left-2'} z-10 flex items-center bg-white/10 backdrop-blur-xl border border-white/20 rounded-full px-1.5 py-0.5 shadow-[0_4px_16px_rgba(0,0,0,0.3)]`}>
                        {message.reactions.map((r, i) => (
-                         <span key={i} className="text-[11px] leading-none">{r}</span>
+                         <span key={i} className="text-[11px] leading-none drop-shadow-md">{r}</span>
                        ))}
                      </div>
                   )}
@@ -1260,14 +1316,14 @@ export default function ChatInterface() {
       </main>
 
       {/* Input Area */}
-      <footer className="bg-gray-900 border-t border-gray-800 p-3 pb-safe shrink-0 flex flex-col">
+      <footer className="bg-white/5 backdrop-blur-2xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] p-3 pb-safe shrink-0 flex flex-col">
         <AnimatePresence>
           {replyingTo && (
             <motion.div
               initial={{ opacity: 0, y: 10, height: 0 }}
               animate={{ opacity: 1, y: 0, height: 'auto' }}
               exit={{ opacity: 0, y: 10, height: 0 }}
-              className="bg-gray-800/80 backdrop-blur-md border border-gray-700 rounded-t-2xl px-4 py-2 flex items-center justify-between mb-2 shadow-lg"
+              className="bg-white/5 backdrop-blur-3xl border border-white/20 rounded-t-2xl px-4 py-2 flex items-center justify-between mb-2 shadow-[0_8px_32px_rgba(0,0,0,0.5)]"
             >
                <div className="flex flex-col flex-1 truncate pr-4">
                  <span className="text-xs font-bold text-blue-400 mb-0.5">
@@ -1283,7 +1339,7 @@ export default function ChatInterface() {
         </AnimatePresence>
         <form
           onSubmit={handleSendMessage}
-          className="flex items-end bg-gray-800 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-gray-700 transition-shadow shadow-inner relative z-10"
+          className="flex items-end bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-white/20 transition-shadow shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative z-10"
         >
           <textarea
             value={inputValue}
