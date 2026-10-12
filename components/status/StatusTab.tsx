@@ -117,7 +117,8 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
       if (insertError) throw insertError;
 
       toast.success('Status uploaded!', { id: toastId });
-      // Real-time will handle the refresh
+      // Fetch statuses immediately to update UI optimistically
+      await fetchStatuses();
     } catch (error: any) {
       console.error('Failed to upload status:', error);
       toast.error(error.message || 'Failed to upload status', { id: toastId });
@@ -136,7 +137,11 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
       <motion.div
         whileTap={{ scale: 0.95 }}
         onClick={() => {
-          if (!isUploading) fileInputRef.current?.click();
+          if (myStatusGroup?.statuses?.length > 0) {
+            onStatusClick(myStatusGroup.userId, myStatusGroup.statuses, myStatusGroup.profile);
+          } else {
+            if (!isUploading) fileInputRef.current?.click();
+          }
         }}
         className="relative bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 flex flex-col items-center justify-center shadow-[0_4px_24px_rgba(0,0,0,0.2)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:bg-white/10 transition-all cursor-pointer group aspect-[3/4] overflow-hidden"
       >
@@ -147,7 +152,15 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
           <img src={myStatusGroup.statuses[myStatusGroup.statuses.length - 1].media_url} className="absolute inset-0 w-full h-full object-cover opacity-50" alt="My Status" />
         ) : null}
 
-        <div className="relative z-10 w-14 h-14 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 border-2 border-white/20 group-hover:scale-105 transition-transform">
+        <div
+          className="relative z-10 w-14 h-14 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 border-2 border-white/20 group-hover:scale-105 transition-transform"
+          onClick={(e) => {
+            if (myStatusGroup?.statuses?.length > 0) {
+              e.stopPropagation(); // prevent opening viewer when clicking plus to add more
+              if (!isUploading) fileInputRef.current?.click();
+            }
+          }}
+        >
           {isUploading ? (
             <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
           ) : (
@@ -155,7 +168,9 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
           )}
         </div>
         <h3 className="text-sm font-bold text-white relative z-10 drop-shadow-sm">My Status</h3>
-        <p className="text-[10px] text-white/60 relative z-10 font-medium mt-1">Tap to add update</p>
+        <p className="text-[10px] text-white/60 relative z-10 font-medium mt-1">
+          {myStatusGroup?.statuses?.length > 0 ? 'Tap to view' : 'Tap to add update'}
+        </p>
 
         <input
           type="file"
@@ -168,6 +183,20 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
 
       {/* Other Users' Statuses */}
       <AnimatePresence>
+        {!isLoading && otherStatusGroups.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="col-span-2 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 flex flex-col items-center justify-center shadow-[0_4px_24px_rgba(0,0,0,0.2)] aspect-[3/4]"
+          >
+            <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center mb-3">
+              <Play size={20} className="text-white/40 ml-1" />
+            </div>
+            <h3 className="text-sm font-bold text-white relative z-10 drop-shadow-sm mb-1">No Updates</h3>
+            <p className="text-[10px] text-white/60 relative z-10 font-medium text-center px-2">Check back later for updates from your network</p>
+          </motion.div>
+        )}
         {!isLoading && otherStatusGroups.map((group, i) => (
           <motion.div
             key={group.userId}
