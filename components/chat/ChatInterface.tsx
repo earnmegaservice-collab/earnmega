@@ -157,6 +157,7 @@ import OnboardingWizard from '../profile/OnboardingWizard';
 import FacialVerification from '../profile/FacialVerification';
 
 import ExploreFeed from '../explore/ExploreFeed';
+import DiscoveryContainer from '../explore/DiscoveryContainer';
 import MyProfileView from '../profile/MyProfileView';
 
 export const renderMessageContent = (message: any, currentUserId: string) => {
@@ -213,7 +214,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
 
 import { AppShell } from '../layout/AppShell';
 
-export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'chats' | 'status' | 'profile', setAppTab: (tab: 'explore' | 'chats' | 'status' | 'profile') => void }) {
+export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile', setAppTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile') => void }) {
   const { subscriptionTier, balance } = useWallet();
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
@@ -1019,6 +1020,16 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                    currentUserProfile={currentUserProfile}
                 />
               )}
+
+                        {activeTab === 'find' && (
+              <DiscoveryContainer
+                onStartChat={(u) => {
+                  setSelectedProfile(u);
+                  setAppTab('chats');
+                  setIsDrawerOpen(false);
+                }}
+              />
+            )}
 
             {activeTab === 'chats' && (
               <div className="grid grid-cols-2 gap-4 p-4 mt-2">
