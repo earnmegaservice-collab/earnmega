@@ -8,7 +8,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store, Users, Video, Phone } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -18,6 +18,8 @@ const NavigationDrawer = dynamic(() => import("../../components/chat/NavigationD
 const StatusTab = dynamic(() => import("../../components/status/StatusTab"), { ssr: false });
 const StatusViewer = dynamic(() => import("../../components/status/StatusViewer"), { ssr: false });
 const UnlockModal = dynamic(() => import("../../components/status/UnlockModal"), { ssr: false });
+const GroupCreationModal = dynamic(() => import("../../components/chat/GroupCreationModal"), { ssr: false });
+const CallOverlay = dynamic(() => import("../../components/chat/CallOverlay"), { ssr: false });
 
 type Message = {
   id: string;
@@ -244,6 +246,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeGift, setActiveGift] = useState<{ id: string, icon: React.ReactNode } | null>(null);
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -1005,6 +1008,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           setIsStoreOpen(true);
         }}
       >
+        <CallOverlay currentUser={{ id: user?.id || '', name: (currentUserProfile as any)?.name || 'User', tier: subscriptionTier }} />
         <div className="flex flex-col h-full font-sans text-gray-100 selection:bg-purple-500/30 relative">
           <div className="relative z-10 flex flex-col h-full">
 
@@ -1033,8 +1037,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             )}
 
             {activeTab === 'chats' && (
-              <div className="grid grid-cols-2 gap-4 p-4 mt-2">
-                <AnimatePresence>
+              <div className="relative min-h-[calc(100vh-160px)]">
+                <div className="grid grid-cols-2 gap-4 p-4 mt-2">
+                  <AnimatePresence>
                 {exploreUsers.map((u, i) => (
                   <motion.div
                     key={u.id}
@@ -1080,7 +1085,73 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     </motion.button>
                   </motion.div>
                 ))}
-              </AnimatePresence>
+                  </AnimatePresence>
+                </div>
+
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setIsGroupModalOpen(true)}
+                  className="fixed bottom-24 right-6 bg-amber-500 hover:bg-amber-400 text-black rounded-full w-14 h-14 shadow-[0_0_15px_rgba(245,158,11,0.5)] flex items-center justify-center z-50 transition-colors"
+                >
+                  <Users size={24} />
+                  <div className="absolute top-0 right-0 w-4 h-4 bg-white rounded-full flex items-center justify-center border-2 border-black">
+                    <span className="text-black text-lg leading-none font-bold">+</span>
+                  </div>
+                </motion.button>
+
+                <GroupCreationModal
+                  isOpen={isGroupModalOpen}
+                  onClose={() => setIsGroupModalOpen(false)}
+                  friends={exploreUsers}
+                  onCreateGroup={async (name, members, avatarFile) => {
+                     if (!user) return;
+                     try {
+                        let avatarUrl = '';
+                        if (avatarFile) {
+                          const fileExt = avatarFile.name.split('.').pop();
+                          const filePath = `${user.id}/${uuidv4()}.${fileExt}`;
+                          const { error: uploadError } = await supabase.storage
+                            .from('avatars')
+                            .upload(filePath, avatarFile);
+
+                          if (uploadError) throw uploadError;
+
+                          const { data: { publicUrl } } = supabase.storage
+                            .from('avatars')
+                            .getPublicUrl(filePath);
+
+                          avatarUrl = publicUrl;
+                        }
+
+                        const { data: roomData, error: roomError } = await supabase
+                          .from('rooms')
+                          .insert({ name, avatar_url: avatarUrl })
+                          .select()
+                          .single();
+
+                        if (roomError) throw roomError;
+
+                        // Add participants
+                        const participants = [...members, user.id].map(uid => ({
+                          room_id: roomData.id,
+                          user_id: uid
+                        }));
+
+                        const { error: partError } = await supabase
+                          .from('room_participants')
+                          .insert(participants);
+
+                        if (partError) throw partError;
+
+                        toast.success("Group created!");
+                     } catch (error) {
+                        console.error(error);
+                        toast.error("Failed to create group");
+                     }
+                     setIsGroupModalOpen(false);
+                  }}
+                />
               </div>
             )}
 
@@ -1470,16 +1541,95 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           )}
         </div>
 
-        {/* Top-up Store Icon */}
-        <button
-          onClick={() => {
-            setStoreTab('BUY_COINS');
-            setIsStoreOpen(true);
-          }}
-          className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400/20 to-amber-600/20 hover:from-amber-400/40 hover:to-amber-600/40 border border-amber-400/30 flex items-center justify-center transition-all ml-2 shrink-0"
-        >
-          <Store size={14} className="text-amber-400" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Voice Call Icon */}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={async () => {
+               const roomID = `room_${uuidv4()}`;
+               const payload = {
+                 receiverId: currentOtherUserProfile.id,
+                 callerId: user?.id,
+                 callerName: (currentUserProfile as any)?.name || 'User',
+                 callerTier: subscriptionTier,
+                 callType: 'voice',
+                 roomID,
+                 cost: 10
+               };
+
+               // Realtime for active users
+               supabase.channel('call-events').send({
+                 type: 'broadcast',
+                 event: 'incoming_call',
+                 payload
+               });
+
+               // Web push for background ringing
+               await fetch('/api/push', {
+                 method: 'POST',
+                 body: JSON.stringify({
+                    subscription: 'mock_subscription_for_receiver', // Fetch from DB in real app
+                    payload: { title: 'Incoming Call', body: `${payload.callerName} is calling you`, url: '/?room=' + roomID }
+                 })
+               });
+
+               toast.success("Calling " + currentOtherUserProfile.name);
+            }}
+            className="w-9 h-9 rounded-full bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 flex items-center justify-center transition-all shadow-[0_0_10px_rgba(59,130,246,0.3)] shrink-0"
+          >
+             <Phone size={16} className="text-blue-400" />
+          </motion.button>
+
+          {/* Video Call Icon */}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={async () => {
+               const roomID = `room_${uuidv4()}`;
+               const payload = {
+                 receiverId: currentOtherUserProfile.id,
+                 callerId: user?.id,
+                 callerName: (currentUserProfile as any)?.name || 'User',
+                 callerTier: subscriptionTier,
+                 callType: 'video',
+                 roomID,
+                 cost: 20
+               };
+
+               supabase.channel('call-events').send({
+                 type: 'broadcast',
+                 event: 'incoming_call',
+                 payload
+               });
+
+               // Web push for background ringing
+               await fetch('/api/push', {
+                 method: 'POST',
+                 body: JSON.stringify({
+                    subscription: 'mock_subscription_for_receiver', // Fetch from DB in real app
+                    payload: { title: 'Incoming Video Call', body: `${payload.callerName} is video calling you`, url: '/?room=' + roomID }
+                 })
+               });
+
+               toast.success("Video calling " + currentOtherUserProfile.name);
+            }}
+            className="w-9 h-9 rounded-full bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 flex items-center justify-center transition-all shadow-[0_0_10px_rgba(168,85,247,0.3)] shrink-0"
+          >
+             <Video size={16} className="text-purple-400" />
+          </motion.button>
+
+          {/* Top-up Store Icon */}
+          <button
+            onClick={() => {
+              setStoreTab('BUY_COINS');
+              setIsStoreOpen(true);
+            }}
+            className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400/20 to-amber-600/20 hover:from-amber-400/40 hover:to-amber-600/40 border border-amber-400/30 flex items-center justify-center transition-all shrink-0"
+          >
+            <Store size={14} className="text-amber-400" />
+          </button>
+        </div>
       </header>
 
       {/* Messages Area */}
