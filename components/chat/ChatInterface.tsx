@@ -274,6 +274,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         bio: data.bio || 'Avid Earnmega user',
         joinDate: data.created_at ? new Date(data.created_at).toLocaleDateString() : 'Oct 2023',
         tier: subscriptionTier,
+        phone: data.phone,
         isOnline: true,
         coinsGifted: data.coins_gifted || 0,
         isSelf: true,

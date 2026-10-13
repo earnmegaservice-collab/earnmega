@@ -141,7 +141,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
               <div>
                 <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Phone Number</label>
                 <div className="text-white font-medium bg-black/40 rounded-xl px-4 py-3 mt-1 border border-white/5 truncate">
-                  {userProfile?.phone_number || 'N/A'}
+                  {userProfile?.phone || 'N/A'}
                 </div>
               </div>
             </div>
