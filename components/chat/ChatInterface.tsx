@@ -8,7 +8,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store, Lock, Unlock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -30,11 +30,13 @@ type Message = {
   imageUrl?: string;
   audioUrl?: string;
   replyToId?: string;
+  is_vaulted?: boolean;
   replyToText?: string;
   replyToSender?: 'user' | 'other';
 };
 
 const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
+const VIP_EMOJIS = ['👑', '🔥', '💯'];
 
 // Helper to parse basic formatting
 const formatText = (text: string) => {
@@ -245,6 +247,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeGift, setActiveGift] = useState<{ id: string, icon: React.ReactNode } | null>(null);
+  const [isVaultMode, setIsVaultMode] = useState(false);
+  const [unlockedSecrets, setUnlockedSecrets] = useState<Set<string>>(new Set());
+  const [shatteredMessages, setShatteredMessages] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -480,13 +485,14 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               text,
               sender: msg.sender_id === user.id ? 'user' : 'other',
               timestamp: new Date(msg.created_at),
-              reactions: [],
+              reactions: msg.reactions || [],
               status: msg.status || 'read',
               imageUrl: msg.image_url,
               audioUrl: msg.audio_url,
               replyToId,
               replyToSender,
-              replyToText
+              replyToText,
+              is_vaulted: msg.is_vaulted
             };
           });
 
@@ -585,13 +591,14 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                text,
                sender: 'other',
                timestamp: new Date(data.created_at),
-               reactions: [],
+               reactions: data.reactions || [],
                status: 'delivered',
                imageUrl: data.image_url,
                audioUrl: data.audio_url,
                replyToId,
                replyToSender,
-               replyToText
+               replyToText,
+               is_vaulted: data.is_vaulted
              };
              setMessages((prev) => [...prev, newMessage]);
 
@@ -656,6 +663,39 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     };
   }, []);
 
+  const handleUnlockVaultedSecret = async (messageId: string) => {
+    try {
+      if (subscriptionTier === 'FREE') {
+        const { error } = await supabase.rpc('deduct_coins', { amount: 5 });
+        if (error) throw error;
+      }
+
+      // Success - show shatter effect
+      if (typeof window !== 'undefined' && navigator.vibrate) {
+         navigator.vibrate([100, 50, 100]);
+      }
+
+      setShatteredMessages(prev => new Set(prev).add(messageId));
+      setUnlockedSecrets(prev => new Set(prev).add(messageId));
+
+      setTimeout(() => {
+         setShatteredMessages(prev => {
+           const newSet = new Set(prev);
+           newSet.delete(messageId);
+           return newSet;
+         });
+      }, 1500);
+
+    } catch (err: any) {
+       toast.error(err.message || "Failed to unlock secret");
+       // Open store modal as fallback if insufficient coins
+       if (err.message?.includes('Insufficient')) {
+          setStoreTab('BUY_COINS');
+          setIsStoreOpen(true);
+       }
+    }
+  };
+
   const handleDeleteMessage = async (messageId: string) => {
     try {
       // Remove from DB
@@ -705,6 +745,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       replyToId: currentReplyingTo?.id,
       replyToText: currentReplyingTo?.text.replace(/\[REPLY:[\s\S]*?\]\n\n/g, ''),
       replyToSender: currentReplyingTo?.sender,
+      is_vaulted: isVaultMode
     };
 
     setMessages((prev) => [...prev, optimisticMessage]);
@@ -717,7 +758,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           sender_id: user.id,
           receiver_id: currentOtherUserProfile.id,
           content: finalContentToSave,
-          status: 'sent'
+          status: 'sent',
+          is_vaulted: isVaultMode
         })
         .select()
         .single();
@@ -926,23 +968,55 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     }
   };
 
-  const handleReaction = (messageId: string, emoji: string, e: React.MouseEvent) => {
+  const handleReaction = async (messageId: string, emoji: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setActiveReactionId(null);
+
+    const message = messages.find(m => m.id === messageId);
+    if (!message) return;
+
+    const hasReaction = message.reactions.includes(emoji);
+
+    if (VIP_EMOJIS.includes(emoji) && !hasReaction) {
+      try {
+        const { error } = await supabase.rpc('deduct_coins', { amount: 1 });
+        if (error) throw error;
+        toast.success("Premium Reaction sent!");
+      } catch (err: any) {
+        toast.error(err.message || "Failed to send VIP reaction");
+        if (err.message?.includes('Insufficient')) {
+          setStoreTab('BUY_COINS');
+          setIsStoreOpen(true);
+        }
+        return;
+      }
+    }
+
+    const newReactions = hasReaction
+      ? message.reactions.filter((r) => r !== emoji)
+      : [...message.reactions, emoji];
+
     setMessages((prev) =>
       prev.map((msg) => {
         if (msg.id === messageId) {
-          const hasReaction = msg.reactions.includes(emoji);
           return {
             ...msg,
-            reactions: hasReaction
-              ? msg.reactions.filter((r) => r !== emoji)
-              : [...msg.reactions, emoji],
+            reactions: newReactions,
           };
         }
         return msg;
       })
     );
-    setActiveReactionId(null);
+
+    // Persist to DB
+    try {
+      await supabase
+        .from('messages')
+        .update({ reactions: newReactions })
+        .eq('id', messageId);
+    } catch (e) {
+      console.error("Failed to update reactions in DB", e);
+    }
   };
 
   const formatTime = (date: Date) => {
@@ -1528,15 +1602,21 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                       className={`absolute bottom-full mb-2 ${isUser ? 'right-0' : 'left-0'} z-30 flex items-center space-x-1 p-1.5 bg-white/10 backdrop-blur-3xl border border-white/20 rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.5)]`}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {DEFAULT_EMOJIS.map(emoji => (
-                        <button
-                          key={emoji}
-                          onClick={(e) => handleReaction(message.id, emoji, e)}
-                          className="w-8 h-8 flex items-center justify-center hover:bg-white/20 rounded-full hover:scale-110 transition-transform focus:outline-none"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
+                      {[...DEFAULT_EMOJIS, ...VIP_EMOJIS].map(emoji => {
+                        const isVip = VIP_EMOJIS.includes(emoji);
+                        return (
+                          <button
+                            key={emoji}
+                            onClick={(e) => handleReaction(message.id, emoji, e)}
+                            className={`w-8 h-8 flex items-center justify-center hover:bg-white/20 rounded-full hover:scale-110 transition-transform focus:outline-none relative ${isVip ? 'bg-amber-500/10' : ''}`}
+                          >
+                            {emoji}
+                            {isVip && (
+                               <span className="absolute -top-1 -right-1 text-[8px] bg-gradient-to-r from-yellow-400 to-amber-500 text-black px-1 rounded-full font-extrabold shadow-[0_0_5px_rgba(251,191,36,0.5)] border border-yellow-300">VIP</span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -1607,28 +1687,67 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                          <span className="line-clamp-2 text-xs italic">{message.replyToText}</span>
                       </div>
                     )}
-                    {message.imageUrl && (
+                    {message.is_vaulted && !unlockedSecrets.has(message.id) && !isUser ? (
                       <div
-                        className="mb-1.5 relative overflow-hidden rounded-xl border border-white/10 cursor-zoom-in group bg-white/5 backdrop-blur-2xl"
-                        onClick={(e) => { e.stopPropagation(); setLightboxImage(message.imageUrl!); }}
+                        className="flex flex-col items-center justify-center p-4 bg-black/60 backdrop-blur-2xl rounded-xl border border-white/20 shadow-[0_0_20px_rgba(0,0,0,0.5)] cursor-pointer hover:bg-black/50 transition-colors"
+                        onClick={(e) => {
+                           e.stopPropagation();
+                           handleUnlockVaultedSecret(message.id);
+                        }}
                       >
-                        <motion.img
-                          layoutId={`image-${message.imageUrl}`}
-                          src={message.imageUrl}
-                          alt="Uploaded media"
-                          className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                         <Lock size={24} className="text-purple-400 mb-2 drop-shadow-[0_0_10px_rgba(168,85,247,0.8)]" />
+                         <span className="text-xs font-bold text-white/90">Tap to Unlock Secret</span>
+                         <span className="text-[10px] text-purple-300 mt-1 font-semibold">(5 Coins)</span>
                       </div>
-                    )}
-                    {message.audioUrl && (
-                      <div className="mb-1.5">
-                        <AudioPlayer src={message.audioUrl} />
-                      </div>
-                    )}
+                    ) : (
+                      <>
+                        {message.imageUrl && (
+                          <div
+                            className="mb-1.5 relative overflow-hidden rounded-xl border border-white/10 cursor-zoom-in group bg-white/5 backdrop-blur-2xl"
+                            onClick={(e) => { e.stopPropagation(); setLightboxImage(message.imageUrl!); }}
+                          >
+                            <motion.img
+                              layoutId={`image-${message.imageUrl}`}
+                              src={message.imageUrl}
+                              alt="Uploaded media"
+                              className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                          </div>
+                        )}
+                        {message.audioUrl && (
+                          <div className="mb-1.5">
+                            <AudioPlayer src={message.audioUrl} />
+                          </div>
+                        )}
 
-                    {/* Render message text natively with our new function */}
-                    {message.text && renderMessageContent(message, user?.id || '')}
+                        {/* Render message text natively with our new function */}
+                        {shatteredMessages.has(message.id) && (
+                          <div className="absolute inset-0 z-50 pointer-events-none overflow-hidden rounded-2xl flex items-center justify-center">
+                             {[...Array(6)].map((_, i) => (
+                                <motion.div
+                                  key={i}
+                                  initial={{ opacity: 1, scale: 0.5, x: 0, y: 0, rotate: 0 }}
+                                  animate={{
+                                    opacity: [1, 1, 0],
+                                    scale: [1, 1.5, 0],
+                                    x: (Math.random() - 0.5) * 150,
+                                    y: (Math.random() - 0.5) * 150,
+                                    rotate: (Math.random() - 0.5) * 360
+                                  }}
+                                  transition={{ duration: 0.8, ease: "easeOut" }}
+                                  className="absolute w-6 h-6 bg-white/80 backdrop-blur-md"
+                                  style={{
+                                    clipPath: 'polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)'
+                                  }}
+                                />
+                             ))}
+                          </div>
+                        )}
+
+                        {message.text && renderMessageContent(message, user?.id || '')}
+                      </>
+                    )}
 
                     {/* Meta Row (Time & Status) */}
                     <div
@@ -1643,10 +1762,13 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
                   {/* Active Reactions Display */}
                   {message.reactions.length > 0 && (
-                     <div className={`absolute -bottom-3.5 ${isUser ? 'right-2' : 'left-2'} z-10 flex items-center bg-white/10 backdrop-blur-xl border border-white/20 rounded-full px-1.5 py-0.5 shadow-[0_4px_16px_rgba(0,0,0,0.3)]`}>
-                       {message.reactions.map((r, i) => (
-                         <span key={i} className="text-[11px] leading-none drop-shadow-md">{r}</span>
-                       ))}
+                     <div className={`absolute -bottom-3.5 ${isUser ? 'right-2' : 'left-2'} z-10 flex items-center bg-white/10 backdrop-blur-xl border border-white/20 rounded-full px-1.5 py-0.5 shadow-[0_4px_16px_rgba(0,0,0,0.3)] space-x-0.5`}>
+                       {message.reactions.map((r, i) => {
+                         const isVip = VIP_EMOJIS.includes(r);
+                         return (
+                           <span key={i} className={`text-[11px] leading-none drop-shadow-md ${isVip ? 'animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.8)] p-0.5 rounded-full bg-amber-500/20' : ''}`}>{r}</span>
+                         );
+                       })}
                      </div>
                   )}
                 </motion.div>
@@ -1704,6 +1826,19 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             className="hidden"
           />
           <div className="flex items-center space-x-1.5 ml-2 mb-0.5 self-end">
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              type="button"
+              onClick={() => setIsVaultMode(!isVaultMode)}
+              className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm ${
+                isVaultMode
+                  ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]'
+                  : 'bg-gray-900/50 text-gray-400 hover:bg-gray-700/80 hover:text-gray-200'
+              }`}
+              aria-label="Toggle Vault Mode"
+            >
+              {isVaultMode ? <Lock size={20} /> : <Unlock size={20} />}
+            </motion.button>
             <motion.button
               whileTap={{ scale: 0.9 }}
               type="button"
