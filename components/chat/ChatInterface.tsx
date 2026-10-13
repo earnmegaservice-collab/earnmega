@@ -18,15 +18,19 @@ const NavigationDrawer = dynamic(() => import("../../components/chat/NavigationD
 const StatusTab = dynamic(() => import("../../components/status/StatusTab"), { ssr: false });
 const StatusViewer = dynamic(() => import("../../components/status/StatusViewer"), { ssr: false });
 const UnlockModal = dynamic(() => import("../../components/status/UnlockModal"), { ssr: false });
+
 const GroupCreationModal = dynamic(() => import("../../components/chat/GroupCreationModal"), { ssr: false });
 const CallOverlay = dynamic(() => import("../../components/chat/CallOverlay"), { ssr: false });
+
+const ChatList = dynamic(() => import("./ChatList"), { ssr: false });
+
 
 type Message = {
   id: string;
   text: string;
   sender: 'user' | 'other';
   timestamp: Date;
-  status?: 'sent' | 'delivered' | 'read';
+  status?: 'sending' | 'sent' | 'delivered' | 'read';
   reactions: string[];
   imageUrl?: string;
   audioUrl?: string;
@@ -195,7 +199,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
         {actualText && (
           <div className={`px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
             isMe
-              ? 'bg-blue-600/80 backdrop-blur-xl border border-blue-500/30 text-white rounded-tr-sm shadow-[0_4px_16px_rgba(37,99,235,0.2)]'
+              ? 'bg-[#005c4b] backdrop-blur-xl border border-[#005c4b]/50 text-white rounded-tr-sm'
               : 'bg-white/5 backdrop-blur-2xl text-gray-100 border border-white/10 rounded-tl-sm'
           }`}>
             {formatText(actualText)}
@@ -702,7 +706,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       text: textContent,
       sender: 'user',
       timestamp: new Date(),
-      status: 'sent',
+      status: 'sending',
       reactions: [],
       replyToId: currentReplyingTo?.id,
       replyToText: currentReplyingTo?.text.replace(/\[REPLY:[\s\S]*?\]\n\n/g, ''),
@@ -728,10 +732,11 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         throw error;
       }
 
-      // We rely on real-time to update the read receipt or we can locally set to delivered
+      // Dynamically set status based on recipient's online state
+      const nextStatus = currentOtherUserProfile.isOnline ? 'delivered' : 'sent';
       setMessages((prev) =>
         prev.map((msg) =>
-          msg.id === optimisticMessage.id ? { ...msg, status: 'delivered' } : msg
+          msg.id === optimisticMessage.id ? { ...msg, status: nextStatus } : msg
         )
       );
 
@@ -950,7 +955,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const renderStatus = (status?: 'sent' | 'delivered' | 'read') => {
+  const renderStatus = (status?: 'sending' | 'sent' | 'delivered' | 'read') => {
     if (!status) return null;
     return (
       <motion.span
@@ -959,9 +964,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         transition={{ type: 'spring', stiffness: 300, damping: 20 }}
         className="ml-1 flex items-center shrink-0"
       >
-        {status === 'sent' && <Check size={14} className="text-white/40 drop-shadow-sm" />}
-        {status === 'delivered' && <CheckCheck size={14} className="text-white/60 drop-shadow-sm" />}
-        {status === 'read' && <CheckCheck size={14} className="text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]" />}
+        {status === 'sending' && <Check size={14} className="text-white/20 drop-shadow-sm opacity-50" />}
+        {status === 'sent' && <Check size={14} className="text-gray-400 drop-shadow-sm" />}
+        {status === 'delivered' && <CheckCheck size={14} className="text-gray-400 drop-shadow-sm" />}
+        {status === 'read' && <CheckCheck size={14} className="text-[#53bdeb] drop-shadow-[0_0_8px_rgba(83,189,235,0.6)]" />}
       </motion.span>
     );
   };
@@ -1037,56 +1043,14 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             )}
 
             {activeTab === 'chats' && (
-              <div className="relative min-h-[calc(100vh-160px)]">
-                <div className="grid grid-cols-2 gap-4 p-4 mt-2">
-                  <AnimatePresence>
-                {exploreUsers.map((u, i) => (
-                  <motion.div
-                    key={u.id}
-                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.4, delay: i * 0.05, ease: "easeOut" }}
-                    className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 flex flex-col items-center shadow-[0_4px_24px_rgba(0,0,0,0.2)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden group hover:bg-white/10 transition-all"
-                  >
-                    {/* Glow effect */}
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/20 rounded-full blur-2xl -mr-12 -mt-12 transition-transform group-hover:scale-150" />
-
-                    <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 relative z-10 border-2 border-white/20 group-hover:scale-105 transition-transform ${getStatusRingClass(u.id)}`}>
-                      {u.avatarUrl ? (
-                         <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
-                      ) : (
-                         <span className="text-white font-bold text-lg drop-shadow-md">{u.avatarInitials}</span>
-                      )}
-                      {u.isOnline && (
-                        <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-400 border-2 border-black/50 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
-                      )}
-                    </div>
-
-                    <h3 className="text-sm font-bold text-white truncate w-full text-center mb-1 relative z-10 drop-shadow-sm flex items-center justify-center gap-1">
-                      {u.name}
-                      {u.tier === 'PREMIUM' && <span className="text-[8px] bg-gradient-to-r from-yellow-400 to-amber-500 text-black px-1 rounded-full font-extrabold shadow-[0_0_5px_rgba(251,191,36,0.5)]">VIP</span>}
-                    </h3>
-                    <p className="text-[10px] text-white/60 truncate w-full text-center mb-4 relative z-10 font-medium">{u.bio}</p>
-
-                    <motion.button
-                      whileTap={{ scale: 0.92 }}
-                      onClick={() => {
-                        // Check if user is verified
-                        if ((currentUserProfile as any)?.isVerified === false) {
-                            setShowVerificationGateModal(true);
-                            return;
-                        }
-                        setOtherUserProfile(u)
-                      }}
-                      className="w-full py-2 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-200 text-xs font-bold rounded-xl transition-colors relative z-10 border border-indigo-400/30 backdrop-blur-sm shadow-[0_0_15px_rgba(99,102,241,0.2)]"
-                    >
-                      Start Chat
-                    </motion.button>
-                  </motion.div>
-                ))}
-                  </AnimatePresence>
-                </div>
+              <div className="relative min-h-[calc(100vh-160px)] h-full">
+                <ChatList
+                  exploreUsers={exploreUsers}
+                  getStatusRingClass={getStatusRingClass}
+                  currentUserProfile={currentUserProfile}
+                  setShowVerificationGateModal={setShowVerificationGateModal}
+                  setOtherUserProfile={setOtherUserProfile}
+                />
 
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -1760,7 +1724,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     }}
                     className={`px-4 py-2.5 relative transition-all duration-200 cursor-pointer ${
                       isUser
-                        ? 'bg-blue-600/80 hover:bg-blue-700/80 backdrop-blur-xl border border-blue-500/30 text-white rounded-2xl rounded-tr-sm shadow-[0_4px_16px_rgba(37,99,235,0.2)]'
+                        ? 'bg-[#005c4b] hover:bg-[#006e5a] backdrop-blur-xl border border-[#005c4b]/50 text-white rounded-2xl rounded-tr-sm shadow-[0_2px_8px_rgba(0,0,0,0.2)]'
                         : 'bg-white/5 hover:bg-white/10 backdrop-blur-2xl text-gray-100 border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.3)] rounded-2xl rounded-tl-sm'
                     } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
