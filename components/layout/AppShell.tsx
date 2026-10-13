@@ -13,6 +13,7 @@ import {
   Heart,
   Store
 } from 'lucide-react';
+import GiftOverlay from '../chat/GiftOverlay';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -35,6 +36,8 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   return (
     <div className="relative min-h-screen w-full bg-[#070709] text-white selection:bg-purple-500/30 overflow-x-hidden font-sans">
+      <GiftOverlay />
+
       {/* 1. FIXED TOP HEADER */}
       <header className="fixed top-0 left-0 right-0 h-16 bg-black/60 backdrop-blur-2xl border-b border-white/[0.08] z-50 px-4 flex items-center justify-between">
         <div className="flex items-center space-x-2">
