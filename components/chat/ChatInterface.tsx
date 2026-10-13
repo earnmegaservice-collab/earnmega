@@ -8,7 +8,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -279,6 +279,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         isSelf: true,
         // Optional verification flag addition, can be useful later
         isVerified: data.is_verified,
+        ghost_mode: data.ghost_mode || false,
       } as any);
     } else {
       setCurrentUserProfile({
@@ -291,6 +292,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         isOnline: true,
         coinsGifted: 1500,
         isSelf: true,
+        ghost_mode: false,
       });
     }
   };
@@ -996,6 +998,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         setActiveTab={setAppTab}
         coinBalance={balance}
         unreadCount={0}
+        onOpenStore={() => {
+          setStoreTab('BUY_COINS');
+          setIsStoreOpen(true);
+        }}
       >
         <div className="flex flex-col h-full font-sans text-gray-100 selection:bg-purple-500/30 relative">
           <div className="relative z-10 flex flex-col h-full">
@@ -1439,7 +1445,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                </motion.span>
             )}
           </div>
-          {currentOtherUserProfile.isOnline ? (
+          {!currentOtherUserProfile.ghost_mode && currentOtherUserProfile.isOnline ? (
             <div className="flex items-center space-x-1.5">
                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
                <p className="text-[11px] text-white/60 font-medium">Active now</p>
@@ -1447,10 +1453,21 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           ) : (
             <div className="flex items-center space-x-1.5">
                <span className="w-2 h-2 rounded-full bg-white/30" />
-               <p className="text-[11px] text-white/50 font-medium">Last seen {currentOtherUserProfile.last_seen ? new Date(currentOtherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</p>
+               <p className="text-[11px] text-white/50 font-medium">Last seen {currentOtherUserProfile.last_seen && !currentOtherUserProfile.ghost_mode ? new Date(currentOtherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</p>
             </div>
           )}
         </div>
+
+        {/* Top-up Store Icon */}
+        <button
+          onClick={() => {
+            setStoreTab('BUY_COINS');
+            setIsStoreOpen(true);
+          }}
+          className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400/20 to-amber-600/20 hover:from-amber-400/40 hover:to-amber-600/40 border border-amber-400/30 flex items-center justify-center transition-all ml-2 shrink-0"
+        >
+          <Store size={14} className="text-amber-400" />
+        </button>
       </header>
 
       {/* Messages Area */}
