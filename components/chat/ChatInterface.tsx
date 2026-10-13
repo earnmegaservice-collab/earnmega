@@ -8,7 +8,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store, Lock, EyeOff } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -19,6 +19,7 @@ const StatusTab = dynamic(() => import("../../components/status/StatusTab"), { s
 const StatusViewer = dynamic(() => import("../../components/status/StatusViewer"), { ssr: false });
 const UnlockModal = dynamic(() => import("../../components/status/UnlockModal"), { ssr: false });
 const ChatList = dynamic(() => import("./ChatList"), { ssr: false });
+const MessageForwardModal = dynamic(() => import("./MessageForwardModal"), { ssr: false });
 
 type Message = {
   id: string;
@@ -32,6 +33,10 @@ type Message = {
   replyToId?: string;
   replyToText?: string;
   replyToSender?: 'user' | 'other';
+  isViewOnce?: boolean;
+  viewedBy?: string[];
+  isDeleted?: boolean;
+  hiddenFor?: string[];
 };
 
 const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
@@ -165,6 +170,9 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
   const isMe = message.sender === 'user';
   const rawContent = message.text || '';
 
+  const isForwarded = rawContent.startsWith('[FORWARDED]\n');
+  const displayContent = isForwarded ? rawContent.replace('[FORWARDED]\n', '') : rawContent;
+
   // Format check for status reply: [REPLY:statusId:mediaPreview] text
   const replyMatch = rawContent.match(/^\[REPLY:([^:]+):([^\]]+)\]\s*(.*)$/);
 
@@ -173,6 +181,9 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
 
     return (
       <div className={`flex flex-col space-y-1.5 max-w-[80%] ${isMe ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
+        {isForwarded && (
+          <span className="text-[10px] italic text-white/50 mb-1 flex items-center"><Send size={10} className="mr-1 inline" /> Forwarded</span>
+        )}
         {/* Sleek status thumbnail reply card */}
         <div className="flex items-center space-x-2.5 p-2 rounded-2xl bg-white/[0.06] border border-white/15 backdrop-blur-2xl shadow-lg">
           <div className="w-10 h-12 rounded-lg overflow-hidden bg-black/50 border border-white/10 shrink-0">
@@ -207,7 +218,10 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
   // Regular standard chat message processing (handles bold, italic formatting from formatText)
   return (
     <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium">
-      {formatText(rawContent)}
+      {isForwarded && (
+        <span className="text-[10px] italic text-white/50 mb-1 flex items-center"><Send size={10} className="mr-1 inline" /> Forwarded</span>
+      )}
+      {formatText(displayContent)}
     </div>
   );
 };
@@ -216,7 +230,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
 import { AppShell } from '../layout/AppShell';
 
 export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile', setAppTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile') => void }) {
-  const { subscriptionTier, balance } = useWallet();
+  const { subscriptionTier, balance, setBalance } = useWallet();
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
 
@@ -247,8 +261,13 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [activeGift, setActiveGift] = useState<{ id: string, icon: React.ReactNode } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [lightboxMessageId, setLightboxMessageId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isViewOnceMode, setIsViewOnceMode] = useState(false);
+  const [shatterEffectId, setShatterEffectId] = useState<string | null>(null);
+  const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+  const [messageToForward, setMessageToForward] = useState<Message | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const channelRef = useRef<any>(null);
@@ -622,8 +641,21 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         }
       })
       .on('broadcast', { event: 'delete_message' }, (payload) => {
-        // Instantly remove message if sender unsent it
-        setMessages(prev => prev.filter(msg => msg.id !== payload.payload.messageId));
+        // Instantly mark message as deleted to show tombstone
+        if (payload.payload.isDeleted) {
+          setMessages(prev => prev.map(msg => msg.id === payload.payload.messageId ? { ...msg, isDeleted: true } : msg));
+
+          // Also close lightbox if the deleted message is currently being viewed
+          setLightboxMessageId(currentLightboxMessageId => {
+             if (currentLightboxMessageId === payload.payload.messageId) {
+                 setLightboxImage(null);
+                 return null;
+             }
+             return currentLightboxMessageId;
+          });
+        } else {
+          setMessages(prev => prev.filter(msg => msg.id !== payload.payload.messageId));
+        }
       });
 
     channel.subscribe((status) => {
@@ -656,26 +688,147 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     };
   }, []);
 
-  const handleDeleteMessage = async (messageId: string) => {
+  const handleUnlockViewOnce = async (message: Message) => {
+    if (!user) return;
     try {
-      // Remove from DB
-      await supabase.from('messages').delete().eq('id', messageId);
+      if (subscriptionTier === 'FREE') {
+        if (balance < 10) {
+          toast.error("Insufficient coins (Need 10).");
+          return;
+        }
 
-      // Update local state
-      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+        const { error: deductError } = await supabase.rpc('deduct_coins', {
+          user_id: user.id,
+          amount: 10
+        });
+
+        if (deductError) throw deductError;
+        setBalance(prev => prev - 10);
+      }
+
+      if (typeof window !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([100, 50, 100]);
+      }
+      setShatterEffectId(message.id);
+
+      setTimeout(() => {
+        setShatterEffectId(null);
+        setLightboxImage(message.imageUrl!);
+        setLightboxMessageId(message.id);
+      }, 600);
+    } catch (err) {
+      console.error("Failed to unlock media:", err);
+      toast.error("Failed to unlock media");
+    }
+  };
+
+  const closeLightbox = async () => {
+    if (lightboxMessageId && user) {
+      const msg = messages.find(m => m.id === lightboxMessageId);
+      if (msg && msg.isViewOnce) {
+        const newViewedBy = [...(msg.viewedBy || []), user.id];
+        setMessages(prev => prev.map(m => m.id === lightboxMessageId ? { ...m, viewedBy: newViewedBy } : m));
+
+        await supabase
+          .from('messages')
+          .update({ viewed_by: newViewedBy })
+          .eq('id', lightboxMessageId);
+      }
+    }
+    setLightboxImage(null);
+    setLightboxMessageId(null);
+  };
+
+  const handleDeleteForEveryone = async (messageId: string) => {
+    try {
+      // Soft-delete in DB
+      await supabase.from('messages').update({ is_deleted: true }).eq('id', messageId);
+
+      // Update local state to show tombstone
+      setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true } : msg));
       setActiveContextMenuId(null);
 
-      // Broadcast deletion to other user
+      // Broadcast deletion tombstone to other user
       supabase.channel('chat-events').send({
          type: 'broadcast',
          event: 'delete_message',
-         payload: { messageId, senderId: user?.id }
+         payload: { messageId, senderId: user?.id, isDeleted: true }
       });
 
-      toast.success("Message unsent");
+      toast.success("Message deleted for everyone");
     } catch (err) {
-      console.error("Failed to delete message", err);
-      toast.error("Failed to unsend message");
+      console.error("Failed to delete message for everyone", err);
+      toast.error("Failed to delete message");
+    }
+  };
+
+  const handleDeleteForMe = async (messageId: string) => {
+    if (!user) return;
+    try {
+      const msg = messages.find(m => m.id === messageId);
+      if (!msg) return;
+
+      const newHiddenFor = [...(msg.hiddenFor || []), user.id];
+
+      await supabase.from('messages').update({ hidden_for: newHiddenFor }).eq('id', messageId);
+
+      // Update local state to hide message completely
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, hiddenFor: newHiddenFor } : m));
+      setActiveContextMenuId(null);
+
+      toast.success("Message deleted for you");
+    } catch (err) {
+      console.error("Failed to delete message for me", err);
+      toast.error("Failed to delete message");
+    }
+  };
+
+  const handleForwardMessage = async (receiverIds: string[]) => {
+    if (!messageToForward || !user) return;
+
+    const content = messageToForward.text ? `[FORWARDED]\n${messageToForward.text}` : '';
+
+    try {
+      for (const receiverId of receiverIds) {
+        const msgId = uuidv4();
+        await supabase.from('messages').insert({
+          id: msgId,
+          sender_id: user.id,
+          receiver_id: receiverId,
+          content,
+          image_url: messageToForward.imageUrl || null,
+          audio_url: messageToForward.audioUrl || null,
+          is_view_once: messageToForward.isViewOnce || false,
+          status: 'sent'
+        });
+
+        supabase.channel('chat-events').send({
+          type: 'broadcast',
+          event: 'new_message',
+          payload: { messageId: msgId, senderId: user.id, receiverId }
+        });
+
+        if (receiverId === currentOtherUserProfile?.id) {
+           const optimisticMessage: Message = {
+              id: msgId,
+              text: content,
+              sender: 'user',
+              timestamp: new Date(),
+              status: 'sent',
+              reactions: [],
+              imageUrl: messageToForward.imageUrl,
+              audioUrl: messageToForward.audioUrl,
+              isViewOnce: messageToForward.isViewOnce,
+           };
+           setMessages(prev => [...prev, optimisticMessage]);
+        }
+      }
+      toast.success("Message forwarded!");
+    } catch (err) {
+      console.error("Failed to forward:", err);
+      toast.error("Failed to forward message");
+    } finally {
+      setMessageToForward(null);
     }
   };
 
@@ -867,6 +1020,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         timestamp: new Date(),
         status: 'sent',
         reactions: [],
+        isViewOnce: type === 'image' ? isViewOnceMode : false,
+        viewedBy: [],
       };
 
       setMessages((prev) => [...prev, newMessage]);
@@ -879,7 +1034,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
            content: '',
            image_url: type === 'image' ? publicUrl : null,
            audio_url: type === 'audio' ? publicUrl : null,
-           status: 'sent'
+           status: 'sent',
+           is_view_once: type === 'image' ? isViewOnceMode : false,
         });
 
         supabase.channel('chat-events').send({
@@ -908,10 +1064,13 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         timestamp: new Date(),
         status: 'sent',
         reactions: [],
+        isViewOnce: type === 'image' ? isViewOnceMode : false,
+        viewedBy: [],
       };
       setMessages((prev) => [...prev, newMessage]);
     } finally {
       setIsUploading(false);
+      setIsViewOnceMode(false); // Reset toggle after upload
     }
   };
 
@@ -1293,6 +1452,14 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           setIsStoreOpen(true);
         }}
       />
+      <MessageForwardModal
+        isOpen={isForwardModalOpen}
+        onClose={() => {
+          setIsForwardModalOpen(false);
+          setMessageToForward(null);
+        }}
+        onForward={handleForwardMessage}
+      />
       <NavigationDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
@@ -1450,9 +1617,28 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-6 relative z-10"
       >
-        {messages.map((message) => {
+        {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
           const isUser = message.sender === 'user';
           const isTrayOpen = activeReactionId === message.id;
+
+          if (message.isDeleted) {
+             return (
+               <motion.div
+                 layout
+                 initial={{ opacity: 0, y: 10 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+                 key={message.id}
+                 className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
+               >
+                 <div className="flex items-end space-x-2 max-w-[85%] relative">
+                   <div className={`px-4 py-2.5 rounded-2xl border border-white/10 italic text-white/50 text-sm ${isUser ? 'bg-[#005c4b]/30 rounded-tr-sm' : 'bg-white/5 rounded-tl-sm'}`}>
+                     🚫 This message was deleted.
+                   </div>
+                 </div>
+               </motion.div>
+             );
+          }
 
           return (
             <motion.div
@@ -1588,13 +1774,31 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                           className={`absolute bottom-full mb-1 ${isUser ? 'right-0' : 'left-0'} z-50`}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <div className="bg-white/10 backdrop-blur-3xl border border-white/20 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col py-1 min-w-[140px]">
+                          <div className="bg-white/10 backdrop-blur-3xl border border-white/20 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col py-1 min-w-[160px]">
                             <button
-                               onClick={() => handleDeleteMessage(message.id)}
-                               className="px-4 py-2 text-sm font-bold text-red-400 hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                               onClick={() => {
+                                 setMessageToForward(message);
+                                 setIsForwardModalOpen(true);
+                                 setActiveContextMenuId(null);
+                               }}
+                               className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
                             >
-                               <span>Unsend</span>
+                               <span>Forward</span>
                             </button>
+                            <button
+                               onClick={() => handleDeleteForMe(message.id)}
+                               className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                            >
+                               <span>Delete for me</span>
+                            </button>
+                            {isUser && (
+                               <button
+                                  onClick={() => handleDeleteForEveryone(message.id)}
+                                  className="px-4 py-2 text-sm font-bold text-red-400 hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                               >
+                                  <span>Delete for everyone</span>
+                               </button>
+                            )}
                           </div>
                         </motion.div>
                       )}
@@ -1607,18 +1811,73 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                          <span className="line-clamp-2 text-xs italic">{message.replyToText}</span>
                       </div>
                     )}
+                    {message.text?.startsWith('[FORWARDED]\n') && !message.text?.replace('[FORWARDED]\n', '') && (
+                      <span className="text-[10px] italic text-white/50 mb-1 flex items-center"><Send size={10} className="mr-1 inline" /> Forwarded</span>
+                    )}
                     {message.imageUrl && (
                       <div
-                        className="mb-1.5 relative overflow-hidden rounded-xl border border-white/10 cursor-zoom-in group bg-white/5 backdrop-blur-2xl"
-                        onClick={(e) => { e.stopPropagation(); setLightboxImage(message.imageUrl!); }}
+                        className={`mb-1.5 relative overflow-hidden rounded-xl border border-white/10 ${message.isViewOnce && !message.viewedBy?.includes(user?.id || '') ? 'cursor-pointer' : (message.isViewOnce && message.viewedBy?.includes(user?.id || '') ? 'cursor-default' : 'cursor-zoom-in group')} bg-white/5 backdrop-blur-2xl`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (message.isViewOnce) {
+                            if (!message.viewedBy?.includes(user?.id || '')) {
+                              handleUnlockViewOnce(message);
+                            }
+                          } else {
+                            setLightboxImage(message.imageUrl!);
+                            setLightboxMessageId(message.id);
+                          }
+                        }}
                       >
-                        <motion.img
-                          layoutId={`image-${message.imageUrl}`}
-                          src={message.imageUrl}
-                          alt="Uploaded media"
-                          className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                        {message.isViewOnce ? (
+                           message.viewedBy?.includes(user?.id || '') ? (
+                             <div className="w-[200px] h-[150px] bg-white/5 flex flex-col items-center justify-center text-white/40">
+                               <EyeOff size={32} className="mb-2 opacity-50" />
+                               <span className="text-xs font-bold uppercase tracking-widest">Opened</span>
+                             </div>
+                           ) : (
+                             <div className="w-[200px] h-[150px] relative overflow-hidden rounded-xl">
+                               <div className="absolute inset-0 bg-black/80 backdrop-blur-3xl z-10 flex flex-col items-center justify-center text-amber-500">
+                                 {shatterEffectId === message.id ? (
+                                   <div className="relative w-full h-full">
+                                     {/* Shatter shards */}
+                                     {[...Array(6)].map((_, i) => (
+                                       <motion.div
+                                         key={i}
+                                         initial={{ x: 0, y: 0, opacity: 1, scale: 1, rotate: 0 }}
+                                         animate={{
+                                           x: (Math.random() - 0.5) * 200,
+                                           y: (Math.random() - 0.5) * 200,
+                                           opacity: 0,
+                                           scale: 0,
+                                           rotate: (Math.random() - 0.5) * 180
+                                         }}
+                                         transition={{ duration: 0.6, ease: "easeOut" }}
+                                         className="absolute top-1/2 left-1/2 w-8 h-8 bg-white/90"
+                                         style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }}
+                                       />
+                                     ))}
+                                   </div>
+                                 ) : (
+                                   <>
+                                     <Lock size={36} className="mb-3 animate-pulse drop-shadow-[0_0_20px_rgba(245,158,11,0.9)]" />
+                                     <span className="text-[10px] font-bold uppercase tracking-widest text-center px-4 leading-tight text-amber-400">Tap to Unlock<br/>(10 Coins)</span>
+                                   </>
+                                 )}
+                               </div>
+                             </div>
+                           )
+                        ) : (
+                          <>
+                            <motion.img
+                              layoutId={`image-${message.imageUrl}`}
+                              src={message.imageUrl}
+                              alt="Uploaded media"
+                              className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                          </>
+                        )}
                       </div>
                     )}
                     {message.audioUrl && (
