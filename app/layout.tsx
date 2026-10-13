@@ -4,6 +4,7 @@ import { AuthProvider } from "../context/AuthContext";
 import { Toaster } from "react-hot-toast";
 import { Metadata, Viewport } from "next";
 import { SmartInstallBanner } from "../components/SmartInstallBanner";
+import PremiumGiftOverlay from "../components/chat/PremiumGiftOverlay";
 
 export const metadata: Metadata = {
   title: "EarnMega",
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
             <Toaster position="top-right" />
             <SmartInstallBanner />
+            <PremiumGiftOverlay />
           </WalletProvider>
         </AuthProvider>
       </body>

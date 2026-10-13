@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Heart, Send, Eye, Lock, Coins, Forward, Trash, BarChart } from 'lucide-react';
+import { X, Heart, Send, Eye, Lock, Coins, Forward, Trash, BarChart, Gift } from 'lucide-react';
 import ForwardModal from './ForwardModal';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
@@ -346,6 +346,42 @@ export default function StatusViewer({
             >
               <Forward className="w-5 h-5" />
             </button>
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.85 }}
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (userCoins < 10) {
+                  const event = new CustomEvent('open-coin-store');
+                  window.dispatchEvent(event);
+                  return;
+                }
+                try {
+                  const { error } = await supabase.rpc("transfer_coins", {
+                    receiver_id: status?.userId,
+                    gift_cost: 10,
+                    gift_name: "Premium Gift",
+                  });
+                  if (error) throw error;
+                  const { data: userData } = await supabase.auth.getUser();
+                  await supabase.from("notifications").insert({
+                    recipient_id: status?.userId,
+                    sender_id: userData.user?.id,
+                    type: "GIFT",
+                    message: "Sent you a Premium 10-Coin Gift!",
+                  });
+                  toast.success("Premium Gift Sent!");
+                } catch (err) {
+                  console.error(err);
+                  toast.error("Failed to send gift");
+                }
+              }}
+              className="px-4 py-2 ml-2 rounded-full bg-amber-500/10 border border-amber-500/50 text-amber-500 text-xs font-bold whitespace-nowrap flex items-center shadow-[0_0_15px_rgba(245,158,11,0.2)]"
+            >
+              <Gift size={14} className="mr-1" />
+              Send Gift (10 Coins)
+            </motion.button>
+
           </form>
         </motion.div>
       )}

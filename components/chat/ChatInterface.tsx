@@ -214,9 +214,11 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
 import { AppShell } from '../layout/AppShell';
 
 export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'chats' | 'status' | 'profile', setAppTab: (tab: 'explore' | 'chats' | 'status' | 'profile') => void }) {
-  const { subscriptionTier, balance } = useWallet();
+  const { subscriptionTier, balance, refreshWallet } = useWallet();
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
+
+  const [goldenAuraIds, setGoldenAuraIds] = useState<Set<string>>(new Set());
 
   // Onboarding & Verification states
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
@@ -406,6 +408,32 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     ...otherUserProfile,
     isOnline: onlineUsers.has(otherUserProfile.id)
   } : null;
+
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase.channel('chat-golden-aura')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          if (payload.new.type === 'GIFT' && payload.new.recipient_id) {
+            setGoldenAuraIds(prev => {
+              const newSet = new Set(prev);
+              newSet.add(payload.new.recipient_id);
+              return newSet;
+            });
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
+  useEffect(() => {
+    const handleOpenStore = () => setIsStoreOpen(true);
+    window.addEventListener('open-coin-store', handleOpenStore);
+    return () => window.removeEventListener('open-coin-store', handleOpenStore);
+  }, []);
 
   useEffect(() => {
     if (currentOtherUserProfile === null) {
@@ -962,6 +990,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
   // Helper to determine ring class based on status
   const getStatusRingClass = (userId: string) => {
+    if (goldenAuraIds.has(userId)) {
+      return 'ring-4 ring-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.8)]';
+    }
     if (!activeStatusUsers.has(userId)) return '';
     const userStatuses = userStatusMap.get(userId) || [];
     if (userStatuses.length === 0) return '';
@@ -1451,6 +1482,39 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             </div>
           )}
         </div>
+
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          onClick={async () => {
+            if (balance < 10) {
+              setIsStoreOpen(true);
+              return;
+            }
+            try {
+              const { error } = await supabase.rpc('transfer_coins', {
+                receiver_id: currentOtherUserProfile.id,
+                gift_cost: 10,
+                gift_name: 'Premium Gift',
+              });
+              if (error) throw error;
+              await supabase.from('notifications').insert({
+                recipient_id: currentOtherUserProfile.id,
+                sender_id: user?.id,
+                type: 'GIFT',
+                message: 'Sent you a Premium 10-Coin Gift!',
+              });
+              refreshWallet();
+              toast.success('Premium Gift Sent!');
+            } catch (err) {
+              console.error(err);
+              toast.error('Failed to send gift');
+            }
+          }}
+          className="ml-auto flex items-center space-x-1 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/50 text-amber-500 text-xs font-bold"
+        >
+          <Gift size={14} />
+          <span>Send Gift (10 Coins)</span>
+        </motion.button>
       </header>
 
       {/* Messages Area */}
