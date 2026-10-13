@@ -137,21 +137,21 @@ export default function HomePage() {
         // We wait for these to ensure data is there before navigation
         await supabase
           .from('users')
-          .insert({
+          .upsert({
             id: data.user.id,
             email: data.user.email,
             balance: 0,
             subscription_tier: 'FREE'
-          });
+          }, { onConflict: 'id' });
 
         await supabase
           .from('profiles')
-          .insert({
+          .upsert({
             id: data.user.id,
             username,
-            phone_number: `${phoneCode}${phoneNumber}`,
+            phone: `${phoneCode}${phoneNumber}`,
             currency
-          });
+          }, { onConflict: 'id' });
       }
       showToast('Account verified successfully!', 'success');
 
@@ -183,17 +183,17 @@ export default function HomePage() {
 
       const { error } = await supabase
         .from('profiles')
-        .insert({
+        .upsert({
           id: user.id,
           username,
-          phone_number: `${phoneCode}${phoneNumber}`,
+          phone: `${phoneCode}${phoneNumber}`,
           currency
-        });
+        }, { onConflict: 'id' });
 
       if (error) throw error;
       showToast('Profile completed successfully!', 'success');
     } catch (error: any) {
-      showToast(error.message || 'An error occurred saving your profile.', 'error');
+      showToast('Failed to save profile details. Please try again.', 'error');
     } finally {
       setIsSubmitting(false);
     }
