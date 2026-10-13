@@ -11,8 +11,10 @@ import {
   Heart,
   MessageSquare,
   Globe,
-  X
+  X,
+  Settings
 } from 'lucide-react';
+import SettingsModal from './SettingsModal';
 
 interface UserProfile {
   name: string;
@@ -31,6 +33,7 @@ interface UserProfile {
   languages?: string[];
   intent?: string;
   tier?: string;
+  ghost_mode?: boolean;
 }
 
 export default function MyProfileView({
@@ -41,6 +44,7 @@ export default function MyProfileView({
   onEditClick?: () => void
 }) {
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Map from the `profile` object to the expected structure
   const mappedProfile: UserProfile = {
@@ -60,6 +64,7 @@ export default function MyProfileView({
       languages: profile.languages_spoken ? profile.languages_spoken.split(',') : [],
       intent: profile.intent,
       tier: profile.tier,
+      ghost_mode: profile.ghost_mode || false,
   };
 
   // Guarantee exactly 6 slots
@@ -108,14 +113,22 @@ export default function MyProfileView({
               </div>
             )}
           </div>
-          {onEditClick && (
+          <div className="flex items-center space-x-2">
             <button
-              onClick={onEditClick}
-              className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold transition active:scale-95 text-white"
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition active:scale-95 text-white"
             >
-              Edit
+              <Settings size={16} />
             </button>
-          )}
+            {onEditClick && (
+              <button
+                onClick={onEditClick}
+                className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold transition active:scale-95 text-white"
+              >
+                Edit
+              </button>
+            )}
+          </div>
         </div>
 
         {mappedProfile.location && (
@@ -219,6 +232,12 @@ export default function MyProfileView({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        userProfile={profile}
+      />
     </div>
   );
 }

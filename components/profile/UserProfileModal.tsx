@@ -17,6 +17,7 @@ export interface UserProfileDetails {
   last_seen?: string;
   coinsGifted: number;
   isSelf: boolean;
+  ghost_mode?: boolean;
 }
 
 interface UserProfileModalProps {
