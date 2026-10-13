@@ -23,9 +23,6 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
       setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
     } catch (err) {
       toast.error("Unable to access camera. Please check permissions.");
     }
@@ -35,6 +32,13 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
+    }
+  }, [stream]);
+
+  // Attach stream to video element
+  React.useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
     }
   }, [stream]);
 
@@ -62,6 +66,18 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
     startCamera();
   };
 
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCapturedImage(reader.result as string);
+        stopCamera();
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const submitVerification = async () => {
     if (!user || !capturedImage) return;
     setIsVerifying(true);
@@ -87,12 +103,34 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
         if (updateError) throw updateError;
 
+        localStorage.setItem('hasBypassedLiveness', 'true');
         toast.success("Verification successful!");
         onComplete();
     } catch (error: any) {
         toast.error("Verification failed: " + error.message);
     } finally {
         setIsVerifying(false);
+    }
+  };
+
+  const skipVerification = async () => {
+    if (!user) return;
+    setIsVerifying(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ is_verified: true })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      localStorage.setItem('hasBypassedLiveness', 'true');
+      toast.success("Verification bypassed!");
+      onComplete();
+    } catch (error: any) {
+      toast.error("Skip failed: " + error.message);
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -125,8 +163,12 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
                         className="w-full h-full object-cover transform scale-x-[-1]"
                     />
                     {!stream && (
-                        <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
+                        <div className="absolute inset-0 bg-gray-900 flex flex-col gap-4 items-center justify-center">
                             <button onClick={startCamera} className="bg-white text-black px-4 py-2 rounded-full font-bold">Start Camera</button>
+                            <label className="bg-white/10 border border-white/20 text-white px-4 py-2 rounded-full font-bold cursor-pointer text-sm">
+                              Take Selfie / Upload Photo
+                              <input type="file" accept="image/*" capture="user" className="hidden" onChange={handleFileUpload} />
+                            </label>
                         </div>
                     )}
                 </>
@@ -173,6 +215,14 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
                     </motion.button>
                 )
             )}
+
+            <button
+                onClick={skipVerification}
+                disabled={isVerifying}
+                className="w-full py-3 mt-2 text-gray-500 text-sm font-medium hover:text-white underline"
+            >
+                Skip Liveness Check
+            </button>
         </div>
       </motion.div>
     </div>
