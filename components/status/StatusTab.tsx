@@ -242,7 +242,7 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
 
-            <div className="relative z-10 w-14 h-14 rounded-full p-0.5 bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-500 mb-3 group-hover:scale-105 transition-transform">
+            <div className={`relative z-10 w-14 h-14 rounded-full p-0.5 mb-3 group-hover:scale-105 transition-transform ${group.profile?.subscription_tier?.toUpperCase() === 'PRO' || group.profile?.subscription_tier?.toUpperCase() === 'PREMIUM' ? 'bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow !p-[2px] !border-none' : 'bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-500'}`}>
                <div className="w-full h-full bg-black/80 rounded-full border-2 border-transparent p-0.5">
                  {group.profile?.avatar_url ? (
                    <img src={group.profile.avatar_url} alt={group.profile.username} className="w-full h-full object-cover rounded-full" />

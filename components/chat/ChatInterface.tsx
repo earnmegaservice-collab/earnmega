@@ -10,6 +10,9 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import PaystackInterceptor from "../../components/wallet/PaystackInterceptor";
+import { usePremiumAccess } from "../../hooks/usePremiumAccess";
+
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
@@ -216,6 +219,7 @@ import { AppShell } from '../layout/AppShell';
 
 export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile', setAppTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile') => void }) {
   const { subscriptionTier, balance } = useWallet();
+  const { isInterceptorOpen, setIsInterceptorOpen, interceptorCost, interceptorAction, checkPremiumAccess } = usePremiumAccess();
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
 
@@ -803,30 +807,32 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         setIsRecording(false);
       }
     } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
+      checkPremiumAccess(10, async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+          audioChunksRef.current = [];
 
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunksRef.current.push(event.data);
-          }
-        };
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              audioChunksRef.current.push(event.data);
+            }
+          };
 
-        mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          stream.getTracks().forEach(track => track.stop()); // Clean up microphone
-          await uploadMediaFile(audioBlob, 'audio');
-        };
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            stream.getTracks().forEach(track => track.stop()); // Clean up microphone
+            await uploadMediaFile(audioBlob, 'audio');
+          };
 
-        mediaRecorder.start();
-        setIsRecording(true);
-      } catch (err) {
-        console.error('Error accessing microphone:', err);
-        alert('Could not access microphone. Please check permissions.');
-      }
+          mediaRecorder.start();
+          setIsRecording(true);
+        } catch (err) {
+          console.error('Error accessing microphone:', err);
+          alert('Could not access microphone. Please check permissions.');
+        }
+      });
     }
   };
 
@@ -917,11 +923,13 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     const file = e.target.files?.[0];
     if (!file) return;
 
-    await uploadMediaFile(file, 'image', file.name);
+    checkPremiumAccess(20, async () => {
+      await uploadMediaFile(file, 'image', file.name);
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    });
   };
 
   const handleReaction = (messageId: string, emoji: string, e: React.MouseEvent) => {
@@ -979,9 +987,25 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     if (groupId === user?.id || unlockedStatuses.has(groupId)) {
        setViewingStatuses({ groupId, statuses, profile });
     } else {
-       setUnlockModalState({ isOpen: true, creatorId: groupId, creatorUsername: profile?.username || 'User' });
-       // Temporarily store what they clicked to show it after unlock
-       setViewingStatuses({ groupId, statuses, profile });
+       checkPremiumAccess(10, async () => {
+         // Process unlock logic
+         try {
+           // We do not transfer coins here because it's handled by PaystackInterceptor, OR they are premium and don't pay.
+
+           supabase.channel('chat-events').send({
+             type: 'broadcast',
+             event: 'status_unlocked',
+             payload: { creatorId: groupId, viewerId: user?.id }
+           });
+
+           setUnlockedStatuses(prev => new Set(prev).add(groupId));
+           setViewingStatuses({ groupId, statuses, profile });
+           toast.success('Status Unlocked!');
+         } catch (error: any) {
+           console.error('Failed to unlock status:', error);
+           toast.error(error.message || 'Payment failed.');
+         }
+       });
     }
   };
 
@@ -1047,7 +1071,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     {/* Glow effect */}
                     <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/20 rounded-full blur-2xl -mr-12 -mt-12 transition-transform group-hover:scale-150" />
 
-                    <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 relative z-10 border-2 border-white/20 group-hover:scale-105 transition-transform ${getStatusRingClass(u.id)}`}>
+                    <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 relative z-10 border-2 border-white/20 group-hover:scale-105 transition-transform ${u.tier?.toUpperCase() === 'PRO' || u.tier?.toUpperCase() === 'PREMIUM' ? 'bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow !p-[2px] !border-none' : getStatusRingClass(u.id)}`}>
                       {u.avatarUrl ? (
                          <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
                       ) : (
@@ -1319,6 +1343,16 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         onClose={() => setIsStoreOpen(false)}
         initialTab={storeTab}
       />
+      <PaystackInterceptor
+        isOpen={isInterceptorOpen}
+        onClose={() => setIsInterceptorOpen(false)}
+        cost={interceptorCost}
+        action={interceptorAction}
+        onOpenStore={() => {
+           setStoreTab('UPGRADES');
+           setIsStoreOpen(true);
+        }}
+      />
       <GiftModal
         isOpen={isGiftModalOpen}
         onClose={() => setIsGiftModalOpen(false)}
@@ -1427,7 +1461,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
         <div
           onClick={() => openProfile(currentOtherUserProfile)}
-          className={`w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer border border-white/20 ${getStatusRingClass(currentOtherUserProfile.id)}`}
+          className={`w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer border border-white/20 ${currentOtherUserProfile.tier?.toUpperCase() === 'PRO' || currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' ? 'bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow !p-[2px] !border-none' : getStatusRingClass(currentOtherUserProfile.id)}`}
         >
            {currentOtherUserProfile.avatarUrl ? (
              <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />

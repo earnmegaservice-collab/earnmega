@@ -80,7 +80,7 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
     : '';
 
 
-  const isProOrHigher = user.tier === 'PRO' || user.tier === 'PREMIUM';
+  const isProOrHigher = user.tier?.toUpperCase() === 'PRO' || user.tier?.toUpperCase() === 'PREMIUM';
   const isPremium = user.tier === 'PREMIUM';
 
   return (
