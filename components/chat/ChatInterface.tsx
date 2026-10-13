@@ -225,6 +225,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
   // Status State
   const [viewingStatuses, setViewingStatuses] = useState<{ groupId: string, statuses: any[], profile: any } | null>(null);
+  const [userStatusMap, setUserStatusMap] = useState<Map<string, string[]>>(new Map());
+
+  // Determine if a user's statuses are all viewed. Since activeStatusUsers just tells us they have one,
+  // we might need to know if they have unviewed ones. For now, activeStatusUsers means they have *any* status in 24h.
+  // A better check: userHasUnviewedStatus(userId). We need their status IDs.
+  // Let's store a map of userId -> statusIds instead of just a Set.
+
+  const [activeStatusUsers, setActiveStatusUsers] = useState<Set<string>>(new Set());
+  const [viewedStatuses, setViewedStatuses] = useState<Set<string>>(new Set());
   const [unlockModalState, setUnlockModalState] = useState<{ isOpen: boolean, creatorId: string, creatorUsername: string } | null>(null);
   const [unlockedStatuses, setUnlockedStatuses] = useState<Set<string>>(new Set());
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -294,6 +303,60 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchGlobalStatuses = async () => {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from('statuses')
+        .select('id, user_id')
+        .gt('created_at', twentyFourHoursAgo);
+
+      if (!error && data) {
+        const usersWithStatuses = new Set<string>();
+        const statusMap = new Map<string, string[]>();
+        data.forEach(s => {
+          usersWithStatuses.add(s.user_id);
+          if (!statusMap.has(s.user_id)) statusMap.set(s.user_id, []);
+          statusMap.get(s.user_id)!.push(s.id);
+        });
+        setActiveStatusUsers(usersWithStatuses);
+        setUserStatusMap(statusMap);
+      }
+    };
+
+    const fetchViewedStatuses = async () => {
+      const { data, error } = await supabase
+        .from('status_views')
+        .select('status_id')
+        .eq('user_id', user.id);
+
+      if (!error && data) {
+        const viewed = new Set<string>();
+        data.forEach(v => viewed.add(v.status_id));
+        setViewedStatuses(viewed);
+      }
+    };
+
+    fetchGlobalStatuses();
+    fetchViewedStatuses();
+
+    const statusesChannel = supabase.channel('global_status_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, () => {
+        fetchGlobalStatuses();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'status_views', filter: `user_id=eq.${user.id}` }, () => {
+        fetchViewedStatuses();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(statusesChannel);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -896,6 +959,18 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     );
   };
 
+
+  // Helper to determine ring class based on status
+  const getStatusRingClass = (userId: string) => {
+    if (!activeStatusUsers.has(userId)) return '';
+    const userStatuses = userStatusMap.get(userId) || [];
+    if (userStatuses.length === 0) return '';
+
+    // Check if ALL statuses are viewed
+    const allViewed = userStatuses.every(id => viewedStatuses.has(id));
+    return allViewed ? 'status-ring-viewed' : 'status-ring-active';
+  };
+
   const handleStatusClick = (groupId: string, statuses: any[], profile: any) => {
     if (groupId === user?.id || unlockedStatuses.has(groupId)) {
        setViewingStatuses({ groupId, statuses, profile });
@@ -954,7 +1029,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     {/* Glow effect */}
                     <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/20 rounded-full blur-2xl -mr-12 -mt-12 transition-transform group-hover:scale-150" />
 
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 relative z-10 border-2 border-white/20 group-hover:scale-105 transition-transform">
+                    <div className={`w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/30 mb-3 relative z-10 border-2 border-white/20 group-hover:scale-105 transition-transform ${getStatusRingClass(u.id)}`}>
                       {u.avatarUrl ? (
                          <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
                       ) : (
@@ -1007,19 +1082,20 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
           {/* Status Viewer */}
           {viewingStatuses && (
-            <StatusViewer
-              status={{
-                id: viewingStatuses.statuses[0].id,
+                                    <StatusViewer
+              statuses={viewingStatuses.statuses.map(s => ({
+                id: s.id,
                 userId: viewingStatuses.profile.id,
                 username: viewingStatuses.profile.username,
                 avatarUrl: viewingStatuses.profile.avatar_url,
-                mediaUrl: viewingStatuses.statuses[0].media_url,
-                mediaType: viewingStatuses.statuses[0].media_type,
-                textContent: viewingStatuses.statuses[0].text_content,
+                mediaUrl: s.media_url,
+                mediaType: s.media_type,
+                textContent: s.text_content,
+                backgroundGradient: s.background_gradient,
                 viewsCount: 0,
                 isUnlocked: user?.id === viewingStatuses.groupId || unlockedStatuses.has(viewingStatuses.groupId),
                 isOwner: user?.id === viewingStatuses.groupId
-              }}
+              }))}
               onClose={() => setViewingStatuses(null)}
               onUnlock={async (statusId) => {
                  try {
@@ -1087,6 +1163,28 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     event: 'new_message',
                     payload: { messageId: msgId, senderId: user.id, receiverId: viewingStatuses.groupId }
                  });
+              }}
+              onForward={async (statusId, receiverId) => {
+                 if (!user) return;
+                 const msgId = uuidv4();
+                 const content = `[FORWARDED_STATUS:${statusId}:${viewingStatuses.groupId}]`;
+
+                 // Save message
+                 await supabase.from('messages').insert({
+                    id: msgId,
+                    sender_id: user.id,
+                    receiver_id: receiverId,
+                    content: content,
+                    status: 'sent'
+                 });
+
+                 supabase.channel('chat-events').send({
+                    type: 'broadcast',
+                    event: 'new_message',
+                    payload: { messageId: msgId, senderId: user.id, receiverId: receiverId }
+                 });
+
+                 toast.success("Status forwarded!");
               }}
               userCoins={balance}
             />
@@ -1311,7 +1409,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
         <div
           onClick={() => openProfile(currentOtherUserProfile)}
-          className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer border border-white/20"
+          className={`w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer border border-white/20 ${getStatusRingClass(currentOtherUserProfile.id)}`}
         >
            {currentOtherUserProfile.avatarUrl ? (
              <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />

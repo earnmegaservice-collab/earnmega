@@ -22,6 +22,43 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
   const [editUsername, setEditUsername] = useState('');
   const [editBio, setEditBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  const [hasUnviewedStatus, setHasUnviewedStatus] = useState(false);
+  const [hasStatus, setHasStatus] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const checkStatuses = async () => {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: statuses } = await supabase
+        .from('statuses')
+        .select('id')
+        .eq('user_id', user.id)
+        .gt('created_at', twentyFourHoursAgo);
+
+      if (statuses && statuses.length > 0) {
+        setHasStatus(true);
+        const { data: views } = await supabase
+          .from('status_views')
+          .select('status_id')
+          .eq('user_id', user.id);
+
+        const viewedIds = new Set(views?.map(v => v.status_id) || []);
+        const allViewed = statuses.every(s => viewedIds.has(s.id));
+        setHasUnviewedStatus(!allViewed);
+      } else {
+        setHasStatus(false);
+      }
+    };
+
+    checkStatuses();
+  }, [user]);
+
+  const statusRingClass = hasStatus
+    ? (hasUnviewedStatus ? 'ring-4 ring-purple-500 ring-offset-4 ring-offset-black/50' : 'ring-4 ring-gray-500 ring-offset-4 ring-offset-black/50')
+    : '';
+
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);

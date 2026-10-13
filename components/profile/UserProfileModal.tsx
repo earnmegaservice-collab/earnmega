@@ -29,6 +29,56 @@ interface UserProfileModalProps {
 export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick }: UserProfileModalProps) {
   if (!isOpen || !user) return null;
 
+  const [hasUnviewedStatus, setHasUnviewedStatus] = React.useState(false);
+  const [hasStatus, setHasStatus] = React.useState(false);
+  const [currentUser, setCurrentUser] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    import('../../utils/supabase').then(({ supabase }) => {
+      supabase.auth.getUser().then(({ data }) => {
+        if (data.user) {
+           setCurrentUser(data.user);
+        }
+      });
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (!user || !currentUser) return;
+
+    import('../../utils/supabase').then(({ supabase }) => {
+      const checkStatuses = async () => {
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data: statuses } = await supabase
+          .from('statuses')
+          .select('id')
+          .eq('user_id', user.id)
+          .gt('created_at', twentyFourHoursAgo);
+
+        if (statuses && statuses.length > 0) {
+          setHasStatus(true);
+          const { data: views } = await supabase
+            .from('status_views')
+            .select('status_id')
+            .eq('user_id', currentUser.id);
+
+          const viewedIds = new Set(views?.map(v => v.status_id) || []);
+          const allViewed = statuses.every(s => viewedIds.has(s.id));
+          setHasUnviewedStatus(!allViewed);
+        } else {
+          setHasStatus(false);
+        }
+      };
+
+      checkStatuses();
+    });
+  }, [user, currentUser]);
+
+  const statusRingClass = hasStatus
+    ? (hasUnviewedStatus ? 'ring-4 ring-purple-500 ring-offset-4 ring-offset-black/50' : 'ring-4 ring-gray-500 ring-offset-4 ring-offset-black/50')
+    : '';
+
+
   const isProOrHigher = user.tier === 'PRO' || user.tier === 'PREMIUM';
   const isPremium = user.tier === 'PREMIUM';
 
