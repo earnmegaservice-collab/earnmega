@@ -16,7 +16,7 @@ export default function HomePage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const { balance } = useWallet();
-  const [appTab, setAppTab] = useState<'explore' | 'chats' | 'status' | 'profile'>('chats');
+  const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile'>('chats');
 
   // Auth Form State
   const [step, setStep] = useState<Step>('login');

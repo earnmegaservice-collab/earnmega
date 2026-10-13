@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Compass,
+  Radar,
   MessageCircle,
   Radio,
   User,
@@ -17,8 +18,8 @@ import GiftOverlay from '../chat/GiftOverlay';
 
 interface AppShellProps {
   children: React.ReactNode;
-  activeTab: 'explore' | 'chats' | 'status' | 'profile';
-  setActiveTab: (tab: 'explore' | 'chats' | 'status' | 'profile') => void;
+  activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile';
+  setActiveTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile') => void;
   coinBalance: number;
   unreadCount?: number;
   onOpenStore?: () => void;
@@ -79,10 +80,10 @@ export const AppShell: React.FC<AppShellProps> = ({
       </main>
 
       {/* 3. FIXED BOTTOM NAVIGATION */}
-      <nav className="fixed bottom-0 left-0 right-0 h-20 bg-black/80 backdrop-blur-3xl border-t border-white/[0.08] z-50 px-6 flex items-center justify-around pb-4">
+      <nav className="fixed bottom-0 left-0 right-0 h-20 bg-black/80 backdrop-blur-3xl border-t border-white/[0.08] z-50 px-6 flex flex-row overflow-x-auto whitespace-nowrap scrollbar-hide snap-x pb-4 items-center justify-start gap-6">
         <button
           onClick={() => setActiveTab('explore')}
-          className="relative flex flex-col items-center justify-center w-14 py-1 text-xs group"
+          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
         >
           {activeTab === 'explore' && (
             <motion.div
@@ -96,8 +97,24 @@ export const AppShell: React.FC<AppShellProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('find')}
+          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+        >
+          {activeTab === 'find' && (
+            <motion.div
+              layoutId="activeTabIndicator"
+              className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+            />
+          )}
+          <Radar className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'find' ? 'text-white' : 'text-white/40'}`} />
+          <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'find' ? 'text-white font-bold' : 'text-white/40'}`}>Find</span>
+        </button>
+
+
+        <button
           onClick={() => setActiveTab('chats')}
-          className="relative flex flex-col items-center justify-center w-14 py-1 text-xs group"
+          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
         >
           {activeTab === 'chats' && (
             <motion.div
@@ -113,7 +130,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         {/* The Store Button (Center) */}
         <button
           onClick={onOpenStore}
-          className="relative flex flex-col items-center justify-center w-14 py-1 text-xs group"
+          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
         >
           <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center shadow-[0_0_15px_rgba(251,191,36,0.6)] border-2 border-yellow-300/50 mb-1 group-hover:scale-105 transition-transform duration-200">
             <Store className="w-5 h-5 text-black fill-black/10" />
@@ -123,7 +140,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
         <button
           onClick={() => setActiveTab('status')}
-          className="relative flex flex-col items-center justify-center w-14 py-1 text-xs group"
+          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
         >
           {activeTab === 'status' && (
             <motion.div
@@ -138,7 +155,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
         <button
           onClick={() => setActiveTab('profile')}
-          className="relative flex flex-col items-center justify-center w-14 py-1 text-xs group"
+          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
         >
           {activeTab === 'profile' && (
             <motion.div
