@@ -27,23 +27,34 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
   if (!isOpen) return null;
 
   const handleSendGift = async (gift: any) => {
-    if (balance < gift.cost) {
-      setShowError(true);
-      return;
-    }
-
     setIsProcessing(true);
     try {
-      const { error } = await supabase.rpc('transfer_coins', {
-        receiver_id: recipientId,
-        gift_cost: gift.cost,
-        gift_name: gift.name,
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { error: deductError } = await supabase.rpc('deduct_coins', {
+        user_uuid: user.id,
+        deduct_amount: gift.cost,
       });
 
-      if (error) {
-        console.error('Failed to send gift:', error);
-        alert('Failed to send gift. Please try again later.'); // Consider using a custom toast later
+      if (deductError) {
+        console.error('Failed to deduct coins:', deductError);
+        onClose();
+        onOpenStore();
         return;
+      }
+
+      // If deduction successful, trigger the gift notification
+      const { error: notifError } = await supabase.from('notifications').insert({
+        recipient_id: recipientId,
+        sender_id: user.id,
+        type: 'GIFT',
+        message: `${gift.name}|${gift.cost}`
+      });
+
+      if (notifError) {
+        console.error('Failed to insert gift notification:', notifError);
+        // Note: Coins are deducted but animation might fail. Needs robust queue in prod.
       }
 
       setBalance(prev => prev - gift.cost);
@@ -51,6 +62,8 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
       onClose();
     } catch (err) {
       console.error('Unexpected error sending gift:', err);
+      onClose();
+      onOpenStore();
     } finally {
       setIsProcessing(false);
     }
