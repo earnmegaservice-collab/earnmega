@@ -20,6 +20,7 @@ const StatusViewer = dynamic(() => import("../../components/status/StatusViewer"
 const UnlockModal = dynamic(() => import("../../components/status/UnlockModal"), { ssr: false });
 const ChatList = dynamic(() => import("./ChatList"), { ssr: false });
 const MessageForwardModal = dynamic(() => import("./MessageForwardModal"), { ssr: false });
+const CallOverlay = dynamic(() => import("./CallOverlay"), { ssr: false });
 
 type Message = {
   id: string;
@@ -279,14 +280,12 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [isCallActive, setIsCallActive] = useState(false);
   const [isRinging, setIsRinging] = useState(false);
   const [incomingCall, setIncomingCall] = useState<{ callerId: string, callerName: string, callId: string, callType: 'audio'|'video', offer?: RTCSessionDescriptionInit } | null>(null);
-  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
-  useEffect(() => { ringtoneRef.current = new Audio('/ringtone.mp3'); ringtoneRef.current.loop = true; return () => { ringtoneRef.current?.pause(); ringtoneRef.current = null; }; }, []);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedGroupUsers, setSelectedGroupUsers] = useState<Set<string>>(new Set());
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
@@ -402,18 +401,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
      };
 
      pc.ontrack = (event) => {
-        if (remoteVideoRef.current) {
+              setRemoteStream(event.streams[0]);
+              if (remoteVideoRef.current) {
            remoteVideoRef.current.srcObject = event.streams[0];
         }
-              if (remoteVideoRef.current) {
-                  remoteVideoRef.current.muted = false;
-                  remoteVideoRef.current.volume = 1.0;
-              }
-              if (remoteAudioRef.current) {
-                  remoteAudioRef.current.srcObject = event.streams[0];
-                  remoteAudioRef.current.muted = false;
-                  remoteAudioRef.current.volume = 1.0;
-              }
      };
 
      if (localStreamRef.current) {
@@ -475,7 +466,6 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   const handleAcceptCall = async () => {
-      ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
       if (!incomingCall || !user) return;
       try {
           const { error } = GOD_MODE ? { error: null } : await supabase.rpc('answer_call_deduct_coins', {
@@ -531,7 +521,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   const handleEndCall = () => {
-      ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
+      setRemoteStream(null);
 
       if (incomingCall && !isCallActiveRef.current && currentOtherUserProfile && user) {
           const msgId = uuidv4();
@@ -544,15 +534,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               status: 'read',
               reactions: []
           }]);
-
-          supabase.from('messages').insert({
-              id: msgId,
-              sender_id: incomingCall.callerId,
-              receiver_id: user.id,
-              content: '',
-              message_type: 'missed_call',
-              status: 'sent'
-          }).then();
+          supabase.from('messages').insert({ id: msgId, sender_id: incomingCall.callerId, receiver_id: user.id, content: '', message_type: 'missed_call', status: 'sent' }).then();
       } else if (isCallActiveRef.current && !incomingCall && currentOtherUserProfile && user && !hasCallConnectedRef.current) {
           const msgId = uuidv4();
           setMessages(prev => [...prev, {
@@ -564,15 +546,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               status: 'sent',
               reactions: []
           }]);
-
-          supabase.from('messages').insert({
-              id: msgId,
-              sender_id: user.id,
-              receiver_id: currentOtherUserProfile.id,
-              content: '',
-              message_type: 'missed_call',
-              status: 'sent'
-          }).then();
+          supabase.from('messages').insert({ id: msgId, sender_id: user.id, receiver_id: currentOtherUserProfile.id, content: '', message_type: 'missed_call', status: 'sent' }).then();
       }
 
       setIsCallActive(false);
@@ -989,8 +963,6 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
          const profile = currentUserProfileRef.current;
          if (profile && payload.payload.receiverId === profile.id) {
             channelRef.current?.send({ type: 'broadcast', event: 'call_ringing', payload: { callerId: payload.payload.callerId } });
-
-            ringtoneRef.current?.play().catch(e => console.error('Audio play error:', e));
             hasCallConnectedRef.current = false;
 
             if ('serviceWorker' in navigator && 'showNotification' in ServiceWorkerRegistration.prototype && document.hidden) {
@@ -1016,7 +988,6 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
          const profile = currentUserProfileRef.current;
          if (profile && payload.payload.callerId === profile.id && isCallActiveRef.current && !incomingCall) {
              setIsRinging(true);
-             ringtoneRef.current?.play().catch(e => console.error('Audio play error:', e));
          }
       })
       .on('broadcast', { event: 'call_answered' }, async (payload) => {
@@ -1025,7 +996,6 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             toast.success("Call Connected!");
             hasCallConnectedRef.current = true;
             setIsRinging(false);
-            ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
             if (peerConnectionRef.current && payload.payload.answer) {
                 try {
                     await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.payload.answer));
@@ -1377,7 +1347,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       }
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
         const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
         audioChunksRef.current = [];
@@ -2209,6 +2179,19 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="bg-white/10 backdrop-blur-3xl border border-white/20 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col py-1 min-w-[160px]">
+                            <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-white/5">
+                               {DEFAULT_EMOJIS.map(emoji => (
+                                  <button key={emoji} onClick={(e) => { e.stopPropagation(); handleReaction(message.id, emoji, e as any); setActiveContextMenuId(null); }} className="text-xl hover:scale-125 transition-transform">
+                                     {emoji}
+                                  </button>
+                               ))}
+                            </div>
+                            <button
+                               onClick={(e) => { e.stopPropagation(); setReplyingTo(message); setActiveContextMenuId(null); }}
+                               className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                            >
+                               <span>Reply</span>
+                            </button>
                             <button
                                onClick={() => {
                                  setMessageToForward(message);
@@ -2224,9 +2207,6 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                                className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
                             >
                                <span>Delete for me</span>
-                            </button>
-                            <button onClick={() => setIsGroupModalOpen(true)} className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full">
-                               <span>Create Group with User</span>
                             </button>
                             {isUser && (
                                <button
@@ -2319,7 +2299,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     )}
 
                     {message.messageType === 'missed_call' && (
-                      <div className="flex items-center space-x-2 p-2 bg-red-500/20 border border-red-500/30 rounded-lg">
+                      <div className="flex items-center space-x-2 p-2 bg-red-500/20 border border-red-500/30 rounded-lg cursor-pointer hover:bg-red-500/30 transition-colors" onClick={() => handleInitiateCall('audio')}>
                         <Phone className="w-5 h-5 text-red-400" />
                         <div className="flex flex-col">
                           <span className="text-red-400 font-semibold text-sm">Missed Call</span>
@@ -2517,53 +2497,18 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
          )}
       </AnimatePresence>
 
-      <AnimatePresence>
-         {(isCallActive || incomingCall) && (
-            <motion.div
-               initial={{ opacity: 0, y: '100%' }}
-               animate={{ opacity: 1, y: 0 }}
-               exit={{ opacity: 0, y: '100%' }}
-               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-               className="fixed inset-0 z-[120] bg-neutral-950/90 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6"
-            >
-               <video ref={remoteVideoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover z-0 opacity-50" />
-               <audio ref={remoteAudioRef} autoPlay />
-               <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-32 right-6 w-24 h-36 rounded-xl object-cover z-10 border border-white/20 shadow-2xl bg-black" />
-
-               <div className="flex flex-col items-center mt-12 z-10">
-                  <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 shadow-2xl relative ${
-                      (incomingCall || currentOtherUserProfile?.tier === 'PREMIUM' || currentOtherUserProfile?.tier === 'PRO') ? 'bg-gradient-to-tr from-yellow-400 to-purple-600 animate-pulse p-1' : 'bg-white/10'
-                  }`}>
-                     <div className="w-full h-full bg-neutral-900 rounded-full flex items-center justify-center border-4 border-neutral-950 overflow-hidden">
-                        {currentOtherUserProfile?.avatarUrl ? (
-                           <img src={currentOtherUserProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                        ) : (
-                           <Users size={48} className="text-white/50" />
-                        )}
-                     </div>
-                  </div>
-                  <h2 className="text-3xl font-bold text-white mb-2">{incomingCall ? incomingCall.callerName : currentOtherUserProfile?.name}</h2>
-                  <p className={`text-white/60 text-lg ${(!incomingCall && !isRinging) ? 'animate-pulse' : ''}`}>{incomingCall ? `Incoming ${incomingCall.callType} call...` : isRinging ? 'Ringing...' : 'Calling...'}</p>
-               </div>
-
-               <div className="flex items-center space-x-8 mb-12 z-10">
-                  {incomingCall ? (
-                     <>
-                        <button onClick={handleEndCall} className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all">
-                           <Phone size={28} className="text-white rotate-[135deg]" />
-                        </button>
-                        <button onClick={handleAcceptCall} className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center shadow-[0_0_20px_rgba(34,197,94,0.5)] transition-all">
-                           <Phone size={28} className="text-white" />
-                        </button>
-                     </>
-                  ) : (
-                     <button onClick={handleEndCall} className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all">
-                        <Phone size={28} className="text-white rotate-[135deg]" />
-                     </button>
-                  )}
-               </div>
-            </motion.div>
-         )}
+            <AnimatePresence>
+          {(isCallActive || incomingCall) && (
+              <CallOverlay
+                  isRinging={isRinging}
+                  incomingCall={incomingCall}
+                  currentOtherUserProfileName={currentOtherUserProfile?.name}
+                  remoteStream={remoteStream}
+                  localStream={localStreamRef.current}
+                  onAccept={handleAcceptCall}
+                  onEnd={handleEndCall}
+              />
+          )}
       </AnimatePresence>
 
     </div>

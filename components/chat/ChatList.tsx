@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { supabase } from '../../utils/supabase';
 import { Search } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 
@@ -21,6 +22,13 @@ export default function ChatList({
   setOtherUserProfile
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeContextId, setActiveContextId] = useState<string | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    const handleClickOutside = () => setActiveContextId(null);
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const filteredUsers = exploreUsers.filter(u =>
     u.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -59,6 +67,25 @@ export default function ChatList({
                 }
                 setOtherUserProfile(u);
               }}
+              onPointerDown={(e) => {
+                 longPressTimerRef.current = setTimeout(() => {
+                    setActiveContextId(u.id);
+                    if (window.navigator && window.navigator.vibrate) window.navigator.vibrate(50);
+                 }, 500);
+              }}
+              onPointerUp={() => {
+                 if (longPressTimerRef.current) {
+                    clearTimeout(longPressTimerRef.current);
+                    longPressTimerRef.current = null;
+                 }
+              }}
+              onPointerCancel={() => {
+                 if (longPressTimerRef.current) {
+                    clearTimeout(longPressTimerRef.current);
+                    longPressTimerRef.current = null;
+                 }
+              }}
+              onContextMenu={(e) => { e.preventDefault(); setActiveContextId(u.id); }}
               className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group"
             >
               {/* Left: Avatar */}
@@ -102,6 +129,34 @@ export default function ChatList({
                   </div>
                 )}
               </div>
+
+              <AnimatePresence>
+                {activeContextId === u.id && (
+                   <motion.div
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      className="absolute left-16 top-12 z-50 w-56"
+                      onClick={(e) => e.stopPropagation()}
+                   >
+                      <div className="bg-neutral-900/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col py-1">
+                         <button onClick={async (e) => { e.stopPropagation(); setActiveContextId(null); await supabase.from('conversations').update({ is_pinned: true }).eq('user_id', currentUserProfile?.id).eq('other_user_id', u.id); }} className="px-4 py-3 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors">
+                            <span>Pin Chat</span>
+                         </button>
+                         <button onClick={async (e) => { e.stopPropagation(); setActiveContextId(null); await supabase.from('conversations').update({ is_muted: true }).eq('user_id', currentUserProfile?.id).eq('other_user_id', u.id); }} className="px-4 py-3 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors">
+                            <span>Mute Notifications</span>
+                         </button>
+                         <button onClick={(e) => { e.stopPropagation(); setActiveContextId(null); }} className="px-4 py-3 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors">
+                            <span>Create Group with {u.name}</span>
+                         </button>
+                         <button onClick={async (e) => { e.stopPropagation(); setActiveContextId(null); await supabase.from('conversations').update({ is_deleted: true }).eq('user_id', currentUserProfile?.id).eq('other_user_id', u.id); }} className="px-4 py-3 text-sm font-bold text-red-400 hover:bg-red-500/10 flex items-center justify-between transition-colors">
+                            <span>Delete Chat</span>
+                         </button>
+                      </div>
+                   </motion.div>
+                )}
+              </AnimatePresence>
+
             </motion.div>
           ))}
         </AnimatePresence>
