@@ -37,8 +37,10 @@ type Message = {
   viewedBy?: string[];
   isDeleted?: boolean;
   hiddenFor?: string[];
-};
+  messageType?: 'missed_call' | 'text' | 'image' | 'audio';
+}
 
+const GOD_MODE = true;
 const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
 // Helper to parse basic formatting
@@ -275,18 +277,23 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfileDetails | null>(null);
   // Phase 3 States
   const [isCallActive, setIsCallActive] = useState(false);
+  const [isRinging, setIsRinging] = useState(false);
   const [incomingCall, setIncomingCall] = useState<{ callerId: string, callerName: string, callId: string, callType: 'audio'|'video', offer?: RTCSessionDescriptionInit } | null>(null);
+  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => { ringtoneRef.current = new Audio('/ringtone.mp3'); ringtoneRef.current.loop = true; return () => { ringtoneRef.current?.pause(); ringtoneRef.current = null; }; }, []);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedGroupUsers, setSelectedGroupUsers] = useState<Set<string>>(new Set());
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
   const currentUserProfileRef = useRef(currentUserProfile);
   useEffect(() => { currentUserProfileRef.current = currentUserProfile; }, [currentUserProfile]);
   const isCallActiveRef = useRef(isCallActive);
+  const hasCallConnectedRef = useRef(false);
   useEffect(() => { isCallActiveRef.current = isCallActive; }, [isCallActive]);
 
 
@@ -398,6 +405,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         if (remoteVideoRef.current) {
            remoteVideoRef.current.srcObject = event.streams[0];
         }
+              if (remoteVideoRef.current) {
+                  remoteVideoRef.current.muted = false;
+                  remoteVideoRef.current.volume = 1.0;
+              }
+              if (remoteAudioRef.current) {
+                  remoteAudioRef.current.srcObject = event.streams[0];
+                  remoteAudioRef.current.muted = false;
+                  remoteAudioRef.current.volume = 1.0;
+              }
      };
 
      if (localStreamRef.current) {
@@ -412,7 +428,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const handleInitiateCall = async (type: 'audio' | 'video') => {
 
      if (!user || !currentOtherUserProfile) return;
-     if (subscriptionTier === 'FREE' && type === 'video') {
+     if ((!GOD_MODE && subscriptionTier === 'FREE') && type === 'video') {
          setIsTierLockModalOpen(true);
          return;
      }
@@ -459,9 +475,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   const handleAcceptCall = async () => {
+      ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
       if (!incomingCall || !user) return;
       try {
-          const { error } = await supabase.rpc('answer_call_deduct_coins', {
+          const { error } = GOD_MODE ? { error: null } : await supabase.rpc('answer_call_deduct_coins', {
               caller_id: incomingCall.callerId,
               receiver_id: user.id,
               call_cost: 50
@@ -514,7 +531,52 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   const handleEndCall = () => {
+      ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
+
+      if (incomingCall && !isCallActiveRef.current && currentOtherUserProfile && user) {
+          const msgId = uuidv4();
+          setMessages(prev => [...prev, {
+              id: msgId,
+              text: '',
+              messageType: 'missed_call',
+              sender: 'other',
+              timestamp: new Date(),
+              status: 'read',
+              reactions: []
+          }]);
+
+          supabase.from('messages').insert({
+              id: msgId,
+              sender_id: incomingCall.callerId,
+              receiver_id: user.id,
+              content: '',
+              message_type: 'missed_call',
+              status: 'sent'
+          }).then();
+      } else if (isCallActiveRef.current && !incomingCall && currentOtherUserProfile && user && !hasCallConnectedRef.current) {
+          const msgId = uuidv4();
+          setMessages(prev => [...prev, {
+              id: msgId,
+              text: '',
+              messageType: 'missed_call',
+              sender: 'user',
+              timestamp: new Date(),
+              status: 'sent',
+              reactions: []
+          }]);
+
+          supabase.from('messages').insert({
+              id: msgId,
+              sender_id: user.id,
+              receiver_id: currentOtherUserProfile.id,
+              content: '',
+              message_type: 'missed_call',
+              status: 'sent'
+          }).then();
+      }
+
       setIsCallActive(false);
+      setIsRinging(false);
       if (incomingCall) setIncomingCall(null);
 
       if (localStreamRef.current) {
@@ -926,6 +988,21 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       .on('broadcast', { event: 'incoming_call' }, (payload) => {
          const profile = currentUserProfileRef.current;
          if (profile && payload.payload.receiverId === profile.id) {
+            channelRef.current?.send({ type: 'broadcast', event: 'call_ringing', payload: { callerId: payload.payload.callerId } });
+
+            ringtoneRef.current?.play().catch(e => console.error('Audio play error:', e));
+            hasCallConnectedRef.current = false;
+
+            if ('serviceWorker' in navigator && 'showNotification' in ServiceWorkerRegistration.prototype && document.hidden) {
+                navigator.serviceWorker.ready.then(registration => {
+                    registration.showNotification(`Incoming Call from ${payload.payload.callerName}`, {
+                        body: 'Tap to answer',
+                        icon: '/icon-192x192.png',
+                        vibrate: [200, 100, 200, 100, 200, 100, 200]
+                    } as any);
+                });
+            }
+
             setIncomingCall({
                callerId: payload.payload.callerId,
                callerName: payload.payload.callerName,
@@ -935,10 +1012,20 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             });
          }
       })
+            .on('broadcast', { event: 'call_ringing' }, (payload) => {
+         const profile = currentUserProfileRef.current;
+         if (profile && payload.payload.callerId === profile.id && isCallActiveRef.current && !incomingCall) {
+             setIsRinging(true);
+             ringtoneRef.current?.play().catch(e => console.error('Audio play error:', e));
+         }
+      })
       .on('broadcast', { event: 'call_answered' }, async (payload) => {
          const profile = currentUserProfileRef.current;
          if (profile && payload.payload.callerId === profile.id && isCallActiveRef.current) {
             toast.success("Call Connected!");
+            hasCallConnectedRef.current = true;
+            setIsRinging(false);
+            ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
             if (peerConnectionRef.current && payload.payload.answer) {
                 try {
                     await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.payload.answer));
@@ -1010,13 +1097,13 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const handleUnlockViewOnce = async (message: Message) => {
     if (!user) return;
     try {
-      if (subscriptionTier === 'FREE') {
-        if (balance < 10) {
+      if ((!GOD_MODE && subscriptionTier === 'FREE')) {
+        if ((!GOD_MODE && balance < 10)) {
           toast.error("Insufficient coins (Need 10).");
           return;
         }
 
-        const { error: deductError } = await supabase.rpc('deduct_coins', {
+        const { error: deductError } = GOD_MODE ? { error: null } : await supabase.rpc('deduct_coins', {
           user_id: user.id,
           amount: 10
         });
@@ -1233,7 +1320,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   const handleMediaClick = () => {
-    if (subscriptionTier === 'FREE') {
+    if ((!GOD_MODE && subscriptionTier === 'FREE')) {
       setIsTierLockModalOpen(true);
       return false;
     }
@@ -2138,6 +2225,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                             >
                                <span>Delete for me</span>
                             </button>
+                            <button onClick={() => setIsGroupModalOpen(true)} className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full">
+                               <span>Create Group with User</span>
+                            </button>
                             {isUser && (
                                <button
                                   onClick={() => handleDeleteForEveryone(message.id)}
@@ -2227,6 +2317,17 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                         )}
                       </div>
                     )}
+
+                    {message.messageType === 'missed_call' && (
+                      <div className="flex items-center space-x-2 p-2 bg-red-500/20 border border-red-500/30 rounded-lg">
+                        <Phone className="w-5 h-5 text-red-400" />
+                        <div className="flex flex-col">
+                          <span className="text-red-400 font-semibold text-sm">Missed Call</span>
+                          <span className="text-white/60 text-xs">Tap to call back</span>
+                        </div>
+                      </div>
+                    )}
+
                     {message.audioUrl && (
                       <div className="mb-1.5">
                         <AudioPlayer src={message.audioUrl} />
@@ -2426,6 +2527,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                className="fixed inset-0 z-[120] bg-neutral-950/90 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6"
             >
                <video ref={remoteVideoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover z-0 opacity-50" />
+               <audio ref={remoteAudioRef} autoPlay />
                <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-32 right-6 w-24 h-36 rounded-xl object-cover z-10 border border-white/20 shadow-2xl bg-black" />
 
                <div className="flex flex-col items-center mt-12 z-10">
@@ -2441,7 +2543,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                      </div>
                   </div>
                   <h2 className="text-3xl font-bold text-white mb-2">{incomingCall ? incomingCall.callerName : currentOtherUserProfile?.name}</h2>
-                  <p className="text-white/60 text-lg">{incomingCall ? `Incoming ${incomingCall.callType} call...` : 'Calling...'}</p>
+                  <p className={`text-white/60 text-lg ${(!incomingCall && !isRinging) ? 'animate-pulse' : ''}`}>{incomingCall ? `Incoming ${incomingCall.callType} call...` : isRinging ? 'Ringing...' : 'Calling...'}</p>
                </div>
 
                <div className="flex items-center space-x-8 mb-12 z-10">

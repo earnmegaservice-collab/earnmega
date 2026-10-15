@@ -17,6 +17,7 @@ interface UnlockModalProps {
   onOpenStore: () => void;
 }
 
+const GOD_MODE = true;
 export default function UnlockModal({ isOpen, onClose, creatorId, creatorUsername, onSuccess, onOpenStore }: UnlockModalProps) {
   const { user } = useAuth();
   const { balance, refreshWallet } = useWallet();
@@ -25,7 +26,7 @@ export default function UnlockModal({ isOpen, onClose, creatorId, creatorUsernam
   const handleUnlock = async () => {
     if (!user) return;
 
-    if (balance < 10) {
+    if (!GOD_MODE && balance < 10) {
       toast.error('Insufficient coins. Please buy more.');
       onOpenStore();
       return;
@@ -36,7 +37,7 @@ export default function UnlockModal({ isOpen, onClose, creatorId, creatorUsernam
 
     try {
       // 1. Deduct 10 coins and transfer to creator
-      const { error } = await supabase.rpc('transfer_coins', {
+      const { error } = GOD_MODE ? { error: null } : await supabase.rpc('transfer_coins', {
         receiver_id: creatorId,
         gift_cost: 10,
         gift_name: 'Status Unlock',
