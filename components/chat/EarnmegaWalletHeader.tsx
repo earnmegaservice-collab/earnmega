@@ -7,7 +7,7 @@ import { Store, Coins, Bell } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
-const NotificationDrawer = dynamic(() => import("../../components/status/NotificationDrawer"), { ssr: false });
+const NotificationDrawer = dynamic(() => import("../../components/notifications/NotificationDrawer"), { ssr: false });
 
 export default function EarnmegaWalletHeader() {
   const { balance, subscriptionTier } = useWallet();
