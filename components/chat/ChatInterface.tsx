@@ -230,7 +230,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
 import { AppShell } from '../layout/AppShell';
 
 export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile', setAppTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile') => void }) {
-  const { subscriptionTier, balance, setBalance } = useWallet();
+  const { subscription_tier, coins, setCoins } = useWallet();
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
 
@@ -294,7 +294,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         avatarUrl: data.avatar_url,
         bio: data.bio || 'Avid Earnmega user',
         joinDate: data.created_at ? new Date(data.created_at).toLocaleDateString() : 'Oct 2023',
-        tier: subscriptionTier,
+        subscription_tier: subscription_tier,
         phone: data.phone,
         isOnline: true,
         coinsGifted: data.coins_gifted || 0,
@@ -310,7 +310,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         avatarInitials: (user.email?.[0] || 'U').toUpperCase() + (user.email?.[1] || 'S').toUpperCase(),
         bio: 'Avid Earnmega user',
         joinDate: 'Oct 2023',
-        tier: subscriptionTier,
+        subscription_tier: subscription_tier,
         isOnline: true,
         coinsGifted: 1500,
         isSelf: true,
@@ -319,7 +319,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     }
   };
 
-  useEffect(() => { fetchCurrentUserProfile(); }, [user, subscriptionTier]);
+  useEffect(() => { fetchCurrentUserProfile(); }, [user, subscription_tier]);
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
@@ -435,8 +435,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     if (currentOtherUserProfile === null) {
       const fetchExploreUsers = async () => {
         const { data, error } = await supabase.from('profiles').select('*').limit(20);
-        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
-        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
+        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', subscription_tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
+        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', subscription_tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
         if (!error && data) {
           const formatted = data.filter(u => u.id !== user?.id).map(u => {
             try {
@@ -447,7 +447,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                 avatarUrl: u.avatar_url,
                 bio: u.bio || 'Earnmega user',
                 joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
-                tier: 'FREE' as const,
+                subscription_tier: (u.subscription_tier || 'FREE') as 'FREE' | 'PRO' | 'PREMIUM',
                 isOnline: onlineUsers.has(u.id),
                 coinsGifted: u.coins_gifted || 0,
                 isSelf: false,
@@ -691,8 +691,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const handleUnlockViewOnce = async (message: Message) => {
     if (!user) return;
     try {
-      if (subscriptionTier === 'FREE') {
-        if (balance < 10) {
+      if (subscription_tier === 'FREE') {
+        if (coins < 10) {
           toast.error("Insufficient coins (Need 10).");
           return;
         }
@@ -703,7 +703,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         });
 
         if (deductError) throw deductError;
-        setBalance(prev => prev - 10);
+        setCoins(prev => prev - 10);
       }
 
       if (typeof window !== 'undefined' && navigator.vibrate) {
@@ -902,7 +902,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   const handleMediaClick = () => {
-    if (subscriptionTier === 'FREE') {
+    if (subscription_tier === 'FREE') {
       setIsTierLockModalOpen(true);
       return false;
     }
@@ -1160,7 +1160,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       <AppShell
         activeTab={activeTab}
         setActiveTab={setAppTab}
-        coinBalance={balance}
+        coinBalance={coins}
         unreadCount={0}
         onOpenStore={() => {
           setStoreTab('BUY_COINS');
@@ -1326,7 +1326,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
                  toast.success("Status forwarded!");
               }}
-              userCoins={balance}
+              userCoins={coins}
             />
           )}
 
@@ -1568,7 +1568,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(currentOtherUserProfile)}>
           <div className="flex items-center">
             <h1 className="text-base font-bold text-white leading-tight truncate drop-shadow-sm mr-2">{currentOtherUserProfile.name}</h1>
-            {currentOtherUserProfile.tier === 'PREMIUM' && (
+            {currentOtherUserProfile.subscription_tier === 'PREMIUM' && (
                <motion.span
                  animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                  transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
@@ -1577,7 +1577,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                  PREMIUM
                </motion.span>
             )}
-            {currentOtherUserProfile.tier === 'PRO' && (
+            {currentOtherUserProfile.subscription_tier === 'PRO' && (
                <motion.span
                  animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                  transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
@@ -1651,10 +1651,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             >
               {/* Sender Name and Badge (Pro/Premium) */}
               <div className={`flex items-center space-x-1.5 mb-1 ${isUser ? 'mr-1' : 'ml-9'}`}>
-                {isUser && subscriptionTier === 'PREMIUM' && (
+                {isUser && subscription_tier === 'PREMIUM' && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(250,204,21,0.5)] border border-yellow-400/50">PREMIUM</motion.span>
                 )}
-                {isUser && subscriptionTier === 'PRO' && (
+                {isUser && subscription_tier === 'PRO' && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_5px_rgba(96,165,250,0.5)] border border-blue-400/50">PRO</motion.span>
                 )}
 
@@ -1662,10 +1662,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                   {isUser && currentUserProfile ? currentUserProfile.name : currentOtherUserProfile.name}
                 </span>
 
-                {!isUser && currentOtherUserProfile.tier === 'PREMIUM' && (
+                {!isUser && currentOtherUserProfile.subscription_tier === 'PREMIUM' && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(250,204,21,0.5)] border border-yellow-400/50">PREMIUM</motion.span>
                 )}
-                {!isUser && currentOtherUserProfile.tier === 'PRO' && (
+                {!isUser && currentOtherUserProfile.subscription_tier === 'PRO' && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_5px_rgba(96,165,250,0.5)] border border-blue-400/50">PRO</motion.span>
                 )}
               </div>

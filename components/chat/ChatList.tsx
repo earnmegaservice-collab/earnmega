@@ -79,7 +79,7 @@ export default function ChatList({
                   <h3 className="text-base font-bold text-white truncate drop-shadow-sm">
                     {u.name}
                   </h3>
-                  {u.tier === 'PREMIUM' && (
+                  {u.subscription_tier === 'PREMIUM' && (
                     <span className="text-[8px] bg-gradient-to-r from-yellow-400 to-amber-500 text-black px-1 rounded-full font-extrabold shadow-[0_0_5px_rgba(251,191,36,0.5)] flex-shrink-0">
                       VIP
                     </span>

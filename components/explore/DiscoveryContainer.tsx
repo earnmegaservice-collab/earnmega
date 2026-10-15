@@ -13,7 +13,7 @@ interface DiscoveryContainerProps {
 
 export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerProps) {
   const [matchedUser, setMatchedUser] = useState<DiscoveredUser | null>(null);
-  const { balance, setBalance } = useWallet();
+  const { coins: balance, setCoins: setBalance } = useWallet();
   const { user: authUser } = useAuth();
 
   const handleSkip = () => {

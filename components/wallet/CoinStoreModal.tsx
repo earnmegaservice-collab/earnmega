@@ -15,10 +15,10 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
   const {
     currency: selectedCurrency,
     setCurrency: setSelectedCurrency,
-    subscriptionTier: selectedPlan,
-    setSubscriptionTier: setSelectedPlan,
-    balance,
-    setBalance
+    subscription_tier: selectedPlan,
+    setSubscription_tier: setSelectedPlan,
+    coins: balance,
+    setCoins: setBalance
   } = useWallet();
   const { session, user } = useAuth();
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates | null>(null);

@@ -19,7 +19,7 @@ interface UnlockModalProps {
 
 export default function UnlockModal({ isOpen, onClose, creatorId, creatorUsername, onSuccess, onOpenStore }: UnlockModalProps) {
   const { user } = useAuth();
-  const { balance, refreshWallet } = useWallet();
+  const { coins: balance, refreshWallet } = useWallet();
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleUnlock = async () => {

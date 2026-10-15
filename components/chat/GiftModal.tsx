@@ -20,7 +20,7 @@ const GIFTS = [
 ];
 
 export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, onOpenStore }: GiftModalProps) {
-  const { balance, setBalance } = useWallet();
+  const { coins: balance, setCoins: setBalance } = useWallet();
   const [showError, setShowError] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 

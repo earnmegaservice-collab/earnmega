@@ -15,7 +15,7 @@ type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile';
 export default function HomePage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
-  const { balance } = useWallet();
+  const { coins: balance } = useWallet();
   const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile'>('chats');
 
   // Auth Form State

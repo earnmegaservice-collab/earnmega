@@ -7,32 +7,32 @@ import { useAuth } from './AuthContext';
 type SubscriptionTier = 'FREE' | 'PRO' | 'PREMIUM';
 
 interface WalletState {
-  balance: number;
-  subscriptionTier: SubscriptionTier;
+  coins: number;
+  subscription_tier: SubscriptionTier;
   currency: string;
 }
 
 interface WalletContextType {
-  balance: number;
-  subscriptionTier: SubscriptionTier;
+  coins: number;
+  subscription_tier: SubscriptionTier;
   currency: string;
-  setBalance: React.Dispatch<React.SetStateAction<number>>;
-  setSubscriptionTier: React.Dispatch<React.SetStateAction<SubscriptionTier>>;
+  setCoins: React.Dispatch<React.SetStateAction<number>>;
+  setSubscription_tier: React.Dispatch<React.SetStateAction<SubscriptionTier>>;
   setCurrency: React.Dispatch<React.SetStateAction<string>>;
   refreshWallet: () => Promise<void>;
 }
 
 const defaultState: WalletState = {
-  balance: 0,
-  subscriptionTier: 'FREE',
+  coins: 0,
+  subscription_tier: 'FREE',
   currency: 'USD'
 };
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const [balance, setBalance] = useState<number>(defaultState.balance);
-  const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>(defaultState.subscriptionTier);
+  const [coins, setCoins] = useState<number>(defaultState.coins);
+  const [subscription_tier, setSubscription_tier] = useState<SubscriptionTier>(defaultState.subscription_tier);
   const [currency, setCurrency] = useState<string>(defaultState.currency);
   const { user } = useAuth();
 
@@ -47,8 +47,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
       if (data) {
-        if (data.coins !== undefined) setBalance(data.coins);
-        if (data.subscription_tier) setSubscriptionTier(data.subscription_tier);
+        if (data.coins !== undefined) setCoins(data.coins);
+        if (data.subscription_tier) setSubscription_tier(data.subscription_tier);
       }
     } catch (error) {
       console.error('Error fetching wallet data:', error);
@@ -60,7 +60,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   return (
-    <WalletContext.Provider value={{ balance, subscriptionTier, currency, setBalance, setSubscriptionTier, setCurrency, refreshWallet }}>
+    <WalletContext.Provider value={{ coins, subscription_tier, currency, setCoins, setSubscription_tier, setCurrency, refreshWallet }}>
       {children}
     </WalletContext.Provider>
   );

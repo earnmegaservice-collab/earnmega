@@ -12,7 +12,7 @@ export interface UserProfileDetails {
   avatarUrl?: string;
   bio: string;
   joinDate: string;
-  tier: SubscriptionTier;
+  subscription_tier: SubscriptionTier;
   isOnline: boolean;
   last_seen?: string;
   coinsGifted: number;
@@ -80,8 +80,8 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
     : '';
 
 
-  const isProOrHigher = user.tier === 'PRO' || user.tier === 'PREMIUM';
-  const isPremium = user.tier === 'PREMIUM';
+  const isProOrHigher = user.subscription_tier === 'PRO' || user.subscription_tier === 'PREMIUM';
+  const isPremium = user.subscription_tier === 'PREMIUM';
 
   return (
     <AnimatePresence>
@@ -164,7 +164,7 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
                       VIP
                     </div>
                   )}
-                  {!isPremium && user.tier === 'PRO' && (
+                  {!isPremium && user.subscription_tier === 'PRO' && (
                     <div className="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm">
                       PRO
                     </div>

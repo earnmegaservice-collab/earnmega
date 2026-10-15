@@ -10,7 +10,7 @@ const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreMo
 const NotificationDrawer = dynamic(() => import("../../components/status/NotificationDrawer"), { ssr: false });
 
 export default function EarnmegaWalletHeader() {
-  const { balance, subscriptionTier } = useWallet();
+  const { coins: balance, subscription_tier: subscriptionTier } = useWallet();
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
