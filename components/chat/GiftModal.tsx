@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useWallet } from '../../context/WalletContext';
-import { Coffee, Flower2, Gem, Crown } from 'lucide-react';
+import { Coffee, Flower2, Gem, Crown, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface GiftModalProps {
@@ -17,6 +17,7 @@ const GIFTS = [
   { id: 'rose', name: 'Rose', icon: <Flower2 size={32} className="text-red-500" />, cost: 50 },
   { id: 'diamond', name: 'Diamond', icon: <Gem size={32} className="text-blue-400" />, cost: 500 },
   { id: 'crown', name: 'Crown', icon: <Crown size={32} className="text-yellow-400" />, cost: 1000 },
+  { id: 'galaxy', name: 'Galaxy', icon: <Sparkles size={32} className="text-purple-400" />, cost: 1500 },
 ];
 
 const GOD_MODE = true;

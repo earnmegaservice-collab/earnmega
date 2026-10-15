@@ -37,7 +37,9 @@ type Message = {
   viewedBy?: string[];
   isDeleted?: boolean;
   hiddenFor?: string[];
-  messageType?: 'missed_call' | 'text' | 'image' | 'audio';
+  messageType?: 'missed_call' | 'text' | 'image' | 'audio' | 'gift';
+  giftName?: string;
+  giftCost?: number;
 }
 
 const GOD_MODE = true;
@@ -948,17 +950,27 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
   useEffect(() => {
     const channel = supabase.channel('chat-events')
-      .on('broadcast', { event: 'gift_sent' }, (payload) => {
+      .on('broadcast', { event: 'gift_received' }, (payload) => {
         if (payload.payload.senderId !== currentUserProfile?.id) {
-          setActiveGift({ id: payload.payload.giftData.id, icon: payload.payload.giftData.icon });
-          setTimeout(() => setActiveGift(null), 3000);
+          // Trigger local animation via custom event so GiftOverlay can pick it up instantly for the receiver
+          const customEvent = new CustomEvent('gift_received_local', { detail: { giftData: payload.payload.gift_type, senderId: payload.payload.senderId } });
+          window.dispatchEvent(customEvent);
+
+          // We don't necessarily need to add the message here if it's already in the DB and will be fetched,
+          // but for optimistic UI (like normal messages), we can add it.
+          // Wait, 'new_message' broadcast might already trigger a fetch for this if it's a normal message.
+          // Actually, our handleGiftSent does NOT broadcast 'new_message', it only broadcasts 'gift_received'.
+          // So we should add it optimistically or fetch. We'll add it optimistically.
 
           const newMessage: Message = {
             id: Date.now().toString(),
-            text: `🎁 Received a **${payload.payload.giftData.name}** gift!`,
+            text: `🎁 Received a **${payload.payload.gift_type.name}** gift!`,
             sender: 'other',
             timestamp: new Date(),
             reactions: [],
+            messageType: 'gift',
+            giftName: payload.payload.gift_type.name,
+            giftCost: payload.payload.gift_type.cost,
           };
           setMessages((prev) => [...prev, newMessage]);
         }
@@ -1424,9 +1436,13 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   const handleGiftSent = (giftData: any) => {
-    // Show Full Screen Animation
-    setActiveGift({ id: giftData.id, icon: giftData.icon });
-    setTimeout(() => setActiveGift(null), 3000);
+    // We will let the GiftOverlay listen to 'public:notifications' for local animation to avoid duplicate
+    // But memory specifies we need to use broadcast for real-time. We'll fire both or rely on the broadcast.
+    // The instruction: "Ensure the sendGift bypass instantly fires channel.send({ type: 'broadcast', event: 'gift_received', payload: { gift_type: selectedGift } })"
+
+    // We update the active gift for the current user using the overlay which can be triggered by custom event or state if needed.
+    // The memory states: "The receiver's screen MUST instantly mount the exact same React.createPortal 3D animation"
+    // We will just do the broadcast.
 
     const newMessage: Message = {
       id: Date.now().toString(),
@@ -1435,15 +1451,34 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       timestamp: new Date(),
       status: 'sent',
       reactions: [],
+      messageType: 'gift',
+      giftName: giftData.name,
+      giftCost: giftData.cost,
     };
     setMessages((prev) => [...prev, newMessage]);
+
+    // Insert the luxury gift receipt into the database
+    supabase.from('messages').insert({
+      id: newMessage.id,
+      sender_id: user?.id,
+      receiver_id: currentOtherUserProfile?.id,
+      content: `GIFT:${giftData.name}:${giftData.cost}`,
+      message_type: 'gift',
+      status: 'sent'
+    }).then(({ error }) => {
+       if (error) console.error("Error inserting gift message", error);
+    });
+
+    // Trigger local animation via custom event for sender
+    const customEvent = new CustomEvent('gift_received_local', { detail: { giftData: giftData, senderId: currentUserProfile?.id, isSender: true } });
+    window.dispatchEvent(customEvent);
 
     // Broadcast gift event via Supabase Realtime
     if (channelRef.current) {
       channelRef.current.send({
         type: 'broadcast',
-        event: 'gift_sent',
-        payload: { giftData, senderId: currentUserProfile?.id }
+        event: 'gift_received',
+        payload: { gift_type: giftData, senderId: currentUserProfile?.id }
       });
     }
 
@@ -2457,6 +2492,28 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                       </div>
                     )}
 
+                    {message.messageType === 'gift' && (
+                      <div className={`p-4 rounded-xl border relative overflow-hidden flex flex-col items-center shadow-lg ${
+                        message.giftName === 'Coffee' ? 'bg-amber-950/40 border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.2)]' :
+                        message.giftName === 'Rose' ? 'bg-rose-950/40 border-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.2)]' :
+                        message.giftName === 'Diamond' ? 'bg-cyan-950/40 border-cyan-400/30 shadow-[0_0_15px_rgba(34,211,238,0.3)]' :
+                        message.giftName === 'Crown' ? 'bg-gradient-to-br from-amber-500/20 to-purple-900/40 border-yellow-400/50 shadow-[0_0_20px_rgba(250,204,21,0.4)]' :
+                        message.giftName === 'Galaxy' ? 'bg-black border border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' :
+                        'bg-white/10 border-white/20'
+                      }`}>
+                         {message.giftName === 'Galaxy' && (
+                            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-fuchsia-600/20 via-purple-900/20 to-transparent z-0"></div>
+                         )}
+                         <div className={`relative z-10 font-bold text-center ${
+                             message.giftName === 'Galaxy' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent' :
+                             message.giftName === 'Crown' ? 'text-yellow-400 drop-shadow-md' :
+                             'text-white'
+                         }`}>
+                             Sent a {message.giftName} ({message.giftCost} Coins)
+                         </div>
+                      </div>
+                    )}
+
                     {message.audioUrl && (
                       <div className="mb-1.5">
                         <AudioPlayer src={message.audioUrl} />
@@ -2464,7 +2521,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     )}
 
                     {/* Render message text natively with our new function */}
-                    {message.text && renderMessageContent(message, user?.id || '')}
+                    {message.text && message.messageType !== 'gift' && renderMessageContent(message, user?.id || '')}
 
                     {/* Meta Row (Time & Status) */}
                     <div
