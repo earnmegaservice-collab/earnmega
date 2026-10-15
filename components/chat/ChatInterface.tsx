@@ -678,13 +678,13 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   useEffect(() => {
     if (currentOtherUserProfile === null) {
       const fetchExploreUsers = async () => {
+        if (!user) return;
         const { data, error } = await supabase.from('profiles').select('*').limit(20);
-        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
-        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
+
         const { data: roomsData, error: roomsError } = await supabase
             .from('room_participants')
             .select('room_id, rooms ( id, name, created_at )')
-            .eq('user_id', user?.id);
+            .eq('user_id', user.id);
 
         const groupsFormatted = (roomsData && !roomsError) ? roomsData.map((rp: any) => ({
              id: rp.rooms.id,
@@ -696,11 +696,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
              isOnline: true,
              coinsGifted: 0,
              isSelf: false,
-             isGroup: true
+             isGroup: true,
+             unreadCount: 0,
+             lastMessageTime: 0
         })) : [];
 
+        let allUsers: any[] = [...groupsFormatted];
+
         if (!error && data) {
-          const formatted = data.filter(u => u.id !== user?.id).map(u => {
+          const formatted = data.filter(u => u.id !== user.id).map(u => {
             try {
               return {
                 id: u.id,
@@ -709,17 +713,66 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                 avatarUrl: u.avatar_url,
                 bio: u.bio || 'Earnmega user',
                 joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
-                tier: 'FREE' as const,
+                tier: u.subscription_tier || 'FREE',
                 isOnline: onlineUsers.has(u.id),
                 coinsGifted: u.coins_gifted || 0,
                 isSelf: false,
+                unreadCount: 0,
+                lastMessageTime: 0
               };
             } catch (e) {
               return null;
             }
           }).filter(Boolean) as UserProfileDetails[];
-          setExploreUsers([...groupsFormatted, ...formatted] as any[]);
+          allUsers = [...allUsers, ...formatted];
         }
+
+        // Fetch recent messages to calculate unreadCount and lastMessageTime
+        let orString = `receiver_id.eq.${user.id},sender_id.eq.${user.id}`;
+        if (groupsFormatted.length > 0) {
+            orString += `,room_id.in.(${groupsFormatted.map(g => `"${g.id}"`).join(',')})`;
+        }
+
+        const { data: messagesData, error: msgError } = await supabase
+          .from('messages')
+          .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
+          .or(orString);
+
+        if (!msgError && messagesData) {
+          const statsMap = new Map<string, { unreadCount: number, lastMessageTime: number }>();
+
+          messagesData.forEach(msg => {
+            const isGroup = !!msg.room_id;
+            const targetId = isGroup ? msg.room_id : (msg.sender_id === user.id ? msg.receiver_id : msg.sender_id);
+            if (!targetId) return;
+
+            const time = new Date(msg.created_at).getTime();
+            const isUnread = msg.sender_id !== user.id && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
+
+            if (!statsMap.has(targetId)) {
+              statsMap.set(targetId, { unreadCount: 0, lastMessageTime: 0 });
+            }
+
+            const stats = statsMap.get(targetId)!;
+            stats.lastMessageTime = Math.max(stats.lastMessageTime, time);
+            if (isUnread) {
+              stats.unreadCount += 1;
+            }
+          });
+
+          allUsers = allUsers.map(u => {
+             const stats = statsMap.get(u.id);
+             if (stats) {
+               return { ...u, unreadCount: stats.unreadCount, lastMessageTime: stats.lastMessageTime };
+             }
+             return u;
+          });
+        }
+
+        // Sort descending
+        allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+
+        setExploreUsers(allUsers);
       };
       fetchExploreUsers();
     }
@@ -782,10 +835,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             .filter(msg => msg.sender_id === currentOtherUserProfile.id && msg.status !== 'read')
             .map(msg => msg.id);
 
+          // Clear local unread badge count unconditionally when opening chat
+          setExploreUsers(prev => prev.map(u =>
+            u.id === currentOtherUserProfile.id ? { ...u, unreadCount: 0 } : u
+          ));
+
           if (unreadMessageIds.length > 0) {
             await supabase
               .from('messages')
-              .update({ status: 'read' })
+              .update({ status: 'read', is_read: true })
               .in('id', unreadMessageIds);
 
             // Broadcast read status
@@ -879,6 +937,23 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                replyToText
              };
              setMessages((prev) => [...prev, newMessage]);
+
+             // Bump sender to top in exploreUsers
+             const senderIdToUpdate = payload.payload.roomId || payload.payload.senderId;
+             setExploreUsers(prev => {
+               const updated = [...prev];
+               const idx = updated.findIndex(u => u.id === senderIdToUpdate);
+               if (idx !== -1) {
+                 const userToMove = updated[idx];
+                 updated.splice(idx, 1);
+                 updated.unshift({
+                   ...userToMove,
+                   lastMessageTime: new Date(data.created_at).getTime(),
+                   unreadCount: (currentOtherUserProfile && currentOtherUserProfile.id === senderIdToUpdate) ? 0 : (userToMove.unreadCount || 0) + 1
+                 });
+               }
+               return updated;
+             });
 
              // If we are currently chatting with the sender, mark as read immediately
              if (currentOtherUserProfile && payload.payload.senderId === currentOtherUserProfile.id) {
@@ -1213,6 +1288,21 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         )
       );
 
+      // Bump current chat to top
+      setExploreUsers(prev => {
+         const updated = [...prev];
+         const idx = updated.findIndex(u => u.id === currentOtherUserProfile.id);
+         if (idx !== -1) {
+            const userToMove = updated[idx];
+            updated.splice(idx, 1);
+            updated.unshift({
+               ...userToMove,
+               lastMessageTime: new Date().getTime()
+            });
+         }
+         return updated;
+      });
+
       // Notify recipient via channel to trigger read receipts or notification
       channelRef.current?.send({
          type: 'broadcast',
@@ -1451,7 +1541,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         {status === 'sending' && <Clock size={12} className="text-gray-400 drop-shadow-sm opacity-70" />}
         {status === 'sent' && <Check size={14} className="text-gray-400 drop-shadow-sm" />}
         {status === 'delivered' && <CheckCheck size={14} className="text-gray-400 drop-shadow-sm" />}
-        {status === 'read' && <CheckCheck size={14} className="text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />}
+        {status === 'read' && <CheckCheck size={14} className="text-blue-500 drop-shadow-[0_0_8px_rgba(59,130,246,0.6)]" />}
       </motion.span>
     );
   };
@@ -1894,17 +1984,30 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
         <div
           onClick={() => openProfile(currentOtherUserProfile)}
-          className={`w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center shadow-lg shadow-purple-500/20 mr-3 shrink-0 cursor-pointer border border-white/20 ${getStatusRingClass(currentOtherUserProfile.id)}`}
+          className={`relative w-8 h-8 rounded-full flex items-center justify-center shadow-lg mr-3 shrink-0 cursor-pointer ${
+            currentOtherUserProfile.tier === 'PREMIUM' ? 'p-[2px]' :
+            currentOtherUserProfile.tier === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
+            'border border-white/10 p-1 bg-white/5'
+          } ${getStatusRingClass(currentOtherUserProfile.id)}`}
         >
-           {currentOtherUserProfile.avatarUrl ? (
-             <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />
-           ) : (
-             <span className="text-white font-bold text-sm tracking-tighter drop-shadow-md">{currentOtherUserProfile.avatarInitials}</span>
+           {currentOtherUserProfile.tier === 'PREMIUM' && (
+             <div className="absolute inset-[-2px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
            )}
+           <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
+             {currentOtherUserProfile.avatarUrl ? (
+               <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />
+             ) : (
+               <span className="text-white font-bold text-sm tracking-tighter drop-shadow-md">{currentOtherUserProfile.avatarInitials}</span>
+             )}
+           </div>
         </div>
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(currentOtherUserProfile)}>
           <div className="flex items-center">
-            <h1 className="text-base font-bold text-white leading-tight truncate drop-shadow-sm mr-2">{currentOtherUserProfile.name}</h1>
+            <h1 className={`text-base leading-tight truncate drop-shadow-sm mr-2 ${
+              currentOtherUserProfile.tier === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
+              currentOtherUserProfile.tier === 'PRO' ? 'text-amber-400 font-bold' :
+              'text-neutral-200 font-bold'
+            }`}>{currentOtherUserProfile.name}</h1>
             {currentOtherUserProfile.tier === 'PREMIUM' && (
                <motion.span
                  animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
@@ -2005,7 +2108,11 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_5px_rgba(96,165,250,0.5)] border border-blue-400/50">PRO</motion.span>
                 )}
 
-                <span className="text-xs font-bold text-white/70 drop-shadow-sm">
+                <span className={`text-xs drop-shadow-sm ${
+                  isUser
+                    ? (subscriptionTier === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' : subscriptionTier === 'PRO' ? 'text-amber-400 font-bold' : 'font-bold text-white/70')
+                    : (currentOtherUserProfile.tier === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' : currentOtherUserProfile.tier === 'PRO' ? 'text-amber-400 font-bold' : 'font-bold text-white/70')
+                }`}>
                   {isUser && currentUserProfile ? currentUserProfile.name : currentOtherUserProfile.name}
                 </span>
 
@@ -2024,22 +2131,44 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                 {!isUser && (
                   <div
                     onClick={() => openProfile(currentOtherUserProfile)}
-                    className="w-6 h-6 rounded-full bg-white/5 backdrop-blur-md flex items-center justify-center shrink-0 mb-1 border border-white/20 cursor-pointer hover:border-white/40 transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+                    className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
+                      currentOtherUserProfile.tier === 'PREMIUM' ? 'p-[1.5px]' :
+                      currentOtherUserProfile.tier === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
+                      'border border-white/20 hover:border-white/40 bg-white/5 backdrop-blur-md'
+                    }`}
                   >
-                    <span className="text-[10px] text-white/70 font-bold">{currentOtherUserProfile.avatarInitials}</span>
+                    {currentOtherUserProfile.tier === 'PREMIUM' && (
+                      <div className="absolute inset-[-1.5px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
+                    )}
+                    <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
+                      {currentOtherUserProfile.avatarUrl ? (
+                         <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />
+                      ) : (
+                         <span className="text-[10px] text-white/70 font-bold">{currentOtherUserProfile.avatarInitials}</span>
+                      )}
+                    </div>
                   </div>
                 )}
 
                 {isUser && currentUserProfile && (
                   <div
                     onClick={() => openProfile(currentUserProfile)}
-                    className="w-6 h-6 rounded-full bg-white/5 backdrop-blur-md flex items-center justify-center shrink-0 mb-1 border border-white/20 cursor-pointer hover:border-white/40 transition-colors order-last ml-2 shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+                    className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer order-last ml-2 shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
+                      currentUserProfile.tier === 'PREMIUM' ? 'p-[1.5px]' :
+                      currentUserProfile.tier === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
+                      'border border-white/20 hover:border-white/40 bg-white/5 backdrop-blur-md transition-colors'
+                    }`}
                   >
-                    {currentUserProfile.avatarUrl ? (
-                      <img src={currentUserProfile.avatarUrl} alt="Avatar" className="w-full h-full rounded-full object-cover" />
-                    ) : (
-                      <span className="text-[10px] text-white/70 font-bold">{currentUserProfile.avatarInitials}</span>
+                    {currentUserProfile.tier === 'PREMIUM' && (
+                      <div className="absolute inset-[-1.5px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
                     )}
+                    <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
+                      {currentUserProfile.avatarUrl ? (
+                        <img src={currentUserProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover rounded-full" />
+                      ) : (
+                        <span className="text-[10px] text-white/70 font-bold">{currentUserProfile.avatarInitials}</span>
+                      )}
+                    </div>
                   </div>
                 )}
 
