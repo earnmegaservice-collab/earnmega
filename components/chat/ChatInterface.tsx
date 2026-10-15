@@ -8,7 +8,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store, Lock, EyeOff } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, Users } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -205,7 +205,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
         {actualText && (
           <div className={`px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
             isMe
-              ? 'bg-[#005c4b] backdrop-blur-xl border border-[#005c4b]/50 text-white rounded-tr-sm'
+              ? 'bg-white/10 backdrop-blur-xl border border-amber-500/20 text-white rounded-tr-sm'
               : 'bg-white/5 backdrop-blur-2xl text-gray-100 border border-white/10 rounded-tl-sm'
           }`}>
             {formatText(actualText)}
@@ -273,6 +273,22 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const channelRef = useRef<any>(null);
 
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfileDetails | null>(null);
+  // Phase 3 States
+  const [isCallActive, setIsCallActive] = useState(false);
+  const [incomingCall, setIncomingCall] = useState<{ callerId: string, callerName: string, callId: string, callType: 'audio'|'video', offer?: RTCSessionDescriptionInit } | null>(null);
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [selectedGroupUsers, setSelectedGroupUsers] = useState<Set<string>>(new Set());
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+
+  const currentUserProfileRef = useRef(currentUserProfile);
+  useEffect(() => { currentUserProfileRef.current = currentUserProfile; }, [currentUserProfile]);
+  const isCallActiveRef = useRef(isCallActive);
+  useEffect(() => { isCallActiveRef.current = isCallActive; }, [isCallActive]);
+
 
   const fetchCurrentUserProfile = async () => {
     if (!user) return;
@@ -320,6 +336,234 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   useEffect(() => { fetchCurrentUserProfile(); }, [user, subscription_tier]);
+
+
+  // WebRTC configuration
+  const servers = {
+     iceServers: [
+        { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
+     ]
+  };
+
+
+  const setOpusCodec = (sdp: string) => {
+     // Ensure OPUS is prioritized in SDP
+     // Standard SDP manipulation for OPUS
+     if (!sdp) return sdp;
+     const lines = sdp.split('\r\n');
+     let mLineIndex = -1;
+     let opusPayload = '111'; // Default
+
+     // Find OPUS payload type
+     for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('a=rtpmap:') && lines[i].includes('opus/48000')) {
+           opusPayload = lines[i].split(':')[1].split(' ')[0];
+           break;
+        }
+     }
+
+     // Find audio m-line and prioritize payload
+     for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('m=audio ')) {
+           const parts = lines[i].split(' ');
+           const port = parts[1];
+           const proto = parts[2];
+           const formats = parts.slice(3);
+
+           // Move opusPayload to front
+           const newFormats = [opusPayload, ...formats.filter(f => f !== opusPayload)];
+           lines[i] = `m=audio ${port} ${proto} ${newFormats.join(' ')}`;
+           break;
+        }
+     }
+     return lines.join('\r\n');
+  };
+
+  const createPeerConnection = (targetId: string) => {
+
+     const pc = new RTCPeerConnection(servers);
+     peerConnectionRef.current = pc;
+
+     pc.onicecandidate = (event) => {
+        if (event.candidate) {
+           channelRef.current?.send({
+              type: 'broadcast',
+              event: 'webrtc_ice_candidate',
+              payload: { candidate: event.candidate, targetId, senderId: user?.id }
+           });
+        }
+     };
+
+     pc.ontrack = (event) => {
+        if (remoteVideoRef.current) {
+           remoteVideoRef.current.srcObject = event.streams[0];
+        }
+     };
+
+     if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+           pc.addTrack(track, localStreamRef.current!);
+        });
+     }
+
+     return pc;
+  };
+
+  const handleInitiateCall = async (type: 'audio' | 'video') => {
+
+     if (!user || !currentOtherUserProfile) return;
+     if (subscription_tier === 'FREE' && type === 'video') {
+         setIsTierLockModalOpen(true);
+         return;
+     }
+
+     const callId = uuidv4();
+     setIsCallActive(true);
+
+     try {
+       const stream = await navigator.mediaDevices.getUserMedia({
+           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+           video: type === 'video' ? { width: { ideal: 3840, min: 1920 }, height: { ideal: 2160, min: 1080 }, frameRate: { ideal: 60 } } : false
+       });
+       localStreamRef.current = stream;
+       if (localVideoRef.current && type === 'video') {
+           localVideoRef.current.srcObject = stream;
+       }
+
+       const pc = createPeerConnection(currentOtherUserProfile.id);
+       const offer = await pc.createOffer();
+       let modifiedSdp = offer.sdp;
+       if (modifiedSdp) {
+           modifiedSdp = setOpusCodec(modifiedSdp);
+       }
+       await pc.setLocalDescription({ type: offer.type, sdp: modifiedSdp });
+
+       channelRef.current?.send({
+           type: 'broadcast',
+           event: 'incoming_call',
+           payload: {
+              callerId: user.id,
+              callerName: currentUserProfile?.name || 'User',
+              receiverId: currentOtherUserProfile.id,
+              callId,
+              callType: type,
+              offer: offer
+           }
+       });
+     } catch (err) {
+       console.error("Failed to get media stream or start call", err);
+       toast.error("Could not start call");
+       setIsCallActive(false);
+       return;
+     }
+  };
+
+  const handleAcceptCall = async () => {
+      if (!incomingCall || !user) return;
+      try {
+          const { error } = await supabase.rpc('answer_call_deduct_coins', {
+              caller_id: incomingCall.callerId,
+              receiver_id: user.id,
+              call_cost: 50
+          });
+
+          if (error) throw error;
+
+          // UI updates handled by real-time sync or manual refresh if needed
+
+          try {
+              const stream = await navigator.mediaDevices.getUserMedia({
+                  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                  video: incomingCall.callType === 'video' ? { width: { ideal: 3840, min: 1920 }, height: { ideal: 2160, min: 1080 }, frameRate: { ideal: 60 } } : false
+              });
+              localStreamRef.current = stream;
+              if (localVideoRef.current && incomingCall.callType === 'video') {
+                  localVideoRef.current.srcObject = stream;
+              }
+
+              const pc = createPeerConnection(incomingCall.callerId);
+              if (incomingCall.offer) {
+                  await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+                  const answer = await pc.createAnswer();
+                  let modifiedSdp = answer.sdp;
+                  if (modifiedSdp) {
+                      modifiedSdp = setOpusCodec(modifiedSdp);
+                  }
+                  await pc.setLocalDescription({ type: answer.type, sdp: modifiedSdp });
+                  const answerToSent = { type: answer.type, sdp: modifiedSdp };
+
+                  channelRef.current?.send({
+                     type: 'broadcast',
+                     event: 'call_answered',
+                     payload: { callerId: incomingCall.callerId, receiverId: user.id, answer: answerToSent }
+                  });
+              }
+          } catch (err) {
+              console.error("Failed to get media stream or accept call", err);
+              toast.error("Could not access camera/microphone");
+              setIncomingCall(null);
+              return;
+          }
+
+          setIsCallActive(true);
+          setIncomingCall(null);
+      } catch (err: any) {
+          toast.error(err.message || "Failed to answer call. Caller might have insufficient balance.");
+          setIncomingCall(null);
+      }
+  };
+
+  const handleEndCall = () => {
+      setIsCallActive(false);
+      if (incomingCall) setIncomingCall(null);
+
+      if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach(track => track.stop());
+          localStreamRef.current = null;
+      }
+      if (peerConnectionRef.current) {
+          peerConnectionRef.current.close();
+          peerConnectionRef.current = null;
+      }
+
+      const targetId = incomingCall?.callerId || currentOtherUserProfile?.id;
+      if (targetId) {
+          channelRef.current?.send({
+             type: 'broadcast',
+             event: 'call_ended',
+             payload: { targetId }
+          });
+      }
+  };
+
+  const handleCreateGroup = async () => {
+      if (!user || !groupName.trim() || selectedGroupUsers.size === 0) return;
+      try {
+          const roomId = uuidv4();
+          const { error: roomError } = await supabase.from('rooms').insert({
+              id: roomId,
+              name: groupName,
+              created_by: user.id
+          });
+          if (roomError) throw roomError;
+
+          const participants = Array.from(selectedGroupUsers).map(uId => ({
+              room_id: roomId,
+              user_id: uId
+          }));
+          participants.push({ room_id: roomId, user_id: user.id });
+
+          const { error: partError } = await supabase.from('room_participants').insert(participants);
+          if (partError) throw partError;
+
+          toast.success("Group Created!");
+          setIsGroupModalOpen(false);
+          setGroupName('');
+          setSelectedGroupUsers(new Set());
+      } catch (err) {
+          toast.error("Failed to create group");
+      }
+  };
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
@@ -436,7 +680,24 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       const fetchExploreUsers = async () => {
         const { data, error } = await supabase.from('profiles').select('*').limit(20);
         if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', subscription_tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
-        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', subscription_tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
+        const { data: roomsData, error: roomsError } = await supabase
+            .from('room_participants')
+            .select('room_id, rooms ( id, name, created_at )')
+            .eq('user_id', user?.id);
+
+        const groupsFormatted = (roomsData && !roomsError) ? roomsData.map((rp: any) => ({
+             id: rp.rooms.id,
+             name: rp.rooms.name,
+             avatarInitials: (rp.rooms.name?.[0] || 'G').toUpperCase() + (rp.rooms.name?.[1] || 'R').toUpperCase(),
+             bio: 'Group Chat',
+             joinDate: new Date(rp.rooms.created_at).toLocaleDateString(),
+             subscription_tier: 'FREE' as const,
+             isOnline: true,
+             coinsGifted: 0,
+             isSelf: false,
+             isGroup: true
+        })) : [];
+
         if (!error && data) {
           const formatted = data.filter(u => u.id !== user?.id).map(u => {
             try {
@@ -456,7 +717,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               return null;
             }
           }).filter(Boolean) as UserProfileDetails[];
-          setExploreUsers(formatted);
+          setExploreUsers([...groupsFormatted, ...formatted] as any[]);
         }
       };
       fetchExploreUsers();
@@ -468,11 +729,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       if (!currentOtherUserProfile || !user) return;
       setIsLoadingMessages(true);
       try {
-        const { data, error } = await supabase
-          .from('messages')
-          .select('*')
-          .or(`and(sender_id.eq.${user.id},receiver_id.eq.${currentOtherUserProfile.id}),and(sender_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${user.id})`)
-          .order('created_at', { ascending: true });
+        let query = supabase.from('messages').select('*').order('created_at', { ascending: true });
+
+        if ((currentOtherUserProfile as any).isGroup) {
+             query = query.eq('room_id', currentOtherUserProfile.id);
+        } else {
+             query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${currentOtherUserProfile.id}),and(sender_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${user.id})`);
+        }
+
+        const { data, error } = await query;
 
         if (error) {
           console.error("Failed to fetch messages", error);
@@ -523,7 +788,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               .in('id', unreadMessageIds);
 
             // Broadcast read status
-            supabase.channel('chat-events').send({
+            channelRef.current?.send({
                type: 'broadcast',
                event: 'messages_read',
                payload: { readerId: user.id, senderId: currentOtherUserProfile.id }
@@ -578,7 +843,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         }
       })
       .on('broadcast', { event: 'new_message' }, async (payload) => {
-        if (payload.payload.receiverId === currentUserProfile?.id) {
+        if (payload.payload.receiverId === currentUserProfile?.id || (payload.payload.roomId && Array.from(exploreUsers).some((u: any) => u.isGroup && u.id === payload.payload.roomId))) {
           // Fetch the message from DB to get full details
           const { data, error } = await supabase
              .from('messages')
@@ -621,7 +886,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                  .update({ status: 'read' })
                  .eq('id', data.id);
 
-               supabase.channel('chat-events').send({
+               channelRef.current?.send({
                  type: 'broadcast',
                  event: 'messages_read',
                  payload: { readerId: currentUserProfile.id, senderId: payload.payload.senderId }
@@ -656,6 +921,59 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         } else {
           setMessages(prev => prev.filter(msg => msg.id !== payload.payload.messageId));
         }
+      })
+      .on('broadcast', { event: 'incoming_call' }, (payload) => {
+         const profile = currentUserProfileRef.current;
+         if (profile && payload.payload.receiverId === profile.id) {
+            setIncomingCall({
+               callerId: payload.payload.callerId,
+               callerName: payload.payload.callerName,
+               callId: payload.payload.callId,
+               callType: payload.payload.callType,
+               offer: payload.payload.offer
+            });
+         }
+      })
+      .on('broadcast', { event: 'call_answered' }, async (payload) => {
+         const profile = currentUserProfileRef.current;
+         if (profile && payload.payload.callerId === profile.id && isCallActiveRef.current) {
+            toast.success("Call Connected!");
+            if (peerConnectionRef.current && payload.payload.answer) {
+                try {
+                    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.payload.answer));
+                } catch (err) {
+                    console.error("Error setting remote description from answer", err);
+                }
+            }
+         }
+      })
+      .on('broadcast', { event: 'webrtc_ice_candidate' }, async (payload) => {
+         const profile = currentUserProfileRef.current;
+         if (profile && payload.payload.targetId === profile.id) {
+             if (peerConnectionRef.current) {
+                 try {
+                     await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.payload.candidate));
+                 } catch (err) {
+                     console.error("Error adding ice candidate", err);
+                 }
+             }
+         }
+      })
+      .on('broadcast', { event: 'call_ended' }, (payload) => {
+         const profile = currentUserProfileRef.current;
+         if (profile && payload.payload.targetId === profile.id) {
+            setIncomingCall(null);
+            setIsCallActive(false);
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+                localStreamRef.current = null;
+            }
+            if (peerConnectionRef.current) {
+                peerConnectionRef.current.close();
+                peerConnectionRef.current = null;
+            }
+            toast("Call ended", { icon: '📞' });
+         }
       });
 
     channel.subscribe((status) => {
@@ -749,7 +1067,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       setActiveContextMenuId(null);
 
       // Broadcast deletion tombstone to other user
-      supabase.channel('chat-events').send({
+      channelRef.current?.send({
          type: 'broadcast',
          event: 'delete_message',
          payload: { messageId, senderId: user?.id, isDeleted: true }
@@ -802,7 +1120,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           status: 'sent'
         });
 
-        supabase.channel('chat-events').send({
+        channelRef.current?.send({
           type: 'broadcast',
           event: 'new_message',
           payload: { messageId: msgId, senderId: user.id, receiverId }
@@ -863,15 +1181,22 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     setMessages((prev) => [...prev, optimisticMessage]);
 
     try {
-      const { data, error } = await supabase
-        .from('messages')
-        .insert({
+      const insertData: any = {
           id: optimisticMessage.id,
           sender_id: user.id,
           receiver_id: currentOtherUserProfile.id,
           content: finalContentToSave,
           status: 'sent'
-        })
+      };
+
+      if ((currentOtherUserProfile as any).isGroup) {
+          insertData.room_id = currentOtherUserProfile.id;
+          insertData.receiver_id = null;
+      }
+
+      const { data, error } = await supabase
+        .from('messages')
+        .insert(insertData)
         .select()
         .single();
 
@@ -888,10 +1213,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       );
 
       // Notify recipient via channel to trigger read receipts or notification
-      supabase.channel('chat-events').send({
+      channelRef.current?.send({
          type: 'broadcast',
          event: 'new_message',
-         payload: { messageId: optimisticMessage.id, senderId: user.id, receiverId: currentOtherUserProfile.id }
+         payload: {
+            messageId: optimisticMessage.id,
+            senderId: user.id,
+            receiverId: (currentOtherUserProfile as any).isGroup ? null : currentOtherUserProfile.id,
+            roomId: (currentOtherUserProfile as any).isGroup ? currentOtherUserProfile.id : undefined
+         }
       });
 
     } catch (error) {
@@ -1038,7 +1368,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
            is_view_once: type === 'image' ? isViewOnceMode : false,
         });
 
-        supabase.channel('chat-events').send({
+        channelRef.current?.send({
            type: 'broadcast',
            event: 'new_message',
            payload: { messageId: newMessage.id, senderId: user.id, receiverId: currentOtherUserProfile.id }
@@ -1117,10 +1447,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         transition={{ type: 'spring', stiffness: 300, damping: 20 }}
         className="ml-1 flex items-center shrink-0"
       >
-        {status === 'sending' && <Check size={14} className="text-white/20 drop-shadow-sm opacity-50" />}
+        {status === 'sending' && <Clock size={12} className="text-gray-400 drop-shadow-sm opacity-70" />}
         {status === 'sent' && <Check size={14} className="text-gray-400 drop-shadow-sm" />}
         {status === 'delivered' && <CheckCheck size={14} className="text-gray-400 drop-shadow-sm" />}
-        {status === 'read' && <CheckCheck size={14} className="text-[#53bdeb] drop-shadow-[0_0_8px_rgba(83,189,235,0.6)]" />}
+        {status === 'read' && <CheckCheck size={14} className="text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />}
       </motion.span>
     );
   };
@@ -1195,7 +1525,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             )}
 
             {activeTab === 'chats' && (
-              <div className="h-full">
+              <div className="h-full relative">
                 <ChatList
                   exploreUsers={exploreUsers}
                   getStatusRingClass={getStatusRingClass}
@@ -1203,6 +1533,12 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                   setShowVerificationGateModal={setShowVerificationGateModal}
                   setOtherUserProfile={setOtherUserProfile}
                 />
+                <button
+                   onClick={() => setIsGroupModalOpen(true)}
+                   className="absolute bottom-6 right-6 w-14 h-14 bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] rounded-full flex items-center justify-center transition-all z-50"
+                >
+                   <Users size={24} />
+                </button>
               </div>
             )}
 
@@ -1251,7 +1587,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                      setUnlockedStatuses(prev => new Set(prev).add(viewingStatuses.groupId));
 
                      // Trigger notification to creator via realtime
-                     supabase.channel('chat-events').send({
+                     channelRef.current?.send({
                          type: 'broadcast',
                          event: 'status_unlocked',
                          payload: { viewerId: user?.id, creatorId: viewingStatuses.groupId }
@@ -1278,7 +1614,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     status: 'sent'
                  });
 
-                 supabase.channel('chat-events').send({
+                 channelRef.current?.send({
                     type: 'broadcast',
                     event: 'new_message',
                     payload: { messageId: msgId, senderId: user.id, receiverId: viewingStatuses.groupId }
@@ -1298,7 +1634,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     status: 'sent'
                  });
 
-                 supabase.channel('chat-events').send({
+                 channelRef.current?.send({
                     type: 'broadcast',
                     event: 'new_message',
                     payload: { messageId: msgId, senderId: user.id, receiverId: viewingStatuses.groupId }
@@ -1318,7 +1654,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     status: 'sent'
                  });
 
-                 supabase.channel('chat-events').send({
+                 channelRef.current?.send({
                     type: 'broadcast',
                     event: 'new_message',
                     payload: { messageId: msgId, senderId: user.id, receiverId: receiverId }
@@ -1348,7 +1684,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   }
 
   return (
-    <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
+    <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative bg-neutral-950">
       {/* Verification Gate Modal */}
       <AnimatePresence>
           {showVerificationGateModal && (
@@ -1547,7 +1883,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       </AnimatePresence>
 
       {/* Header */}
-      <header className="bg-black/60 backdrop-blur-2xl px-4 py-3 border-b border-white/[0.08] flex items-center shrink-0 sticky top-0 z-20">
+      <header className="bg-black/60 backdrop-blur-xl px-4 py-3 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] flex items-center shrink-0 sticky top-0 z-20">
         <button
           onClick={() => setOtherUserProfile(null)}
           className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
@@ -1600,6 +1936,16 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           )}
         </div>
 
+        {/* Phase 3 Call Actions */}
+        <div className="flex items-center space-x-3 mr-4">
+            <button onClick={() => handleInitiateCall('audio')} className="text-amber-500 hover:text-amber-400 cursor-pointer transition-all hover:scale-110 drop-shadow-md">
+               <Phone size={20} />
+            </button>
+            <button onClick={() => handleInitiateCall('video')} className="text-amber-500 hover:text-amber-400 cursor-pointer transition-all hover:scale-110 drop-shadow-md">
+               <Video size={22} />
+            </button>
+        </div>
+
         {/* Top-up Store Icon */}
         <button
           onClick={() => {
@@ -1632,7 +1978,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                  className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                >
                  <div className="flex items-end space-x-2 max-w-[85%] relative">
-                   <div className={`px-4 py-2.5 rounded-2xl border border-white/10 italic text-white/50 text-sm ${isUser ? 'bg-[#005c4b]/30 rounded-tr-sm' : 'bg-white/5 rounded-tl-sm'}`}>
+                   <div className={`px-4 py-2.5 rounded-2xl border border-white/10 italic text-white/50 text-sm ${isUser ? 'bg-white/5 rounded-tr-sm' : 'bg-white/5 rounded-tl-sm'}`}>
                      🚫 This message was deleted.
                    </div>
                  </div>
@@ -1759,7 +2105,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     }}
                     className={`px-4 py-2.5 relative transition-all duration-200 cursor-pointer ${
                       isUser
-                        ? 'bg-[#005c4b] hover:bg-[#006e5a] backdrop-blur-xl border border-[#005c4b]/50 text-white rounded-2xl rounded-tr-sm shadow-[0_2px_8px_rgba(0,0,0,0.2)]'
+                        ? 'bg-white/10 hover:bg-white/20 backdrop-blur-xl border border-amber-500/20 text-white rounded-2xl rounded-tr-sm shadow-[0_8px_32px_rgba(0,0,0,0.37)]'
                         : 'bg-white/5 hover:bg-white/10 backdrop-blur-2xl text-gray-100 border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.3)] rounded-2xl rounded-tl-sm'
                     } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
@@ -1917,7 +2263,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       </main>
 
       {/* Input Area */}
-      <footer className="bg-white/5 backdrop-blur-2xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] p-3 pb-safe shrink-0 flex flex-col">
+      <footer className="bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] p-3 pb-safe shrink-0 flex flex-col">
         <AnimatePresence>
           {replyingTo && (
             <motion.div
@@ -2018,6 +2364,105 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           Double-tap a message to react
         </p>
       </footer>
+
+      <AnimatePresence>
+         {isGroupModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+               <motion.div
+                 initial={{ scale: 0.9, opacity: 0 }}
+                 animate={{ scale: 1, opacity: 1 }}
+                 exit={{ scale: 0.9, opacity: 0 }}
+                 className="bg-neutral-950/90 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-2xl max-w-sm w-full relative"
+               >
+                  <button onClick={() => setIsGroupModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+                     <X size={20} />
+                  </button>
+                  <h3 className="text-xl font-bold text-white mb-4 flex items-center"><Users className="mr-2 text-amber-500" /> Create Group</h3>
+                  <input
+                     type="text"
+                     placeholder="Group Name"
+                     value={groupName}
+                     onChange={(e) => setGroupName(e.target.value)}
+                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-amber-500/50 mb-4"
+                  />
+                  <div className="max-h-48 overflow-y-auto mb-4 space-y-2">
+                     {exploreUsers.map(u => (
+                        <div key={u.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-white/5 cursor-pointer" onClick={() => {
+                           const newSet = new Set(selectedGroupUsers);
+                           if (newSet.has(u.id)) newSet.delete(u.id);
+                           else newSet.add(u.id);
+                           setSelectedGroupUsers(newSet);
+                        }}>
+                           <div className="flex items-center space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                                 {u.avatarInitials}
+                              </div>
+                              <span className="text-white text-sm">{u.name}</span>
+                           </div>
+                           {selectedGroupUsers.has(u.id) && <Check size={16} className="text-amber-500" />}
+                        </div>
+                     ))}
+                  </div>
+                  <button
+                     onClick={handleCreateGroup}
+                     disabled={!groupName.trim() || selectedGroupUsers.size === 0}
+                     className="w-full bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] font-bold py-3 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                     Create Group
+                  </button>
+               </motion.div>
+            </div>
+         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+         {(isCallActive || incomingCall) && (
+            <motion.div
+               initial={{ opacity: 0, y: '100%' }}
+               animate={{ opacity: 1, y: 0 }}
+               exit={{ opacity: 0, y: '100%' }}
+               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+               className="fixed inset-0 z-[120] bg-neutral-950/90 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6"
+            >
+               <video ref={remoteVideoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover z-0 opacity-50" />
+               <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-32 right-6 w-24 h-36 rounded-xl object-cover z-10 border border-white/20 shadow-2xl bg-black" />
+
+               <div className="flex flex-col items-center mt-12 z-10">
+                  <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 shadow-2xl relative ${
+                      (incomingCall || currentOtherUserProfile?.subscription_tier === 'PREMIUM' || currentOtherUserProfile?.subscription_tier === 'PRO') ? 'bg-gradient-to-tr from-yellow-400 to-purple-600 animate-pulse p-1' : 'bg-white/10'
+                  }`}>
+                     <div className="w-full h-full bg-neutral-900 rounded-full flex items-center justify-center border-4 border-neutral-950 overflow-hidden">
+                        {currentOtherUserProfile?.avatarUrl ? (
+                           <img src={currentOtherUserProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                        ) : (
+                           <Users size={48} className="text-white/50" />
+                        )}
+                     </div>
+                  </div>
+                  <h2 className="text-3xl font-bold text-white mb-2">{incomingCall ? incomingCall.callerName : currentOtherUserProfile?.name}</h2>
+                  <p className="text-white/60 text-lg">{incomingCall ? `Incoming ${incomingCall.callType} call...` : 'Calling...'}</p>
+               </div>
+
+               <div className="flex items-center space-x-8 mb-12 z-10">
+                  {incomingCall ? (
+                     <>
+                        <button onClick={handleEndCall} className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all">
+                           <Phone size={28} className="text-white rotate-[135deg]" />
+                        </button>
+                        <button onClick={handleAcceptCall} className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center shadow-[0_0_20px_rgba(34,197,94,0.5)] transition-all">
+                           <Phone size={28} className="text-white" />
+                        </button>
+                     </>
+                  ) : (
+                     <button onClick={handleEndCall} className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all">
+                        <Phone size={28} className="text-white rotate-[135deg]" />
+                     </button>
+                  )}
+               </div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
     </div>
   );
 }
