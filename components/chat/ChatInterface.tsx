@@ -679,7 +679,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     if (currentOtherUserProfile === null) {
       const fetchExploreUsers = async () => {
         const { data, error } = await supabase.from('profiles').select('*').limit(20);
-        if (error) { setExploreUsers([{id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', subscription_tier: 'FREE', isOnline: true, coinsGifted: 0, isSelf: false}]); }
+        if (error) {
+    setExploreUsers([{ id: 'mock', name: 'Test User', avatarInitials: 'TU', bio: 'Test bio', joinDate: '2023', subscription_tier: 'FREE' as const, isOnline: true, coinsGifted: 0, isSelf: false }]);
+}
         const { data: roomsData, error: roomsError } = await supabase
             .from('room_participants')
             .select('room_id, rooms ( id, name, created_at )')
@@ -690,13 +692,12 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
              name: rp.rooms.name,
              avatarInitials: (rp.rooms.name?.[0] || 'G').toUpperCase() + (rp.rooms.name?.[1] || 'R').toUpperCase(),
              bio: 'Group Chat',
-             joinDate: new Date(rp.rooms.created_at).toLocaleDateString(),
-             subscription_tier: 'FREE' as const,
-             isOnline: true,
-             coinsGifted: 0,
-             isSelf: false,
-             isGroup: true
-        })) : [];
+        joinDate: new Date(rp.rooms.created_at).toLocaleDateString(),
+        subscription_tier: 'FREE' as const,
+        isOnline: true,
+        coinsGifted: 0,
+        isSelf: false
+    })) : [];
 
         if (!error && data) {
           const formatted = data.filter(u => u.id !== user?.id).map(u => {
@@ -2428,9 +2429,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-32 right-6 w-24 h-36 rounded-xl object-cover z-10 border border-white/20 shadow-2xl bg-black" />
 
                <div className="flex flex-col items-center mt-12 z-10">
-                  <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 shadow-2xl relative ${
-                      (incomingCall || currentOtherUserProfile?.subscription_tier === 'PREMIUM' || currentOtherUserProfile?.subscription_tier === 'PRO') ? 'bg-gradient-to-tr from-yellow-400 to-purple-600 animate-pulse p-1' : 'bg-white/10'
-                  }`}>
+                  <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 shadow-2xl relative ${(currentOtherUserProfile?.subscription_tier === 'PREMIUM' || currentUserProfile?.subscription_tier === 'PREMIUM') ? 'bg-gradient-to-tr from-yellow-400 via-purple-600 to-yellow-400 animate-pulse p-[2px]' : 'bg-white/10 p-1'}`}>
                      <div className="w-full h-full bg-neutral-900 rounded-full flex items-center justify-center border-4 border-neutral-950 overflow-hidden">
                         {currentOtherUserProfile?.avatarUrl ? (
                            <img src={currentOtherUserProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
