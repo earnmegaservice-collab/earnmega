@@ -18,6 +18,8 @@ export interface UserProfileDetails {
   coinsGifted: number;
   isSelf: boolean;
   ghost_mode?: boolean;
+  unreadCount?: number;
+  lastMessageTime?: number;
 }
 
 interface UserProfileModalProps {

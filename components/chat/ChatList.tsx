@@ -62,21 +62,34 @@ export default function ChatList({
               className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group"
             >
               {/* Left: Avatar */}
-              <div className={`relative w-14 h-14 rounded-full flex-shrink-0 bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center border border-white/20 shadow-lg ${getStatusRingClass(u.id)}`}>
-                {u.avatarUrl ? (
-                  <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
-                ) : (
-                  <span className="text-white font-bold text-lg">{u.avatarInitials}</span>
+              <div className={`relative w-14 h-14 rounded-full flex-shrink-0 flex items-center justify-center shadow-lg ${
+                u.tier === 'PREMIUM' ? 'p-[2px]' :
+                u.tier === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
+                'border border-white/10 p-1 bg-white/5'
+              } ${getStatusRingClass(u.id)}`}>
+                {u.tier === 'PREMIUM' && (
+                  <div className="absolute inset-[-2px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
                 )}
+                <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
+                  {u.avatarUrl ? (
+                    <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    <span className="text-white font-bold text-lg">{u.avatarInitials}</span>
+                  )}
+                </div>
                 {u.isOnline && (
-                  <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-400 border-2 border-black rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+                  <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-400 border-2 border-black rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)] z-20" />
                 )}
               </div>
 
               {/* Middle: User Info & Message Preview */}
               <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center">
                 <div className="flex items-center space-x-1">
-                  <h3 className="text-base font-bold text-white truncate drop-shadow-sm">
+                  <h3 className={`text-base truncate drop-shadow-sm ${
+                    u.tier === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
+                    u.tier === 'PRO' ? 'text-amber-400 font-bold' :
+                    'text-neutral-200 font-bold'
+                  }`}>
                     {u.name}
                   </h3>
                   {u.tier === 'PREMIUM' && (
@@ -95,10 +108,9 @@ export default function ChatList({
                 <span className="text-xs text-gray-500 font-medium">
                   {u.isOnline ? 'Now' : '1h'}
                 </span>
-                {/* Simulated unread count for demo purposes */}
-                {i % 3 === 0 && (
-                  <div className="bg-green-500 text-black font-bold h-6 w-6 rounded-full flex items-center justify-center text-[11px] shadow-[0_0_10px_rgba(34,197,94,0.4)]">
-                    {i + 1}
+                {(u.unreadCount ?? 0) > 0 && (
+                  <div className="bg-green-500 text-black font-bold h-6 min-w-6 px-1.5 rounded-full flex items-center justify-center text-[11px] shadow-[0_0_10px_rgba(34,197,94,0.4)]">
+                    {u.unreadCount}
                   </div>
                 )}
               </div>
