@@ -8,7 +8,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Menu, Play, Pause, X, Store, Lock, EyeOff } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -205,7 +205,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
         {actualText && (
           <div className={`px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
             isMe
-              ? 'bg-[#005c4b] backdrop-blur-xl border border-[#005c4b]/50 text-white rounded-tr-sm'
+              ? 'bg-white/10 backdrop-blur-xl border border-amber-500/20 text-white rounded-tr-sm'
               : 'bg-white/5 backdrop-blur-2xl text-gray-100 border border-white/10 rounded-tl-sm'
           }`}>
             {formatText(actualText)}
@@ -1117,10 +1117,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         transition={{ type: 'spring', stiffness: 300, damping: 20 }}
         className="ml-1 flex items-center shrink-0"
       >
-        {status === 'sending' && <Check size={14} className="text-white/20 drop-shadow-sm opacity-50" />}
+        {status === 'sending' && <Clock size={12} className="text-gray-400 drop-shadow-sm opacity-70" />}
         {status === 'sent' && <Check size={14} className="text-gray-400 drop-shadow-sm" />}
         {status === 'delivered' && <CheckCheck size={14} className="text-gray-400 drop-shadow-sm" />}
-        {status === 'read' && <CheckCheck size={14} className="text-[#53bdeb] drop-shadow-[0_0_8px_rgba(83,189,235,0.6)]" />}
+        {status === 'read' && <CheckCheck size={14} className="text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" />}
       </motion.span>
     );
   };
@@ -1348,7 +1348,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   }
 
   return (
-    <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative">
+    <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative bg-neutral-950">
       {/* Verification Gate Modal */}
       <AnimatePresence>
           {showVerificationGateModal && (
@@ -1547,7 +1547,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       </AnimatePresence>
 
       {/* Header */}
-      <header className="bg-black/60 backdrop-blur-2xl px-4 py-3 border-b border-white/[0.08] flex items-center shrink-0 sticky top-0 z-20">
+      <header className="bg-black/60 backdrop-blur-xl px-4 py-3 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] flex items-center shrink-0 sticky top-0 z-20">
         <button
           onClick={() => setOtherUserProfile(null)}
           className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
@@ -1632,7 +1632,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                  className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                >
                  <div className="flex items-end space-x-2 max-w-[85%] relative">
-                   <div className={`px-4 py-2.5 rounded-2xl border border-white/10 italic text-white/50 text-sm ${isUser ? 'bg-[#005c4b]/30 rounded-tr-sm' : 'bg-white/5 rounded-tl-sm'}`}>
+                   <div className={`px-4 py-2.5 rounded-2xl border border-white/10 italic text-white/50 text-sm ${isUser ? 'bg-white/5 rounded-tr-sm' : 'bg-white/5 rounded-tl-sm'}`}>
                      🚫 This message was deleted.
                    </div>
                  </div>
@@ -1759,7 +1759,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     }}
                     className={`px-4 py-2.5 relative transition-all duration-200 cursor-pointer ${
                       isUser
-                        ? 'bg-[#005c4b] hover:bg-[#006e5a] backdrop-blur-xl border border-[#005c4b]/50 text-white rounded-2xl rounded-tr-sm shadow-[0_2px_8px_rgba(0,0,0,0.2)]'
+                        ? 'bg-white/10 hover:bg-white/20 backdrop-blur-xl border border-amber-500/20 text-white rounded-2xl rounded-tr-sm shadow-[0_8px_32px_rgba(0,0,0,0.37)]'
                         : 'bg-white/5 hover:bg-white/10 backdrop-blur-2xl text-gray-100 border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.3)] rounded-2xl rounded-tl-sm'
                     } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
@@ -1917,7 +1917,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       </main>
 
       {/* Input Area */}
-      <footer className="bg-white/5 backdrop-blur-2xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] p-3 pb-safe shrink-0 flex flex-col">
+      <footer className="bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] p-3 pb-safe shrink-0 flex flex-col">
         <AnimatePresence>
           {replyingTo && (
             <motion.div
