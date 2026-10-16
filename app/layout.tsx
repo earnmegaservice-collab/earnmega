@@ -1,5 +1,6 @@
 import "./globals.css";
 import { WalletProvider } from "../context/WalletContext";
+import { CallProvider } from "../context/CallContext";
 import { AuthProvider } from "../context/AuthContext";
 import { Toaster } from "react-hot-toast";
 import { Metadata, Viewport } from "next";
@@ -36,10 +37,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="cinematic-bg" />
         <AuthProvider>
           <WalletProvider>
+            <CallProvider>
             {children}
             <Toaster position="top-right" />
             <SmartInstallBanner />
             <PwaInstallPrompt />
+          </CallProvider>
           </WalletProvider>
         </AuthProvider>
       </body>

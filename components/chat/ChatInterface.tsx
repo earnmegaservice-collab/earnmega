@@ -9,7 +9,7 @@ import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { CallOverlay } from "./CallOverlay";
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, Users, Plus, Image as ImageIcon } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, Plus, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -189,25 +189,15 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
         </div>
      );
   }
-  if (message.messageType === 'missed_call') {
+    if (message.messageType === 'missed_call') {
      return (
-        <div className="flex items-center justify-between p-3.5 rounded-2xl bg-rose-950/40 border border-rose-500/30 backdrop-blur-md w-72 my-1">
-           <div className="flex items-center gap-2">
-               <div className="p-2 bg-rose-500/20 rounded-xl text-rose-400">
-                   <Phone size={16} className="rotate-[135deg]" />
-               </div>
-               <span className="text-rose-400 font-semibold text-sm">Missed Call</span>
-           </div>
-           <button
-              onClick={() => {
-                // To avoid prop drilling initiateCall, we dispatch an event that ChatInterface will listen to
-                window.dispatchEvent(new CustomEvent('initiate-call', { detail: { type: 'audio' } }));
-              }}
-              className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/40 rounded-lg text-xs font-medium text-rose-300 transition-colors"
-           >
-              Call Back
-           </button>
-        </div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between p-4 rounded-3xl bg-rose-950/40 border border-rose-500/40 w-80 my-2 backdrop-blur-xl shadow-lg">
+          <div className="flex items-center gap-4">
+             <div className="p-3 bg-rose-500/20 rounded-2xl text-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.3)]"><PhoneMissed size={22}/></div>
+             <div className="flex flex-col"><span className="text-rose-400 font-extrabold text-[15px] tracking-wide">Missed Call</span><span className="text-rose-300/60 text-xs font-medium mt-0.5">{new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></div>
+          </div>
+          <button onClick={() => window.dispatchEvent(new CustomEvent('initiate_call', { detail: { id: message.sender_id, type: 'audio' } }))} className="px-5 py-2.5 bg-rose-500/20 hover:bg-rose-500/40 rounded-xl text-xs font-black text-rose-300 transition-all active:scale-95 border border-rose-500/30 uppercase tracking-widest shadow-md">Call Back</button>
+        </motion.div>
      );
   }
 
@@ -926,7 +916,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     if (currentOtherUserProfile === null) {
       const fetchExploreUsers = async () => {
         if (!user) return;
-        const { data, error } = await supabase.from('profiles').select('*').limit(20);
+        const { data, error } = await supabase.from('profiles').select('*').order('updated_at', { ascending: false }).limit(20);
 
         const { data: roomsData, error: roomsError } = await supabase
             .from('room_participants')
