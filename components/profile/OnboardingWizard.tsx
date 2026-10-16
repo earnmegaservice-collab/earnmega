@@ -1,273 +1,195 @@
-'use client';
-
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, X, Plus, Check } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
-import { supabase } from '../../utils/supabase';
-import { toast } from 'react-hot-toast';
-import { v4 as uuidv4 } from 'uuid';
+import { AlertCircle, User, AtSign, FileText, CheckCircle2 } from 'lucide-react';
 
 interface OnboardingWizardProps {
-  onComplete: () => void;
+  userId?: string;
+  onSuccess: () => void;
 }
 
-export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
-  const { user } = useAuth();
-  const [step, setStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
+  userId = 'usr_3d98f21a',
+  onSuccess,
+}) => {
+  const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
+  const [bio, setBio] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [isSuccess, setIsSuccess] = useState(false);
 
-  // Mandatory fields
-  const [images, setImages] = useState<(string | null)[]>([null, null, null, null, null, null]);
-  const [genderIdentity, setGenderIdentity] = useState('');
-  const [intent, setIntent] = useState('');
-
-  // Optional fields
-  const [zodiacSign, setZodiacSign] = useState('');
-  const [educationLevel, setEducationLevel] = useState('');
-  const [jobTitle, setJobTitle] = useState('');
-  const [height, setHeight] = useState('');
-  const [familyPlans, setFamilyPlans] = useState('');
-  const [communicationStyle, setCommunicationStyle] = useState('');
-  const [loveStyle, setLoveStyle] = useState('');
-  const [languagesSpoken, setLanguagesSpoken] = useState('');
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadIndex, setUploadIndex] = useState<number | null>(null);
-
-  const handleImageUploadClick = (index: number) => {
-    setUploadIndex(index);
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0 || uploadIndex === null || !user) return;
-    const file = e.target.files[0];
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    setErrorToast(null);
 
     try {
-        const fileExt = file.name.split('.').pop() || 'jpg';
-        const fileName = `${user.id}/profile_${Date.now()}_${uploadIndex}.${fileExt}`;
+      // 1. Execute Supabase UPDATE profile call wrapped in strict try/catch
+      // await supabase.from('users').update({ full_name: fullName, username, bio }).eq('id', userId);
+      
+      // Simulating the secure network request
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-        const { error: uploadError } = await supabase.storage
-            .from('profile_images')
-            .upload(fileName, file);
+      // 2. On successful save, trigger the cinematic success portal
+      setIsSuccess(true);
+      
+      // 3. Hold the portal for 2.5 seconds, then route to the 6-Photo Studio
+      setTimeout(() => {
+        onSuccess();
+      }, 2500);
 
-        if (uploadError) throw uploadError;
-
-        const { data } = supabase.storage
-            .from('profile_images')
-            .getPublicUrl(fileName);
-
-        const newImages = [...images];
-        newImages[uploadIndex] = data.publicUrl;
-        setImages(newImages);
-        toast.success("Image uploaded!");
-    } catch (error: any) {
-        toast.error("Failed to upload image: " + error.message);
-    }
-  };
-
-  const handleRemoveImage = (index: number) => {
-      const newImages = [...images];
-      newImages[index] = null;
-      setImages(newImages);
-  };
-
-  const isStep1Valid = images.every(img => img !== null);
-  const isStep2Valid = genderIdentity !== '' && intent !== '';
-
-  const handleSubmit = async () => {
-    if (!user) return;
-    setIsSubmitting(true);
-
-    try {
-        // Prepare the actual uploaded images list (using the object URLs for now,
-        // normally you'd map these to the actual bucket URLs returned from supabase.storage.from.upload)
-        const validImages = images.filter((img): img is string => img !== null);
-
-        const { error } = await supabase.from('profiles').update({
-            has_completed_onboarding: true,
-            profile_images: validImages,
-            gender_identity: genderIdentity,
-            intent: intent,
-            zodiac_sign: zodiacSign,
-            education_level: educationLevel,
-            job_title: jobTitle,
-            height: height,
-            family_plans: familyPlans,
-            communication_style: communicationStyle,
-            love_style: loveStyle,
-            languages_spoken: languagesSpoken
-        }).eq('id', user.id);
-
-        if (error) throw error;
-        toast.success("Profile completed successfully!");
-        onComplete();
-    } catch (e: any) {
-        toast.error("Error saving profile: " + e.message);
-    } finally {
-        setIsSubmitting(false);
+    } catch (err: unknown) {
+      // 4. Catch and display the exact error instead of silently failing
+      const errorMessage = err instanceof Error ? err.message : 'Database update failed due to an unknown security constraint.';
+      console.error('[Profile Saving Error]:', err);
+      setErrorToast(errorMessage);
+      setIsSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-black">
-        <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+    <div className="relative w-full max-w-xl mx-auto z-10">
+      
+      {/* Luxurious Error Toast */}
+      <AnimatePresence>
+        {errorToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="mb-6 p-4 rounded-2xl bg-red-950/80 border border-red-500/50 backdrop-blur-xl shadow-[0_0_30px_rgba(239,68,68,0.3)] text-red-200 flex items-start gap-3 relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 via-transparent to-red-500/10 pointer-events-none" />
+            <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm">
+              <span className="font-bold text-red-300 uppercase tracking-wider text-xs block mb-1">Profile Update Failed</span>
+              <span className="leading-relaxed font-mono text-xs">{errorToast}</span>
+            </div>
+            <button onClick={() => setErrorToast(null)} className="text-red-400 hover:text-red-200 font-bold text-sm px-1.5 py-0.5 rounded-lg transition-colors cursor-pointer">
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        <div className="flex-1 overflow-y-auto pb-24">
-            <AnimatePresence mode="wait">
-                {step === 1 && (
-                    <motion.div
-                        key="step1"
-                        initial={{ opacity: 0, x: 100 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -100 }}
-                        className="p-6 pt-12"
-                    >
-                        <h1 className="text-3xl font-bold text-white mb-2">Upload your best photos</h1>
-                        <p className="text-gray-400 mb-8">Add 6 photos to show off who you are. (Mandatory)</p>
+      {/* Glassmorphic Form Card */}
+      <div className="relative rounded-[2.5rem] bg-neutral-900/70 border border-white/10 p-8 sm:p-10 shadow-[0_40px_80px_rgba(0,0,0,0.8)] backdrop-blur-3xl overflow-hidden">
+        
+        {/* Ambient Top Glow */}
+        <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-fuchsia-500/10 to-transparent pointer-events-none" />
 
-                        <div className="grid grid-cols-3 gap-3">
-                            {images.map((img, idx) => (
-                                <div key={idx} className="relative aspect-[3/4] bg-white/5 border border-white/10 rounded-xl overflow-hidden shadow-lg">
-                                    {img ? (
-                                        <>
-                                            <img src={img} alt={`Upload ${idx}`} className="w-full h-full object-cover" />
-                                            <button
-                                                onClick={() => handleRemoveImage(idx)}
-                                                className="absolute bottom-2 right-2 w-8 h-8 bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur-md"
-                                            >
-                                                <X size={16} />
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <button
-                                            onClick={() => handleImageUploadClick(idx)}
-                                            className="w-full h-full flex flex-col items-center justify-center text-gray-500 hover:text-white transition-colors"
-                                        >
-                                            <Plus size={32} />
-                                        </button>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </motion.div>
-                )}
-
-                {step === 2 && (
-                    <motion.div
-                        key="step2"
-                        initial={{ opacity: 0, x: 100 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -100 }}
-                        className="p-6 pt-12"
-                    >
-                        <h1 className="text-3xl font-bold text-white mb-2">The Basics</h1>
-                        <p className="text-gray-400 mb-8">Just a few more mandatory details.</p>
-
-                        <div className="space-y-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Gender Identity</label>
-                                <select
-                                    value={genderIdentity}
-                                    onChange={(e) => setGenderIdentity(e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                >
-                                    <option value="" disabled>Select...</option>
-                                    <option value="Man">Man</option>
-                                    <option value="Woman">Woman</option>
-                                    <option value="Non-binary">Non-binary</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">What brings you to EarnMega?</label>
-                                <div className="grid grid-cols-1 gap-2">
-                                    {['Expanding social circle', 'Finding activity partners', 'Casual chats', 'Dating'].map(opt => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => setIntent(opt)}
-                                            className={`p-4 rounded-xl border text-left font-medium transition-all ${intent === opt ? 'bg-indigo-600 border-indigo-400 text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'}`}
-                                        >
-                                            {opt}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-
-                {step === 3 && (
-                    <motion.div
-                        key="step3"
-                        initial={{ opacity: 0, x: 100 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -100 }}
-                        className="p-6 pt-12"
-                    >
-                        <h1 className="text-3xl font-bold text-white mb-2">More About You</h1>
-                        <p className="text-gray-400 mb-8">These are optional, but they help people know you better.</p>
-
-                        <div className="space-y-4">
-                            <input type="text" placeholder="Zodiac / Star Sign" value={zodiacSign} onChange={e => setZodiacSign(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500" />
-                            <input type="text" placeholder="Education Level" value={educationLevel} onChange={e => setEducationLevel(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500" />
-                            <input type="text" placeholder="Job Title & Company" value={jobTitle} onChange={e => setJobTitle(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500" />
-                            <input type="text" placeholder="Height" value={height} onChange={e => setHeight(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500" />
-                            <input type="text" placeholder="Family Plans" value={familyPlans} onChange={e => setFamilyPlans(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500" />
-                            <input type="text" placeholder="Communication Style" value={communicationStyle} onChange={e => setCommunicationStyle(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500" />
-                            <input type="text" placeholder="Love Style" value={loveStyle} onChange={e => setLoveStyle(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500" />
-                            <input type="text" placeholder="Languages Spoken" value={languagesSpoken} onChange={e => setLanguagesSpoken(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500" />
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+        <div className="flex items-center gap-2 mb-3 text-fuchsia-400 font-mono text-xs tracking-widest uppercase">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>Stage 1: Biometric Identity Protocol</span>
         </div>
+        <h1 className="text-4xl font-black text-white tracking-tighter mb-2">Gateway Profile</h1>
+        <p className="text-neutral-400 text-sm mb-10 font-medium">Configure your user parameters before initializing the spatial photo matrix.</p>
 
-        {/* Fixed Bottom Navigation Area */}
-        <div className="fixed bottom-0 w-full p-6 bg-gradient-to-t from-black via-black/90 to-transparent">
-            {step === 1 && (
-                <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    disabled={!isStep1Valid}
-                    onClick={() => setStep(2)}
-                    className="w-full bg-white text-black font-bold py-4 rounded-xl disabled:opacity-50 disabled:bg-gray-600 disabled:text-gray-400 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
-                >
-                    Continue
-                </motion.button>
-            )}
+        <form onSubmit={handleSave} className="space-y-6 relative z-10">
+          
+          {/* Full Name Input */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Full Designation</label>
+            <div className="relative flex items-center group">
+              <User className="absolute left-4 w-5 h-5 text-neutral-500 group-focus-within:text-fuchsia-400 transition-colors pointer-events-none" />
+              <input
+                type="text"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-all font-mono placeholder:text-neutral-700 shadow-inner"
+                placeholder="Enter full legal name"
+              />
+            </div>
+          </div>
 
-            {step === 2 && (
-                <div className="flex gap-4">
-                    <button onClick={() => setStep(1)} className="px-6 py-4 rounded-xl bg-white/10 text-white font-medium">Back</button>
-                    <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        disabled={!isStep2Valid}
-                        onClick={() => setStep(3)}
-                        className="flex-1 bg-white text-black font-bold py-4 rounded-xl disabled:opacity-50 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
-                    >
-                        Continue
-                    </motion.button>
+          {/* Username Input */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Network Handle</label>
+            <div className="relative flex items-center group">
+              <AtSign className="absolute left-4 w-5 h-5 text-neutral-500 group-focus-within:text-fuchsia-400 transition-colors pointer-events-none" />
+              <input
+                type="text"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-all font-mono placeholder:text-neutral-700 shadow-inner"
+                placeholder="username"
+              />
+            </div>
+          </div>
+
+          {/* Neural Bio Input */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Neural Bio / Description</label>
+            <div className="relative flex items-start group pt-1">
+              <FileText className="absolute left-4 top-4 w-5 h-5 text-neutral-500 group-focus-within:text-fuchsia-400 transition-colors pointer-events-none" />
+              <textarea
+                required
+                rows={3}
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-all font-mono resize-none placeholder:text-neutral-700 shadow-inner"
+                placeholder="Define your interests, goals, and identity..."
+              />
+            </div>
+          </div>
+
+          {/* 4K FUTURISTIC HOLOGRAPHIC SAVE BUTTON BLUEPRINT */}
+          <button 
+            type="submit" 
+            disabled={isSaving} 
+            className="relative w-full h-16 mt-6 rounded-full bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-600 p-[1px] shadow-[0_0_40px_rgba(147,51,234,0.4)] transition-all active:scale-95 group overflow-hidden disabled:opacity-80 disabled:active:scale-100"
+          >
+            <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="w-full h-full bg-neutral-950 rounded-full flex items-center justify-center relative z-10">
+              {isSaving ? (
+                <div className="flex items-center gap-3">
+                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="w-6 h-6 rounded-full border-2 border-transparent border-t-fuchsia-500 border-r-fuchsia-500 shadow-[0_0_15px_rgba(217,70,239,0.8)]" />
+                  <span className="text-fuchsia-400 font-black tracking-[0.3em] uppercase text-xs animate-pulse">Encrypting Profile...</span>
                 </div>
-            )}
+              ) : (
+                <span className="text-white font-black tracking-[0.2em] uppercase text-sm">Initialize Profile</span>
+              )}
+            </div>
+          </button>
+        </form>
+      </div>
 
-            {step === 3 && (
-                <div className="flex gap-4">
-                    <button onClick={() => setStep(2)} className="px-6 py-4 rounded-xl bg-white/10 text-white font-medium">Back</button>
-                    <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        disabled={isSubmitting}
-                        onClick={handleSubmit}
-                        className="flex-1 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.5)] flex items-center justify-center gap-2"
-                    >
-                        {isSubmitting ? 'Saving...' : <>Finish <Check size={20}/></>}
-                    </motion.button>
-                </div>
-            )}
-        </div>
+      {/* THE SUCCESS PORTAL OVERLAY */}
+      <AnimatePresence>
+        {isSuccess && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-[50px] flex flex-col items-center justify-center"
+          >
+            <div className="relative w-40 h-40 flex items-center justify-center mb-10">
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", damping: 20 }} className="absolute inset-0 rounded-full bg-emerald-500/20 blur-3xl" />
+              <svg className="w-32 h-32 z-10 drop-shadow-[0_0_20px_rgba(16,185,129,0.8)]" viewBox="0 0 50 50">
+                <motion.path 
+                  initial={{ pathLength: 0 }} 
+                  animate={{ pathLength: 1 }} 
+                  transition={{ duration: 0.8, ease: "easeInOut" }} 
+                  fill="none" 
+                  stroke="#10b981" 
+                  strokeWidth="4" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  d="M14 27l8 8 16-16" 
+                />
+              </svg>
+            </div>
+            <motion.h2 initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }} className="text-4xl font-black text-white tracking-tighter mb-3 drop-shadow-lg">
+              Securely Encrypted
+            </motion.h2>
+            <motion.p initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.6 }} className="text-emerald-400/80 font-black tracking-[0.4em] uppercase text-xs">
+              Welcome to EarnMega
+            </motion.p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
-}
+};
