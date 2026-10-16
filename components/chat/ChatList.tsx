@@ -11,6 +11,7 @@ interface ChatListProps {
   currentUserProfile: UserProfileDetails | null;
   setShowVerificationGateModal: (show: boolean) => void;
   setOtherUserProfile: (user: UserProfileDetails) => void;
+  isLoading?: boolean;
 }
 
 export default function ChatList({
@@ -18,7 +19,8 @@ export default function ChatList({
   getStatusRingClass,
   currentUserProfile,
   setShowVerificationGateModal,
-  setOtherUserProfile
+  setOtherUserProfile,
+  isLoading
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -118,11 +120,24 @@ export default function ChatList({
             </motion.div>
           ))}
         </AnimatePresence>
-        {filteredUsers.length === 0 && (
+        {isLoading ? (
+          <div className="flex flex-col gap-2 p-4">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="flex items-center gap-4 p-4 rounded-[2rem] bg-white/5 border border-white/5 relative overflow-hidden">
+                <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                <div className="w-14 h-14 rounded-full bg-white/10 flex-shrink-0" />
+                <div className="flex flex-col gap-2 flex-1">
+                  <div className="w-1/2 h-4 rounded-full bg-white/10" />
+                  <div className="w-3/4 h-3 rounded-full bg-white/5" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredUsers.length === 0 ? (
           <div className="text-center text-gray-500 mt-10 text-sm">
             No chats found.
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

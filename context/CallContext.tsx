@@ -44,7 +44,49 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   const ringtoneRef = useRef<HTMLAudioElement | null>(null);
+
   const dialToneRef = useRef<HTMLAudioElement | null>(null);
+
+  const audioContextRef = useRef<any>(null);
+  const ringtoneSourceRef = useRef<any>(null);
+
+  const initAudioContext = () => {
+     if (!audioContextRef.current) {
+         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+     }
+  };
+
+  const playPremiumRingtone = async () => {
+     try {
+         initAudioContext();
+         if (audioContextRef.current.state === 'suspended') {
+             await audioContextRef.current.resume();
+         }
+         const response = await fetch('/ringtone.mp3');
+         const arrayBuffer = await response.arrayBuffer();
+         const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+
+         const source = audioContextRef.current.createBufferSource();
+         source.buffer = audioBuffer;
+         source.loop = true;
+         source.connect(audioContextRef.current.destination);
+         source.start(0);
+         ringtoneSourceRef.current = source;
+     } catch (err) {
+         console.error("Audio engine failed to play ringtone", err);
+     }
+  };
+
+  const stopPremiumRingtone = () => {
+      if (ringtoneSourceRef.current) {
+          try {
+             ringtoneSourceRef.current.stop();
+             ringtoneSourceRef.current.disconnect();
+          } catch(e) {}
+          ringtoneSourceRef.current = null;
+      }
+  };
+
 
   const channelRef = useRef<any>(null);
 
@@ -69,6 +111,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const stopSounds = useCallback(() => {
+    stopPremiumRingtone();
     if (ringtoneRef.current) {
       ringtoneRef.current.pause();
       ringtoneRef.current.currentTime = 0;
@@ -92,6 +135,8 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
         setCallerInfo({ id: payload.payload.callerId, name: payload.payload.callerName, avatar: payload.payload.callerAvatar });
         setIncomingOffer(payload.payload.offer);
         setCallState('ringing');
+
+        playPremiumRingtone();
 
         if (ringtoneRef.current) {
            ringtoneRef.current.play().catch(console.error);
@@ -174,6 +219,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const [pendingCallType, setPendingCallType] = useState<'audio' | 'video' | null>(null);
 
   const initLocalStream = async (type: 'audio' | 'video') => {
+    if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: type === 'video' ? { width: { ideal: 3840, min: 1920 }, frameRate: { ideal: 60, min: 30 }, facingMode: "user" } : false,
@@ -186,6 +235,23 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       return stream;
     } catch (err: any) {
       console.error("Media error:", err);
+      if (type === 'video') {
+         try {
+             const audioStream = await navigator.mediaDevices.getUserMedia({
+                 audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 }
+             });
+             localStreamRef.current = audioStream;
+             return audioStream;
+         } catch (fallbackErr) {
+             console.error("Fallback audio error:", fallbackErr);
+             if (err.name === 'NotAllowedError') {
+                setPermissionsError(true);
+             } else {
+                toast.error("Could not access camera/microphone");
+             }
+             throw err;
+         }
+      }
       if (err.name === 'NotAllowedError') {
          setPermissionsError(true);
       } else {

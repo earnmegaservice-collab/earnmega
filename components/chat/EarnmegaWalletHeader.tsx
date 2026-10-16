@@ -5,14 +5,63 @@ import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
 import { Store, Coins, Bell } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useEffect } from 'react';
+import { supabase } from '../../utils/supabase';
+import { useAuth } from '../../context/AuthContext';
 
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
 const NotificationDrawer = dynamic(() => import("../../components/notifications/NotificationDrawer"), { ssr: false });
 
 export default function EarnmegaWalletHeader() {
+  const { user } = useAuth();
   const { balance, subscriptionTier } = useWallet();
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchInitialUnread = async () => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+      if (!error && data) {
+        setUnreadNotifications(data.length);
+      }
+    };
+    fetchInitialUnread();
+
+    const channel = supabase.channel('header_notifications')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+         setUnreadNotifications(prev => prev + 1);
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+         // handle mark as read
+         if (payload.new.is_read) {
+             setUnreadNotifications(prev => Math.max(0, prev - 1));
+         }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Handle Mark All Read logic updates the state from the drawer by listening to UPDATE events or reloading. Wait, the drawer sets all to read via an RPC, so it won't emit individual UPDATE events if done in bulk unless the DB triggers them. To be safe, if we open the drawer, we could clear it when closed.
 
   const handleTopUp = () => {
     setIsStoreOpen(true);
@@ -63,10 +112,20 @@ export default function EarnmegaWalletHeader() {
         <div className="flex items-center space-x-2">
           <motion.button
             whileTap={{ scale: 0.9 }}
-            onClick={() => setIsNotificationsOpen(true)}
+            onClick={() => {
+              setIsNotificationsOpen(true);
+              setUnreadNotifications(0); // Optimistically clear
+            }}
             className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors relative"
           >
             <Bell size={16} className="text-white/80" />
+            {unreadNotifications > 0 && (
+                <motion.span
+                   initial={{ scale: 0 }}
+                   animate={{ scale: 1 }}
+                   className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-black shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse"
+                />
+            )}
           </motion.button>
 
           <motion.button
