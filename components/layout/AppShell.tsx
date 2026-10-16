@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Compass,
@@ -15,6 +15,8 @@ import {
   Store
 } from 'lucide-react';
 import GiftOverlay from '../chat/GiftOverlay';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../utils/supabase';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -30,10 +32,124 @@ export const AppShell: React.FC<AppShellProps> = ({
   activeTab,
   setActiveTab,
   coinBalance,
-  unreadCount = 0,
+  unreadCount: initialUnreadCount = 0,
   onOpenStore,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
+  const { user } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
+  const [bellShake, setBellShake] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    // Fetch initial unread count
+    const fetchUnreadCount = async () => {
+      const { data, count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+
+      if (!error && data) {
+        setUnreadCount(count || 0);
+
+        // App-Open Supernova: Check for unread gift notifications in the queue
+        const unreadGifts = data.filter(n => n.type === 'gift');
+        if (unreadGifts.length > 0) {
+           // Instantly trigger cinematic 3D gift animation globally for the first unread gift
+           // To avoid overlapping, we just show the most recent one or queue them.
+           // For simplicity, trigger the first one.
+           const latestGift = unreadGifts[0];
+           if (latestGift.content) {
+             try {
+               const parts = latestGift.content.split(':');
+               if (parts.length >= 3) {
+                 const giftData = { name: parts[1], cost: parseInt(parts[2]) };
+                 const senderId = parts.length > 3 ? parts[3] : '';
+                 const customEvent = new CustomEvent('gift_received_local', {
+                   detail: { giftData: giftData, senderId: senderId, receiverId: user.id }
+                 });
+                 // Small delay to allow portal to mount
+                 setTimeout(() => window.dispatchEvent(customEvent), 500);
+
+                 // Mark as read so it doesn't trigger on next load
+                 await supabase.from('notifications').update({ is_read: true }).eq('id', latestGift.id);
+               }
+             } catch(e) {
+               console.error("Error parsing queued gift notification", e);
+             }
+           }
+        }
+      }
+    };
+
+    fetchUnreadCount();
+
+    // The Global Render Queue & Notification Matrix Active Bell
+    const channel = supabase.channel('public:notifications:appshell')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+        const newNotif = payload.new;
+
+        // Update the active bell badge
+        setUnreadCount(prev => prev + 1);
+
+        // Trigger Framer Motion shake animation
+        setBellShake(true);
+        setTimeout(() => setBellShake(false), 500);
+
+        // App-Open Supernova: Check if the notification is a gift and trigger local visual feedback
+        // The Global Render Queue is technically implicitly handled here:
+        // If they were offline, the database queue stored it.
+        // Now that they are online (and received this via realtime if they just came online,
+        // or fetched initially), we could trigger it.
+        // For now, if a real-time 'INSERT' comes in for a gift, we trigger the overlay.
+        if (newNotif.type === 'gift' && newNotif.content) {
+           try {
+             // Expecting content like: GIFT:Rose:50:sender_id
+             const parts = newNotif.content.split(':');
+             if (parts.length >= 3) {
+               const giftData = { name: parts[1], cost: parseInt(parts[2]) };
+               const senderId = parts.length > 3 ? parts[3] : '';
+
+               // Dispatch custom event to App-Open Supernova GiftOverlay
+               const customEvent = new CustomEvent('gift_received_local', {
+                 detail: { giftData: giftData, senderId: senderId, receiverId: user.id }
+               });
+               window.dispatchEvent(customEvent);
+             }
+           } catch(e) {
+             console.error("Error parsing gift notification", e);
+           }
+        }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+         // If marked as read, recalculate or decrement (to simplify, let's just refetch)
+         fetchUnreadCount();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Handle clearing badge instantly when opening notifications
+  const handleOpenNotifications = () => {
+     setShowNotifications(true);
+     setUnreadCount(0); // Optimistic clear
+  };
+
 
   return (
     <div className="relative min-h-screen w-full bg-[#070709] text-white selection:bg-purple-500/30 overflow-x-hidden font-sans">
@@ -60,17 +176,19 @@ export const AppShell: React.FC<AppShellProps> = ({
           </div>
 
           {/* Notification Bell */}
-          <button
-            onClick={() => setShowNotifications(true)}
+          <motion.button
+            onClick={handleOpenNotifications}
+            animate={bellShake ? { rotate: [-10, 10, -10, 10, 0], scale: [1, 1.2, 1] } : {}}
+            transition={{ duration: 0.4 }}
             className="relative p-2 rounded-full bg-white/[0.05] border border-white/10 hover:border-white/20 active:scale-95 transition"
           >
             <Bell className="w-4 h-4 text-white/90" />
             {unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg border border-black">
-                {unreadCount > 9 ? '9+' : unreadCount}
+                {unreadCount}
               </span>
             )}
-          </button>
+          </motion.button>
         </div>
       </header>
 
