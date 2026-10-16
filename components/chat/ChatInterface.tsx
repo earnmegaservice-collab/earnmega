@@ -172,7 +172,7 @@ import ExploreFeed from '../explore/ExploreFeed';
 import DiscoveryContainer from '../explore/DiscoveryContainer';
 import MyProfileView from '../profile/MyProfileView';
 
-export const renderMessageContent = (message: any, currentUserId: string) => {
+export const renderMessageContent = (message: any, currentUserId: string, initiateCall: any, currentOtherUserProfile: any) => {
   if (message.messageType === 'completed_call') {
      return (
         <div className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 backdrop-blur-md w-72 my-1">
@@ -193,7 +193,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
              <div className="p-3 bg-rose-500/20 rounded-2xl text-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.3)]"><PhoneMissed size={22}/></div>
              <div className="flex flex-col"><span className="text-rose-400 font-extrabold text-[15px] tracking-wide">Missed Call</span><span className="text-rose-300/60 text-xs font-medium mt-0.5">{new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></div>
           </div>
-          <button onClick={() => window.dispatchEvent(new CustomEvent('initiate_call', { detail: { id: message.sender_id, type: 'audio' } }))} className="px-5 py-2.5 bg-rose-500/20 hover:bg-rose-500/40 rounded-xl text-xs font-black text-rose-300 transition-all active:scale-95 border border-rose-500/30 uppercase tracking-widest shadow-md">Call Back</button>
+          <button onClick={() => initiateCall(message.sender_id, currentOtherUserProfile?.name || 'User', currentOtherUserProfile?.avatarUrl || '', 'video')} className="px-5 py-2.5 bg-rose-500/20 hover:bg-rose-500/40 rounded-xl text-xs font-black text-rose-300 transition-all active:scale-95 border border-rose-500/30 uppercase tracking-widest shadow-md">Call Back</button>
         </motion.div>
      );
   }
@@ -2246,7 +2246,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                     )}
 
                     {/* Render message text natively with our new function */}
-                    {message.text && message.messageType !== 'gift' && renderMessageContent(message, user?.id || '')}
+                    {message.text && message.messageType !== 'gift' && renderMessageContent(message, user?.id || '', initiateCall, currentOtherUserProfile)}
 
                     {/* Meta Row (Time & Status) */}
                     <div

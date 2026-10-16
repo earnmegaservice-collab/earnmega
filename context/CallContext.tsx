@@ -77,6 +77,13 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       dialToneRef.current.pause();
       dialToneRef.current.currentTime = 0;
     }
+    try {
+      const globalRingtone = document.getElementById('global-ringtone') as HTMLAudioElement;
+      if (globalRingtone) {
+         globalRingtone.pause();
+         globalRingtone.currentTime = 0;
+      }
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
