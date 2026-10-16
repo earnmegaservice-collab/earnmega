@@ -8,6 +8,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
+import { CallOverlay } from "./CallOverlay";
 import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, Users } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -37,7 +38,8 @@ type Message = {
   viewedBy?: string[];
   isDeleted?: boolean;
   hiddenFor?: string[];
-  messageType?: 'missed_call' | 'text' | 'image' | 'audio' | 'gift';
+  messageType?: 'missed_call' | 'text' | 'image' | 'audio' | 'gift' | 'completed_call';
+  duration?: string;
   giftName?: string;
   giftCost?: number;
 }
@@ -171,6 +173,41 @@ import DiscoveryContainer from '../explore/DiscoveryContainer';
 import MyProfileView from '../profile/MyProfileView';
 
 export const renderMessageContent = (message: any, currentUserId: string) => {
+  if (message.messageType === 'completed_call') {
+     return (
+        <div className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 backdrop-blur-md w-72 my-1">
+           <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400">
+               <Phone size={16} />
+           </div>
+           <div className="flex flex-col text-left">
+               <span className="text-emerald-400 font-semibold text-sm">Call Ended</span>
+               {message.duration && <span className="text-emerald-200/70 text-xs font-mono">{message.duration}</span>}
+           </div>
+        </div>
+     );
+  }
+  if (message.messageType === 'missed_call') {
+     return (
+        <div className="flex items-center justify-between p-3.5 rounded-2xl bg-rose-950/40 border border-rose-500/30 backdrop-blur-md w-72 my-1">
+           <div className="flex items-center gap-2">
+               <div className="p-2 bg-rose-500/20 rounded-xl text-rose-400">
+                   <Phone size={16} className="rotate-[135deg]" />
+               </div>
+               <span className="text-rose-400 font-semibold text-sm">Missed Call</span>
+           </div>
+           <button
+              onClick={() => {
+                // To avoid prop drilling initiateCall, we dispatch an event that ChatInterface will listen to
+                window.dispatchEvent(new CustomEvent('initiate-call', { detail: { type: 'audio' } }));
+              }}
+              className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/40 rounded-lg text-xs font-medium text-rose-300 transition-colors"
+           >
+              Call Back
+           </button>
+        </div>
+     );
+  }
+
   const isMe = message.sender === 'user';
   const rawContent = message.text || '';
 
@@ -283,6 +320,24 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [incomingCall, setIncomingCall] = useState<{ callerId: string, callerName: string, callId: string, callType: 'audio'|'video', offer?: RTCSessionDescriptionInit } | null>(null);
   const ringtoneRef = useRef<HTMLAudioElement | null>(null);
   useEffect(() => { ringtoneRef.current = new Audio('/ringtone.mp3'); ringtoneRef.current.loop = true; return () => { ringtoneRef.current?.pause(); ringtoneRef.current = null; }; }, []);
+    // Call States & Machine
+  const [callState, setCallState] = useState<'idle' | 'calling' | 'ringing' | 'connected' | 'reconnecting' | 'ended'>('idle');
+  const [callDuration, setCallDuration] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isSpeaker, setIsSpeaker] = useState(true);
+  const [isPiP, setIsPiP] = useState(false);
+  const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const dialToneRef = useRef<HTMLAudioElement | null>(null);
+
+  // Ice Candidate Queue
+  const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+
+  useEffect(() => {
+    dialToneRef.current = new Audio('/dialtone.mp3');
+    dialToneRef.current.loop = true;
+    return () => { dialToneRef.current?.pause(); dialToneRef.current = null; };
+  }, []);
+
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedGroupUsers, setSelectedGroupUsers] = useState<Set<string>>(new Set());
@@ -350,7 +405,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   // WebRTC configuration
   const servers = {
      iceServers: [
-        { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.services.mozilla.com' }
      ]
   };
 
@@ -389,9 +446,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   const createPeerConnection = (targetId: string) => {
-
      const pc = new RTCPeerConnection(servers);
      peerConnectionRef.current = pc;
+     iceCandidateQueueRef.current = [];
 
      pc.onicecandidate = (event) => {
         if (event.candidate) {
@@ -403,19 +460,38 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         }
      };
 
+     pc.oniceconnectionstatechange = () => {
+         if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+             setCallState('connected');
+             if (!durationTimerRef.current) {
+                 setCallDuration(0);
+                 durationTimerRef.current = setInterval(() => {
+                     setCallDuration(prev => prev + 1);
+                 }, 1000);
+             }
+         } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+             setCallState('reconnecting');
+             setTimeout(() => {
+                 if (peerConnectionRef.current?.iceConnectionState !== 'connected') {
+                     handleEndCall();
+                 }
+             }, 15000);
+         } else if (pc.iceConnectionState === 'closed') {
+             handleEndCall();
+         }
+     };
+
      pc.ontrack = (event) => {
-        if (remoteVideoRef.current) {
+        if (event.track.kind === 'video' && remoteVideoRef.current) {
            remoteVideoRef.current.srcObject = event.streams[0];
+           remoteVideoRef.current.muted = false;
+           remoteVideoRef.current.volume = 1.0;
         }
-              if (remoteVideoRef.current) {
-                  remoteVideoRef.current.muted = false;
-                  remoteVideoRef.current.volume = 1.0;
-              }
-              if (remoteAudioRef.current) {
-                  remoteAudioRef.current.srcObject = event.streams[0];
-                  remoteAudioRef.current.muted = false;
-                  remoteAudioRef.current.volume = 1.0;
-              }
+        if (event.track.kind === 'audio' && remoteAudioRef.current) {
+           remoteAudioRef.current.srcObject = event.streams[0];
+           remoteAudioRef.current.muted = false;
+           remoteAudioRef.current.volume = 1.0;
+        }
      };
 
      if (localStreamRef.current) {
@@ -427,20 +503,33 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
      return pc;
   };
 
+
   const handleInitiateCall = async (type: 'audio' | 'video') => {
+     try {
+         const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+         if (audioCtx.state === 'suspended') {
+             await audioCtx.resume();
+         }
+     } catch (e) { console.error(e) }
 
      if (!user || !currentOtherUserProfile) return;
      if ((!GOD_MODE && subscriptionTier === 'FREE') && type === 'video') {
-         setIsTierLockModalOpen(true);
+         toast.error("Video calling requires PRO or PREMIUM tier.");
          return;
      }
 
-     const callId = uuidv4();
+     setCallState('calling');
+     dialToneRef.current?.play().catch(e => console.error("Dialtone play error", e));
+
      setIsCallActive(true);
+     setIncomingCall(null);
+     setIsRinging(false);
+     hasCallConnectedRef.current = false;
+     isCallActiveRef.current = true;
 
      try {
        const stream = await navigator.mediaDevices.getUserMedia({
-           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 },
            video: type === 'video' ? { width: { ideal: 3840, min: 1920 }, height: { ideal: 2160, min: 1080 }, frameRate: { ideal: 60 } } : false
        });
        localStreamRef.current = stream;
@@ -456,28 +545,105 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
        }
        await pc.setLocalDescription({ type: offer.type, sdp: modifiedSdp });
 
+       const offerToSent = { type: offer.type, sdp: modifiedSdp };
+
        channelRef.current?.send({
-           type: 'broadcast',
-           event: 'incoming_call',
-           payload: {
-              callerId: user.id,
-              callerName: currentUserProfile?.name || 'User',
-              receiverId: currentOtherUserProfile.id,
-              callId,
-              callType: type,
-              offer: offer
-           }
+          type: 'broadcast',
+          event: 'incoming_call',
+          payload: {
+             callerId: user.id,
+             callerName: currentUserProfile?.name || 'Unknown',
+             receiverId: currentOtherUserProfile.id,
+             callType: type,
+             offer: offerToSent
+          }
        });
+
      } catch (err) {
-       console.error("Failed to get media stream or start call", err);
-       toast.error("Could not start call");
-       setIsCallActive(false);
-       return;
+         console.error("Error accessing media devices", err);
+         toast.error("Could not access camera or microphone.");
+         handleEndCall();
      }
   };
 
+  const processIceCandidateQueue = async () => {
+     if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
+         while (iceCandidateQueueRef.current.length > 0) {
+             const candidateInit = iceCandidateQueueRef.current.shift();
+             if (candidateInit) {
+                 try {
+                     await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidateInit));
+                 } catch (e) {
+                     console.error("Error adding queued ICE candidate:", e);
+                 }
+             }
+         }
+     }
+  };
+
+  const handleToggleMute = () => {
+      if (localStreamRef.current) {
+          const audioTracks = localStreamRef.current.getAudioTracks();
+          if (audioTracks.length > 0) {
+              audioTracks[0].enabled = !audioTracks[0].enabled;
+              setIsMuted(!audioTracks[0].enabled);
+          }
+      }
+  };
+
+  const handleToggleSpeaker = () => {
+      setIsSpeaker(!isSpeaker);
+      if (remoteAudioRef.current) {
+          const audio = remoteAudioRef.current as any;
+          if (typeof audio.setSinkId === 'function') {
+               audio.setSinkId(isSpeaker ? 'default' : '').catch(console.error);
+          } else {
+               remoteAudioRef.current.muted = !isSpeaker;
+          }
+      }
+  };
+
+  const handleTogglePiP = () => {
+      setIsPiP(!isPiP);
+  };
+
+  const flipCamera = async () => {
+      if (!localStreamRef.current || !peerConnectionRef.current) return;
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (!videoTrack) return;
+
+      const currentLabel = videoTrack.label.toLowerCase();
+      const isFront = currentLabel.includes('front') || currentLabel.includes('user');
+
+      try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode: isFront ? 'environment' : 'user' }
+          });
+          const newVideoTrack = stream.getVideoTracks()[0];
+
+          const senders = peerConnectionRef.current.getSenders();
+          const sender = senders.find(s => s.track && s.track.kind === 'video');
+
+          if (sender) {
+              await sender.replaceTrack(newVideoTrack);
+          }
+
+          localStreamRef.current.removeTrack(videoTrack);
+          videoTrack.stop();
+          localStreamRef.current.addTrack(newVideoTrack);
+
+          if (localVideoRef.current) {
+              localVideoRef.current.srcObject = localStreamRef.current;
+          }
+      } catch (err) {
+          console.error("Failed to flip camera", err);
+      }
+  };
+
+
   const handleAcceptCall = async () => {
       ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
+      dialToneRef.current?.pause(); if (dialToneRef.current) dialToneRef.current.currentTime = 0;
       if (!incomingCall || !user) return;
       try {
           const { error } = GOD_MODE ? { error: null } : await supabase.rpc('answer_call_deduct_coins', {
@@ -488,11 +654,11 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
           if (error) throw error;
 
-          // UI updates handled by real-time sync or manual refresh if needed
+          setCallState('connected');
 
           try {
               const stream = await navigator.mediaDevices.getUserMedia({
-                  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 },
                   video: incomingCall.callType === 'video' ? { width: { ideal: 3840, min: 1920 }, height: { ideal: 2160, min: 1080 }, frameRate: { ideal: 60 } } : false
               });
               localStreamRef.current = stream;
@@ -503,11 +669,14 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               const pc = createPeerConnection(incomingCall.callerId);
               if (incomingCall.offer) {
                   await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+                  await processIceCandidateQueue();
+
                   const answer = await pc.createAnswer();
                   let modifiedSdp = answer.sdp;
                   if (modifiedSdp) {
                       modifiedSdp = setOpusCodec(modifiedSdp);
                   }
+
                   await pc.setLocalDescription({ type: answer.type, sdp: modifiedSdp });
                   const answerToSent = { type: answer.type, sdp: modifiedSdp };
 
@@ -520,69 +689,75 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           } catch (err) {
               console.error("Failed to get media stream or accept call", err);
               toast.error("Could not access camera/microphone");
-              setIncomingCall(null);
-              return;
+              handleEndCall();
           }
-
-          setIsCallActive(true);
-          setIncomingCall(null);
-      } catch (err: any) {
-          toast.error(err.message || "Failed to answer call. Caller might have insufficient balance.");
-          setIncomingCall(null);
+      } catch (err) {
+          console.error("Failed to answer call and deduct coins", err);
+          toast.error("Call failed to connect");
+          handleEndCall();
       }
   };
 
   const handleEndCall = () => {
       ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
+      dialToneRef.current?.pause(); if (dialToneRef.current) dialToneRef.current.currentTime = 0;
+      if (durationTimerRef.current) {
+          clearInterval(durationTimerRef.current);
+          durationTimerRef.current = null;
+      }
 
-      if (incomingCall && !isCallActiveRef.current && currentOtherUserProfile && user) {
+      const isMissed = callDuration === 0;
+      const formattedDuration = isMissed ? '00:00' : (() => {
+          const h = Math.floor(callDuration / 3600);
+          const m = Math.floor((callDuration % 3600) / 60);
+          const s = callDuration % 60;
+          if (h > 0) return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+          return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      })();
+
+      const targetId = incomingCall?.callerId || currentOtherUserProfile?.id;
+
+      if (targetId && user && isCallActiveRef.current) {
           const msgId = uuidv4();
+          const msgType = isMissed ? 'missed_call' : 'completed_call';
+          const msgContent = isMissed ? 'Missed Call' : 'Call Ended';
+
           setMessages(prev => [...prev, {
               id: msgId,
-              text: '',
-              messageType: 'missed_call',
-              sender: 'other',
-              timestamp: new Date(),
-              status: 'read',
-              reactions: []
-          }]);
-
-          supabase.from('messages').insert({
-              id: msgId,
-              sender_id: incomingCall.callerId,
-              receiver_id: user.id,
-              content: '',
-              message_type: 'missed_call',
-              status: 'sent'
-          }).then();
-      } else if (isCallActiveRef.current && !incomingCall && currentOtherUserProfile && user && !hasCallConnectedRef.current) {
-          const msgId = uuidv4();
-          setMessages(prev => [...prev, {
-              id: msgId,
-              text: '',
-              messageType: 'missed_call',
-              sender: 'user',
+              text: msgContent,
+              messageType: msgType,
+              senderId: incomingCall ? incomingCall.callerId : user.id,
+              receiverId: incomingCall ? user.id : targetId,
+              sender: incomingCall ? (incomingCall.callerId === user.id ? 'user' : 'other') : 'user',
               timestamp: new Date(),
               status: 'sent',
+              duration: formattedDuration,
               reactions: []
           }]);
 
           supabase.from('messages').insert({
               id: msgId,
-              sender_id: user.id,
-              receiver_id: currentOtherUserProfile.id,
-              content: '',
-              message_type: 'missed_call',
+              sender_id: incomingCall ? incomingCall.callerId : user.id,
+              receiver_id: incomingCall ? user.id : targetId,
+              content: msgContent,
+              message_type: msgType,
+              duration: formattedDuration,
               status: 'sent'
           }).then();
       }
 
+      setCallState('ended');
       setIsCallActive(false);
       setIsRinging(false);
+      setCallDuration(0);
+      setIsPiP(false);
       if (incomingCall) setIncomingCall(null);
 
       if (localStreamRef.current) {
-          localStreamRef.current.getTracks().forEach(track => track.stop());
+          localStreamRef.current.getTracks().forEach(track => {
+              track.stop();
+              track.enabled = false;
+          });
           localStreamRef.current = null;
       }
       if (peerConnectionRef.current) {
@@ -590,7 +765,6 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           peerConnectionRef.current = null;
       }
 
-      const targetId = incomingCall?.callerId || currentOtherUserProfile?.id;
       if (targetId) {
           channelRef.current?.send({
              type: 'broadcast',
@@ -1077,7 +1251,22 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
          if (profile && payload.payload.receiverId === profile.id) {
             channelRef.current?.send({ type: 'broadcast', event: 'call_ringing', payload: { callerId: payload.payload.callerId } });
 
+            setCallState('ringing');
+            if (navigator.vibrate) navigator.vibrate([1000, 500, 1000]);
             ringtoneRef.current?.play().catch(e => console.error('Audio play error:', e));
+
+            if ('serviceWorker' in navigator && 'showNotification' in ServiceWorkerRegistration.prototype && document.hidden) {
+               navigator.serviceWorker.ready.then(registration => {
+                  registration.showNotification(`Incoming ${payload.payload.callType} call`, {
+                     body: `${payload.payload.callerName} is calling you.`,
+                     icon: '/icon-192x192.png',
+                     badge: '/icon-192x192.png',
+                     tag: 'incoming-call',
+                     requireInteraction: true,
+                     data: { callerId: payload.payload.callerId }
+                  });
+               });
+            }
             hasCallConnectedRef.current = false;
 
             if ('serviceWorker' in navigator && 'showNotification' in ServiceWorkerRegistration.prototype && document.hidden) {
@@ -1103,7 +1292,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
          const profile = currentUserProfileRef.current;
          if (profile && payload.payload.callerId === profile.id && isCallActiveRef.current && !incomingCall) {
              setIsRinging(true);
-             ringtoneRef.current?.play().catch(e => console.error('Audio play error:', e));
+             setCallState('ringing');
          }
       })
       .on('broadcast', { event: 'call_answered' }, async (payload) => {
@@ -1112,13 +1301,17 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             toast.success("Call Connected!");
             hasCallConnectedRef.current = true;
             setIsRinging(false);
+            setCallState('connected');
             ringtoneRef.current?.pause(); if (ringtoneRef.current) ringtoneRef.current.currentTime = 0;
+            dialToneRef.current?.pause(); if (dialToneRef.current) dialToneRef.current.currentTime = 0;
+
             if (peerConnectionRef.current && payload.payload.answer) {
-                try {
-                    await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.payload.answer));
-                } catch (err) {
-                    console.error("Error setting remote description from answer", err);
-                }
+               try {
+                  await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.payload.answer));
+                  await processIceCandidateQueue();
+               } catch(err) {
+                  console.error("Error setting remote description from answer", err);
+               }
             }
          }
       })
@@ -1126,10 +1319,14 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
          const profile = currentUserProfileRef.current;
          if (profile && payload.payload.targetId === profile.id) {
              if (peerConnectionRef.current) {
-                 try {
-                     await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.payload.candidate));
-                 } catch (err) {
-                     console.error("Error adding ice candidate", err);
+                 if (peerConnectionRef.current.remoteDescription) {
+                     try {
+                         await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.payload.candidate));
+                     } catch (err) {
+                         console.error("Error adding ice candidate", err);
+                     }
+                 } else {
+                     iceCandidateQueueRef.current.push(payload.payload.candidate);
                  }
              }
          }
@@ -2703,54 +2900,27 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
          )}
       </AnimatePresence>
 
-      <AnimatePresence>
-         {(isCallActive || incomingCall) && (
-            <motion.div
-               initial={{ opacity: 0, y: '100%' }}
-               animate={{ opacity: 1, y: 0 }}
-               exit={{ opacity: 0, y: '100%' }}
-               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-               className="fixed inset-0 z-[120] bg-neutral-950/90 backdrop-blur-2xl flex flex-col items-center justify-between py-12 px-6"
-            >
-               <video ref={remoteVideoRef} autoPlay playsInline className="absolute inset-0 w-full h-full object-cover z-0 opacity-50" />
-               <audio ref={remoteAudioRef} autoPlay />
-               <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-32 right-6 w-24 h-36 rounded-xl object-cover z-10 border border-white/20 shadow-2xl bg-black" />
-
-               <div className="flex flex-col items-center mt-12 z-10">
-                  <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 shadow-2xl relative ${
-                      (incomingCall || currentOtherUserProfile?.tier === 'PREMIUM' || currentOtherUserProfile?.tier === 'PRO') ? 'bg-gradient-to-tr from-yellow-400 to-purple-600 animate-pulse p-1' : 'bg-white/10'
-                  }`}>
-                     <div className="w-full h-full bg-neutral-900 rounded-full flex items-center justify-center border-4 border-neutral-950 overflow-hidden">
-                        {currentOtherUserProfile?.avatarUrl ? (
-                           <img src={currentOtherUserProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                        ) : (
-                           <Users size={48} className="text-white/50" />
-                        )}
-                     </div>
-                  </div>
-                  <h2 className="text-3xl font-bold text-white mb-2">{incomingCall ? incomingCall.callerName : currentOtherUserProfile?.name}</h2>
-                  <p className={`text-white/60 text-lg ${(!incomingCall && !isRinging) ? 'animate-pulse' : ''}`}>{incomingCall ? `Incoming ${incomingCall.callType} call...` : isRinging ? 'Ringing...' : 'Calling...'}</p>
-               </div>
-
-               <div className="flex items-center space-x-8 mb-12 z-10">
-                  {incomingCall ? (
-                     <>
-                        <button onClick={handleEndCall} className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all">
-                           <Phone size={28} className="text-white rotate-[135deg]" />
-                        </button>
-                        <button onClick={handleAcceptCall} className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center shadow-[0_0_20px_rgba(34,197,94,0.5)] transition-all">
-                           <Phone size={28} className="text-white" />
-                        </button>
-                     </>
-                  ) : (
-                     <button onClick={handleEndCall} className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.5)] transition-all">
-                        <Phone size={28} className="text-white rotate-[135deg]" />
-                     </button>
-                  )}
-               </div>
-            </motion.div>
-         )}
-      </AnimatePresence>
+            <CallOverlay
+         callState={callState}
+         isIncoming={!!incomingCall && !hasCallConnectedRef.current}
+         callerName={incomingCall ? incomingCall.callerName : currentOtherUserProfile?.name || ''}
+         avatarUrl={currentOtherUserProfile?.avatarUrl}
+         callType={(incomingCall?.callType || 'audio') as 'audio'|'video'}
+         duration={callDuration}
+         isMuted={isMuted}
+         isSpeaker={isSpeaker}
+         remoteVideoRef={remoteVideoRef}
+         localVideoRef={localVideoRef}
+         remoteAudioRef={remoteAudioRef}
+         onAccept={handleAcceptCall}
+         onDecline={handleEndCall}
+         onEnd={handleEndCall}
+         onToggleMute={handleToggleMute}
+         onToggleSpeaker={handleToggleSpeaker}
+         onTogglePiP={handleTogglePiP}
+         onFlipCamera={flipCamera}
+         isPiP={isPiP}
+      />
 
     </div>
   );
