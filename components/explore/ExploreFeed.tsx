@@ -2,19 +2,26 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Heart, Image as ImageIcon } from 'lucide-react';
+import { X, Heart, Image as ImageIcon, ArrowUpRight } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 
-// Example categories
 const CATEGORIES = [
-  { id: 'creatives', name: 'Creatives', icon: '🎨', color: 'from-pink-500/20 to-rose-500/20', borderColor: 'border-pink-500/30' },
-  { id: 'travel', name: 'Travel', icon: '✈️', color: 'from-blue-500/20 to-cyan-500/20', borderColor: 'border-blue-500/30' },
-  { id: 'fitness', name: 'Fitness', icon: '💪', color: 'from-emerald-500/20 to-green-500/20', borderColor: 'border-emerald-500/30' },
-  { id: 'music', name: 'Music', icon: '🎵', color: 'from-purple-500/20 to-indigo-500/20', borderColor: 'border-purple-500/30' },
-  { id: 'food', name: 'Foodies', icon: '🍝', color: 'from-orange-500/20 to-amber-500/20', borderColor: 'border-orange-500/30' },
-  { id: 'tech', name: 'Tech', icon: '💻', color: 'from-slate-500/20 to-gray-500/20', borderColor: 'border-slate-500/30' },
+  { id: 'creatives', name: 'Creatives', videoUrl: 'https://cdn.pixabay.com/video/2019/11/17/29285-373809630_tiny.mp4' },
+  { id: 'travel', name: 'Travel', videoUrl: 'https://cdn.pixabay.com/video/2016/11/21/6462-192534570_tiny.mp4' },
+  { id: 'fitness', name: 'Fitness', videoUrl: 'https://cdn.pixabay.com/video/2020/05/23/40062-426176547_tiny.mp4' },
+  { id: 'music', name: 'Music', videoUrl: 'https://cdn.pixabay.com/video/2019/04/16/22812-330623253_tiny.mp4' },
+  { id: 'food', name: 'Foodies', videoUrl: 'https://cdn.pixabay.com/video/2020/04/18/36485-412702715_tiny.mp4' },
+  { id: 'tech', name: 'Tech', videoUrl: 'https://cdn.pixabay.com/video/2017/09/20/12117-236208006_tiny.mp4' },
+  { id: 'dancing', name: 'Dancing', videoUrl: 'https://cdn.pixabay.com/video/2020/03/10/33458-396112999_tiny.mp4' },
+  { id: 'singing', name: 'Singing', videoUrl: 'https://cdn.pixabay.com/video/2016/09/14/5253-182379373_tiny.mp4' },
+  { id: 'fashion', name: 'Fashion', videoUrl: 'https://cdn.pixabay.com/video/2019/12/17/30397-380695079_tiny.mp4' },
+  { id: 'nightlife', name: 'Nightlife', videoUrl: 'https://cdn.pixabay.com/video/2017/08/17/11413-228780721_tiny.mp4' },
+  { id: 'investing', name: 'Investing', videoUrl: 'https://cdn.pixabay.com/video/2020/03/12/33588-397262071_tiny.mp4' },
+  { id: 'cinema', name: 'Cinema', videoUrl: 'https://cdn.pixabay.com/video/2020/03/24/34085-401736637_tiny.mp4' },
+  { id: 'gaming', name: 'Gaming', videoUrl: 'https://cdn.pixabay.com/video/2020/06/17/42220-431872134_tiny.mp4' },
+  { id: 'automotive', name: 'Automotive', videoUrl: 'https://cdn.pixabay.com/video/2021/04/23/71917-540776735_tiny.mp4' },
 ];
 
 interface ExploreFeedProps {
@@ -183,27 +190,46 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
 
   // Categories Grid View
   return (
-    <div className="flex-1 overflow-y-auto p-4 pb-24">
-       <h2 className="text-2xl font-bold text-white mb-6 mt-2">Discover</h2>
+    <div className="flex-1 overflow-y-auto w-full max-w-full">
+      <div className="px-4 mt-4">
+        <h2 className="text-2xl font-black text-white tracking-tight drop-shadow-lg">Explore Hub</h2>
+      </div>
 
-       <div className="grid grid-cols-2 gap-4">
-          {CATEGORIES.map(category => (
-             <motion.button
-                key={category.id}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setSelectedCategory(category.id)}
-                className={`relative aspect-square rounded-3xl p-4 flex flex-col items-center justify-center gap-4 bg-gradient-to-br ${category.color} border ${category.borderColor} backdrop-blur-xl shadow-lg overflow-hidden group`}
-             >
-                <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 transition-colors" />
-                <span className="text-5xl drop-shadow-2xl group-hover:scale-110 transition-transform duration-300">
-                    {category.icon}
-                </span>
-                <span className="text-white font-bold tracking-wide">
-                    {category.name}
-                </span>
-             </motion.button>
-          ))}
-       </div>
+      <div className="grid grid-cols-2 gap-3 px-3 pb-32 pt-4">
+        {CATEGORIES.map((cat, i) => (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.05, type: "spring", stiffness: 100 }}
+            key={cat.id}
+            onClick={() => setSelectedCategory(cat.id)}
+            className={`group relative rounded-[2rem] overflow-hidden cursor-pointer ${i % 4 === 0 || i % 4 === 3 ? 'col-span-2 aspect-[16/9]' : 'col-span-1 aspect-[4/5]'} shadow-2xl border border-white/5`}
+          >
+            {/* High-End Auto-Playing Video Background */}
+            <video
+              src={cat.videoUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-[2000ms] group-hover:scale-110 opacity-80"
+            />
+
+            {/* Obsidian Glass Gradient */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent transition-opacity duration-500 group-hover:opacity-90" />
+
+            <div className="absolute bottom-0 left-0 w-full p-6 flex justify-between items-end">
+              <div>
+                <h3 className="text-white font-black text-2xl tracking-tighter drop-shadow-lg">{cat.name}</h3>
+                <span className="text-white/50 text-[10px] uppercase tracking-[0.3em] font-black mt-1 block group-hover:text-emerald-400 transition-colors duration-300">Live Hub</span>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 group-hover:bg-white group-hover:text-black transition-all">
+                <ArrowUpRight size={20} strokeWidth={3}/>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
     </div>
   );
 }
