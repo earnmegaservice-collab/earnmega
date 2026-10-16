@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 import { toast } from 'react-hot-toast';
 import { CallOverlay } from '../components/chat/CallOverlay';
 import { createPortal } from 'react-dom';
+import { DevicePermissionsModal } from '../components/chat/DevicePermissionsModal';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Global Call Context
@@ -61,7 +62,11 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => { setMounted(true);
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js').catch(console.error);
+    }
+  }, []);
 
   const stopSounds = useCallback(() => {
     if (ringtoneRef.current) {
@@ -77,10 +82,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase.channel(`signaling-${user.id}`)
-      .on('broadcast', { event: 'call_offer' }, async (payload: any) => {
+    const channel = supabase.channel('chat-events')
+      .on('broadcast', { event: 'incoming_call' }, async (payload: any) => {
+        if (payload.payload.receiverId !== user.id) return;
         if (callState !== 'idle') return;
-        console.log("Global Call offer received:", payload);
 
         setIsIncoming(true);
         setCallType(payload.payload.callType);
@@ -90,6 +95,15 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (ringtoneRef.current) {
            ringtoneRef.current.play().catch(console.error);
+        }
+
+        try {
+           const globalRingtone = document.getElementById('global-ringtone') as HTMLAudioElement;
+           if (globalRingtone) globalRingtone.play().catch(console.error);
+        } catch (e) {}
+
+        if (navigator.vibrate) {
+            navigator.vibrate([1000, 1000, 1000, 1000, 1000]);
         }
 
         if (document.hidden && 'serviceWorker' in navigator) {
@@ -103,20 +117,16 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
             });
         }
 
-        const tempChannel = supabase.channel(`signaling-${payload.payload.callerId}`);
-        tempChannel.subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            await tempChannel.send({ type: 'broadcast', event: 'call_ringing', payload: { receiverId: user.id, callerId: payload.payload.callerId } });
-          }
-        });
+        channelRef.current?.send({ type: 'broadcast', event: 'call_ringing', payload: { callerId: payload.payload.callerId, receiverId: user.id } });
       })
       .on('broadcast', { event: 'call_ringing' }, (payload: any) => {
-        if (callState === 'calling' && payload.payload.callerId === user.id) {
+        if (payload.payload.callerId === user.id && callState === 'calling') {
            setCallState('ringing');
            dialToneRef.current?.play().catch(console.error);
         }
       })
-      .on('broadcast', { event: 'call_answer' }, async (payload: any) => {
+      .on('broadcast', { event: 'call_answered' }, async (payload: any) => {
+        if (payload.payload.callerId !== user.id) return;
         if (callState === 'calling' || callState === 'ringing') {
             stopSounds();
             setCallState('connected');
@@ -129,7 +139,8 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
             }
         }
       })
-      .on('broadcast', { event: 'ice_candidate' }, async (payload: any) => {
+      .on('broadcast', { event: 'webrtc_ice_candidate' }, async (payload: any) => {
+        if (payload.payload.targetId !== user.id) return;
         if (peerConnectionRef.current && payload.payload.candidate) {
              try {
                 if (peerConnectionRef.current.remoteDescription) {
@@ -142,12 +153,16 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
              }
         }
       })
-      .on('broadcast', { event: 'call_ended' }, () => {
-         endCallLogic();
+      .on('broadcast', { event: 'call_ended' }, (payload: any) => {
+         if (payload.payload.targetId === user.id) {
+             endCallLogic();
+         }
       })
-      .subscribe();
-
-    channelRef.current = channel;
+      .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+              channelRef.current = channel;
+          }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -155,12 +170,14 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   }, [user]);
 
   const [permissionsError, setPermissionsError] = useState(false);
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [pendingCallType, setPendingCallType] = useState<'audio' | 'video' | null>(null);
 
   const initLocalStream = async (type: 'audio' | 'video') => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000 },
-        video: type === 'video' ? { facingMode: "user", width: { ideal: 1920 } } : false
+        video: type === 'video' ? { width: { ideal: 3840, min: 1920 }, frameRate: { ideal: 60, min: 30 }, facingMode: "user" } : false,
+        audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 }
       });
       localStreamRef.current = stream;
       if (localVideoRef.current && type === 'video') {
@@ -189,15 +206,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     pc.onicecandidate = (event) => {
       if (event.candidate && channelRef.current) {
         let targetId = callerInfo.id;
-        const tempChannel = supabase.channel(`signaling-${targetId}`);
-        tempChannel.subscribe(async (status) => {
-           if (status === 'SUBSCRIBED') {
-              await tempChannel.send({
-                type: 'broadcast',
-                event: 'ice_candidate',
-                payload: { candidate: event.candidate, targetId: targetId }
-              });
-           }
+        channelRef.current.send({
+            type: 'broadcast',
+            event: 'webrtc_ice_candidate',
+            payload: { candidate: event.candidate, targetId: targetId }
         });
       }
     };
@@ -218,6 +230,22 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
   const initiateCall = async (receiverId: string, receiverName: string, receiverAvatar: string | undefined, type: 'audio' | 'video') => {
      if (!user) return;
+
+     // Check permissions
+     if (!localStorage.getItem('av_permissions_granted')) {
+         setPendingCallType(type);
+         setShowPermissionsModal(true);
+         // Stash args
+         setCallerInfo({ id: receiverId, name: receiverName, avatar: receiverAvatar || '' });
+         setIsIncoming(false);
+         setCallState('idle'); // Don't proceed yet
+         return;
+     }
+
+     executeInitiateCall(receiverId, receiverName, receiverAvatar, type);
+  };
+
+  const executeInitiateCall = async (receiverId: string, receiverName: string, receiverAvatar: string | undefined, type: 'audio' | 'video') => {
      try {
        await initLocalStream(type);
        setIsIncoming(false);
@@ -231,22 +259,16 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
        const offer = await pc.createOffer();
        await pc.setLocalDescription(offer);
 
-       // Broadcast to receiver's channel
-       const tempChannel = supabase.channel(`signaling-${receiverId}`);
-       tempChannel.subscribe(async (status) => {
-         if (status === 'SUBSCRIBED') {
-           await tempChannel.send({
-             type: 'broadcast',
-             event: 'call_offer',
-             payload: {
-               callerId: user.id,
-               callerName: user.email?.split('@')[0] || 'User',
-               callerAvatar: '',
-               receiverId: receiverId,
-               callType: type,
-               offer: offer
-             }
-           });
+       channelRef.current?.send({
+         type: 'broadcast',
+         event: 'incoming_call',
+         payload: {
+           callerId: user.id,
+           callerName: user.email?.split('@')[0] || 'User',
+           callerAvatar: '',
+           receiverId: receiverId,
+           callType: type,
+           offer: offer
          }
        });
 
@@ -259,6 +281,17 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const acceptCall = async () => {
     stopSounds();
     if (!user) return;
+
+    if (!localStorage.getItem('av_permissions_granted')) {
+         setPendingCallType(callType);
+         setShowPermissionsModal(true);
+         return;
+    }
+
+    executeAcceptCall();
+  };
+
+  const executeAcceptCall = async () => {
     try {
       await initLocalStream(callType);
       const pc = initPeerConnection();
@@ -275,15 +308,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      const tempChannel = supabase.channel(`signaling-${callerInfo.id}`);
-      tempChannel.subscribe(async (status) => {
-         if (status === 'SUBSCRIBED') {
-            await tempChannel.send({
-              type: 'broadcast',
-              event: 'call_answer',
-              payload: { callerId: callerInfo.id, receiverId: user.id, answer: answer }
-            });
-         }
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'call_answered',
+        payload: { callerId: callerInfo.id, receiverId: user.id, answer: answer }
       });
 
     } catch (e) {
@@ -294,12 +322,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
   const declineCall = () => {
      stopSounds();
-     const tempChannel = supabase.channel(`signaling-${callerInfo.id}`);
-     tempChannel.subscribe(async (status) => {
-       if (status === 'SUBSCRIBED') {
-         await tempChannel.send({ type: 'broadcast', event: 'call_ended', payload: { targetId: callerInfo.id } });
-       }
-     });
+     channelRef.current?.send({ type: 'broadcast', event: 'call_ended', payload: { targetId: callerInfo.id } });
      endCallLogic();
   };
 
@@ -352,6 +375,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <CallContext.Provider value={{ initiateCall, isCallActive: callState !== 'idle', isInCall: callState === 'connected' }}>
       {children}
+      <audio id="global-ringtone" loop src="/ringtone.mp3" className="hidden" />
       {mounted && createPortal(
          <CallOverlay
             callState={callState}
@@ -377,6 +401,28 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
          document.body
       )}
 
+      <AnimatePresence>
+        {showPermissionsModal && (
+            <DevicePermissionsModal
+                onGrant={() => {
+                    setShowPermissionsModal(false);
+                    localStorage.setItem('av_permissions_granted', 'true');
+                    if (isIncoming) {
+                        executeAcceptCall();
+                    } else if (pendingCallType) {
+                        executeInitiateCall(callerInfo.id, callerInfo.name, callerInfo.avatar, pendingCallType);
+                    }
+                }}
+                onDeny={() => {
+                    setShowPermissionsModal(false);
+                    setPendingCallType(null);
+                    if (isIncoming) {
+                        declineCall();
+                    }
+                }}
+            />
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {permissionsError && (
           <motion.div
