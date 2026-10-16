@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import GiftOverlay from '../chat/GiftOverlay';
 import { useAuth } from '../../context/AuthContext';
+import NotificationDrawer from '../notifications/NotificationDrawer';
 import { supabase } from '../../utils/supabase';
 
 interface AppShellProps {
@@ -345,6 +346,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           </>
         )}
       </AnimatePresence>
+      <NotificationDrawer isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
     </div>
   );
 };
