@@ -4,6 +4,7 @@ import { AuthProvider } from "../context/AuthContext";
 import { Toaster } from "react-hot-toast";
 import { Metadata, Viewport } from "next";
 import { SmartInstallBanner } from "../components/SmartInstallBanner";
+import { PwaInstallPrompt } from "../components/PwaInstallPrompt";
 
 export const metadata: Metadata = {
   title: "EarnMega",
@@ -14,14 +15,18 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "EarnMega",
   },
+  icons: {
+    apple: "/icon-512x512.png",
+  },
   other: {
     "mobile-web-app-capable": "yes",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#0a0a0a",
 };
+
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -33,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
             <Toaster position="top-right" />
             <SmartInstallBanner />
+            <PwaInstallPrompt />
           </WalletProvider>
         </AuthProvider>
       </body>
