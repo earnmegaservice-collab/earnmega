@@ -16,7 +16,8 @@ export const metadata: Metadata = {
     title: "EarnMega",
   },
   icons: {
-    apple: "/icon-512x512.png",
+    icon: "/icon.svg",
+    apple: "/icon.svg",
   },
   other: {
     "mobile-web-app-capable": "yes",
