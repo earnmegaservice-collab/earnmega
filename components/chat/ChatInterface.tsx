@@ -9,6 +9,7 @@ import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
+import { MediaPreview } from './MediaPreview';
 import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -425,6 +426,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
   const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
+  const [isChatsLoading, setIsChatsLoading] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -630,6 +632,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
 
         setExploreUsers(allUsers);
+        setIsChatsLoading(false);
       };
       fetchExploreUsers();
     }
@@ -731,6 +734,11 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [inputValue, setInputValue] = useState('');
   const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
   const [activeContextMenuId, setActiveContextMenuId] = useState<string | null>(null);
+  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaCaption, setMediaCaption] = useState<string>('');
+
+
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1342,15 +1350,37 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    await uploadMediaFile(file, 'image', file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        if (event.target?.result) {
+            setMediaPreviewUrl(event.target.result as string);
+            setMediaFile(file);
+            setMediaCaption('');
+        }
+    };
+    reader.readAsDataURL(file);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const handleMediaSend = async () => {
+     if (!mediaFile) return;
+     setIsUploading(true);
+     await uploadMediaFile(mediaFile, 'image', mediaCaption);
+     setIsUploading(false);
+     cancelMediaPreview();
+  };
+
+  const cancelMediaPreview = () => {
+     setMediaPreviewUrl(null);
+     setMediaFile(null);
+     setMediaCaption('');
   };
 
   const handleReaction = (messageId: string, emoji: string, e: React.MouseEvent) => {
@@ -1470,6 +1500,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                   currentUserProfile={currentUserProfile}
                   setShowVerificationGateModal={setShowVerificationGateModal}
                   setOtherUserProfile={setOtherUserProfile}
+                  isLoading={isChatsLoading}
                 />
                 <button
                    onClick={() => setIsGroupModalOpen(true)}

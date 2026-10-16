@@ -27,20 +27,43 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
 
   const handleChat = async (discoveredUser: DiscoveredUser) => {
     try {
-      // Manual deduction logic in absence of deductCoins helper
-      if (balance < 10) throw new Error('Insufficient coins');
+      if (!authUser) throw new Error('Not authenticated');
 
-      const { error } = await supabase.rpc('deduct_coins', {
-        user_id: authUser?.id,
-        amount: 10
+      // 1. Create a group chat instantly in public.rooms (mocking 1-on-1 for this UI)
+      const { data: room, error: roomError } = await supabase
+        .from('rooms')
+        .insert({
+          name: `Chat with ${discoveredUser.username}`,
+          created_by: authUser.id,
+          type: 'direct',
+        })
+        .select()
+        .single();
+
+      if (roomError) throw roomError;
+
+      // 2. Add both participants
+      const { error: partError } = await supabase
+        .from('room_participants')
+        .insert([
+          { room_id: room.id, profile_id: authUser.id, role: 'admin' },
+          { room_id: room.id, profile_id: discoveredUser.id, role: 'member' }
+        ]);
+
+      if (partError) throw partError;
+
+      // 3. Initiate navigation
+      onStartChat({
+        id: discoveredUser.id,
+        name: discoveredUser.username,
+        avatarUrl: discoveredUser.avatar_url,
+        bio: discoveredUser.bio,
+        roomId: room.id // Passing the newly created room ID to the chat interface
       });
-      if (error) throw error;
-      setBalance(prev => prev - 10);
-
-      onStartChat(discoveredUser);
 
     } catch (error) {
-      toast.error("Insufficient coins for premium chat.");
+      console.error(error);
+      toast.error("Failed to initiate chat connection.");
     }
   };
 

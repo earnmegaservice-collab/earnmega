@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Compass } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 
@@ -29,13 +30,16 @@ export default function DiscoveryRadar({ onMatchFound }: DiscoveryRadarProps) {
     fetchMe();
   }, [user]);
 
+  const [dataFetched, setDataFetched] = useState(false);
+  const [discoveredUser, setDiscoveredUser] = useState<DiscoveredUser | null>(null);
+
   useEffect(() => {
     let isMounted = true;
 
-    async function performScan() {
+    async function fetchDiscoveryData() {
       if (!user) return;
       try {
-        // Fetch random user, excluding self and ghost mode
+        // The get_vip_discovery data fetch fires instantaneously on mount
         const { data, error } = await supabase
           .from('profiles')
           .select('id, username, avatar_url, bio, age')
@@ -45,75 +49,65 @@ export default function DiscoveryRadar({ onMatchFound }: DiscoveryRadarProps) {
 
         if (error || !data || data.length === 0) {
            console.error("No users found to match with");
+           if (isMounted) setDataFetched(true);
            return;
         }
 
         // Pick random user
         const matched = data[Math.floor(Math.random() * data.length)];
-        const discoveredUser: DiscoveredUser = {
+        const userFound: DiscoveredUser = {
           ...matched,
           matchedKeyword: 'Music' // Mocking shared interest logic for now
         };
 
-        // Artificial delay for suspense
+        if (isMounted) {
+          setDiscoveredUser(userFound);
+          setDataFetched(true);
+        }
+      } catch (err) {
+        console.error("Error matching", err);
+        if (isMounted) setDataFetched(true);
+      }
+    }
+
+    fetchDiscoveryData();
+
+    return () => { isMounted = false; };
+  }, [user]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (dataFetched) {
+        // Artificial delay for suspense, but data is already fetched
         setTimeout(() => {
           if (!isMounted) return;
           if (typeof navigator !== 'undefined' && navigator.vibrate) {
             navigator.vibrate([50, 100, 50]);
           }
-          onMatchFound(discoveredUser);
+          if (discoveredUser) {
+              onMatchFound(discoveredUser);
+          }
         }, 2500);
-
-      } catch (err) {
-        console.error("Error matching", err);
-      }
     }
-
-    performScan();
-
     return () => { isMounted = false; };
-  }, [user, onMatchFound]);
+  }, [dataFetched, discoveredUser, onMatchFound]);
+
 
   return (
-    <div className="absolute inset-0 bg-[#000000] z-50 flex flex-col items-center justify-center overflow-hidden">
+    <div className="fixed inset-0 flex items-center justify-center bg-black overflow-hidden z-0">
+      {/* Pulsing Sonar Rings */}
+      <motion.div animate={{ scale: [1, 2.5], opacity: [0.8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: "easeOut" }} className="absolute w-40 h-40 rounded-full border border-fuchsia-500/50" />
+      <motion.div animate={{ scale: [1, 3.5], opacity: [0.5, 0] }} transition={{ duration: 3, delay: 1, repeat: Infinity, ease: "easeOut" }} className="absolute w-40 h-40 rounded-full border border-purple-500/30" />
 
-      {/* Central Radar Pulse */}
-      <div className="relative w-32 h-32 flex items-center justify-center">
+      {/* Rotating Scanner Sweep */}
+      <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="absolute w-[200vw] h-[200vw] bg-[conic-gradient(from_0deg,_transparent_70%,_rgba(192,38,211,0.4)_100%)] rounded-full mix-blend-screen" />
 
-        {/* Pulsing Circles */}
-        {[1, 2, 3].map((i) => (
-          <motion.div
-            key={i}
-            className="absolute inset-0 border-2 border-indigo-500 rounded-full"
-            initial={{ scale: 1, opacity: 0.8 }}
-            animate={{ scale: 3, opacity: 0 }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              delay: i * 0.6,
-              ease: "easeOut"
-            }}
-          />
-        ))}
-
-        {/* User Avatar */}
-        <div className="relative z-10 w-24 h-24 rounded-full overflow-hidden border-4 border-indigo-500 bg-zinc-900 flex items-center justify-center">
-          {currentUserProfile?.avatar_url ? (
-            <img src={currentUserProfile.avatar_url} alt="You" className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-2xl font-bold text-white">EM</span>
-          )}
+      <div className="relative z-10 flex flex-col items-center">
+        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-900 flex items-center justify-center shadow-[0_0_50px_rgba(192,38,211,0.6)] border-[3px] border-white/20 animate-pulse">
+          <Compass className="text-white" size={32}/>
         </div>
+        <span className="mt-6 text-fuchsia-300 text-xs font-black tracking-[0.4em] uppercase animate-pulse">Scanning Global Network...</span>
       </div>
-
-      <motion.p
-        initial={{ opacity: 0.5 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.8, repeat: Infinity, repeatType: "reverse" }}
-        className="mt-16 text-indigo-400 font-mono text-sm tracking-widest text-center"
-      >
-        SCANNING FOR FRIENDS<br />WITH SHARED INTERESTS...
-      </motion.p>
     </div>
   );
 }
