@@ -9,6 +9,8 @@ import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { useWallet } from '../context/WalletContext';
+import OnboardingWizard from '../components/profile/OnboardingWizard';
+
 
 type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile';
 
@@ -249,60 +251,9 @@ export default function HomePage() {
       {isLoading || isCheckingProfile ? (
         <div className="animate-pulse w-full max-w-sm h-12 bg-zinc-800/50 rounded-2xl"></div>
       ) : step === 'complete-profile' ? (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, type: 'spring' }}
-          className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl"
-        >
-          <h2 className="text-xl font-bold mb-4">Complete Your Profile</h2>
-          <form onSubmit={handleCompleteProfile} className="w-full flex flex-col gap-4">
-            <input
-              type="text"
-              placeholder="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
-            />
-            <div className="flex gap-2">
-              <select
-                value={phoneCode}
-                onChange={(e) => setPhoneCode(e.target.value)}
-                className="w-1/3 px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none"
-              >
-                {phoneCodes.map((code) => (
-                  <option key={code} value={code}>{code}</option>
-                ))}
-              </select>
-              <input
-                type="tel"
-                placeholder="Phone Number"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                required
-                className="w-2/3 px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
-              />
-            </div>
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none"
-            >
-              {currencies.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 mt-4"
-            >
-              {isSubmitting ? 'Saving...' : 'Complete Profile'}
-            </motion.button>
-          </form>
-        </motion.div>
+        <>
+          {step === 'complete-profile' && <OnboardingWizard onComplete={() => setIsCompletingRegistration(false)} />}
+        </>
       ) : step === 'verify-otp' ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
