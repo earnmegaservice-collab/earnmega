@@ -4,12 +4,12 @@ import { AlertCircle, User, AtSign, FileText, CheckCircle2 } from 'lucide-react'
 
 interface OnboardingWizardProps {
   userId?: string;
-  onSuccess: () => void;
+  onComplete?: () => void;
 }
 
 const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   userId = 'usr_3d98f21a',
-  onSuccess,
+  onComplete,
 }) => {
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
@@ -30,9 +30,9 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       // On successful save, trigger the cinematic success portal
       setIsSuccess(true);
       
-      // Hold the portal for 2.5 seconds, then route to the 6-Photo Studio
+      // Hold the portal for 2.5 seconds, then trigger the app's routing
       setTimeout(() => {
-        if (onSuccess) onSuccess();
+        if (onComplete) onComplete();
       }, 2500);
 
     } catch (err: unknown) {
