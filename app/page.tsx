@@ -10,9 +10,10 @@ import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { useWallet } from '../context/WalletContext';
 import OnboardingWizard from '../components/profile/OnboardingWizard';
+import { SpatialPhotoStudio } from '../components/profile/SpatialPhotoStudio';
 
 
-type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile';
+type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio';
 
 export default function HomePage() {
   const router = useRouter();
@@ -213,7 +214,7 @@ export default function HomePage() {
     }
   };
 
-  if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp') {
+  if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio') {
     return (
       <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
     );
@@ -252,7 +253,11 @@ export default function HomePage() {
         <div className="animate-pulse w-full max-w-sm h-12 bg-zinc-800/50 rounded-2xl"></div>
       ) : step === 'complete-profile' ? (
         <>
-          {step === 'complete-profile' && <OnboardingWizard onComplete={() => setIsCompletingRegistration(false)} />}
+          {step === 'complete-profile' && <OnboardingWizard onComplete={() => setStep('spatial-studio')} />}
+        </>
+      ) : step === 'spatial-studio' ? (
+        <>
+          {step === 'spatial-studio' && <SpatialPhotoStudio onComplete={() => setIsCompletingRegistration(false)} />}
         </>
       ) : step === 'verify-otp' ? (
         <motion.div
