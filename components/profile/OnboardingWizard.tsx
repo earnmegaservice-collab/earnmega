@@ -7,7 +7,7 @@ interface OnboardingWizardProps {
   onSuccess: () => void;
 }
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
+const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   userId = 'usr_3d98f21a',
   onSuccess,
 }) => {
@@ -24,22 +24,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     setErrorToast(null);
 
     try {
-      // 1. Execute Supabase UPDATE profile call wrapped in strict try/catch
-      // await supabase.from('users').update({ full_name: fullName, username, bio }).eq('id', userId);
-      
       // Simulating the secure network request
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // 2. On successful save, trigger the cinematic success portal
+      // On successful save, trigger the cinematic success portal
       setIsSuccess(true);
       
-      // 3. Hold the portal for 2.5 seconds, then route to the 6-Photo Studio
+      // Hold the portal for 2.5 seconds, then route to the 6-Photo Studio
       setTimeout(() => {
-        onSuccess();
+        if (onSuccess) onSuccess();
       }, 2500);
 
     } catch (err: unknown) {
-      // 4. Catch and display the exact error instead of silently failing
       const errorMessage = err instanceof Error ? err.message : 'Database update failed due to an unknown security constraint.';
       console.error('[Profile Saving Error]:', err);
       setErrorToast(errorMessage);
@@ -87,7 +83,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
         <form onSubmit={handleSave} className="space-y-6 relative z-10">
           
-          {/* Full Name Input */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Full Designation</label>
             <div className="relative flex items-center group">
@@ -103,7 +98,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             </div>
           </div>
 
-          {/* Username Input */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Network Handle</label>
             <div className="relative flex items-center group">
@@ -119,7 +113,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             </div>
           </div>
 
-          {/* Neural Bio Input */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Neural Bio / Description</label>
             <div className="relative flex items-start group pt-1">
@@ -135,7 +128,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             </div>
           </div>
 
-          {/* 4K FUTURISTIC HOLOGRAPHIC SAVE BUTTON BLUEPRINT */}
           <button 
             type="submit" 
             disabled={isSaving} 
@@ -193,3 +185,5 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     </div>
   );
 };
+
+export default OnboardingWizard;
