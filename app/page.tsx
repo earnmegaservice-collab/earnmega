@@ -1,5 +1,6 @@
 'use client';
-
+import OnboardingWizard from '../components/profile/OnboardingWizard';
+import { SpatialPhotoStudio } from '../components/profile/SpatialPhotoStudio';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
