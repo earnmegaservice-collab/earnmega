@@ -83,7 +83,7 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
       if (user) {
         const { error: updateError } = await supabase
           .from('profiles')
-          .update({ profile_images: uploadedUrls })
+          .update({ publicImages: uploadedUrls, profile_images: uploadedUrls })
           .eq('id', user.id);
 
         if (updateError) {

@@ -68,7 +68,7 @@ export default function MyProfileView({
       isVerified: profile.isVerified || profile.is_verified || false,
       location: profile.location || '',
       bio: profile.bio || '',
-      publicImages: profile.profile_images || (profile.avatarUrl ? [profile.avatarUrl] : []),
+      publicImages: profile.publicImages || profile.profile_images || (profile.avatarUrl ? [profile.avatarUrl] : []),
       zodiac: profile.zodiac_sign,
       job: profile.job_title,
       education: profile.education_level,
@@ -83,6 +83,7 @@ export default function MyProfileView({
       gender: profile.gender,
       hobby: profile.hobby,
       vibe: profile.vibe,
+
   };
 
 
@@ -130,6 +131,8 @@ export default function MyProfileView({
           setSelectedSlotIndex(null);
           if (fileInputRef.current) fileInputRef.current.value = '';
       }
+
+
   };
 
   // Guarantee exactly 6 slots

@@ -93,7 +93,9 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
   if (selectedCategory && profiles.length > 0) {
     const activeProfile = profiles[currentProfileIndex];
     // Use the first profile image if available, else avatar_url
-    const displayImage = (activeProfile.profile_images && activeProfile.profile_images.length > 0)
+    const displayImage = (activeProfile.publicImages && activeProfile.publicImages.length > 0)
+        ? activeProfile.publicImages[0]
+        : (activeProfile.profile_images && activeProfile.profile_images.length > 0)
         ? activeProfile.profile_images[0]
         : activeProfile.avatar_url;
 
