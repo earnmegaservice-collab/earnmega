@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, CheckCircle, ShieldCheck } from 'lucide-react';
+import { Camera, CameraOff, CheckCircle, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
@@ -26,6 +26,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [cameraError, setCameraError] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [livenessPrompt, setLivenessPrompt] = useState<string | null>(null);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
@@ -50,10 +51,25 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
   const startCamera = async () => {
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 } } });
       setStream(mediaStream);
-    } catch (err) {
-      toast.error("Unable to access camera. Please check permissions.");
+      setCameraError(false);
+    } catch (err1: any) {
+      try {
+        const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+        setStream(mediaStream);
+        setCameraError(false);
+      } catch (err2: any) {
+        try {
+          const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          setStream(mediaStream);
+          setCameraError(false);
+        } catch (err3: any) {
+          console.error("Camera access failed:", err3);
+          setCameraError(true);
+          toast.error("Camera access denied by device settings");
+        }
+      }
     }
   };
 
@@ -166,18 +182,11 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   };
 
 
-  const skipVerification = async () => {
-    if (!user) return;
-    setIsVerifying(true);
-    try {
-      localStorage.setItem('hasBypassedLiveness', 'true');
-      toast.success("Verification bypassed!", { icon: '⏭️' });
-      onComplete();
-    } catch (error: any) {
-      toast.error("Skip failed: " + error.message);
-    } finally {
-      setIsVerifying(false);
-    }
+  const handleSkip = async () => {
+    toast.success("Verification bypassed.");
+    setTimeout(() => {
+      if (onComplete) onComplete();
+    }, 600);
   };
 
   if (showSuccessOverlay) {
@@ -253,9 +262,18 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
                 />
             )}
 
-            {!stream && (
+            {cameraError && !stream && (
+                <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-md flex flex-col gap-3 items-center justify-center z-10 border border-red-500/20 rounded-full">
+                    <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center">
+                        <CameraOff size={24} className="text-red-400" />
+                    </div>
+                    <span className="text-red-400 font-bold text-sm tracking-widest uppercase">Hardware Blocked</span>
+                </div>
+            )}
+
+            {!cameraError && !stream && (
                 <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-sm flex flex-col gap-4 items-center justify-center z-10">
-                    <button onClick={startCamera} disabled={!modelsLoaded} className="bg-white text-black px-6 py-3 rounded-full font-bold shadow-lg disabled:opacity-50 transition-transform active:scale-95">
+                    <button type="button" onClick={startCamera} disabled={!modelsLoaded} className="bg-white text-black px-6 py-3 rounded-full font-bold shadow-lg disabled:opacity-50 transition-transform active:scale-95">
                         {modelsLoaded ? 'Initialize Scanner' : 'Loading Deep AI...'}
                     </button>
                 </div>
@@ -281,6 +299,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
             {stream && (
                 <motion.button
                     whileTap={{ scale: 0.95 }}
+                    type="button"
                     onClick={runBiometricScan}
                     disabled={isVerifying}
                     className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold py-4 rounded-xl shadow-[0_0_30px_rgba(6,182,212,0.4)] flex items-center justify-center gap-2 hover:from-cyan-500 hover:to-blue-500 transition-all border border-cyan-400/30"
@@ -290,7 +309,8 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
             )}
 
             <button
-                onClick={skipVerification}
+                onClick={handleSkip}
+                type="button"
                 disabled={isVerifying}
                 className="w-full py-3 mt-2 text-neutral-500 text-sm font-medium hover:text-neutral-300 transition-colors"
             >
