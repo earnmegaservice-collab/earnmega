@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, ImagePlus, X, UploadCloud, Zap } from 'lucide-react';
+import { Camera, ImagePlus, X, UploadCloud, Zap, AlertCircle } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 
@@ -17,6 +17,7 @@ interface SpatialPhotoStudioProps {
 export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComplete }) => {
   const [photos, setPhotos] = useState<PhotoAsset[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
   const { user } = useAuth();
 
   // 1. Bulk Gallery Selection Logic
@@ -57,6 +58,7 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
   const handleFinalizeMatrix = async () => {
     if (photos.length === 0) return;
     setIsUploading(true);
+    setErrorToast(null);
 
     try {
       const uploadedUrls: string[] = [];
@@ -91,8 +93,9 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
       }
 
       if (onComplete) onComplete();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error finalizing spatial matrix:', error);
+      setErrorToast(error?.message || 'An unknown error occurred during upload.');
     } finally {
       setIsUploading(false);
     }
@@ -106,6 +109,19 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
 
       <div className="relative z-10 flex flex-col items-center w-full max-w-md">
         
+        <AnimatePresence>
+          {errorToast && (
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="mb-6 p-4 rounded-2xl bg-red-950/80 border border-red-500/50 text-red-200 flex items-start gap-3 w-full relative overflow-hidden">
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1 text-sm">
+                <span className="font-bold text-red-300 uppercase tracking-wider text-xs block mb-1">Upload Failed</span>
+                <span className="leading-relaxed font-mono text-xs">{errorToast}</span>
+              </div>
+              <button type="button" onClick={() => setErrorToast(null)} className="text-red-400 hover:text-white font-bold px-1.5 py-0.5 rounded-lg">✕</button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex items-center gap-2 mb-4 text-indigo-400 font-mono text-xs tracking-widest uppercase">
           <Zap className="w-4 h-4" />
           <span>Stage 2: Spatial Matrix</span>
@@ -140,7 +156,7 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
                     <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     
                     <button 
-                      onClick={() => removePhoto(index)} 
+                      onClick={() => removePhoto(index)} type="button"
                       className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-xl flex items-center justify-center text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-red-500/80 hover:border-red-500 hover:scale-110 active:scale-90 shadow-xl"
                     >
                       <X size={14} strokeWidth={3} />
@@ -160,23 +176,23 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
         <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.6 }} className="flex gap-4 w-full mb-10">
           
           {/* Bulk Select Button */}
-          <label className="flex-1 h-16 rounded-[1.5rem] bg-neutral-900 border border-neutral-700 hover:border-indigo-500/50 hover:bg-neutral-800 flex items-center justify-center gap-3 cursor-pointer transition-all duration-300 active:scale-95 shadow-xl group">
+          <button type="button" onClick={() => document.getElementById('bulk-input')?.click()} className="flex-1 h-16 rounded-[1.5rem] bg-neutral-900 border border-neutral-700 hover:border-indigo-500/50 hover:bg-neutral-800 flex items-center justify-center gap-3 cursor-pointer transition-all duration-300 active:scale-95 shadow-xl group">
             <ImagePlus className="text-indigo-400 group-hover:scale-110 transition-transform" size={24} strokeWidth={2} />
             <span className="text-white font-bold text-sm tracking-wide">Bulk Gallery</span>
-            <input type="file" multiple accept="image/*" className="hidden" onChange={handleBulkSelect} />
-          </label>
+          </button>
+          <input id="bulk-input" type="file" multiple accept="image/*" className="hidden" onChange={handleBulkSelect} />
           
           {/* Live Camera Button */}
-          <label className="w-16 h-16 rounded-[1.5rem] bg-gradient-to-br from-indigo-500 to-purple-600 hover:opacity-90 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 shadow-[0_0_30px_rgba(99,102,241,0.5)] group border border-white/20">
+          <button type="button" onClick={() => document.getElementById('camera-input')?.click()} className="w-16 h-16 rounded-[1.5rem] bg-gradient-to-br from-indigo-500 to-purple-600 hover:opacity-90 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 shadow-[0_0_30px_rgba(99,102,241,0.5)] group border border-white/20">
             <Camera className="text-white group-hover:scale-110 transition-transform" size={24} strokeWidth={2} />
-            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraCapture} />
-          </label>
+          </button>
+          <input id="camera-input" type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraCapture} />
         </motion.div>
 
         {/* Finalize Button */}
         <AnimatePresence>
           {photos.length > 0 && (
-            <motion.button 
+            <motion.button type="button"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
