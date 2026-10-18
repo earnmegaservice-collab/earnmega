@@ -2,6 +2,7 @@
 import OnboardingWizard from '../components/profile/OnboardingWizard';
 import { SpatialPhotoStudio } from '../components/profile/SpatialPhotoStudio';
 import ExtendedQuestionnaire from '../components/profile/ExtendedQuestionnaire';
+import FacialVerification from '../components/profile/FacialVerification';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,7 +12,7 @@ import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { useWallet } from '../context/WalletContext';
-type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio' | 'extended-questionnaire';
+type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio' | 'extended-questionnaire' | 'facial-verification';
 
 export default function HomePage() {
   const router = useRouter();
@@ -212,7 +213,7 @@ export default function HomePage() {
     }
   };
 
-  if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio') {
+  if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio' && step !== 'extended-questionnaire' && step !== 'facial-verification') {
     return (
       <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
     );
@@ -254,7 +255,9 @@ export default function HomePage() {
       ) : step === 'spatial-studio' ? (
         <SpatialPhotoStudio onComplete={() => setStep('extended-questionnaire')} />
       ) : step === 'extended-questionnaire' ? (
-        <ExtendedQuestionnaire onComplete={() => setIsCompletingRegistration(false)} />
+        <ExtendedQuestionnaire onComplete={() => setStep('facial-verification')} />
+      ) : step === 'facial-verification' ? (
+        <FacialVerification onComplete={() => setIsCompletingRegistration(false)} />
       ) : step === 'verify-otp' ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
