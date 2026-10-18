@@ -10,6 +10,7 @@ import { supabase } from "../../utils/supabase";
 import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
+import VerifiedBadge from '../ui/VerifiedBadge';
 import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -1886,6 +1887,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               currentOtherUserProfile.tier === 'PRO' ? 'text-amber-400 font-bold' :
               'text-neutral-200 font-bold'
             }`}>{currentOtherUserProfile.name}</h1>
+            {currentOtherUserProfile.isVerified && <VerifiedBadge />}
             {currentOtherUserProfile.tier === 'PREMIUM' && (
                <motion.span
                  animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}

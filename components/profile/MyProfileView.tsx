@@ -1,6 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../utils/supabase';
+import { toast } from 'react-hot-toast';
+import { useRef } from 'react';
+
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BadgeCheck,
@@ -15,6 +20,7 @@ import {
   Settings
 } from 'lucide-react';
 import SettingsModal from './SettingsModal';
+import VerifiedBadge from '../ui/VerifiedBadge';
 
 interface UserProfile {
   name: string;
@@ -46,6 +52,12 @@ export default function MyProfileView({
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  const { user } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+
   // Map from the `profile` object to the expected structure
   const mappedProfile: UserProfile = {
       name: profile.name || profile.username || 'User',
@@ -67,6 +79,53 @@ export default function MyProfileView({
       ghost_mode: profile.ghost_mode || false,
   };
 
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file || selectedSlotIndex === null || !user) return;
+      setIsUploading(true);
+
+      try {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${user.id}/profile_${Date.now()}.${fileExt}`;
+
+          const { error: uploadError } = await supabase.storage
+              .from('avatars')
+              .upload(fileName, file);
+
+          if (uploadError) throw uploadError;
+
+          const { data: { publicUrl } } = supabase.storage
+              .from('avatars')
+              .getPublicUrl(fileName);
+
+          const updatedImages = [...displayPhotos];
+          updatedImages[selectedSlotIndex] = publicUrl;
+
+          // Clean up array for DB (remove empty strings)
+          const dbImages = updatedImages.filter(url => url !== '');
+
+          const { error: updateError } = await supabase
+              .from('profiles')
+              .update({ profile_images: dbImages })
+              .eq('id', user.id);
+
+          if (updateError) throw updateError;
+
+          // The page might need a refresh to get the latest profile object, or we could update local state
+          mappedProfile.publicImages = dbImages;
+          displayPhotos[selectedSlotIndex] = publicUrl;
+
+          toast.success("Photo updated successfully!");
+      } catch (error: any) {
+          toast.error("Upload failed: " + error.message);
+      } finally {
+          setIsUploading(false);
+          setSelectedSlotIndex(null);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+  };
+
   // Guarantee exactly 6 slots
   const displayPhotos = [...(mappedProfile.publicImages || [])];
   while (displayPhotos.length < 6) {
@@ -75,13 +134,22 @@ export default function MyProfileView({
 
   return (
     <div className="w-full pb-10 space-y-6 pt-4">
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        accept="image/*"
+        onChange={handlePhotoUpload}
+      />
+
       {/* 1. 3x2 CINEMATIC PHOTO GRID */}
       <div className="space-y-1.5 px-4">
         <div className="grid grid-cols-3 gap-1.5 w-full rounded-3xl overflow-hidden p-1 bg-white/[0.02] border border-white/10 backdrop-blur-2xl">
           {displayPhotos.slice(0, 6).map((imgUrl, index) => (
             <div
               key={index}
-              onClick={() => imgUrl && setFullscreenImage(imgUrl)}
+              onClick={() => { if (onEditClick) { setSelectedSlotIndex(index); fileInputRef.current?.click(); } else if (imgUrl) setFullscreenImage(imgUrl); }}
               className="relative aspect-[3/4] bg-white/[0.04] rounded-2xl overflow-hidden cursor-pointer group border border-white/[0.05]"
             >
               {imgUrl ? (
@@ -107,11 +175,7 @@ export default function MyProfileView({
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <h2 className="text-2xl font-black text-white tracking-tight">{mappedProfile.name}</h2>
-            {mappedProfile.isVerified && (
-              <div className="p-0.5 rounded-full bg-cyan-400 text-black shadow-[0_0_12px_rgba(34,211,238,0.8)]">
-                <BadgeCheck className="w-5 h-5 fill-cyan-400 stroke-black stroke-2" />
-              </div>
-            )}
+            {mappedProfile.isVerified && <VerifiedBadge />}
           </div>
           <div className="flex items-center space-x-2">
             <button
