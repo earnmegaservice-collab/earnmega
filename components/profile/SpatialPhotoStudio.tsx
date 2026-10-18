@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, ImagePlus, X, UploadCloud, Zap } from 'lucide-react';
+import { supabase } from '../../utils/supabase';
+import { useAuth } from '../../context/AuthContext';
+
 
 interface PhotoAsset {
   file: File;
@@ -14,6 +17,7 @@ interface SpatialPhotoStudioProps {
 export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComplete }) => {
   const [photos, setPhotos] = useState<PhotoAsset[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const { user } = useAuth();
 
   // 1. Bulk Gallery Selection Logic
   const handleBulkSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,14 +53,49 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
     setPhotos(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  // 4. Final Matrix Upload Mock
+  // 4. Final Matrix Upload Logic
   const handleFinalizeMatrix = async () => {
     if (photos.length === 0) return;
     setIsUploading(true);
-    // Here is where the Supabase Storage upload loop will go
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    setIsUploading(false);
-    if (onComplete) onComplete();
+
+    try {
+      const uploadedUrls: string[] = [];
+      for (let i = 0; i < photos.length; i++) {
+        const photo = photos[i];
+        const fileExt = photo.file.name.split('.').pop() || 'jpg';
+        const fileName = `${user?.id || 'unknown'}-spatial-${Date.now()}-${i}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(fileName, photo.file, { upsert: true });
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          throw uploadError;
+        }
+
+        const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
+        uploadedUrls.push(data.publicUrl);
+      }
+
+      if (user) {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ profile_images: uploadedUrls })
+          .eq('id', user.id);
+
+        if (updateError) {
+          console.error('Profile update error:', updateError);
+          throw updateError;
+        }
+      }
+
+      if (onComplete) onComplete();
+    } catch (error) {
+      console.error('Error finalizing spatial matrix:', error);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
