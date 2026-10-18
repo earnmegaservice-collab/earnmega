@@ -1,6 +1,7 @@
 'use client';
 import OnboardingWizard from '../components/profile/OnboardingWizard';
 import { SpatialPhotoStudio } from '../components/profile/SpatialPhotoStudio';
+import ExtendedQuestionnaire from '../components/profile/ExtendedQuestionnaire';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,7 +11,7 @@ import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { useWallet } from '../context/WalletContext';
-type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio';
+type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio' | 'extended-questionnaire';
 
 export default function HomePage() {
   const router = useRouter();
@@ -251,7 +252,9 @@ export default function HomePage() {
       ) : step === 'complete-profile' ? (
         <OnboardingWizard onComplete={() => setStep('spatial-studio')} />
       ) : step === 'spatial-studio' ? (
-        <SpatialPhotoStudio onComplete={() => setIsCompletingRegistration(false)} />
+        <SpatialPhotoStudio onComplete={() => setStep('extended-questionnaire')} />
+      ) : step === 'extended-questionnaire' ? (
+        <ExtendedQuestionnaire onComplete={() => setIsCompletingRegistration(false)} />
       ) : step === 'verify-otp' ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
