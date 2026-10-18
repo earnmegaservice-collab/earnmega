@@ -2,6 +2,7 @@
 import OnboardingWizard from '../components/profile/OnboardingWizard';
 import { SpatialPhotoStudio } from '../components/profile/SpatialPhotoStudio';
 import FacialVerification from '../components/profile/FacialVerification';
+import ExtendedQuestionnaire from '../components/profile/ExtendedQuestionnaire';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,7 +12,7 @@ import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { useWallet } from '../context/WalletContext';
-type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio' | 'facial-verification';
+type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio' | 'extended-questionnaire' | 'facial-verification';
 
 export default function HomePage() {
   const router = useRouter();
@@ -212,7 +213,7 @@ export default function HomePage() {
     }
   };
 
-  if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio' && step !== 'facial-verification') {
+  if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio' && step !== 'extended-questionnaire' && step !== 'facial-verification') {
     return (
       <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
     );
@@ -252,7 +253,9 @@ export default function HomePage() {
       ) : step === 'complete-profile' ? (
         <OnboardingWizard onComplete={() => setStep('spatial-studio')} />
       ) : step === 'spatial-studio' ? (
-        <SpatialPhotoStudio onComplete={() => setStep('facial-verification')} />
+        <SpatialPhotoStudio onComplete={() => setStep('extended-questionnaire')} />
+      ) : step === 'extended-questionnaire' ? (
+        <ExtendedQuestionnaire onComplete={() => setStep('facial-verification')} />
       ) : step === 'facial-verification' ? (
         <FacialVerification onComplete={() => setIsCompletingRegistration(false)} />
       ) : step === 'verify-otp' ? (

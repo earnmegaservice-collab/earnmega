@@ -40,6 +40,9 @@ interface UserProfile {
   intent?: string;
   tier?: string;
   ghost_mode?: boolean;
+  gender?: string;
+  hobby?: string;
+  vibe?: string;
 }
 
 export default function MyProfileView({
@@ -77,6 +80,9 @@ export default function MyProfileView({
       intent: profile.intent,
       tier: profile.tier,
       ghost_mode: profile.ghost_mode || false,
+      gender: profile.gender,
+      hobby: profile.hobby,
+      vibe: profile.vibe,
   };
 
 
@@ -156,7 +162,7 @@ export default function MyProfileView({
                 <img
                   src={imgUrl}
                   alt={`Photo ${index + 1}`}
-                  className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                  className="w-full h-full object-cover rounded-xl transition duration-300 group-hover:scale-105"
                 />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center text-white/20">
@@ -213,16 +219,31 @@ export default function MyProfileView({
       <div className="px-6 space-y-3">
         <h4 className="text-[11px] font-bold uppercase tracking-wider text-white/40">Attributes & Lifestyle</h4>
         <div className="flex flex-wrap gap-2">
+          {mappedProfile.gender && (
+            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
+              <span>{mappedProfile.gender}</span>
+            </div>
+          )}
+          {mappedProfile.location && (
+            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
+              <MapPin className="w-3.5 h-3.5 text-rose-400" />
+              <span>{mappedProfile.location}</span>
+            </div>
+          )}
           {mappedProfile.intent && (
             <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-200 text-xs shadow-[0_0_12px_rgba(168,85,247,0.15)]">
               <Sparkles className="w-3.5 h-3.5 text-purple-400" />
               <span>Looking for: {mappedProfile.intent}</span>
             </div>
           )}
-          {mappedProfile.job && (
+          {mappedProfile.vibe && (
             <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              <Briefcase className="w-3.5 h-3.5 text-blue-400" />
-              <span>{mappedProfile.job}</span>
+              <span>{mappedProfile.vibe}</span>
+            </div>
+          )}
+          {mappedProfile.zodiac && (
+            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-[0_0_12px_rgba(245,158,11,0.15)]">
+              <span>♈ {mappedProfile.zodiac}</span>
             </div>
           )}
           {mappedProfile.education && (
@@ -231,26 +252,21 @@ export default function MyProfileView({
               <span>{mappedProfile.education}</span>
             </div>
           )}
-          {mappedProfile.zodiac && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-[0_0_12px_rgba(245,158,11,0.15)]">
-              <span>♈ {mappedProfile.zodiac}</span>
+          {mappedProfile.job && (
+            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
+              <Briefcase className="w-3.5 h-3.5 text-blue-400" />
+              <span>{mappedProfile.job}</span>
             </div>
           )}
-          {mappedProfile.height && (
-            <div className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              📏 {mappedProfile.height}
+          {mappedProfile.hobby && (
+            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
+              <span>{mappedProfile.hobby}</span>
             </div>
           )}
           {mappedProfile.communicationStyle && (
             <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
               <MessageSquare className="w-3.5 h-3.5 text-pink-400" />
               <span>{mappedProfile.communicationStyle}</span>
-            </div>
-          )}
-          {mappedProfile.loveStyle && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs">
-              <Heart className="w-3.5 h-3.5 text-rose-400" />
-              <span>{mappedProfile.loveStyle}</span>
             </div>
           )}
           {mappedProfile.languages?.map((lang, idx) => (
