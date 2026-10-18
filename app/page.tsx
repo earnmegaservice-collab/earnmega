@@ -249,15 +249,9 @@ export default function HomePage() {
       {isLoading || isCheckingProfile ? (
         <div className="animate-pulse w-full max-w-sm h-12 bg-zinc-800/50 rounded-2xl"></div>
       ) : step === 'complete-profile' ? (
-        <>
-          {step === 'complete-profile' && (
-  <OnboardingWizard onComplete={() => setStep('spatial-studio')} />
-)}
-
-{step === 'spatial-studio' && (
-  <SpatialPhotoStudio onComplete={() => setIsCompletingRegistration(false)} />
-)}
-        </>
+        <OnboardingWizard onComplete={() => setStep('spatial-studio')} />
+      ) : step === 'spatial-studio' ? (
+        <SpatialPhotoStudio onComplete={() => setIsCompletingRegistration(false)} />
       ) : step === 'verify-otp' ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
