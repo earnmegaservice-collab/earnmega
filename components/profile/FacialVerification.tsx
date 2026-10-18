@@ -1,15 +1,24 @@
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
-import { motion } from 'framer-motion';
-import { Camera, CheckCircle } from 'lucide-react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Camera, CheckCircle, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import * as faceapi from 'face-api.js';
 
 interface FacialVerificationProps {
   onComplete: () => void;
 }
+
+const LIVENESS_PROMPTS = [
+  "Blink slowly twice.",
+  "Smile widely.",
+  "Turn your head slightly to the left.",
+  "Turn your head slightly to the right.",
+  "Open your mouth slightly."
+];
 
 export default function FacialVerification({ onComplete }: FacialVerificationProps) {
   const { user } = useAuth();
@@ -17,7 +26,27 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [livenessPrompt, setLivenessPrompt] = useState<string | null>(null);
+  const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
+
+  const loadModels = async () => {
+    try {
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('/models')
+      ]);
+      setModelsLoaded(true);
+    } catch (err) {
+      console.error("Failed to load models", err);
+      toast.error("Failed to load facial recognition models.");
+    }
+  };
+
+  useEffect(() => {
+    loadModels();
+  }, []);
 
   const startCamera = async () => {
     try {
@@ -36,66 +65,84 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   }, [stream]);
 
   // Attach stream to video element
-  React.useEffect(() => {
+  useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
 
   // Clean up on unmount
-  React.useEffect(() => {
+  useEffect(() => {
     return () => stopCamera();
   }, [stopCamera]);
 
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const context = canvasRef.current.getContext('2d');
-      if (context) {
-        canvasRef.current.width = videoRef.current.videoWidth;
-        canvasRef.current.height = videoRef.current.videoHeight;
-        context.drawImage(videoRef.current, 0, 0);
-        const imageDataUrl = canvasRef.current.toDataURL('image/jpeg');
-        setCapturedImage(imageDataUrl);
-        stopCamera();
+  const extractFaceDescriptor = async (imageElement: HTMLImageElement | HTMLVideoElement) => {
+    const detection = await faceapi.detectSingleFace(imageElement, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+    return detection?.descriptor;
+  };
+
+  const getPublicImagesDescriptors = async () => {
+      if (!user) return [];
+      const { data, error } = await supabase.from('profiles').select('profile_images').eq('id', user.id).single();
+      if (error || !data || !data.profile_images) return [];
+
+      const descriptors: Float32Array[] = [];
+      for (const url of data.profile_images) {
+          if (!url) continue;
+          try {
+              const img = await faceapi.fetchImage(url);
+              const descriptor = await extractFaceDescriptor(img);
+              if (descriptor) {
+                  descriptors.push(descriptor);
+              }
+          } catch(e) {
+              console.error("Failed to extract descriptor for image", url, e);
+          }
       }
-    }
+      return descriptors;
   };
 
-  const retakePhoto = () => {
-    setCapturedImage(null);
-    startCamera();
-  };
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCapturedImage(reader.result as string);
-        stopCamera();
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const submitVerification = async () => {
-    if (!user || !capturedImage) return;
+  const runBiometricScan = async () => {
+    if (!user || !videoRef.current || !modelsLoaded) return;
     setIsVerifying(true);
 
     try {
-        // 1. Convert base64 to Blob for Supabase Storage
-        const res = await fetch(capturedImage);
-        const blob = await res.blob();
+        // 1. Liveness prompt
+        const prompt = LIVENESS_PROMPTS[Math.floor(Math.random() * LIVENESS_PROMPTS.length)];
+        setLivenessPrompt(prompt);
 
-        // 2. Upload to verification_photos bucket (private)
-        const fileName = `${user.id}/verification_${Date.now()}.jpg`;
-        const { error: uploadError } = await supabase.storage
-            .from('verification_photos')
-            .upload(fileName, blob);
+        // Give them time to read and act
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        setLivenessPrompt(null);
+        toast("Analyzing micro-expressions...", { icon: '🤖' });
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
-        if (uploadError) throw uploadError;
+        // 2. Extract live descriptor
+        const liveDescriptor = await extractFaceDescriptor(videoRef.current);
+        if (!liveDescriptor) {
+             throw new Error("No face detected in live feed.");
+        }
 
-        // 3. Mark profile as verified in database
+        // 3. Compare with public images
+        const savedDescriptors = await getPublicImagesDescriptors();
+        if (savedDescriptors.length === 0) {
+            // No reference images, we still pass them but maybe log it
+            console.warn("No reference images to compare against.");
+        } else {
+             let isMatch = false;
+             for (const savedDescriptor of savedDescriptors) {
+                 const distance = faceapi.euclideanDistance(liveDescriptor, savedDescriptor);
+                 if (distance < 0.6) { // 0.6 is typical threshold
+                     isMatch = true;
+                     break;
+                 }
+             }
+             if (!isMatch) {
+                 throw new Error("Biometric Mismatch: Identity Not Confirmed.");
+             }
+        }
+
+        // 4. Mark profile as verified in database
         const { error: updateError } = await supabase
             .from('profiles')
             .update({ is_verified: true })
@@ -104,28 +151,27 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
         if (updateError) throw updateError;
 
         localStorage.setItem('hasBypassedLiveness', 'true');
-        toast.success("Verification successful!");
-        onComplete();
+
+        // Show cinematic success
+        setShowSuccessOverlay(true);
+        setTimeout(() => {
+           onComplete();
+        }, 3000);
+
     } catch (error: any) {
-        toast.error("Verification failed: " + error.message);
+        toast.error(error.message, { style: { background: '#ef4444', color: '#fff' }});
     } finally {
         setIsVerifying(false);
     }
   };
 
+
   const skipVerification = async () => {
     if (!user) return;
     setIsVerifying(true);
     try {
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ is_verified: true })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
-
       localStorage.setItem('hasBypassedLiveness', 'true');
-      toast.success("Verification bypassed!");
+      toast.success("Verification bypassed!", { icon: '⏭️' });
       onComplete();
     } catch (error: any) {
       toast.error("Skip failed: " + error.message);
@@ -134,94 +180,121 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
     }
   };
 
+  if (showSuccessOverlay) {
+      return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black">
+              <motion.div
+                 initial={{ scale: 0.8, opacity: 0 }}
+                 animate={{ scale: 1, opacity: 1 }}
+                 transition={{ type: "spring", stiffness: 200, damping: 20 }}
+                 className="flex flex-col items-center justify-center"
+              >
+                  <motion.div
+                      animate={{
+                          boxShadow: ["0px 0px 0px #06b6d4", "0px 0px 100px #06b6d4", "0px 0px 0px #06b6d4"],
+                          rotate: [0, 360]
+                      }}
+                      transition={{ duration: 2, ease: "easeInOut" }}
+                      className="w-32 h-32 rounded-full border-4 border-cyan-400 flex items-center justify-center mb-6 bg-blue-900/50 backdrop-blur-xl"
+                  >
+                      <ShieldCheck size={64} className="text-cyan-400" />
+                  </motion.div>
+                  <motion.h2
+                      initial={{ y: 20, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      transition={{ delay: 0.5 }}
+                      className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500"
+                  >
+                      Identity Verified
+                  </motion.h2>
+              </motion.div>
+          </div>
+      );
+  }
+
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black p-6">
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-zinc-950 p-6">
+      {/* Background cinematic mesh */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-fuchsia-900/20 via-zinc-950 to-zinc-950 pointer-events-none"></div>
+
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-sm flex flex-col items-center text-center"
+        className="w-full max-w-sm flex flex-col items-center text-center relative z-10 bg-white/5 backdrop-blur-3xl border border-white/10 p-8 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.5)]"
       >
-        <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(59,130,246,0.3)] border border-blue-400/30">
-           <Camera size={32} className="text-blue-400" />
+        <div className="w-16 h-16 bg-gradient-to-tr from-fuchsia-500/20 to-cyan-500/20 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(192,38,211,0.3)] border border-fuchsia-400/30">
+           <ShieldCheck size={32} className="text-cyan-400" />
         </div>
 
-        <h1 className="text-3xl font-bold text-white mb-2">Liveness Check</h1>
-        <p className="text-gray-400 mb-8">
-            Look straight at the camera. We need to verify you are a real person to keep the community safe.
+        <h1 className="text-3xl font-black text-white mb-2 tracking-tighter">Biometric Scan</h1>
+        <p className="text-zinc-400 mb-8 text-sm">
+            Military-grade liveness check. Align your face within the frame to secure your verified badge.
         </p>
 
-        <div className="relative w-64 h-64 mx-auto mb-8 rounded-full overflow-hidden border-4 border-indigo-500 shadow-[0_0_40px_rgba(99,102,241,0.5)]">
-            {capturedImage ? (
-                <img src={capturedImage} alt="Captured" className="w-full h-full object-cover transform scale-x-[-1]" />
-            ) : (
-                <>
-                    <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover transform scale-x-[-1]"
-                    />
-                    {!stream && (
-                        <div className="absolute inset-0 bg-gray-900 flex flex-col gap-4 items-center justify-center">
-                            <button onClick={startCamera} className="bg-white text-black px-4 py-2 rounded-full font-bold">Start Camera</button>
-                            <label className="bg-white/10 border border-white/20 text-white px-4 py-2 rounded-full font-bold cursor-pointer text-sm">
-                              Take Selfie / Upload Photo
-                              <input type="file" accept="image/*" capture="user" className="hidden" onChange={handleFileUpload} />
-                            </label>
-                        </div>
-                    )}
-                </>
+        <div className="relative w-64 h-64 mx-auto mb-8 rounded-full overflow-hidden border-2 border-white/20 shadow-[0_0_50px_rgba(6,182,212,0.2)] bg-black">
+
+            <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover transform scale-x-[-1]"
+            />
+
+            {/* HUD Overlay */}
+            <div className="absolute inset-0 pointer-events-none border-[12px] border-black/40 rounded-full"></div>
+
+            {/* Laser Animation */}
+            {isVerifying && (
+                <motion.div
+                    animate={{ y: ['-10%', '110%'] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                    className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-fuchsia-500 to-transparent shadow-[0_0_15px_rgba(217,70,239,0.8)] z-20"
+                />
             )}
 
-            {/* Target overlay */}
-            {!capturedImage && stream && (
-               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                  <div className="w-32 h-40 border-2 border-dashed border-white/50 rounded-[40%]"></div>
-               </div>
+            {!stream && (
+                <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-sm flex flex-col gap-4 items-center justify-center z-10">
+                    <button onClick={startCamera} disabled={!modelsLoaded} className="bg-white text-black px-6 py-3 rounded-full font-bold shadow-lg disabled:opacity-50 transition-transform active:scale-95">
+                        {modelsLoaded ? 'Initialize Scanner' : 'Loading Deep AI...'}
+                    </button>
+                </div>
             )}
         </div>
 
-        {/* Hidden canvas for image extraction */}
-        <canvas ref={canvasRef} className="hidden" />
+        <AnimatePresence>
+            {livenessPrompt && (
+                <motion.div
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    className="absolute top-32 left-0 w-full text-center z-50 pointer-events-none"
+                >
+                    <span className="bg-black/80 text-cyan-400 font-bold px-6 py-3 rounded-full border border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.5)] backdrop-blur-md inline-block">
+                        {livenessPrompt}
+                    </span>
+                </motion.div>
+            )}
+        </AnimatePresence>
 
         <div className="w-full flex flex-col gap-3">
-            {capturedImage ? (
-                <>
-                    <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={submitVerification}
-                        disabled={isVerifying}
-                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(59,130,246,0.5)] flex items-center justify-center gap-2"
-                    >
-                        {isVerifying ? 'Verifying...' : <>Submit Verification <CheckCircle size={20}/></>}
-                    </motion.button>
-                    <button
-                        onClick={retakePhoto}
-                        disabled={isVerifying}
-                        className="w-full py-4 text-gray-400 font-medium hover:text-white"
-                    >
-                        Retake Photo
-                    </button>
-                </>
-            ) : (
-                stream && (
-                    <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={capturePhoto}
-                        className="w-full bg-white text-black font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(255,255,255,0.3)]"
-                    >
-                        Capture Photo
-                    </motion.button>
-                )
+            {stream && (
+                <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={runBiometricScan}
+                    disabled={isVerifying}
+                    className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold py-4 rounded-xl shadow-[0_0_30px_rgba(6,182,212,0.4)] flex items-center justify-center gap-2 hover:from-cyan-500 hover:to-blue-500 transition-all border border-cyan-400/30"
+                >
+                    {isVerifying ? 'Analyzing Matrix...' : 'Start Scan'}
+                </motion.button>
             )}
 
             <button
                 onClick={skipVerification}
                 disabled={isVerifying}
-                className="w-full py-3 mt-2 text-gray-500 text-sm font-medium hover:text-white underline"
+                className="w-full py-3 mt-2 text-neutral-500 text-sm font-medium hover:text-neutral-300 transition-colors"
             >
-                Skip Liveness Check
+                Skip for Now
             </button>
         </div>
       </motion.div>

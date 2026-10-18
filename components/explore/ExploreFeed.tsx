@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import VerifiedBadge from '../ui/VerifiedBadge';
 import { X, Heart, Image as ImageIcon, ArrowUpRight } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -126,11 +127,7 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
                <div className="relative flex-1 flex flex-col justify-end p-6 pb-24 text-white">
                   <div className="flex items-center gap-2 mb-2">
                      <h2 className="text-4xl font-bold">{activeProfile.username}</h2>
-                     {activeProfile.is_verified && (
-                         <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shadow-[0_0_10px_rgba(59,130,246,0.8)]">
-                             <Check size={14} className="text-white font-bold" />
-                         </div>
-                     )}
+                     {activeProfile.is_verified && <VerifiedBadge />}
                   </div>
 
                   {activeProfile.bio && (

@@ -1,8 +1,11 @@
 'use client';
 import OnboardingWizard from '../components/profile/OnboardingWizard';
 import { SpatialPhotoStudio } from '../components/profile/SpatialPhotoStudio';
+
+
 import ExtendedQuestionnaire from '../components/profile/ExtendedQuestionnaire';
 import FacialVerification from '../components/profile/FacialVerification';
+
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
