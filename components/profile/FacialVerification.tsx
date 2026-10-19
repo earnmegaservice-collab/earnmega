@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Camera, CameraOff, CheckCircle, ShieldCheck } from 'lucide-react';
@@ -17,6 +18,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [cameraFailed, setCameraFailed] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const router = useRouter();
@@ -26,9 +28,48 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
       // PHASE 2: Lightweight Feed
       const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
       setStream(mediaStream);
+      setCameraFailed(false);
     } catch (err: any) {
       console.error("Camera access failed:", err);
-      toast.error("Camera stream blocked. Check permissions.");
+      setCameraFailed(true);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+
+    setIsVerifying(true);
+
+    // Simulate scan delay for UX
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    try {
+      if (user) {
+        const fileExt = file.name.split('.').pop() || 'jpg';
+        const fileName = `${user.id}_biometric_fallback_${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file);
+        if (uploadError) console.error("Fallback upload failed:", uploadError);
+
+        const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ is_verified: true })
+            .eq('id', user.id);
+        if (updateError) throw updateError;
+      }
+
+      setShowSuccessOverlay(true);
+      setTimeout(() => {
+        localStorage.setItem('em_hub_unlocked', 'true');
+        if (typeof onComplete === 'function') onComplete();
+        setTimeout(() => {
+          window.location.assign('/');
+        }, 500);
+      }, 3000);
+
+    } catch (err: any) {
+      toast.error(err.message, { style: { background: '#ef4444', color: '#fff' }});
+      setIsVerifying(false);
     }
   };
 
@@ -53,7 +94,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
     if (!user || !videoRef.current || !canvasRef.current) return;
     setIsVerifying(true);
 
-    // Draw video frame to hidden canvas
+    // PHASE 3: Canvas Scanner - Draw video frame to hidden canvas
     const video = videoRef.current;
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth;
@@ -64,7 +105,10 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
     }
 
     // CRITICAL OOM FIX: Kill video feed immediately
-    stopCamera();
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      setStream(null);
+    }
 
     // Cinematic Processing Delay (Neon Laser Animation time)
     await new Promise(resolve => setTimeout(resolve, 3000));
@@ -89,12 +133,13 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
         setShowSuccessOverlay(true);
         setTimeout(() => {
+           localStorage.setItem('em_hub_unlocked', 'true');
            if (typeof onComplete === 'function') onComplete();
 
            // Failsafe exit
            setTimeout(() => {
              window.location.assign('/');
-           }, 1000);
+           }, 500);
         }, 3000);
 
     } catch (error: any) {
@@ -104,20 +149,19 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   };
 
   const handleSkip = async () => {
-    toast.success("Biometrics bypassed. Securing connection...");
+    toast.success("Securing your connection...");
 
-    // 1. Sync state silently
+    // 1. Permanently unlock the app on this device
+    localStorage.setItem('em_hub_unlocked', 'true');
+
+    // 2. Silent background DB sync
     if (user) {
       await supabase.from('profiles').update({ is_verified: false }).eq('id', user.id);
     }
 
-    // 2. Trigger parent state change (Should instantly render <AppShell/> via Tier 3)
+    // 3. Absolute hard transition
     if (typeof onComplete === 'function') onComplete();
-
-    // 3. Absolute Failsafe: If the React DOM fails to swap to the AppShell, force a clean router push
-    setTimeout(() => {
-      window.location.assign('/');
-    }, 1000);
+    setTimeout(() => window.location.assign('/'), 500);
   };
 
   if (showSuccessOverlay) {
@@ -197,10 +241,21 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
             )}
 
             {!stream && !isVerifying && !showSuccessOverlay && (
-                <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-sm flex flex-col gap-4 items-center justify-center z-10">
-                    <button type="button" onClick={startCamera} className="bg-white text-black px-6 py-3 rounded-full font-bold shadow-lg disabled:opacity-50 transition-transform active:scale-95">
-                        Initialize Neural Scan
-                    </button>
+                <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-sm flex flex-col gap-4 items-center justify-center z-10 p-4 text-center">
+                    {!cameraFailed ? (
+                        <button type="button" onClick={startCamera} className="bg-white text-black px-6 py-3 rounded-full font-bold shadow-lg disabled:opacity-50 transition-transform active:scale-95">
+                            Initialize Neural Scan
+                        </button>
+                    ) : (
+                        <div className="flex flex-col gap-3 items-center justify-center w-full h-full bg-black/60 backdrop-blur-md rounded-full border border-white/10 p-4 shadow-xl">
+                            <Upload className="w-8 h-8 text-fuchsia-400" />
+                            <p className="text-white text-xs font-bold uppercase tracking-wider text-center">Camera Offline</p>
+                            <label className="bg-gradient-to-r from-fuchsia-600 to-cyan-600 text-white px-4 py-2 rounded-full font-bold shadow-lg cursor-pointer transition-transform hover:scale-105 active:scale-95 text-xs">
+                                Upload from Device
+                                <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                            </label>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

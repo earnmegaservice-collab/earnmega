@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, ImagePlus, X, UploadCloud, Zap, AlertCircle } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 
 
 interface PhotoAsset {
-  file: File;
+  dataUrl: string;
   previewUrl: string;
 }
 
@@ -20,38 +20,87 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const { user } = useAuth();
 
-  // 1. Bulk Gallery Selection Logic
-  const handleBulkSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    const incomingFiles = Array.from(e.target.files);
-    
-    setPhotos(prev => {
-      const combined = [...prev];
-      for (const file of incomingFiles) {
-        if (combined.length >= 6) break; // Hard cap at exactly 6 spatial slots
-        combined.push({
-          file,
-          previewUrl: URL.createObjectURL(file)
-        });
+  // Load from hard drive on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('em_matrix_photos');
+    if (saved) {
+      try {
+        setPhotos(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse saved photos', e);
       }
-      return combined;
+    }
+  }, []);
+
+  // Save to hard drive when photos change
+  useEffect(() => {
+    localStorage.setItem('em_matrix_photos', JSON.stringify(photos));
+  }, [photos]);
+
+
+  // Helper to compress and convert file to base64 Data URL
+  const fileToDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800; // Medium size for local storage cache (keeps under 5MB limit)
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(e.target?.result as string);
+
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.5); // high compression
+          resolve(dataUrl);
+        };
+        img.onerror = reject;
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
     });
   };
 
+  // 1. Bulk Gallery Selection Logic
+  const handleBulkSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const incomingFiles = Array.from(e.target.files);
+    
+    for (const file of incomingFiles) {
+      const dataUrl = await fileToDataUrl(file);
+      setPhotos(prev => {
+        if (prev.length >= 6) return prev;
+        return [...prev, { dataUrl, previewUrl: dataUrl }];
+      });
+    }
+  };
+
   // 2. Native Hardware Camera Hook
-  const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0]) return;
     const file = e.target.files[0];
     
+    const dataUrl = await fileToDataUrl(file);
     setPhotos(prev => {
       if (prev.length >= 6) return prev;
-      return [...prev, { file, previewUrl: URL.createObjectURL(file) }];
+      return [...prev, { dataUrl, previewUrl: dataUrl }];
     });
   };
 
   // 3. Remove Staged Photo
   const removePhoto = (indexToRemove: number) => {
     setPhotos(prev => prev.filter((_, index) => index !== indexToRemove));
+  };
+
+  // Helper to convert base64 back to Blob
+  const dataUrlToBlob = async (dataUrl: string) => {
+    const res = await fetch(dataUrl);
+    return await res.blob();
   };
 
   // 4. Final Matrix Upload Logic
@@ -64,12 +113,20 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
       const uploadedUrls: string[] = [];
       for (let i = 0; i < photos.length; i++) {
         const photo = photos[i];
-        const fileExt = photo.file.name.split('.').pop() || 'jpg';
+
+        // Extract original extension if possible or default to jpg
+        let mimeType = 'image/jpeg';
+        if (photo.dataUrl.startsWith('data:')) {
+          mimeType = photo.dataUrl.split(';')[0].split(':')[1];
+        }
+        const fileExt = mimeType.split('/')[1] || 'jpg';
         const fileName = `${user?.id || 'unknown'}-spatial-${Date.now()}-${i}.${fileExt}`;
+
+        const blob = await dataUrlToBlob(photo.dataUrl);
 
         const { error: uploadError } = await supabase.storage
           .from('avatars')
-          .upload(fileName, photo.file, { upsert: true });
+          .upload(fileName, blob, { upsert: true });
 
         if (uploadError) {
           console.error('Upload error:', uploadError);
@@ -92,6 +149,7 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
         }
       }
 
+      localStorage.removeItem('em_matrix_photos');
       if (onComplete) onComplete();
     } catch (error: any) {
       console.error('Error finalizing spatial matrix:', error);
@@ -186,7 +244,7 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
           <button type="button" onClick={() => document.getElementById('camera-input')?.click()} className="w-16 h-16 rounded-[1.5rem] bg-gradient-to-br from-indigo-500 to-purple-600 hover:opacity-90 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 shadow-[0_0_30px_rgba(99,102,241,0.5)] group border border-white/20">
             <Camera className="text-white group-hover:scale-110 transition-transform" size={24} strokeWidth={2} />
           </button>
-          <input id="camera-input" type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraCapture} />
+          <input id="camera-input" type="file" accept="image/*"  className="hidden" onChange={handleCameraCapture} />
         </motion.div>
 
         {/* Finalize Button */}
