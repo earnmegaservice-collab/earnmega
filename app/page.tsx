@@ -61,6 +61,14 @@ export default function HomePage() {
   const [isCompletingRegistration, setIsCompletingRegistration] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
 
+  // PHASE 2: The "Hard Drive" Routing Bypass
+  const [isPermanentlyUnlocked, setIsPermanentlyUnlocked] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setIsPermanentlyUnlocked(localStorage.getItem('em_hub_unlocked') === 'true');
+    }
+  }, []);
+
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 3000);
@@ -398,6 +406,16 @@ export default function HomePage() {
     );
   }
 
+  // PHASE 2: Unconditional bypass to Main App Hub
+  if (isPermanentlyUnlocked) {
+    return (
+      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
+        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+        <RadarActivationModal />
+      </AppShell>
+    );
+  }
+
   // Tier 2: Authenticated, but onboarding incomplete.
   if (isLoading || isCheckingProfile) {
     return (
@@ -445,7 +463,10 @@ export default function HomePage() {
 
   // Tier 3: Fully Authenticated & Verified -> Render Main App Hub
   return (
-    <> <ChatInterface activeTab={appTab} setAppTab={setAppTab} /> <RadarActivationModal /> </>
+    <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
+      <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+      <RadarActivationModal />
+    </AppShell>
   );
 }
 

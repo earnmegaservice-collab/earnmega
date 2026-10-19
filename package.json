@@ -6,6 +6,7 @@
   },
   "dependencies": {
     "@paystack/inline-js": "^2.26.0",
+    "@playwright/test": "^1.64.1",
     "@supabase/supabase-js": "^2.117.3",
     "face-api.js": "^0.22.2",
     "framer-motion": "^14.1.0",
