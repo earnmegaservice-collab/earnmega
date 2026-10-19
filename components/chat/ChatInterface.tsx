@@ -425,6 +425,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
   const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
   const [isChatsLoading, setIsChatsLoading] = useState(true);
+  const [chatsFetchError, setChatsFetchError] = useState<any>(null);
+  const [refreshChatsKey, setRefreshChatsKey] = useState(0);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -528,6 +530,22 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     };
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    const channelId = `chat-updates-${Date.now()}`;
+    const channel = supabase.channel(channelId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload: any) => {
+          if (payload.new && (payload.new.receiver_id === user.id || payload.new.sender_id === user.id || payload.new.room_id)) {
+              setRefreshChatsKey(prev => prev + 1);
+          }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   // Dynamically derive `isOnline` for `currentOtherUserProfile` based on `onlineUsers` state
   const currentOtherUserProfile = otherUserProfile ? {
     ...otherUserProfile,
@@ -538,86 +556,126 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     if (currentOtherUserProfile === null) {
       const fetchExploreUsers = async () => {
         if (!user) return;
-        const { data, error } = await supabase.from('profiles').select('*').order('updated_at', { ascending: false }).limit(20);
+        setIsChatsLoading(true);
+        setChatsFetchError(null);
+        try {
+          const { data: roomsData, error: roomsError } = await supabase
+              .from('room_participants')
+              .select('room_id, rooms ( id, name, created_at )')
+              .eq('user_id', user.id);
 
-        const { data: roomsData, error: roomsError } = await supabase
-            .from('room_participants')
-            .select('room_id, rooms ( id, name, created_at )')
-            .eq('user_id', user.id);
+          if (roomsError) throw roomsError;
 
-        const groupsFormatted = (roomsData && !roomsError) ? roomsData.map((rp: any) => ({
-             id: rp.rooms.id,
-             name: rp.rooms.name,
-             avatarInitials: (rp.rooms.name?.[0] || 'G').toUpperCase() + (rp.rooms.name?.[1] || 'R').toUpperCase(),
-             bio: 'Group Chat',
-             joinDate: new Date(rp.rooms.created_at).toLocaleDateString(),
-             tier: 'FREE' as const,
-             isOnline: true,
-             coinsGifted: 0,
-             isSelf: false,
-             isGroup: true,
-             unreadCount: 0,
-             lastMessageTime: 0
-        })) : [];
+          const groupsFormatted = (roomsData && !roomsError) ? roomsData.map((rp: any) => ({
+               id: rp.rooms.id,
+               name: rp.rooms.name,
+               avatarInitials: (rp.rooms.name?.[0] || 'G').toUpperCase() + (rp.rooms.name?.[1] || 'R').toUpperCase(),
+               bio: 'Group Chat',
+               joinDate: new Date(rp.rooms.created_at).toLocaleDateString(),
+               tier: 'FREE' as const,
+               isOnline: true,
+               coinsGifted: 0,
+               isSelf: false,
+               isGroup: true,
+               unreadCount: 0,
+               lastMessageTime: 0
+          })) : [];
 
-        let allUsers: any[] = [...groupsFormatted];
+          // Fetch recent messages to calculate unreadCount and lastMessageTime
+          let orString = `receiver_id.eq.${user.id},sender_id.eq.${user.id}`;
+          if (groupsFormatted.length > 0) {
+              orString += `,room_id.in.(${groupsFormatted.map(g => `"${g.id}"`).join(',')})`;
+          }
 
-        if (!error && data) {
-          const formatted = data.filter(u => u.id !== user.id).map(u => {
-            try {
-              return {
-                id: u.id,
-                name: u.username || 'User',
-                avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
-                avatarUrl: u.avatar_url,
-                bio: u.bio || 'Earnmega user',
-                joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
-                tier: u.subscription_tier || 'FREE',
-                isOnline: onlineUsers.has(u.id),
-                coinsGifted: u.coins_gifted || 0,
-                isSelf: false,
-                unreadCount: 0,
-                lastMessageTime: 0
-              };
-            } catch (e) {
-              return null;
-            }
-          }).filter(Boolean) as UserProfileDetails[];
-          allUsers = [...allUsers, ...formatted];
-        }
+          const { data: messagesData, error: msgError } = await supabase
+            .from('messages')
+            .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
+            .or(orString);
 
-        // Fetch recent messages to calculate unreadCount and lastMessageTime
-        let orString = `receiver_id.eq.${user.id},sender_id.eq.${user.id}`;
-        if (groupsFormatted.length > 0) {
-            orString += `,room_id.in.(${groupsFormatted.map(g => `"${g.id}"`).join(',')})`;
-        }
+          if (msgError) throw msgError;
 
-        const { data: messagesData, error: msgError } = await supabase
-          .from('messages')
-          .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
-          .or(orString);
-
-        if (!msgError && messagesData) {
           const statsMap = new Map<string, { unreadCount: number, lastMessageTime: number }>();
+          const activeUserIds = new Set<string>();
 
-          messagesData.forEach(msg => {
-            const isGroup = !!msg.room_id;
-            const targetId = isGroup ? msg.room_id : (msg.sender_id === user.id ? msg.receiver_id : msg.sender_id);
-            if (!targetId) return;
+          if (messagesData) {
+            messagesData.forEach(msg => {
+              const isGroup = !!msg.room_id;
+              const targetId = isGroup ? msg.room_id : (msg.sender_id === user.id ? msg.receiver_id : msg.sender_id);
+              if (!targetId) return;
 
-            const time = new Date(msg.created_at).getTime();
-            const isUnread = msg.sender_id !== user.id && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
+              if (!isGroup) activeUserIds.add(targetId);
 
-            if (!statsMap.has(targetId)) {
-              statsMap.set(targetId, { unreadCount: 0, lastMessageTime: 0 });
+              const time = new Date(msg.created_at).getTime();
+              const isUnread = msg.sender_id !== user.id && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
+
+              if (!statsMap.has(targetId)) {
+                statsMap.set(targetId, { unreadCount: 0, lastMessageTime: 0 });
+              }
+
+              const stats = statsMap.get(targetId)!;
+              stats.lastMessageTime = Math.max(stats.lastMessageTime, time);
+              if (isUnread) {
+                stats.unreadCount += 1;
+              }
+            });
+          }
+
+          let formattedProfiles: UserProfileDetails[] = [];
+          if (activeUserIds.size > 0) {
+            const { data: profilesData, error: profilesError } = await supabase
+              .from('profiles')
+              .select('*')
+              .in('id', Array.from(activeUserIds));
+
+            if (profilesError) throw profilesError;
+
+            if (profilesData) {
+              formattedProfiles = profilesData.map(u => ({
+                  id: u.id,
+                  name: u.username || 'User',
+                  avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
+                  avatarUrl: u.avatar_url,
+                  bio: u.bio || 'Earnmega user',
+                  joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
+                  tier: u.subscription_tier || 'FREE',
+                  isOnline: onlineUsers.has(u.id),
+                  coinsGifted: u.coins_gifted || 0,
+                  isSelf: false,
+                  unreadCount: 0,
+                  lastMessageTime: 0
+              }));
             }
+          }
 
-            const stats = statsMap.get(targetId)!;
-            stats.lastMessageTime = Math.max(stats.lastMessageTime, time);
-            if (isUnread) {
-              stats.unreadCount += 1;
-            }
-          });
+          // If no active chats, fetch some default profiles to show (discovery)
+          if (formattedProfiles.length === 0 && groupsFormatted.length === 0) {
+              const { data: defaultProfiles, error: defaultError } = await supabase
+                .from('profiles')
+                .select('*')
+                .neq('id', user.id)
+                .order('updated_at', { ascending: false })
+                .limit(20);
+
+              if (defaultError) throw defaultError;
+              if (defaultProfiles) {
+                  formattedProfiles = defaultProfiles.map(u => ({
+                      id: u.id,
+                      name: u.username || 'User',
+                      avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
+                      avatarUrl: u.avatar_url,
+                      bio: u.bio || 'Earnmega user',
+                      joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
+                      tier: u.subscription_tier || 'FREE',
+                      isOnline: onlineUsers.has(u.id),
+                      coinsGifted: u.coins_gifted || 0,
+                      isSelf: false,
+                      unreadCount: 0,
+                      lastMessageTime: 0
+                  }));
+              }
+          }
+
+          let allUsers = [...groupsFormatted, ...formattedProfiles];
 
           allUsers = allUsers.map(u => {
              const stats = statsMap.get(u.id);
@@ -626,17 +684,20 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
              }
              return u;
           });
+
+          allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+
+          setExploreUsers(allUsers);
+        } catch (error) {
+          console.error("Failed to fetch chats:", error);
+          setChatsFetchError(error);
+        } finally {
+          setIsChatsLoading(false);
         }
-
-        // Sort descending
-        allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
-
-        setExploreUsers(allUsers);
-        setIsChatsLoading(false);
       };
       fetchExploreUsers();
     }
-  }, [currentOtherUserProfile, user?.id, onlineUsers]);
+  }, [currentOtherUserProfile, user?.id, onlineUsers, refreshChatsKey]);
 
   useEffect(() => {
     async function fetchMessages() {
@@ -1492,6 +1553,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                   setShowVerificationGateModal={setShowVerificationGateModal}
                   setOtherUserProfile={setOtherUserProfile}
                   isLoading={isChatsLoading}
+                  fetchError={chatsFetchError}
                 />
                 <button
                    onClick={() => setIsGroupModalOpen(true)}

@@ -12,6 +12,7 @@ interface ChatListProps {
   setShowVerificationGateModal: (show: boolean) => void;
   setOtherUserProfile: (user: UserProfileDetails) => void;
   isLoading?: boolean;
+  fetchError?: any;
 }
 
 export default function ChatList({
@@ -20,7 +21,8 @@ export default function ChatList({
   currentUserProfile,
   setShowVerificationGateModal,
   setOtherUserProfile,
-  isLoading
+  isLoading,
+  fetchError
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -46,6 +48,12 @@ export default function ChatList({
 
       {/* Scrollable Chat List */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1">
+        {fetchError && (
+          <div className="m-4 p-4 rounded-2xl bg-red-950/50 border border-red-500/50 backdrop-blur-xl flex flex-col items-center justify-center text-center shadow-[0_0_20px_rgba(220,38,38,0.2)]">
+            <span className="text-red-400 font-bold mb-2">Database Error</span>
+            <span className="text-red-300 text-sm">{fetchError.message || "Unknown database error"}</span>
+          </div>
+        )}
         <AnimatePresence>
           {filteredUsers.map((u, i) => (
             <motion.div
@@ -123,17 +131,17 @@ export default function ChatList({
         {isLoading ? (
           <div className="flex flex-col gap-2 p-4">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="flex items-center gap-4 p-4 rounded-[2rem] bg-white/5 border border-white/5 relative overflow-hidden">
+              <div key={i} className="flex items-center gap-4 p-4 rounded-[2rem] bg-white/[0.03] border border-white/5 backdrop-blur-3xl relative overflow-hidden shadow-2xl">
                 <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                <div className="w-14 h-14 rounded-full bg-white/10 flex-shrink-0" />
+                <div className="w-14 h-14 rounded-full bg-white/10 flex-shrink-0 animate-pulse border border-white/10" />
                 <div className="flex flex-col gap-2 flex-1">
-                  <div className="w-1/2 h-4 rounded-full bg-white/10" />
-                  <div className="w-3/4 h-3 rounded-full bg-white/5" />
+                  <div className="w-1/2 h-4 rounded-full bg-white/10 animate-pulse" />
+                  <div className="w-3/4 h-3 rounded-full bg-white/5 animate-pulse" />
                 </div>
               </div>
             ))}
           </div>
-        ) : filteredUsers.length === 0 ? (
+        ) : !fetchError && filteredUsers.length === 0 ? (
           <div className="text-center text-gray-500 mt-10 text-sm">
             No chats found.
           </div>
