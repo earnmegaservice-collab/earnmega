@@ -25,24 +25,16 @@ export default function HomePage() {
   const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile'>('chats');
 
   // Auth Form State
-  const [step, setStep] = useState<Step>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState('');
+  const [session, setSession] = useState<any>(null);
   const [profileData, setProfileData] = useState<any>(null);
-  const [isCheckingProfile, setIsCheckingProfile] = useState(false);
-
-  // Additional Profile Data State
-  const [username, setUsername] = useState('');
-  const [phoneCode, setPhoneCode] = useState('+1');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [currency, setCurrency] = useState('USD');
+  const [isBooting, setIsBooting] = useState(true);
+  const [isLocallyUnlocked, setIsLocallyUnlocked] = useState(false);
 
   // Generate lists for dropdowns
   const { phoneCodes, currencies } = useMemo(() => {
     const codes = new Set<string>();
     const currs = new Set<string>();
-    Object.values(countries).forEach((country) => {
+    Object.values(countries).forEach((country: any) => {
       if (country.phone && country.phone.length > 0) {
         country.phone.forEach((p: number) => codes.add(`+${p}`));
       }
@@ -56,17 +48,58 @@ export default function HomePage() {
     };
   }, []);
 
+  // Auth Form State
+  const [step, setStep] = useState<Step>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+
+  // Additional Profile Data State
+  const [username, setUsername] = useState('');
+  const [phoneCode, setPhoneCode] = useState('+1');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [currency, setCurrency] = useState('USD');
+
   // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompletingRegistration, setIsCompletingRegistration] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
-
-  // PHASE 2: The "Hard Drive" Routing Bypass
-  const [isPermanentlyUnlocked, setIsPermanentlyUnlocked] = useState(false);
+  // PHASE 1: THE UNBREAKABLE BOOT SEQUENCE
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setIsPermanentlyUnlocked(localStorage.getItem('em_hub_unlocked') === 'true');
-    }
+    // 1. Safely read device storage on the client
+    setIsLocallyUnlocked(typeof window !== 'undefined' && localStorage.getItem('em_hub_unlocked') === 'true');
+
+    const initializeApp = async () => {
+      try {
+        // 2. Await the definitive auth state
+        const { data: { session: activeSession } } = await supabase.auth.getSession();
+        setSession(activeSession as any);
+
+        // 3. If authenticated, fetch the matrix BEFORE lifting the boot screen
+        if (activeSession) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', activeSession.user.id)
+            .single();
+
+          if (error && error.code !== 'PGRST116') {
+             console.error("Profile fetch error:", error);
+          }
+          setProfileData(data);
+          if (!data || !data.fullName || !data.publicImages?.length) {
+              setStep('complete-profile');
+          }
+        }
+      } catch (error) {
+        console.error("Boot Sequence Error:", error);
+      } finally {
+        // 4. NEVER lift the loading screen until all promises resolve
+        setIsBooting(false);
+      }
+    };
+
+    initializeApp();
   }, []);
 
   useEffect(() => {
@@ -76,30 +109,6 @@ export default function HomePage() {
     }
   }, [toast]);
 
-  useEffect(() => {
-    const checkProfile = async () => {
-      if (user) {
-        setIsCheckingProfile(true);
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('username, fullName, publicImages')
-          .eq('id', user.id)
-          .single();
-
-        if (data) {
-           setProfileData(data);
-           if (!data.fullName || !data.publicImages?.length) {
-               setStep('complete-profile');
-           }
-        } else {
-           setStep('complete-profile');
-        }
-        setIsCheckingProfile(false);
-      }
-    };
-
-    checkProfile();
-  }, [user]);
 
   const showToast = (message: string, type: 'error' | 'success') => {
     setToast({ message, type });
@@ -184,7 +193,8 @@ export default function HomePage() {
 
   const handleCompleteProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!session) return;
+    const user = session.user;
     setIsSubmitting(true);
     setToast(null);
 
@@ -228,8 +238,19 @@ export default function HomePage() {
     }
   };
 
-  // Tier 1: Protect the Auth Flow
-  if (!user) {
+  // GATE 1: The Boot Screen
+  if (isBooting) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#050505]">
+        <div className="text-sm font-medium tracking-widest text-emerald-400/70 uppercase animate-pulse">
+          Initializing Secure Connection...
+        </div>
+      </div>
+    );
+  }
+
+  // GATE 2: Absolute Authentication (Protects the Main App from unauthorized loops)
+  if (!session) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
@@ -406,8 +427,8 @@ export default function HomePage() {
     );
   }
 
-  // PHASE 2: Unconditional bypass to Main App Hub
-  if (isPermanentlyUnlocked) {
+  // GATE 3: The VIP Device Bypass
+  if (isLocallyUnlocked) {
     return (
       <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
         <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
@@ -416,17 +437,11 @@ export default function HomePage() {
     );
   }
 
-  // Tier 2: Authenticated, but onboarding incomplete.
-  if (isLoading || isCheckingProfile) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
-         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
-         <div className="animate-pulse w-full max-w-sm h-12 bg-zinc-800/50 rounded-2xl relative z-10"></div>
-      </div>
-    );
-  }
+  // GATE 4: The Database Matrix Check
+  const hasName = Boolean(profileData?.fullName || profileData?.full_name);
+  const hasImages = Array.isArray(profileData?.publicImages) && profileData.publicImages.length > 0;
 
-  if (!profileData?.fullName || !profileData?.publicImages?.length || step === 'complete-profile' || step === 'spatial-studio' || step === 'extended-questionnaire' || step === 'facial-verification') {
+  if (!hasName || !hasImages) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
@@ -453,7 +468,7 @@ export default function HomePage() {
            <ExtendedQuestionnaire onComplete={() => setStep('facial-verification')} />
         ) : step === 'facial-verification' ? (
            <FacialVerification onComplete={() => {
-              setProfileData(prev => ({...prev, fullName: prev?.fullName || 'Verified', publicImages: prev?.publicImages || ['verified']}));
+              setProfileData((prev: any) => ({...prev, full_name: prev?.full_name || 'Verified', publicImages: prev?.publicImages || ['verified']}));
               setStep(null as any);
            }} />
         ) : null}
@@ -461,13 +476,17 @@ export default function HomePage() {
     );
   }
 
-  // Tier 3: Fully Authenticated & Verified -> Render Main App Hub
+  // DEFAULT GATE: Matrix is complete. Unlock the device permanently for next time.
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('em_hub_unlocked', 'true');
+  }
   return (
-    <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
-      <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
-      <RadarActivationModal />
-    </AppShell>
+      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
+        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+        <RadarActivationModal />
+      </AppShell>
   );
 }
+
 
 // deployment trigger
