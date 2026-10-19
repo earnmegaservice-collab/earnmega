@@ -216,7 +216,7 @@ export default function HomePage() {
     }
   };
 
-  if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio' && step !== 'extended-questionnaire' && step !== 'facial-verification') {
+    if (user && !isLoading && !isCheckingProfile && (!isCompletingRegistration && (step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio' && step !== 'extended-questionnaire' && step !== 'facial-verification' || step === 'facial-verification'))) {
     return (
       <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
     );
@@ -258,7 +258,7 @@ export default function HomePage() {
       ) : step === 'spatial-studio' ? (
         <SpatialPhotoStudio onComplete={() => setStep('extended-questionnaire')} />
       ) : step === 'extended-questionnaire' ? (
-        <ExtendedQuestionnaire onComplete={() => setStep('facial-verification')} />
+        <ExtendedQuestionnaire onComplete={() => { setStep('facial-verification'); setIsCompletingRegistration(true); }} />
       ) : step === 'facial-verification' ? (
         <FacialVerification onComplete={() => setIsCompletingRegistration(false)} />
       ) : step === 'verify-otp' ? (
