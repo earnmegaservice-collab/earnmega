@@ -160,7 +160,7 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
   };
 
   return (
-    <div className="relative w-full min-h-screen bg-neutral-950 flex flex-col items-center pt-16 px-4 pb-32 overflow-hidden z-10">
+    <div className="relative w-full min-h-screen bg-[#050505] flex flex-col items-center pt-16 px-4 pb-32 overflow-hidden z-10">
       
       {/* Ambient Background Glow */}
       <div className="absolute top-[-10%] left-[-10%] w-[120%] h-[50%] bg-[radial-gradient(ellipse_at_center,_rgba(79,70,229,0.15)_0%,_transparent_70%)] pointer-events-none" />
@@ -180,7 +180,7 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
           )}
         </AnimatePresence>
 
-        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex items-center gap-2 mb-4 text-indigo-400 font-mono text-xs tracking-widest uppercase">
+        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex items-center gap-2 mb-4 text-fuchsia-400 font-mono text-xs tracking-widest uppercase">
           <Zap className="w-4 h-4" />
           <span>Stage 2: Spatial Matrix</span>
         </motion.div>
@@ -196,7 +196,7 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
         {/* 3D Glassmorphic Staging Grid */}
         <div className="grid grid-cols-3 gap-3 w-full mb-12 relative">
           {/* Grid Background Plate */}
-          <div className="absolute inset-[-20px] bg-white/[0.02] border border-white/5 rounded-[2.5rem] backdrop-blur-3xl -z-10" />
+          <div className="absolute inset-[-20px] bg-[#050505] border border-white/5 rounded-[2.5rem] backdrop-blur-3xl -z-10" />
 
           {[0, 1, 2, 3, 4, 5].map((index) => (
             <motion.div 
@@ -214,15 +214,16 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
                     <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     
                     <button 
-                      onClick={() => removePhoto(index)} type="button"
+                      type="button"
+                      onClick={() => removePhoto(index)}
                       className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-xl flex items-center justify-center text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-red-500/80 hover:border-red-500 hover:scale-110 active:scale-90 shadow-xl"
                     >
                       <X size={14} strokeWidth={3} />
                     </button>
                   </motion.div>
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center border-[1.5px] border-dashed border-white/10 rounded-2xl group-hover:border-indigo-500/50 group-hover:bg-indigo-500/5 transition-all duration-300">
-                    <span className="text-white/20 font-black text-3xl group-hover:text-indigo-400/40 transition-colors">{index + 1}</span>
+                  <div className="w-full h-full flex flex-col items-center justify-center border-[1.5px] border-dashed border-white/10 rounded-2xl group-hover:border-fuchsia-500/50 group-hover:bg-indigo-500/5 transition-all duration-300">
+                    <span className="text-white/20 font-black text-3xl group-hover:text-fuchsia-400/40 transition-colors">{index + 1}</span>
                   </div>
                 )}
               </AnimatePresence>
@@ -234,14 +235,14 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
         <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.6 }} className="flex gap-4 w-full mb-10">
           
           {/* Bulk Select Button */}
-          <button type="button" onClick={() => document.getElementById('bulk-input')?.click()} className="flex-1 h-16 rounded-[1.5rem] bg-neutral-900 border border-neutral-700 hover:border-indigo-500/50 hover:bg-neutral-800 flex items-center justify-center gap-3 cursor-pointer transition-all duration-300 active:scale-95 shadow-xl group">
-            <ImagePlus className="text-indigo-400 group-hover:scale-110 transition-transform" size={24} strokeWidth={2} />
+          <button type="button" onClick={() => document.getElementById('bulk-input')?.click()} className="flex-1 h-16 rounded-[1.5rem] bg-neutral-900 border border-neutral-700 hover:border-fuchsia-500/50 hover:bg-neutral-800 flex items-center justify-center gap-3 cursor-pointer transition-all duration-300 active:scale-95 shadow-xl group">
+            <ImagePlus className="text-fuchsia-400 group-hover:scale-110 transition-transform" size={24} strokeWidth={2} />
             <span className="text-white font-bold text-sm tracking-wide">Bulk Gallery</span>
           </button>
           <input id="bulk-input" type="file" multiple accept="image/*" className="hidden" onChange={handleBulkSelect} />
           
           {/* Live Camera Button */}
-          <button type="button" onClick={() => document.getElementById('camera-input')?.click()} className="w-16 h-16 rounded-[1.5rem] bg-gradient-to-br from-indigo-500 to-purple-600 hover:opacity-90 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 shadow-[0_0_30px_rgba(99,102,241,0.5)] group border border-white/20">
+          <button type="button" onClick={() => document.getElementById('camera-input')?.click()} className="w-16 h-16 rounded-[1.5rem] bg-gradient-to-br from-fuchsia-600 to-emerald-600 hover:opacity-90 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-95 shadow-[0_0_30px_rgba(99,102,241,0.5)] group border border-white/20">
             <Camera className="text-white group-hover:scale-110 transition-transform" size={24} strokeWidth={2} />
           </button>
           <input id="camera-input" type="file" accept="image/*"  className="hidden" onChange={handleCameraCapture} />
