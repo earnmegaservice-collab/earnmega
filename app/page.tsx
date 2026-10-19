@@ -61,13 +61,28 @@ export default function HomePage() {
   const [isCompletingRegistration, setIsCompletingRegistration] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
 
-  // PHASE 2: The "Hard Drive" Routing Bypass
+  // PHASE 1: The Anti-Loop Boot Sequence
+  const [isBooting, setIsBooting] = useState(true);
   const [isPermanentlyUnlocked, setIsPermanentlyUnlocked] = useState(false);
+
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setIsPermanentlyUnlocked(localStorage.getItem('em_hub_unlocked') === 'true');
-    }
-  }, []);
+    const initBoot = async () => {
+      try {
+        if (typeof window !== 'undefined') {
+          setIsPermanentlyUnlocked(localStorage.getItem('em_hub_unlocked') === 'true');
+        }
+
+        // Let AuthContext handle user/session resolution before unblocking render
+        if (!isLoading) {
+          setIsBooting(false);
+        }
+      } catch (e) {
+        console.error("Boot error", e);
+        setIsBooting(false);
+      }
+    };
+    initBoot();
+  }, [isLoading]);
 
   useEffect(() => {
     if (toast) {
@@ -227,6 +242,19 @@ export default function HomePage() {
       setIsSubmitting(false);
     }
   };
+
+  // PHASE 1: Render Hierarchy
+  if (isBooting || isLoading || isCheckingProfile) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
+         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
+         <div className="animate-pulse flex flex-col items-center gap-4 relative z-10">
+            <div className="w-12 h-12 rounded-full border-4 border-t-cyan-400 border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
+            <p className="text-sm text-cyan-400/80 font-mono uppercase tracking-widest">Initializing Secure Connection...</p>
+         </div>
+      </div>
+    );
+  }
 
   // Tier 1: Protect the Auth Flow
   if (!user) {
@@ -406,7 +434,7 @@ export default function HomePage() {
     );
   }
 
-  // PHASE 2: Unconditional bypass to Main App Hub
+  // Tier 3: Unconditional bypass to Main App Hub
   if (isPermanentlyUnlocked) {
     return (
       <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
@@ -416,15 +444,7 @@ export default function HomePage() {
     );
   }
 
-  // Tier 2: Authenticated, but onboarding incomplete.
-  if (isLoading || isCheckingProfile) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
-         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
-         <div className="animate-pulse w-full max-w-sm h-12 bg-zinc-800/50 rounded-2xl relative z-10"></div>
-      </div>
-    );
-  }
+
 
   if (!profileData?.fullName || !profileData?.publicImages?.length || step === 'complete-profile' || step === 'spatial-studio' || step === 'extended-questionnaire' || step === 'facial-verification') {
     return (
