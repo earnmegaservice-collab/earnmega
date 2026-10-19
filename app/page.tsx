@@ -74,9 +74,16 @@ export default function HomePage() {
         setIsCheckingProfile(true);
         const { data, error } = await supabase
           .from('profiles')
-          .select('username')
+          .select('username, fullName, publicImages')
           .eq('id', user.id)
           .single();
+
+        if (data?.fullName && data?.publicImages?.length >= 1) {
+          setIsCompletingRegistration(false);
+          setStep(null as any);
+          setIsCheckingProfile(false);
+          return;
+        }
 
         if (error || !data?.username) {
           setStep('complete-profile');
@@ -217,7 +224,7 @@ export default function HomePage() {
     }
   };
 
-    if (user && !isLoading && !isCheckingProfile && (!isCompletingRegistration && (step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio' && step !== 'extended-questionnaire' && step !== 'facial-verification' || step === 'facial-verification'))) {
+  if (!isCompletingRegistration && user && !isLoading && !isCheckingProfile && !step) {
     return (
       <> <ChatInterface activeTab={appTab} setAppTab={setAppTab} /> <RadarActivationModal /> </>
     );
