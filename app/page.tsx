@@ -1,11 +1,5 @@
 'use client';
-import OnboardingWizard from '../components/profile/OnboardingWizard';
-import { SpatialPhotoStudio } from '../components/profile/SpatialPhotoStudio';
-
-
-import ExtendedQuestionnaire from '../components/profile/ExtendedQuestionnaire';
-import FacialVerification from '../components/profile/FacialVerification';
-
+import OnboardingFlow from '../components/profile/OnboardingFlow';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,7 +10,7 @@ import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { RadarActivationModal } from '../components/location/RadarActivationModal';
 import { useWallet } from '../context/WalletContext';
-type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio' | 'extended-questionnaire' | 'facial-verification';
+type Step = 'login' | 'register' | 'verify-otp';
 
 export default function HomePage() {
   const router = useRouter();
@@ -65,10 +59,11 @@ export default function HomePage() {
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   // Fetch Session and Profile
   useEffect(() => {
+    let isMounted = true;
     const initializeApp = async () => {
       try {
         const { data: { session: activeSession } } = await supabase.auth.getSession();
-        setSession(activeSession as any);
+        if (isMounted) setSession(activeSession as any);
 
         if (activeSession) {
           const { data, error } = await supabase
@@ -80,21 +75,17 @@ export default function HomePage() {
           if (error && error.code !== 'PGRST116') {
              console.error("Profile fetch error:", error);
           }
-          setProfileData(data);
-
-          const fullName = data?.full_name || data?.fullName;
-          if (!data || !fullName || !data.publicImages?.length) {
-              setStep('complete-profile');
-          }
+          if (isMounted) setProfileData(data);
         }
       } catch (error) {
         console.error("Initialization Error:", error);
       } finally {
-        setIsBooting(false);
+        if (isMounted) setIsBooting(false);
       }
     };
 
     initializeApp();
+    return () => { isMounted = false; };
   }, []);
 
   useEffect(() => {
@@ -234,10 +225,16 @@ export default function HomePage() {
   };
 
   if (isBooting) {
-    return <div className="flex min-h-screen items-center justify-center bg-[#050505] text-emerald-400/50 tracking-widest text-sm">INITIALIZING...</div>;
+    return (
+      <div className="flex flex-col min-h-screen items-center justify-center bg-[#050505] text-emerald-400/50 tracking-widest text-sm relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(16,185,129,0.15)_0%,_transparent_70%)] pointer-events-none" />
+        <div className="w-16 h-16 rounded-full border-4 border-emerald-500/20 border-t-emerald-400 animate-spin mb-6" />
+        <p className="animate-pulse drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]">INITIALIZING SECURE CONNECTION...</p>
+      </div>
+    );
   }
 
-  // GATE 2: Absolute Authentication (Protects the Main App from unauthorized loops)
+  // GATE 2: Absolute Authentication
   if (!session) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
@@ -415,52 +412,37 @@ export default function HomePage() {
     );
   }
 
+  // GATE 3: THE VIP BYPASS
+  if (session?.user?.user_metadata?.onboarding_complete === true) {
+    return (
+      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
+        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+        <RadarActivationModal />
+      </AppShell>
+    );
+  }
+
   // GATE 4: The Database Matrix Check
   const hasName = Boolean(profileData?.fullName || profileData?.full_name);
   const hasImages = Array.isArray(profileData?.publicImages) && profileData.publicImages.length > 0;
 
   if (!hasName || !hasImages) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
-
-        {/* Toast Notification */}
-        <AnimatePresence>
-          {toast && (
-            <motion.div
-              initial={{ y: -50, opacity: 0, x: '-50%' }}
-              animate={{ y: 0, opacity: 1, x: '-50%' }}
-              exit={{ y: -50, opacity: 0, x: '-50%' }}
-              className={`absolute top-6 left-1/2 px-6 py-3 rounded-full text-sm font-medium shadow-2xl z-50 transition-all ${toast.type === 'error' ? 'bg-red-500/20 text-red-200 border border-red-500/50' : 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/50'}`}
-            >
-              {toast.message}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {(!step || step === 'login' || step === 'register' || step === 'complete-profile') ? (
-           <OnboardingWizard onComplete={() => setStep('spatial-studio')} />
-        ) : step === 'spatial-studio' ? (
-           <SpatialPhotoStudio onComplete={() => setStep('extended-questionnaire')} />
-        ) : step === 'extended-questionnaire' ? (
-           <ExtendedQuestionnaire onComplete={() => setStep('facial-verification')} />
-        ) : step === 'facial-verification' ? (
-           <FacialVerification onComplete={() => {
-              setProfileData((prev: any) => ({...prev, full_name: prev?.full_name || 'Verified', publicImages: prev?.publicImages || ['verified']}));
-              setStep(null as any);
-           }} />
-        ) : null}
+        <OnboardingFlow />
       </div>
     );
   }
 
+  // GATE 5: DEFAULT (AppShell)
   return (
       <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
         <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
         <RadarActivationModal />
       </AppShell>
   );
-}
 
+}
 
 // deployment trigger

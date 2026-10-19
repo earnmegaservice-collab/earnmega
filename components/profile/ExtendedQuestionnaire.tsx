@@ -44,12 +44,23 @@ const STEPS = [
 export default function ExtendedQuestionnaire({ onComplete }: ExtendedQuestionnaireProps) {
   const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState<Record<string, string>>({});
+
+  const [formData, setFormData] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('em_questionnaire_data');
+    return saved ? JSON.parse(saved) : {};
+  });
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
 
   const handleSelect = (key: string, value: string) => {
-    setFormData(prev => ({ ...prev, [key]: value }));
+
+    setFormData(prev => {
+      const next = { ...prev, [key]: value };
+      localStorage.setItem('em_questionnaire_data', JSON.stringify(next));
+      return next;
+    });
+
   };
 
   const handleNext = () => {
@@ -72,6 +83,7 @@ export default function ExtendedQuestionnaire({ onComplete }: ExtendedQuestionna
 
       if (error) throw error;
       setToast({ message: 'Profile updated successfully!', type: 'success' });
+      localStorage.removeItem('em_questionnaire_data');
       setTimeout(() => {
         onComplete();
       }, 1000);
