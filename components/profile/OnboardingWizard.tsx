@@ -50,8 +50,8 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       setTimeout(() => {
         if (onComplete) onComplete();
       }, 2500);
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Database update failed.';
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Unknown Supabase Error';
       setErrorToast(errorMessage);
       setIsSaving(false);
     }
