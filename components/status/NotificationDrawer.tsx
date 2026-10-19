@@ -63,9 +63,8 @@ export default function NotificationDrawer({ isOpen, onClose }: NotificationDraw
              read: false,
            });
         }
-      });
-
-    channel.subscribe();
+      })
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);

@@ -53,7 +53,8 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
 
     fetchNotifications();
 
-    const channel = supabase.channel('public:notifications')
+    const uniqueChannel = `public-notifications-${Date.now()}`;
+    const channel = supabase.channel(uniqueChannel)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',

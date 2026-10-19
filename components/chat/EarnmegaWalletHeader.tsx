@@ -34,7 +34,8 @@ export default function EarnmegaWalletHeader() {
     };
     fetchInitialUnread();
 
-    const channel = supabase.channel('header_notifications')
+    const uniqueChannel = `header-notifications-${Date.now()}`;
+    const channel = supabase.channel(uniqueChannel)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',

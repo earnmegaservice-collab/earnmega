@@ -88,8 +88,9 @@ export const AppShell: React.FC<AppShellProps> = ({
     fetchUnreadCount();
 
     // The Global Render Queue & Notification Matrix Active Bell
+    const uniqueChannel = `appshell-notifications-${Date.now()}`;
     const notificationChannel = supabase
-      .channel('realtime:public:notifications:appshell')
+      .channel(uniqueChannel)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
