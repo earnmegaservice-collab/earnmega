@@ -166,7 +166,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
   if (showSuccessOverlay) {
       return (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#050505]">
               <motion.div
                  initial={{ scale: 0.8, opacity: 0 }}
                  animate={{ scale: 1, opacity: 1 }}
@@ -197,7 +197,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-zinc-950 p-6">
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#050505] p-6">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-fuchsia-900/20 via-zinc-950 to-zinc-950 pointer-events-none"></div>
 
       <motion.div
@@ -214,7 +214,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
             Military-grade liveness check. Align your face within the frame to secure your verified badge.
         </p>
 
-        <div className="relative w-64 h-64 mx-auto mb-8 rounded-full overflow-hidden border-2 border-white/20 shadow-[0_0_50px_rgba(6,182,212,0.2)] bg-black">
+        <div className="relative w-64 h-64 mx-auto mb-8 rounded-full overflow-hidden border-2 border-white/20 shadow-[0_0_50px_rgba(6,182,212,0.2)] bg-[#050505]">
 
             <canvas ref={canvasRef} className="hidden" />
 
@@ -247,7 +247,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
                             Initialize Neural Scan
                         </button>
                     ) : (
-                        <div className="flex flex-col gap-3 items-center justify-center w-full h-full bg-black/60 backdrop-blur-md rounded-full border border-white/10 p-4 shadow-xl">
+                        <div className="flex flex-col gap-3 items-center justify-center w-full h-full bg-[#050505]/60 backdrop-blur-md rounded-full border border-white/10 p-4 shadow-xl">
                             <Upload className="w-8 h-8 text-fuchsia-400" />
                             <p className="text-white text-xs font-bold uppercase tracking-wider text-center">Camera Offline</p>
                             <label className="bg-gradient-to-r from-fuchsia-600 to-cyan-600 text-white px-4 py-2 rounded-full font-bold shadow-lg cursor-pointer transition-transform hover:scale-105 active:scale-95 text-xs">

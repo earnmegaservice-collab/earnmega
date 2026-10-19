@@ -1,8 +1,6 @@
 'use client';
 import OnboardingWizard from '../components/profile/OnboardingWizard';
 import { SpatialPhotoStudio } from '../components/profile/SpatialPhotoStudio';
-
-
 import ExtendedQuestionnaire from '../components/profile/ExtendedQuestionnaire';
 import FacialVerification from '../components/profile/FacialVerification';
 
@@ -16,21 +14,36 @@ import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { RadarActivationModal } from '../components/location/RadarActivationModal';
 import { useWallet } from '../context/WalletContext';
+
 type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio' | 'extended-questionnaire' | 'facial-verification';
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, isLoading } = useAuth();
+  const { user } = useAuth();
   const { balance } = useWallet();
   const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile'>('chats');
 
-  // Auth Form State
+  // Next.js State
   const [session, setSession] = useState<any>(null);
-  const [profileData, setProfileData] = useState<any>(null);
-  const [isBooting, setIsBooting] = useState(true);
-  const [isLocallyUnlocked, setIsLocallyUnlocked] = useState(false);
+  const [profile, setProfile] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Generate lists for dropdowns
+  // Auth Form State
+  const [step, setStep] = useState<Step>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+
+  // Additional Profile Data State
+  const [username, setUsername] = useState('');
+  const [phoneCode, setPhoneCode] = useState('+1');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [currency, setCurrency] = useState('USD');
+
+  // UI State
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+
   const { phoneCodes, currencies } = useMemo(() => {
     const codes = new Set<string>();
     const currs = new Set<string>();
@@ -48,34 +61,12 @@ export default function HomePage() {
     };
   }, []);
 
-  // Auth Form State
-  const [step, setStep] = useState<Step>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState('');
-
-  // Additional Profile Data State
-  const [username, setUsername] = useState('');
-  const [phoneCode, setPhoneCode] = useState('+1');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [currency, setCurrency] = useState('USD');
-
-  // UI State
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCompletingRegistration, setIsCompletingRegistration] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
-  // PHASE 1: THE UNBREAKABLE BOOT SEQUENCE
   useEffect(() => {
-    // 1. Safely read device storage on the client
-    setIsLocallyUnlocked(typeof window !== 'undefined' && localStorage.getItem('em_hub_unlocked') === 'true');
-
-    const initializeApp = async () => {
+    const init = async () => {
       try {
-        // 2. Await the definitive auth state
         const { data: { session: activeSession } } = await supabase.auth.getSession();
-        setSession(activeSession as any);
+        setSession(activeSession);
 
-        // 3. If authenticated, fetch the matrix BEFORE lifting the boot screen
         if (activeSession) {
           const { data, error } = await supabase
             .from('profiles')
@@ -86,7 +77,8 @@ export default function HomePage() {
           if (error && error.code !== 'PGRST116') {
              console.error("Profile fetch error:", error);
           }
-          setProfileData(data);
+          setProfile(data);
+
           if (!data || !data.fullName || !data.publicImages?.length) {
               setStep('complete-profile');
           }
@@ -94,12 +86,10 @@ export default function HomePage() {
       } catch (error) {
         console.error("Boot Sequence Error:", error);
       } finally {
-        // 4. NEVER lift the loading screen until all promises resolve
-        setIsBooting(false);
+        setIsLoading(false);
       }
     };
-
-    initializeApp();
+    init();
   }, []);
 
   useEffect(() => {
@@ -109,7 +99,6 @@ export default function HomePage() {
     }
   }, [toast]);
 
-
   const showToast = (message: string, type: 'error' | 'success') => {
     setToast({ message, type });
   };
@@ -118,29 +107,27 @@ export default function HomePage() {
     e.preventDefault();
     setIsSubmitting(true);
     setToast(null);
-
     try {
       if (step === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        // Navigation handled by useEffect when user state updates
+        setSession(data.session);
+        if (data.session) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', data.session.user.id)
+            .single();
+          setProfile(profileData);
+        }
       } else if (step === 'register') {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-
-        if (data?.user?.identities && data.user.identities.length === 0) {
-          throw new Error('User already registered. Please sign in instead.');
-        }
-
         setStep('verify-otp');
         showToast('OTP sent to your email.', 'success');
       }
     } catch (error: any) {
-      let message = error.message || 'An error occurred during authentication.';
-      if (message.includes('Invalid login credentials')) {
-          message = 'Invalid credentials. Please check your email and password.';
-      }
-      showToast(message, 'error');
+      showToast(error.message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -150,17 +137,12 @@ export default function HomePage() {
     e.preventDefault();
     setIsSubmitting(true);
     setToast(null);
-
-    // Prevent useEffect from intercepting and sending us to 'complete-profile' prematurely
-    setIsCompletingRegistration(true);
-
     try {
-      // type should be 'signup' when using signUp() method
       const { data, error } = await supabase.auth.verifyOtp({ email, token: otp, type: 'signup' });
       if (error) throw error;
+      setSession(data.session);
 
       if (data.user) {
-        // We wait for these to ensure data is there before navigation
         await supabase
           .from('users')
           .upsert({
@@ -179,48 +161,11 @@ export default function HomePage() {
             currency
           }, { onConflict: 'id' });
       }
+
       showToast('Account verified successfully!', 'success');
-
-      // Clear flag and navigate manually
-      setIsCompletingRegistration(false);
+      setStep('complete-profile');
     } catch (error: any) {
-      showToast(error.message || 'Invalid OTP.', 'error');
-      setIsCompletingRegistration(false);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleCompleteProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!session) return;
-    const user = session.user;
-    setIsSubmitting(true);
-    setToast(null);
-
-    try {
-      await supabase
-        .from('users')
-        .upsert({
-          id: user.id,
-          email: user.email,
-          balance: 0,
-          subscription_tier: 'FREE'
-        }, { onConflict: 'id' });
-
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({
-          id: user.id,
-          username,
-          phone: `${phoneCode}${phoneNumber}`,
-          currency
-        }, { onConflict: 'id' });
-
-      if (error) throw error;
-      showToast('Profile completed successfully!', 'success');
-    } catch (error: any) {
-      showToast('Failed to save profile details. Please try again.', 'error');
+      showToast(error.message, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -233,29 +178,20 @@ export default function HomePage() {
       const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
       if (error) throw error;
     } catch (error: any) {
-      showToast(error.message || 'Google sign in failed.', 'error');
+      showToast(error.message, 'error');
       setIsSubmitting(false);
     }
   };
 
-  // GATE 1: The Boot Screen
-  if (isBooting) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#050505]">
-        <div className="text-sm font-medium tracking-widest text-emerald-400/70 uppercase animate-pulse">
-          Initializing Secure Connection...
-        </div>
-      </div>
-    );
-  }
+  // 1. Loader
+  if (isLoading) return <div className="flex min-h-screen items-center justify-center bg-[#050505] text-emerald-400/50 animate-pulse tracking-widest text-sm">INITIALIZING SECURE CONNECTION...</div>;
 
-  // GATE 2: Absolute Authentication (Protects the Main App from unauthorized loops)
+  // 2. Auth Lock
   if (!session) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
 
-        {/* Toast Notification */}
         <AnimatePresence>
           {toast && (
             <motion.div
@@ -269,13 +205,11 @@ export default function HomePage() {
           )}
         </AnimatePresence>
 
-        {/* Brand Logo */}
-        <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center font-bold text-3xl shadow-2xl mb-6">
+        <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-fuchsia-600 to-emerald-600 flex items-center justify-center font-bold text-3xl shadow-[0_0_30px_rgba(217,70,239,0.3)] mb-6 border border-white/10">
           EM
         </div>
 
-        {/* Title & Tagline */}
-        <h1 className="text-3xl font-bold tracking-tight mb-2">Earnmega</h1>
+        <h1 className="text-3xl font-bold tracking-tight mb-2 text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">Earnmega</h1>
         <p className="text-sm text-zinc-400 mb-8 max-w-xs">
           Global social hub. Real-time chat, secure connections, and rewarding experiences.
         </p>
@@ -285,7 +219,7 @@ export default function HomePage() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5, type: 'spring' }}
-            className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl"
+            className="w-full max-w-sm bg-white/5 backdrop-blur-3xl border border-white/10 p-8 rounded-3xl shadow-2xl"
           >
             <h2 className="text-xl font-bold mb-4">Verify Your Email</h2>
             <p className="text-sm text-zinc-400 mb-6">Enter the 6-digit code sent to your email.</p>
@@ -297,7 +231,7 @@ export default function HomePage() {
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
                 required
-                className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all text-center tracking-widest text-2xl font-mono"
+                className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 focus:border-fuchsia-500/50 transition-all text-center tracking-widest text-2xl font-mono"
               />
               <motion.button
                 whileTap={{ scale: 0.97 }}
@@ -311,6 +245,7 @@ export default function HomePage() {
             <button
               onClick={() => setStep('register')}
               className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors mt-6 w-full text-center"
+              type="button"
             >
               Cancel
             </button>
@@ -320,7 +255,7 @@ export default function HomePage() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5, type: 'spring' }}
-            className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl"
+            className="w-full max-w-sm bg-white/5 backdrop-blur-3xl border border-white/10 p-8 rounded-3xl shadow-2xl"
           >
             <form onSubmit={handleAuth} className="w-full flex flex-col gap-4">
               <input
@@ -329,7 +264,7 @@ export default function HomePage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
+                className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 focus:border-fuchsia-500/50 transition-all"
               />
               {step === 'register' && (
                 <>
@@ -339,13 +274,13 @@ export default function HomePage() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     required
-                    className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
+                    className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 focus:border-fuchsia-500/50 transition-all"
                   />
                   <div className="flex gap-2">
                     <select
                       value={phoneCode}
                       onChange={(e) => setPhoneCode(e.target.value)}
-                      className="w-1/3 px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none"
+                      className="w-1/3 px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 focus:border-fuchsia-500/50 transition-all appearance-none"
                     >
                       {phoneCodes.map((code) => (
                         <option key={code} value={code}>{code}</option>
@@ -357,13 +292,13 @@ export default function HomePage() {
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
                       required
-                      className="w-2/3 px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
+                      className="w-2/3 px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 focus:border-fuchsia-500/50 transition-all"
                     />
                   </div>
                   <select
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
-                    className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none"
+                    className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 focus:border-fuchsia-500/50 transition-all appearance-none"
                   >
                     {currencies.map((c) => (
                       <option key={c} value={c}>{c}</option>
@@ -377,21 +312,21 @@ export default function HomePage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
+                className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 focus:border-fuchsia-500/50 transition-all"
               />
 
               <motion.button
                 whileTap={{ scale: 0.97 }}
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-500/20 mt-4"
+                className="w-full bg-gradient-to-r from-fuchsia-600 to-emerald-600 hover:from-fuchsia-500 hover:to-emerald-500 disabled:opacity-50 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-[0_0_20px_rgba(217,70,239,0.2)] mt-4"
               >
                 {isSubmitting ? (step === 'login' ? 'Signing In...' : 'Sending OTP...') : step === 'login' ? 'Sign In' : 'Continue with Email'}
               </motion.button>
             </form>
 
             <div className="relative mt-6 pt-6 border-t border-white/5">
-              <div className="absolute top-[-13px] left-1/2 -translate-x-1/2 bg-zinc-950 px-4 text-sm text-zinc-500">
+              <div className="absolute top-[-13px] left-1/2 -translate-x-1/2 bg-transparent px-4 text-sm text-zinc-500">
                 OR
               </div>
               <motion.button
@@ -427,26 +362,13 @@ export default function HomePage() {
     );
   }
 
-  // GATE 3: The VIP Device Bypass
-  if (isLocallyUnlocked) {
+  // 3. Matrix Check
+  const isMatrixComplete = Boolean((profile?.fullName || profile?.full_name) && profile?.publicImages?.length > 0);
+  if (!isMatrixComplete) {
     return (
-      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
-        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
-        <RadarActivationModal />
-      </AppShell>
-    );
-  }
-
-  // GATE 4: The Database Matrix Check
-  const hasName = Boolean(profileData?.fullName || profileData?.full_name);
-  const hasImages = Array.isArray(profileData?.publicImages) && profileData.publicImages.length > 0;
-
-  if (!hasName || !hasImages) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
 
-        {/* Toast Notification */}
         <AnimatePresence>
           {toast && (
             <motion.div
@@ -460,7 +382,7 @@ export default function HomePage() {
           )}
         </AnimatePresence>
 
-        {(!step || step === 'login' || step === 'register' || step === 'complete-profile') ? (
+        {(!step || step === 'login' || step === 'register' || step === 'complete-profile' || step === 'verify-otp') ? (
            <OnboardingWizard onComplete={() => setStep('spatial-studio')} />
         ) : step === 'spatial-studio' ? (
            <SpatialPhotoStudio onComplete={() => setStep('extended-questionnaire')} />
@@ -468,7 +390,7 @@ export default function HomePage() {
            <ExtendedQuestionnaire onComplete={() => setStep('facial-verification')} />
         ) : step === 'facial-verification' ? (
            <FacialVerification onComplete={() => {
-              setProfileData((prev: any) => ({...prev, full_name: prev?.full_name || 'Verified', publicImages: prev?.publicImages || ['verified']}));
+              setProfile((prev: any) => ({...prev, full_name: prev?.full_name || 'Verified', publicImages: prev?.publicImages || ['verified']}));
               setStep(null as any);
            }} />
         ) : null}
@@ -476,10 +398,7 @@ export default function HomePage() {
     );
   }
 
-  // DEFAULT GATE: Matrix is complete. Unlock the device permanently for next time.
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('em_hub_unlocked', 'true');
-  }
+  // 4. Main App
   return (
       <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
         <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
@@ -487,6 +406,3 @@ export default function HomePage() {
       </AppShell>
   );
 }
-
-
-// deployment trigger
