@@ -26,7 +26,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   const startCamera = async () => {
     try {
       // PHASE 2: Lightweight Feed
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       setStream(mediaStream);
       setCameraFailed(false);
     } catch (err: any) {
