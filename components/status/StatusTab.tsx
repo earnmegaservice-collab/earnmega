@@ -73,7 +73,8 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
   useEffect(() => {
     fetchStatuses();
 
-    const channel = supabase.channel('status_updates_changes')
+    const uniqueChannel = `status-updates-changes-${Date.now()}`;
+    const channel = supabase.channel(uniqueChannel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, () => {
         fetchStatuses();
       })

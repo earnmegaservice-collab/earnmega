@@ -125,6 +125,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     if (!user) return;
 
+    // For broadcast, we must use a shared channel name
     const channel = supabase.channel('chat-events')
       .on('broadcast', { event: 'incoming_call' }, async (payload: any) => {
         if (payload.payload.receiverId !== user.id) return;

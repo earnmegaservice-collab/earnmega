@@ -472,7 +472,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     fetchGlobalStatuses();
     fetchViewedStatuses();
 
-    const statusesChannel = supabase.channel('global_status_updates')
+    const uniqueStatusesChannel = `global-status-updates-${Date.now()}`;
+    const statusesChannel = supabase.channel(uniqueStatusesChannel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, () => {
         fetchGlobalStatuses();
       })
@@ -489,6 +490,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   useEffect(() => {
     if (!user) return;
 
+    // For presence, we must use a shared channel name
     const presenceChannel = supabase.channel('online-users', {
       config: {
         presence: {
@@ -751,6 +753,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   };
 
   useEffect(() => {
+    // For broadcast, we must use a shared channel name
     const channel = supabase.channel('chat-events')
       .on('broadcast', { event: 'gift_received' }, (payload) => {
         // SECURITY GATE: Before mounting the 3D portal or inserting the receipt into the chat feed,
@@ -879,17 +882,11 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           setMessages(prev => prev.filter(msg => msg.id !== payload.payload.messageId));
         }
       })
-
-
-
-
-      ;
-
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        channelRef.current = channel;
-      }
-    });
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          channelRef.current = channel;
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
