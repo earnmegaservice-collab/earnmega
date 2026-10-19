@@ -14,6 +14,7 @@ import { supabase } from '../utils/supabase';
 import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
+import { RadarActivationModal } from '../components/location/RadarActivationModal';
 import { useWallet } from '../context/WalletContext';
 type Step = 'login' | 'register' | 'verify-otp' | 'complete-profile' | 'spatial-studio' | 'extended-questionnaire' | 'facial-verification';
 
@@ -218,7 +219,7 @@ export default function HomePage() {
 
   if (user && !isLoading && !isCheckingProfile && step !== 'complete-profile' && step !== 'verify-otp' && step !== 'spatial-studio' && step !== 'extended-questionnaire' && step !== 'facial-verification') {
     return (
-      <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+      <> <ChatInterface activeTab={appTab} setAppTab={setAppTab} /> <RadarActivationModal /> </>
     );
   }
 
