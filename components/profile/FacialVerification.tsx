@@ -21,6 +21,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   const [cameraFailed, setCameraFailed] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
+  const [routingError, setRoutingError] = useState<string | null>(null);
   const router = useRouter();
 
   const startCamera = async () => {
@@ -59,10 +60,9 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
       }
 
       setShowSuccessOverlay(true);
-      setTimeout(() => {
-        if (typeof onComplete === 'function') onComplete();
-        window.location.href = '/';
-      }, 3000);
+        setTimeout(() => {
+           handleExit(true);
+        }, 3000);
 
     } catch (err: any) {
       toast.error(err.message, { style: { background: '#ef4444', color: '#fff' }});
@@ -130,8 +130,7 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
         setShowSuccessOverlay(true);
         setTimeout(() => {
-           if (typeof onComplete === 'function') onComplete();
-           window.location.href = '/';
+           handleExit(true);
         }, 3000);
 
     } catch (error: any) {
@@ -140,17 +139,39 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
     }
   };
 
+
+  const handleExit = async (status: boolean) => {
+    if (!user) {
+      if (typeof onComplete === 'function') onComplete();
+      window.location.assign('/');
+      return;
+    }
+    try {
+      // 2. Await the Supabase profile update
+      await supabase.from('profiles').update({ is_verified: status }).eq('id', user.id);
+
+      // 3. Await the Auth Metadata stamp
+
+      // 3. Await the Auth Metadata stamp
+      const { error: metaError } = await supabase.auth.updateUser({ data: { onboarding_complete: true } });
+      if (metaError) {
+          throw metaError;
+      }
+
+
+      // 4. Call onComplete() if it exists
+      if (typeof onComplete === 'function') onComplete();
+
+      // 5. Force clean navigation
+      window.location.assign('/');
+    } catch (error: any) {
+      setRoutingError(error.message || "Unknown routing failure");
+    }
+  };
+
   const handleSkip = async () => {
     toast.success("Securing your connection...");
-
-    // 1. Silent background DB sync
-    if (user) {
-      await supabase.from('profiles').update({ is_verified: false }).eq('id', user.id);
-    }
-
-    // 2. Absolute hard transition
-    if (typeof onComplete === 'function') onComplete();
-    window.location.href = '/';
+    await handleExit(false);
   };
 
   if (showSuccessOverlay) {
@@ -272,6 +293,15 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
             </button>
         </div>
       </motion.div>
+
+      {routingError && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[90%] max-w-md border border-red-500/30 bg-red-500/10 backdrop-blur-md p-4 rounded-2xl shadow-[0_0_30px_rgba(239,68,68,0.2)] z-[99999]">
+          <p className="text-red-500 font-bold text-sm text-center drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]">
+            ROUTING DIAGNOSTIC: {routingError}
+          </p>
+        </div>
+      )}
     </div>
+
   );
 }

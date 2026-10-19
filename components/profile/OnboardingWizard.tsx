@@ -11,9 +11,9 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   userId = 'usr_3d98f21a',
   onComplete,
 }) => {
-  const [fullName, setFullName] = useState('');
-  const [username, setUsername] = useState('');
-  const [bio, setBio] = useState('');
+  const [fullName, setFullName] = useState(() => localStorage.getItem('em_wizard_name') || '');
+  const [username, setUsername] = useState(() => localStorage.getItem('em_wizard_username') || '');
+  const [bio, setBio] = useState(() => localStorage.getItem('em_wizard_bio') || '');
   const [isSaving, setIsSaving] = useState(false);
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -26,6 +26,9 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     try {
       await new Promise(resolve => setTimeout(resolve, 2000));
       setIsSuccess(true);
+      localStorage.removeItem('em_wizard_name');
+      localStorage.removeItem('em_wizard_username');
+      localStorage.removeItem('em_wizard_bio');
       setTimeout(() => {
         if (onComplete) onComplete();
       }, 2500);
@@ -46,7 +49,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               <span className="font-bold text-red-300 uppercase tracking-wider text-xs block mb-1">Profile Update Failed</span>
               <span className="leading-relaxed font-mono text-xs">{errorToast}</span>
             </div>
-            <button onClick={() => setErrorToast(null)} className="text-red-400 hover:text-white font-bold px-1.5 py-0.5 rounded-lg">✕</button>
+            <button type="button" onClick={() => setErrorToast(null)} className="text-red-400 hover:text-white font-bold px-1.5 py-0.5 rounded-lg">✕</button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -64,7 +67,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Full Designation</label>
             <div className="relative flex items-center group">
               <User className="absolute left-4 w-5 h-5 text-neutral-500 group-focus-within:text-fuchsia-400" />
-              <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-mono" placeholder="Enter full legal name" />
+              <input type="text" required value={fullName} onChange={(e) => { setFullName(e.target.value); localStorage.setItem('em_wizard_name', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-mono" placeholder="Enter full legal name" />
             </div>
           </div>
 
@@ -72,7 +75,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Network Handle</label>
             <div className="relative flex items-center group">
               <AtSign className="absolute left-4 w-5 h-5 text-neutral-500 group-focus-within:text-fuchsia-400" />
-              <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-mono" placeholder="username" />
+              <input type="text" required value={username} onChange={(e) => { setUsername(e.target.value); localStorage.setItem('em_wizard_username', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-mono" placeholder="username" />
             </div>
           </div>
 
@@ -80,7 +83,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             <label className="block text-xs font-bold text-neutral-300 uppercase tracking-widest pl-1">Neural Bio / Description</label>
             <div className="relative flex items-start group pt-1">
               <FileText className="absolute left-4 top-4 w-5 h-5 text-neutral-500 group-focus-within:text-fuchsia-400" />
-              <textarea required rows={3} value={bio} onChange={(e) => setBio(e.target.value)} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-mono resize-none" placeholder="Define your interests, goals, and identity..." />
+              <textarea required rows={3} value={bio} onChange={(e) => { setBio(e.target.value); localStorage.setItem('em_wizard_bio', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-mono resize-none" placeholder="Define your interests, goals, and identity..." />
             </div>
           </div>
 

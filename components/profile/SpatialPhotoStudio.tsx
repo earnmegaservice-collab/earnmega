@@ -213,8 +213,8 @@ export const SpatialPhotoStudio: React.FC<SpatialPhotoStudioProps> = ({ onComple
                     {/* Dark gradient overlay so the X button is visible */}
                     <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     
-                    <button 
-                      onClick={() => removePhoto(index)} type="button"
+                    <button type="button"
+                      onClick={() => removePhoto(index)}
                       className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur-xl flex items-center justify-center text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:bg-red-500/80 hover:border-red-500 hover:scale-110 active:scale-90 shadow-xl"
                     >
                       <X size={14} strokeWidth={3} />
