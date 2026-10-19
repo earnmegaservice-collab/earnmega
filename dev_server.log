@@ -5,12 +5,8 @@
 ▲ Next.js 16.4.0 (Turbopack)
 - Local:         http://localhost:3000
 - Network:       http://192.168.0.2:3000
-✓ Ready in 582ms
-✓ Running next.config.mjs took 31ms
+✓ Ready in 589ms
+✓ Running next.config.mjs took 30ms
 
 ○ Compiling / ...
- GET / 200 in 1569ms (next.js: 694ms, application-code: 874ms)
- GET / 200 in 68ms (next.js: 3ms, application-code: 65ms)
- GET /test-spatial 200 in 89ms (next.js: 12ms, application-code: 77ms)
-[browser] Upload error: StorageUnknownError: Failed to fetch (components/profile/SpatialPhotoStudio.tsx:75:19)
-[browser] Error finalizing spatial matrix: StorageUnknownError: Failed to fetch (components/profile/SpatialPhotoStudio.tsx:97:15)
+ GET / 200 in 1527ms (next.js: 665ms, application-code: 862ms)

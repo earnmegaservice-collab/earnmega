@@ -41,6 +41,9 @@ interface UserProfile {
   intent?: string;
   tier?: string;
   ghost_mode?: boolean;
+  is_location_active?: boolean;
+  location_city?: string;
+  location_country?: string;
   gender?: string;
   hobby?: string;
   vibe?: string;
@@ -69,6 +72,10 @@ export default function MyProfileView({
       isVerified: profile.isVerified || profile.is_verified || false,
       location: profile.location || '',
       liveLocation: profile.liveLocation || '',
+      is_location_active: profile.is_location_active,
+      location_city: profile.location_city,
+      location_country: profile.location_country,
+      ghost_mode: profile.ghost_mode,
       bio: profile.bio || '',
       publicImages: profile.publicImages || profile.profile_images || (profile.avatarUrl ? [profile.avatarUrl] : []),
       zodiac: profile.zodiac_sign,
@@ -81,7 +88,6 @@ export default function MyProfileView({
       languages: profile.languages_spoken ? profile.languages_spoken.split(',') : [],
       intent: profile.intent,
       tier: profile.tier,
-      ghost_mode: profile.ghost_mode || false,
       gender: profile.gender,
       hobby: profile.hobby,
       vibe: profile.vibe,
@@ -194,10 +200,10 @@ export default function MyProfileView({
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
                   <span className="text-xs font-bold text-white/80">Ghost Mode Active 👻</span>
                 </div>
-              ) : mappedProfile.liveLocation ? (
+              ) : mappedProfile.is_location_active && mappedProfile.location_city ? (
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
                   <motion.div animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-                  <span className="text-xs font-bold text-white/90">Live: {mappedProfile.liveLocation}</span>
+                  <span className="text-xs font-bold text-white/90">{mappedProfile.location_city}, {mappedProfile.location_country}</span>
                 </div>
               ) : null}
             </div>

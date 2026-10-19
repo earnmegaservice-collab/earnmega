@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { SpatialRadarModal } from '../location/SpatialRadarModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Compass,
@@ -349,6 +350,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         )}
       </AnimatePresence>
       <NotificationDrawer isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
+      <SpatialRadarModal />
     </div>
   );
 };
