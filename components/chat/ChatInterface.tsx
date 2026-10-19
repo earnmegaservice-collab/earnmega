@@ -167,7 +167,6 @@ const AudioPlayer = ({ src }: { src: string }) => {
   );
 };
 
-import OnboardingWizard from '../profile/OnboardingWizard';
 import FacialVerification from '../profile/FacialVerification';
 
 import ExploreFeed from '../explore/ExploreFeed';
@@ -269,8 +268,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
 
   // Onboarding & Verification states
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [needsVerification, setNeedsVerification] = useState(false);
+    const [needsVerification, setNeedsVerification] = useState(false);
   const [showVerificationGateModal, setShowVerificationGateModal] = useState(false);
 
   // Status State
@@ -336,8 +334,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     if (!error && data) {
       if (data.has_completed_onboarding === false) {
-          setNeedsOnboarding(true);
-      }
+                }
 
       // If completed onboarding but not verified
       if (data.has_completed_onboarding && data.is_verified === false) {
@@ -1437,15 +1434,11 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     if (groupId === user?.id || unlockedStatuses.has(groupId)) {
        setViewingStatuses({ groupId, statuses, profile });
     } else {
-       setUnlockModalState({ isOpen: true, creatorId: groupId, creatorUsername: profile?.username || 'User' });
+       setUnlockModalState({ isOpen: true, creatorId: groupId, creatorUsername: (profile?.username || 'unknown_user') || 'User' });
        // Temporarily store what they clicked to show it after unlock
        setViewingStatuses({ groupId, statuses, profile });
     }
   };
-
-  if (needsOnboarding) {
-      return <OnboardingWizard onComplete={() => { setNeedsOnboarding(false); fetchCurrentUserProfile(); }} />;
-  }
 
   if (needsVerification) {
       return <FacialVerification onComplete={() => { setNeedsVerification(false); fetchCurrentUserProfile(); }} />;

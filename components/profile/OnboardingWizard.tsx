@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../utils/supabase';
+
 import { AlertCircle, User, AtSign, FileText, CheckCircle2 } from 'lucide-react';
 
 interface OnboardingWizardProps {
@@ -8,9 +11,10 @@ interface OnboardingWizardProps {
 }
 
 const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
-  userId = 'usr_3d98f21a',
+  userId,
   onComplete,
 }) => {
+  const { user } = useAuth();
   const [fullName, setFullName] = useState(() => localStorage.getItem('em_wizard_name') || '');
   const [username, setUsername] = useState(() => localStorage.getItem('em_wizard_username') || '');
   const [bio, setBio] = useState(() => localStorage.getItem('em_wizard_bio') || '');
@@ -23,8 +27,22 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     setIsSaving(true);
     setErrorToast(null);
 
+    if (!user) {
+      setErrorToast('Authentication failed. No active session.');
+      setIsSaving(false);
+      return;
+    }
+
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const { error } = await supabase.from('profiles').upsert({
+        id: user.id,
+        full_name: fullName,
+        username: username,
+        bio: bio
+      });
+
+      if (error) throw error;
+
       setIsSuccess(true);
       localStorage.removeItem('em_wizard_name');
       localStorage.removeItem('em_wizard_username');

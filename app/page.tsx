@@ -23,8 +23,7 @@ export default function HomePage() {
   const [session, setSession] = useState<any>(null);
   const [profileData, setProfileData] = useState<any>(null);
   const [isBooting, setIsBooting] = useState(true);
-  const [isBypassed, setIsBypassed] = useState(false);
-  const [hasMounted, setHasMounted] = useState(false);
+    const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
     setHasMounted(true);
@@ -241,44 +240,35 @@ export default function HomePage() {
     );
   }
 
-  if (isBooting) {
+
+  // 1. BOOT SEQUENCE
+  if (isBooting || !hasMounted || isLoading) {
     return (
-      <div className="flex flex-col min-h-screen items-center justify-center bg-[#050505] text-emerald-400/50 tracking-widest text-sm relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(16,185,129,0.15)_0%,_transparent_70%)] pointer-events-none" />
-        <div className="w-16 h-16 rounded-full border-4 border-emerald-500/20 border-t-emerald-400 animate-spin mb-6" />
-        <p className="animate-pulse drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]">INITIALIZING SECURE CONNECTION...</p>
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-neutral-950">
+        <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shadow-[0_0_30px_rgba(99,102,241,0.5)]"></div>
+        <p className="mt-6 text-indigo-400 font-mono text-xs uppercase tracking-widest animate-pulse">Initializing System...</p>
       </div>
     );
   }
 
-  // GATE 2: Absolute Authentication
+  // 2. UNAUTHENTICATED
   if (!session) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
-        <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
-
-        {/* Toast Notification */}
-        <AnimatePresence>
-          {toast && (
-            <motion.div
-              initial={{ y: -50, opacity: 0, x: '-50%' }}
-              animate={{ y: 0, opacity: 1, x: '-50%' }}
-              exit={{ y: -50, opacity: 0, x: '-50%' }}
-              className={`absolute top-6 left-1/2 px-6 py-3 rounded-full text-sm font-medium shadow-2xl z-50 transition-all ${toast.type === 'error' ? 'bg-red-500/20 text-red-200 border border-red-500/50' : 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/50'}`}
-            >
-              {toast.message}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Background Effects */}
+        <div className="fixed inset-0 z-0 pointer-events-none">
+          <div className="absolute top-[-10%] left-[-10%] w-[120%] h-[120%] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#0a0a0a] to-[#0a0a0a] mix-blend-screen"></div>
+          <div className="absolute bottom-0 left-0 right-0 h-[50vh] bg-gradient-to-t from-purple-900/10 to-transparent"></div>
+        </div>
 
         {/* Brand Logo */}
-        <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center font-bold text-3xl shadow-2xl mb-6">
+        <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center font-bold text-3xl shadow-2xl mb-6 z-10">
           EM
         </div>
 
         {/* Title & Tagline */}
-        <h1 className="text-3xl font-bold tracking-tight mb-2">Earnmega</h1>
-        <p className="text-sm text-zinc-400 mb-8 max-w-xs">
+        <h1 className="text-3xl font-bold tracking-tight mb-2 z-10">Earnmega</h1>
+        <p className="text-sm text-zinc-400 mb-8 max-w-xs z-10">
           Global social hub. Real-time chat, secure connections, and rewarding experiences.
         </p>
 
@@ -287,7 +277,7 @@ export default function HomePage() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5, type: 'spring' }}
-            className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl"
+            className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl z-10"
           >
             <h2 className="text-xl font-bold mb-4">Verify Your Email</h2>
             <p className="text-sm text-zinc-400 mb-6">Enter the 6-digit code sent to your email.</p>
@@ -322,7 +312,7 @@ export default function HomePage() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5, type: 'spring' }}
-            className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl"
+            className="w-full max-w-sm bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-3xl shadow-2xl z-10"
           >
             <form onSubmit={handleAuth} className="w-full flex flex-col gap-4">
               <input
@@ -429,32 +419,22 @@ export default function HomePage() {
     );
   }
 
-  // GATE 3: THE VIP BYPASS
-  if (session?.user?.user_metadata?.onboarding_complete === true) {
-    return (
-      <ErrorBoundary>
-        <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
-          <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
-          <RadarActivationModal />
-        </AppShell>
-      </ErrorBoundary>
-    );
-  }
 
-  // GATE 4: The Database Matrix Check
+  // 3. UNIFIED ROUTER CASCADE
+
   const hasName = Boolean(profileData?.fullName || profileData?.full_name);
   const hasImages = Array.isArray(profileData?.publicImages) && profileData.publicImages.length > 0;
 
-  if ((!hasName || !hasImages) && !isBypassed) {
+  if (!hasName || !hasImages) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
-        <OnboardingFlow onComplete={() => setIsBypassed(true)} />
+        <OnboardingFlow onComplete={() => window.location.reload()} />
       </div>
     );
   }
 
-  // GATE 5: DEFAULT (AppShell)
+  // DEFAULT (AppShell)
   return (
     <ErrorBoundary>
       <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
