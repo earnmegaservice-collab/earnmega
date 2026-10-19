@@ -60,11 +60,8 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
       setShowSuccessOverlay(true);
       setTimeout(() => {
-        localStorage.setItem('em_hub_unlocked', 'true');
         if (typeof onComplete === 'function') onComplete();
-        setTimeout(() => {
-          window.location.assign('/');
-        }, 500);
+        window.location.href = '/';
       }, 3000);
 
     } catch (err: any) {
@@ -133,13 +130,8 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
         setShowSuccessOverlay(true);
         setTimeout(() => {
-           localStorage.setItem('em_hub_unlocked', 'true');
            if (typeof onComplete === 'function') onComplete();
-
-           // Failsafe exit
-           setTimeout(() => {
-             window.location.assign('/');
-           }, 500);
+           window.location.href = '/';
         }, 3000);
 
     } catch (error: any) {
@@ -151,17 +143,14 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   const handleSkip = async () => {
     toast.success("Securing your connection...");
 
-    // 1. Permanently unlock the app on this device
-    localStorage.setItem('em_hub_unlocked', 'true');
-
-    // 2. Silent background DB sync
+    // 1. Silent background DB sync
     if (user) {
       await supabase.from('profiles').update({ is_verified: false }).eq('id', user.id);
     }
 
-    // 3. Absolute hard transition
+    // 2. Absolute hard transition
     if (typeof onComplete === 'function') onComplete();
-    setTimeout(() => window.location.assign('/'), 500);
+    window.location.href = '/';
   };
 
   if (showSuccessOverlay) {

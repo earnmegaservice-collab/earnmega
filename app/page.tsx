@@ -28,7 +28,6 @@ export default function HomePage() {
   const [session, setSession] = useState<any>(null);
   const [profileData, setProfileData] = useState<any>(null);
   const [isBooting, setIsBooting] = useState(true);
-  const [isLocallyUnlocked, setIsLocallyUnlocked] = useState(false);
 
   // Generate lists for dropdowns
   const { phoneCodes, currencies } = useMemo(() => {
@@ -64,18 +63,13 @@ export default function HomePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompletingRegistration, setIsCompletingRegistration] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
-  // PHASE 1: THE UNBREAKABLE BOOT SEQUENCE
+  // Fetch Session and Profile
   useEffect(() => {
-    // 1. Safely read device storage on the client
-    setIsLocallyUnlocked(typeof window !== 'undefined' && localStorage.getItem('em_hub_unlocked') === 'true');
-
     const initializeApp = async () => {
       try {
-        // 2. Await the definitive auth state
         const { data: { session: activeSession } } = await supabase.auth.getSession();
         setSession(activeSession as any);
 
-        // 3. If authenticated, fetch the matrix BEFORE lifting the boot screen
         if (activeSession) {
           const { data, error } = await supabase
             .from('profiles')
@@ -87,14 +81,15 @@ export default function HomePage() {
              console.error("Profile fetch error:", error);
           }
           setProfileData(data);
-          if (!data || !data.fullName || !data.publicImages?.length) {
+
+          const fullName = data?.full_name || data?.fullName;
+          if (!data || !fullName || !data.publicImages?.length) {
               setStep('complete-profile');
           }
         }
       } catch (error) {
-        console.error("Boot Sequence Error:", error);
+        console.error("Initialization Error:", error);
       } finally {
-        // 4. NEVER lift the loading screen until all promises resolve
         setIsBooting(false);
       }
     };
@@ -238,15 +233,8 @@ export default function HomePage() {
     }
   };
 
-  // GATE 1: The Boot Screen
   if (isBooting) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#050505]">
-        <div className="text-sm font-medium tracking-widest text-emerald-400/70 uppercase animate-pulse">
-          Initializing Secure Connection...
-        </div>
-      </div>
-    );
+    return <div className="flex min-h-screen items-center justify-center bg-[#050505] text-emerald-400/50 tracking-widest text-sm">INITIALIZING...</div>;
   }
 
   // GATE 2: Absolute Authentication (Protects the Main App from unauthorized loops)
@@ -427,16 +415,6 @@ export default function HomePage() {
     );
   }
 
-  // GATE 3: The VIP Device Bypass
-  if (isLocallyUnlocked) {
-    return (
-      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
-        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
-        <RadarActivationModal />
-      </AppShell>
-    );
-  }
-
   // GATE 4: The Database Matrix Check
   const hasName = Boolean(profileData?.fullName || profileData?.full_name);
   const hasImages = Array.isArray(profileData?.publicImages) && profileData.publicImages.length > 0;
@@ -476,10 +454,6 @@ export default function HomePage() {
     );
   }
 
-  // DEFAULT GATE: Matrix is complete. Unlock the device permanently for next time.
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('em_hub_unlocked', 'true');
-  }
   return (
       <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
         <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
