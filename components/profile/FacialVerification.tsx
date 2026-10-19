@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import { Camera, CameraOff, CheckCircle, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../utils/supabase';
@@ -51,25 +52,13 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
   const startCamera = async () => {
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 } } });
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       setStream(mediaStream);
       setCameraError(false);
-    } catch (err1: any) {
-      try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-        setStream(mediaStream);
-        setCameraError(false);
-      } catch (err2: any) {
-        try {
-          const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
-          setStream(mediaStream);
-          setCameraError(false);
-        } catch (err3: any) {
-          console.error("Camera access failed:", err3);
-          setCameraError(true);
-          toast.error("Camera access denied by device settings");
-        }
-      }
+    } catch (err: any) {
+      console.error("Camera access failed:", err);
+      setCameraError(true);
+      toast.error("Camera access denied by device settings");
     }
   };
 
@@ -183,10 +172,20 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
 
 
   const handleSkip = async () => {
-    toast.success("Verification bypassed.");
+    toast.success("Verification bypassed. Initializing network...");
+
     setTimeout(() => {
-      if (onComplete) onComplete();
-    }, 600);
+      // Attempt 1: Standard prop handoff
+      if (typeof onComplete === 'function') {
+        onComplete();
+      }
+
+      // Attempt 2: Hard break out of the PWA onboarding loop
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 500);
+
+    }, 800);
   };
 
   if (showSuccessOverlay) {
