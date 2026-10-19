@@ -27,6 +27,7 @@ interface UserProfile {
   age: number;
   isVerified: boolean;
   location?: string;
+  liveLocation?: string;
   bio?: string;
   publicImages: string[];
   zodiac?: string;
@@ -67,6 +68,7 @@ export default function MyProfileView({
       age: profile.age || 25, // Mock age
       isVerified: profile.isVerified || profile.is_verified || false,
       location: profile.location || '',
+      liveLocation: profile.liveLocation || '',
       bio: profile.bio || '',
       publicImages: profile.publicImages || profile.profile_images || (profile.avatarUrl ? [profile.avatarUrl] : []),
       zodiac: profile.zodiac_sign,
@@ -181,12 +183,27 @@ export default function MyProfileView({
 
       {/* 2. USER DETAILS HEADER */}
       <div className="px-6 space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <h2 className="text-2xl font-black text-white tracking-tight">{mappedProfile.name}</h2>
-            {mappedProfile.isVerified && <VerifiedBadge />}
+        <div className="flex items-start justify-between">
+          <div className="flex flex-col space-y-1">
+            <div className="flex items-center space-x-2">
+              <h2 className="text-2xl font-black text-white tracking-tight">{mappedProfile.name}</h2>
+              {mappedProfile.isVerified && <VerifiedBadge />}
+            </div>
+            <div>
+              {mappedProfile.ghost_mode ? (
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
+                  <span className="text-xs font-bold text-white/80">Ghost Mode Active 👻</span>
+                </div>
+              ) : mappedProfile.liveLocation ? (
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
+                  <motion.div animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                  <span className="text-xs font-bold text-white/90">Live: {mappedProfile.liveLocation}</span>
+                </div>
+              ) : null}
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
+
+          <div className="flex items-center space-x-2 mt-1">
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition active:scale-95 text-white"
