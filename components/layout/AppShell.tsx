@@ -49,7 +49,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       const { data, count, error } = await supabase
         .from('notifications')
         .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
+        .eq('user_id', user?.id)
         .eq('is_read', false);
 
       if (!error && data) {
@@ -69,7 +69,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                  const giftData = { name: parts[1], cost: parseInt(parts[2]) };
                  const senderId = parts.length > 3 ? parts[3] : '';
                  const customEvent = new CustomEvent('gift_received_local', {
-                   detail: { giftData: giftData, senderId: senderId, receiverId: user.id }
+                   detail: { giftData: giftData, senderId: senderId, receiverId: user?.id }
                  });
                  // Small delay to allow portal to mount
                  setTimeout(() => window.dispatchEvent(customEvent), 500);
@@ -93,7 +93,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         event: 'INSERT',
         schema: 'public',
         table: 'notifications',
-        filter: `user_id=eq.${user.id}`
+        filter: `user_id=eq.${user?.id}`
       }, (payload) => {
         const newNotif = payload.new;
 
@@ -120,7 +120,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
                // Dispatch custom event to App-Open Supernova GiftOverlay
                const customEvent = new CustomEvent('gift_received_local', {
-                 detail: { giftData: giftData, senderId: senderId, receiverId: user.id }
+                 detail: { giftData: giftData, senderId: senderId, receiverId: user?.id }
                });
                window.dispatchEvent(customEvent);
              }
@@ -133,7 +133,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         event: 'UPDATE',
         schema: 'public',
         table: 'notifications',
-        filter: `user_id=eq.${user.id}`
+        filter: `user_id=eq.${user?.id}`
       }, (payload) => {
          // If marked as read, recalculate or decrement (to simplify, let's just refetch)
          fetchUnreadCount();

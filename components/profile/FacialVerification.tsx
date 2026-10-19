@@ -140,33 +140,20 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   };
 
 
-  const handleExit = async (status: boolean) => {
+  const handleExit = (status: boolean) => {
     if (!user) {
       if (typeof onComplete === 'function') onComplete();
-      window.location.assign('/');
       return;
     }
-    try {
-      // 2. Await the Supabase profile update
-      await supabase.from('profiles').update({ is_verified: status }).eq('id', user.id);
 
-      // 3. Await the Auth Metadata stamp
+    // Asynchronous background update to prevent freezing
+    Promise.all([
+      supabase.from('profiles').update({ is_verified: status }).eq('id', user.id),
+      supabase.auth.updateUser({ data: { onboarding_complete: true } })
+    ]).catch(err => console.error("Background update failed:", err));
 
-      // 3. Await the Auth Metadata stamp
-      const { error: metaError } = await supabase.auth.updateUser({ data: { onboarding_complete: true } });
-      if (metaError) {
-          throw metaError;
-      }
-
-
-      // 4. Call onComplete() if it exists
-      if (typeof onComplete === 'function') onComplete();
-
-      // 5. Force clean navigation
-      window.location.assign('/');
-    } catch (error: any) {
-      setRoutingError(error.message || "Unknown routing failure");
-    }
+    // Instantly complete without hard page reload
+    if (typeof onComplete === 'function') onComplete();
   };
 
   const handleSkip = async () => {

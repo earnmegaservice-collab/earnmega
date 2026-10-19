@@ -9,9 +9,10 @@ import { supabase } from '../../utils/supabase';
 
 type Step = 'complete-profile' | 'spatial-studio' | 'extended-questionnaire' | 'facial-verification';
 
-export default function OnboardingFlow() {
+export default function OnboardingFlow({ onComplete }: { onComplete?: () => void }) {
   const { user } = useAuth();
   const [step, setStep] = useState<Step>('complete-profile');
+  const [isLoaded, setIsLoaded] = useState(false);
 
   // Load saved step from localStorage to survive OOM kills
   useEffect(() => {
@@ -19,7 +20,10 @@ export default function OnboardingFlow() {
     if (savedStep && ['complete-profile', 'spatial-studio', 'extended-questionnaire', 'facial-verification'].includes(savedStep)) {
       setStep(savedStep);
     }
+    setIsLoaded(true);
   }, []);
+
+  if (!isLoaded) return null;
 
   const handleStepChange = (newStep: Step) => {
     setStep(newStep);
@@ -37,6 +41,7 @@ export default function OnboardingFlow() {
       ) : step === 'facial-verification' ? (
         <FacialVerification onComplete={() => {
           localStorage.removeItem('em_onboarding_step');
+          if (onComplete) onComplete();
         }} />
       ) : null}
     </>

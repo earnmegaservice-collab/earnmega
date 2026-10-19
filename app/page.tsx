@@ -8,6 +8,7 @@ import { supabase } from '../utils/supabase';
 import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RadarActivationModal } from '../components/location/RadarActivationModal';
 import { useWallet } from '../context/WalletContext';
 type Step = 'login' | 'register' | 'verify-otp';
@@ -22,6 +23,13 @@ export default function HomePage() {
   const [session, setSession] = useState<any>(null);
   const [profileData, setProfileData] = useState<any>(null);
   const [isBooting, setIsBooting] = useState(true);
+  const [isBypassed, setIsBypassed] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
 
   // Generate lists for dropdowns
   const { phoneCodes, currencies } = useMemo(() => {
@@ -224,6 +232,15 @@ export default function HomePage() {
     }
   };
 
+
+  if (!hasMounted) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#050505] text-emerald-400/50 tracking-widest text-xs font-mono uppercase">
+        SYNCHRONIZING ENVIRONMENT...
+      </div>
+    );
+  }
+
   if (isBooting) {
     return (
       <div className="flex flex-col min-h-screen items-center justify-center bg-[#050505] text-emerald-400/50 tracking-widest text-sm relative overflow-hidden">
@@ -415,10 +432,12 @@ export default function HomePage() {
   // GATE 3: THE VIP BYPASS
   if (session?.user?.user_metadata?.onboarding_complete === true) {
     return (
-      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
-        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
-        <RadarActivationModal />
-      </AppShell>
+      <ErrorBoundary>
+        <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
+          <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+          <RadarActivationModal />
+        </AppShell>
+      </ErrorBoundary>
     );
   }
 
@@ -426,21 +445,23 @@ export default function HomePage() {
   const hasName = Boolean(profileData?.fullName || profileData?.full_name);
   const hasImages = Array.isArray(profileData?.publicImages) && profileData.publicImages.length > 0;
 
-  if (!hasName || !hasImages) {
+  if ((!hasName || !hasImages) && !isBypassed) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
-        <OnboardingFlow />
+        <OnboardingFlow onComplete={() => setIsBypassed(true)} />
       </div>
     );
   }
 
   // GATE 5: DEFAULT (AppShell)
   return (
+    <ErrorBoundary>
       <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
         <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
         <RadarActivationModal />
       </AppShell>
+    </ErrorBoundary>
   );
 
 }
