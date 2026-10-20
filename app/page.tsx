@@ -1,6 +1,6 @@
 "use client";
 import OnboardingFlow from '../components/profile/OnboardingFlow';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
@@ -13,7 +13,7 @@ import { RadarActivationModal } from '../components/location/RadarActivationModa
 import { useWallet } from '../context/WalletContext';
 type Step = 'login' | 'register' | 'verify-otp';
 
-export default function HomePage() {
+function HomeContent() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const { balance } = useWallet();
@@ -467,4 +467,16 @@ export default function HomePage() {
 
 }
 
-// deployment trigger
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-neutral-950">
+        <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shadow-[0_0_30px_rgba(99,102,241,0.5)]"></div>
+        <p className="mt-6 text-indigo-400 font-mono text-xs uppercase tracking-widest animate-pulse">Initializing System...</p>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
+  );
+}
