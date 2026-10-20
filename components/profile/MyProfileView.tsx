@@ -66,6 +66,7 @@ export default function MyProfileView({
 
 
   // Map from the `profile` object to the expected structure
+  console.log('Profile Object:', profile);
   const mappedProfile: UserProfile = {
       name: profile.name || profile.username || 'User',
       age: profile.age || 25, // Mock age
@@ -201,7 +202,7 @@ export default function MyProfileView({
                   <span className="text-xs font-bold text-white/80">Ghost Mode Active 👻</span>
                 </div>
               ) : mappedProfile.is_location_active && mappedProfile.location_city ? (
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
                   <motion.div animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
                   <span className="text-xs font-bold text-white/90">{mappedProfile.location_city}, {mappedProfile.location_country}</span>
                 </div>

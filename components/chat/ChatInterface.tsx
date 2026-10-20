@@ -356,6 +356,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         // Optional verification flag addition, can be useful later
         isVerified: data.is_verified,
         ghost_mode: data.ghost_mode || false,
+        is_location_active: data.is_location_active,
+        location_city: data.location_city,
+        location_country: data.location_country,
       } as any);
     } else {
       setCurrentUserProfile({
@@ -641,6 +644,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                   isOnline: onlineUsers.has(u.id),
                   coinsGifted: u.coins_gifted || 0,
                   isSelf: false,
+                  ghost_mode: u.ghost_mode || false,
+                  is_location_active: u.is_location_active,
+                  location_city: u.location_city,
+                  location_country: u.location_country,
                   unreadCount: 0,
                   lastMessageTime: 0
               }));
@@ -669,6 +676,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                       isOnline: onlineUsers.has(u.id),
                       coinsGifted: u.coins_gifted || 0,
                       isSelf: false,
+                      ghost_mode: u.ghost_mode || false,
+                      is_location_active: u.is_location_active,
+                      location_city: u.location_city,
+                      location_country: u.location_country,
                       unreadCount: 0,
                       lastMessageTime: 0
                   }));

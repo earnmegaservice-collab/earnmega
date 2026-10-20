@@ -18,6 +18,9 @@ export interface UserProfileDetails {
   coinsGifted: number;
   isSelf: boolean;
   ghost_mode?: boolean;
+  is_location_active?: boolean;
+  location_city?: string;
+  location_country?: string;
   isVerified?: boolean;
   unreadCount?: number;
   lastMessageTime?: number;
@@ -181,7 +184,19 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
                   <h2 className="text-xl font-bold text-white flex items-center gap-2 drop-shadow-sm">
                     {user.name}
                   </h2>
-                  <p className="text-sm text-white/50 mt-1 font-medium">Joined {user.joinDate}</p>
+                  <div className="flex flex-col gap-1.5 mt-1.5">
+                    {user.ghost_mode ? (
+                      <div className="inline-flex self-start items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
+                        <span className="text-xs font-bold text-white/80">Ghost Mode Active 👻</span>
+                      </div>
+                    ) : user.is_location_active && user.location_city ? (
+                      <div className="inline-flex self-start items-center gap-2 px-4 py-1.5 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
+                        <motion.div animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                        <span className="text-xs font-bold text-white/90">{user.location_city}, {user.location_country}</span>
+                      </div>
+                    ) : null}
+                    <p className="text-sm text-white/50 font-medium">Joined {user.joinDate}</p>
+                  </div>
                 </div>
 
                 <div className="bg-white/5 backdrop-blur-xl p-3 rounded-xl border border-white/10 shadow-inner">
