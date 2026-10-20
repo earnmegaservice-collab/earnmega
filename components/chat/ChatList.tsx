@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
+import VerifiedTick from '../ui/VerifiedTick';
 
 interface ChatListProps {
   exploreUsers: UserProfileDetails[];
@@ -25,6 +27,7 @@ export default function ChatList({
   fetchError
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const router = useRouter();
 
   const filteredUsers = exploreUsers.filter(u =>
     u.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -69,6 +72,7 @@ export default function ChatList({
                   return;
                 }
                 setOtherUserProfile(u);
+                router.push(`/chats/${u.id}`);
               }}
               className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group"
             >
@@ -96,12 +100,13 @@ export default function ChatList({
               {/* Middle: User Info & Message Preview */}
               <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center">
                 <div className="flex items-center space-x-1">
-                  <h3 className={`text-base truncate drop-shadow-sm ${
+                  <h3 className={`text-base truncate drop-shadow-sm flex items-center ${
                     u.tier === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
                     u.tier === 'PRO' ? 'text-amber-400 font-bold' :
                     'text-neutral-200 font-bold'
                   }`}>
                     {u.name}
+                    {u.isVerified && <VerifiedTick />}
                   </h3>
                   {u.tier === 'PREMIUM' && (
                     <span className="text-[8px] bg-gradient-to-r from-yellow-400 to-amber-500 text-black px-1 rounded-full font-extrabold shadow-[0_0_5px_rgba(251,191,36,0.5)] flex-shrink-0">

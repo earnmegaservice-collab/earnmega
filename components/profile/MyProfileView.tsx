@@ -20,7 +20,7 @@ import {
   Settings
 } from 'lucide-react';
 import SettingsModal from './SettingsModal';
-import VerifiedBadge from '../ui/VerifiedBadge';
+import VerifiedTick from '../ui/VerifiedTick';
 
 interface UserProfile {
   name: string;
@@ -102,15 +102,30 @@ export default function MyProfileView({
   const handleSaveProfile = async () => {
     if (!user) return;
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .update({
            ...editForm,
-           profile_images: localImages
+           profile_images: localImages,
+           publicImages: localImages
         })
-        .eq('id', user.id);
+        .eq('id', user.id)
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (error) {
+        toast.error("Failed to save: " + error.message);
+        return;
+      }
+
+      // Update local editForm state to reflect successful database changes
+      if (data) {
+        setEditForm({
+            ...editForm,
+            ...data
+        });
+      }
+
       toast.success("Profile saved!");
       setIsEditing(false);
       // Optional: trigger a refresh or callback to parent if needed
@@ -246,7 +261,7 @@ export default function MyProfileView({
           <div className="flex flex-col space-y-1">
             <div className="flex items-center space-x-2">
               <h2 className="text-2xl font-black text-white tracking-tight">{mappedProfile.name}</h2>
-              {mappedProfile.isVerified && <VerifiedBadge />}
+              {mappedProfile.isVerified && <VerifiedTick />}
             </div>
             <div>
               {mappedProfile.ghost_mode ? (

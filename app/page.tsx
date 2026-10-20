@@ -423,9 +423,10 @@ export default function HomePage() {
   // 3. UNIFIED ROUTER CASCADE
 
   const hasName = Boolean(profileData?.fullName || profileData?.full_name);
-  const hasImages = Array.isArray(profileData?.publicImages) && profileData.publicImages.length > 0;
+  const hasImages = Array.isArray(profileData?.publicImages) && profileData.publicImages.length >= 6;
+  const hasCoreInfo = Boolean(profileData?.bio && profileData?.gender);
 
-  if (!hasName || !hasImages) {
+  if (!hasName || !hasImages || !hasCoreInfo) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
