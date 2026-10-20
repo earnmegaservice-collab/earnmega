@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -78,6 +78,7 @@ export default function ChatList({
               className="w-full relative"
             >
               <button
+              <div
                 onClick={(e) => {
                   try {
                     if (!u.id) {
@@ -93,6 +94,13 @@ export default function ChatList({
                   } catch (err: any) {
                     setNavigationError(err.message || 'Failed to open chat.');
                   }
+
+
+                  setOtherUserProfile(u);
+                  if (u.id) {
+                    router.push(`/chats/${u.id}`);
+                  }
+
                 }}
                 className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group touch-manipulation pointer-events-auto"
               >
@@ -152,7 +160,11 @@ export default function ChatList({
                   </div>
                 )}
               </div>
+ 
               </button>
+
+              </div>
+
             </motion.div>
           ))}
         </AnimatePresence>
