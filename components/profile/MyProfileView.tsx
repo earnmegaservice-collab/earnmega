@@ -45,7 +45,7 @@ interface UserProfile {
   location_city?: string;
   location_country?: string;
   gender?: string;
-  hobby?: string;
+  hobbies?: string;
   vibe?: string;
 }
 
@@ -93,7 +93,7 @@ export default function MyProfileView({
         zodiac_sign: profile.zodiac_sign || '',
         education_level: profile.education_level || '',
         job_title: profile.job_title || '',
-        hobby: profile.hobby || '',
+        hobbies: profile.hobbies || '',
         communication_style: profile.communication_style || '',
       });
     }
@@ -113,10 +113,7 @@ export default function MyProfileView({
         .select()
         .single();
 
-      if (error) {
-        toast.error("Failed to save: " + error.message);
-        return;
-      }
+      if (error) throw error;
 
       // Update local editForm state to reflect successful database changes
       if (data) {
@@ -158,7 +155,8 @@ export default function MyProfileView({
       intent: profile.intent,
       tier: profile.tier,
       gender: profile.gender,
-      hobby: profile.hobby,
+      hobbies: profile.hobbies,
+
       vibe: profile.vibe,
 
   };
@@ -191,7 +189,18 @@ export default function MyProfileView({
 
           setLocalImages(dbImages);
 
-          toast.success("Photo uploaded to slot! Remember to Save Profile.");
+          // Phase 3 & 4: Upload Wiring - immediately updates the database array and local UI state
+          const { error: dbError } = await supabase
+              .from('profiles')
+              .update({
+                  profile_images: dbImages,
+                  publicImages: dbImages
+              })
+              .eq('id', user.id);
+
+          if (dbError) throw dbError;
+
+          toast.success("Photo uploaded and saved successfully!");
       } catch (error: any) {
           toast.error("Upload failed: " + error.message);
       } finally {
@@ -226,7 +235,14 @@ export default function MyProfileView({
           {displayPhotos.slice(0, 6).map((imgUrl, index) => (
             <div
               key={index}
-              onClick={() => { if (isEditing) { setSelectedSlotIndex(index); fileInputRef.current?.click(); } else if (imgUrl) setFullscreenImage(imgUrl); }}
+              onClick={() => {
+                if (!imgUrl) {
+                    setSelectedSlotIndex(index);
+                    fileInputRef.current?.click();
+                } else {
+                    setFullscreenImage(imgUrl);
+                }
+              }}
               className="relative aspect-[3/4] bg-white/[0.04] rounded-2xl overflow-hidden cursor-pointer group border border-white/[0.05]"
             >
               {isUploading && selectedSlotIndex === index ? (
@@ -245,7 +261,13 @@ export default function MyProfileView({
                 />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center text-white/20">
-                  <Sparkles className="w-4 h-4 mb-1" />
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="w-8 h-8 rounded-full border border-emerald-500/50 flex items-center justify-center bg-emerald-500/10 mb-2 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                  >
+                    <span className="text-emerald-400 text-lg leading-none">+</span>
+                  </motion.div>
                   <span className="text-[9px] font-bold">Slot {index + 1}</span>
                 </div>
               )}
@@ -355,8 +377,8 @@ export default function MyProfileView({
               <input type="text" value={editForm.job_title !== undefined ? editForm.job_title : mappedProfile.job || ''} onChange={(e) => setEditForm({...editForm, job_title: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Engineer" />
             </div>
             <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Hobby</span>
-              <input type="text" value={editForm.hobby !== undefined ? editForm.hobby : mappedProfile.hobby || ''} onChange={(e) => setEditForm({...editForm, hobby: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Hiking" />
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Hobbies</span>
+              <input type="text" value={editForm.hobbies !== undefined ? editForm.hobbies : mappedProfile.hobbies || ''} onChange={(e) => setEditForm({...editForm, hobbies: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Hiking" />
             </div>
             <div className="flex flex-col space-y-1 col-span-2">
               <span className="text-[9px] uppercase tracking-wider text-white/50">Communication</span>
@@ -419,10 +441,10 @@ export default function MyProfileView({
                 </div>
               </div>
             )}
-            {mappedProfile.hobby && (
+            {mappedProfile.hobbies && (
               <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Hobby</span>
-                <span className="text-white/90 text-xs">{mappedProfile.hobby}</span>
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Hobbies</span>
+                <span className="text-white/90 text-xs">{mappedProfile.hobbies}</span>
               </div>
             )}
             {mappedProfile.communicationStyle && (
