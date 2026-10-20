@@ -18,7 +18,6 @@ function HomeContent() {
   const { balance } = useWallet();
   const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile'>('chats');
 
-  // Auth Form State
   const [session, setSession] = useState<any>(null);
   const [profileState, setProfileState] = useState<any>(null);
   const [isGateLoading, setIsGateLoading] = useState(true);
@@ -28,7 +27,6 @@ function HomeContent() {
     setHasMounted(true);
   }, []);
 
-  // Generate lists for dropdowns
   const { phoneCodes, currencies } = useMemo(() => {
     const codes = new Set<string>();
     const currs = new Set<string>();
@@ -46,24 +44,20 @@ function HomeContent() {
     };
   }, []);
 
-  // Auth Form State
   const [step, setStep] = useState<Step>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
 
-  // Additional Profile Data State
   const [username, setUsername] = useState('');
   const [phoneCode, setPhoneCode] = useState('+1');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [currency, setCurrency] = useState('USD');
 
-  // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompletingRegistration, setIsCompletingRegistration] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
 
-  // Fetch Session and Profile
   useEffect(() => {
     let isMounted = true;
     const initializeApp = async () => {
@@ -75,7 +69,6 @@ function HomeContent() {
 
         if (!activeSession?.user || !activeSession?.user?.id) {
            if (isMounted) {
-             // Wrap in startTransition to prevent React Error 310
              startTransition(() => {
                setSession(activeSession as any);
                setIsGateLoading(false);
@@ -95,7 +88,6 @@ function HomeContent() {
         }
         
         if (isMounted) {
-          // Wrap in startTransition to prevent React Error 310
           startTransition(() => {
             setSession(activeSession as any);
             setProfileState(data);
@@ -202,7 +194,6 @@ function HomeContent() {
     );
   }
 
-  // 1. BOOT SEQUENCE
   if (isGateLoading || isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-neutral-950">
@@ -212,7 +203,6 @@ function HomeContent() {
     );
   }
 
-  // 2. UNAUTHENTICATED
   if (!session) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative">
@@ -289,10 +279,6 @@ function HomeContent() {
     );
   }
 
-     // 3. UNIFIED ROUTER CASCADE
-  
-  // FIX: Bypass the broken Name and Image count checks. 
-  // If the final onboarding step successfully saved the 'gender', the flow is considered complete.
   const isProfileComplete = Boolean(profileState?.gender);
 
   if (!isProfileComplete) {
@@ -306,18 +292,6 @@ function HomeContent() {
     );
   }
 
-  // DEFAULT (AppShell)
-  return (
-    <ErrorBoundary>
-      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
-        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
-        <RadarActivationModal />
-      </AppShell>
-    </ErrorBoundary>
-  );
-}
-
-  // DEFAULT (AppShell)
   return (
     <ErrorBoundary>
       <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
