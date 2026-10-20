@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, startTransition } from 'react';
 import { supabase } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
 
@@ -59,9 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Wrap state updates in setTimeout to escape synchronous execution paths that trigger Suspense errors
       setTimeout(() => {
         if (!mounted) return;
-        setSession(session);
-        setUser(session?.user ?? null);
-        setIsLoading(false);
+        startTransition(() => {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setIsLoading(false);
+        });
       }, 0);
     });
 
