@@ -14,8 +14,6 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
   const { user } = useAuth();
   const [step, setStep] = useState<Step>('complete-profile');
   const [isLoaded, setIsLoaded] = useState(false);
-
-  // FIX: This hook MUST be declared here, BEFORE the if (!isLoaded) return.
   const [isFinalizing, setIsFinalizing] = useState(false);
 
   // Load saved step from localStorage to survive OOM kills
