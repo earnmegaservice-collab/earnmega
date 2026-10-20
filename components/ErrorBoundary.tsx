@@ -8,20 +8,23 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  errorInfo: ErrorInfo | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
-    error: null
+    error: null,
+    errorInfo: null
   };
 
   public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, errorInfo: null };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
+    this.setState({ errorInfo });
   }
 
   public render() {
@@ -34,15 +37,17 @@ export class ErrorBoundary extends Component<Props, State> {
                 <span className="text-red-400 font-bold text-2xl">!</span>
              </div>
              <h2 className="text-xl font-bold mb-4">Runtime Error</h2>
-             <p className="text-sm text-zinc-400 mb-6 text-center break-words w-full">
-               {this.state.error?.message || "An unexpected error occurred in the module."}
-             </p>
+             <div className="text-red-500 font-mono text-xs p-4 overflow-auto text-left w-full max-h-64 bg-black/50 border border-red-500/30 rounded-lg">
+               <p className="font-bold">ERROR MESSAGE: {this.state.error?.message || "Unknown Error"}</p>
+               <p className="mt-2 text-red-400/80 break-words">{this.state.error?.stack}</p>
+               {this.state.errorInfo && <p className="mt-2 text-red-400/80 break-words">{this.state.errorInfo.componentStack}</p>}
+             </div>
              <button
                onClick={() => {
-                 this.setState({ hasError: false, error: null });
+                 this.setState({ hasError: false, error: null, errorInfo: null });
                  window.location.assign('/');
                }}
-               className="w-full bg-white/10 hover:bg-white/20 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg border border-white/10"
+               className="mt-6 w-full bg-white/10 hover:bg-white/20 text-white font-semibold py-3.5 px-6 rounded-2xl transition-all shadow-lg border border-white/10"
              >
                Reset to Hub
              </button>
