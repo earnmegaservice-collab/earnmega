@@ -56,15 +56,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
-      // Wrap state updates in setTimeout to escape synchronous execution paths that trigger Suspense errors
-      setTimeout(() => {
-        if (!mounted) return;
-        startTransition(() => {
-          setSession(session);
-          setUser(session?.user ?? null);
-          setIsLoading(false);
-        });
-      }, 0);
+      startTransition(() => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setIsLoading(false);
+      });
     });
 
     return () => {
