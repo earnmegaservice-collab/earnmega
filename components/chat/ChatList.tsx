@@ -78,7 +78,6 @@ export default function ChatList({
               className="w-full relative"
             >
               <button
-              <div
                 onClick={(e) => {
                   try {
                     if (!u.id) {
@@ -162,8 +161,6 @@ export default function ChatList({
               </div>
  
               </button>
-
-              </div>
 
             </motion.div>
           ))}

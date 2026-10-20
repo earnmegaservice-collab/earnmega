@@ -21,8 +21,8 @@ export default function HomePage() {
 
   // Auth Form State
   const [session, setSession] = useState<any>(null);
-  const [profileData, setProfileData] = useState<any>(null);
-  const [isBooting, setIsBooting] = useState(true);
+  const [profileState, setProfileState] = useState<any>(null);
+  const [isGateLoading, setIsGateLoading] = useState(true);
     const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
@@ -82,12 +82,12 @@ export default function HomePage() {
           if (error && error.code !== 'PGRST116') {
              console.error("Profile fetch error:", error);
           }
-          if (isMounted) setProfileData(data);
+          if (isMounted) setProfileState(data);
         }
       } catch (error) {
         console.error("Initialization Error:", error);
       } finally {
-        if (isMounted) setIsBooting(false);
+        if (isMounted) setIsGateLoading(false);
       }
     };
 
@@ -242,7 +242,7 @@ export default function HomePage() {
 
 
   // 1. BOOT SEQUENCE
-  if (isBooting || !hasMounted || isLoading) {
+  if (isGateLoading || !hasMounted || isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-neutral-950">
         <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shadow-[0_0_30px_rgba(99,102,241,0.5)]"></div>
@@ -423,20 +423,21 @@ export default function HomePage() {
 
   // 3. UNIFIED ROUTER CASCADE
 
-  const hasName = Boolean(profileData?.fullName || profileData?.full_name);
+  const hasName = Boolean(profileState?.fullName || profileState?.full_name);
 
   // Extract images from either array and filter out empty strings
-  const rawImages = Array.isArray(profileData?.publicImages)
-    ? profileData.publicImages
-    : (Array.isArray(profileData?.profile_images) ? profileData.profile_images : []);
-  const validImages = rawImages.filter((img: string) => img && img.trim() !== '');
+  const rawImages = Array.isArray(profileState?.publicImages)
+    ? (profileState?.publicImages || [])
+    : (Array.isArray(profileState?.profile_images) ? (profileState?.profile_images || []) : []);
+  const validImages = (rawImages || []).filter((img: string) => img && img.trim() !== '');
+  const imageCount = profileState?.publicImages?.length || profileState?.profile_images?.length || 0;
   const hasImages = validImages.length >= 6;
 
   // Strictly require core onboarding attributes to be non-null and not empty
   const hasCoreInfo = Boolean(
-    profileData?.bio &&
-    profileData?.gender &&
-    profileData?.location
+    profileState?.bio &&
+    profileState?.gender &&
+    profileState?.location
   );
 
   if (!hasName || !hasImages || !hasCoreInfo) {
