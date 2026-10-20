@@ -193,8 +193,14 @@ export default function MyProfileView({
 
           setLocalImages(newArray);
 
+
           // Phase 3 & 4: Upload Wiring - immediately updates the database array and local UI state
-          const { error: dbError } = await supabase.from('profiles').update({ "publicImages": newArray }).eq('id', user.id);
+          const { error: dbError } = await supabase.from('profiles').update({
+             ...editForm,
+             "publicImages": newArray,
+             "profile_images": newArray
+          }).eq('id', user.id);
+
 
           if (dbError) throw dbError;
 
@@ -272,8 +278,18 @@ export default function MyProfileView({
                   )}
                 </>
               ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center bg-black/20">
-                    {/* Empty slots shouldn't happen due to gate, but fallback */}
+                                                <div className="w-full h-full flex flex-col items-center justify-center bg-black/20 group-hover:bg-white/5 transition-colors cursor-pointer" onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedSlotIndex(index);
+                  setIsEditing(true);
+                  fileInputRef.current?.click();
+                }}>
+                  <motion.div
+                    whileHover={{ scale: 1.1 }}
+                    className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)]"
+                  >
+                    <span className="text-emerald-400 text-xl font-bold">+</span>
+                  </motion.div>
                 </div>
               )}
             </div>
@@ -503,7 +519,7 @@ export default function MyProfileView({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-2"
+            className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-2"
           >
             <button
               onClick={() => setFullscreenImage(null)}
