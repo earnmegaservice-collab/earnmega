@@ -72,6 +72,11 @@ export default function HomePage() {
         const { data: { session: activeSession } } = await supabase.auth.getSession();
         if (isMounted) setSession(activeSession as any);
 
+        if (!activeSession?.user || !activeSession?.user?.id) {
+           if (isMounted) setIsGateLoading(false);
+           return;
+        }
+
         if (activeSession) {
           const { data, error } = await supabase
             .from('profiles')
@@ -339,7 +344,7 @@ export default function HomePage() {
                       onChange={(e) => setPhoneCode(e.target.value)}
                       className="w-1/3 px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none"
                     >
-                      {phoneCodes.map((code) => (
+                      {(phoneCodes || []).map((code) => (
                         <option key={code} value={code}>{code}</option>
                       ))}
                     </select>
@@ -357,7 +362,7 @@ export default function HomePage() {
                     onChange={(e) => setCurrency(e.target.value)}
                     className="w-full px-4 py-3.5 rounded-2xl bg-black/40 border border-white/5 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all appearance-none"
                   >
-                    {currencies.map((c) => (
+                    {(currencies || []).map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
@@ -430,7 +435,7 @@ export default function HomePage() {
     ? (profileState?.publicImages || [])
     : (Array.isArray(profileState?.profile_images) ? (profileState?.profile_images || []) : []);
   const validImages = (rawImages || []).filter((img: string) => img && img.trim() !== '');
-  const imageCount = profileState?.publicImages?.length || profileState?.profile_images?.length || 0;
+  const imageCount = (profileState?.publicImages || profileState?.profile_images || []).length || 0;
   const hasImages = validImages.length >= 6;
 
   // Strictly require core onboarding attributes to be non-null and not empty
