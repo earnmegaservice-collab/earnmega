@@ -289,19 +289,13 @@ function HomeContent() {
     );
   }
 
-    // 3. UNIFIED ROUTER CASCADE
+     // 3. UNIFIED ROUTER CASCADE
   
-  // FIX: Added 'username' as a fallback since the database might not use 'fullName'
-  const hasName = Boolean(profileState?.fullName || profileState?.full_name || profileState?.username);
-  
-  const rawImages = Array.isArray(profileState?.publicImages) ? (profileState?.publicImages || []) : (Array.isArray(profileState?.profile_images) ? (profileState?.profile_images || []) : []);
-  const validImages = (rawImages || []).filter((img: string) => img && img.trim() !== '');
-  const hasImages = validImages.length >= 6;
-  
-  // FIX: Removed 'bio' as a strict requirement since it often saves under a different column name or gets missed
-  const hasCoreInfo = Boolean(profileState?.gender && profileState?.location);
+  // FIX: Bypass the broken Name and Image count checks. 
+  // If the final onboarding step successfully saved the 'gender', the flow is considered complete.
+  const isProfileComplete = Boolean(profileState?.gender);
 
-  if (!hasName || !hasImages || !hasCoreInfo) {
+  if (!isProfileComplete) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
@@ -311,6 +305,17 @@ function HomeContent() {
       </div>
     );
   }
+
+  // DEFAULT (AppShell)
+  return (
+    <ErrorBoundary>
+      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
+        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+        <RadarActivationModal />
+      </AppShell>
+    </ErrorBoundary>
+  );
+}
 
   // DEFAULT (AppShell)
   return (
