@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
@@ -66,17 +67,22 @@ export default function ChatList({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              onClick={() => {
-                if ((currentUserProfile as any)?.isVerified === false) {
-                  setShowVerificationGateModal(true);
-                  return;
-                }
-                setOtherUserProfile(u);
-                router.push(`/chats/${u.id}`);
-              }}
-              className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group"
+              className="w-full relative"
             >
+              <Link
+                href={`/chats/${u.id}`}
+                onClick={(e) => {
+                  if ((currentUserProfile as any)?.isVerified === false) {
+                    e.preventDefault();
+                    setShowVerificationGateModal(true);
+                    return;
+                  }
+                  setOtherUserProfile(u);
+                }}
+                className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group"
+              >
               {/* Left: Avatar */}
+              <div className="pointer-events-none contents">
               <div className={`relative w-14 h-14 rounded-full flex-shrink-0 flex items-center justify-center shadow-lg ${
                 u.tier === 'PREMIUM' ? 'p-[2px]' :
                 u.tier === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
@@ -119,8 +125,9 @@ export default function ChatList({
                 </p>
               </div>
 
+              </div>
               {/* Right: Meta Info (Timestamp & Unread) */}
-              <div className="flex flex-col items-end justify-center ml-2 flex-shrink-0 space-y-1.5">
+              <div className="flex flex-col items-end justify-center ml-2 flex-shrink-0 space-y-1.5 pointer-events-none">
                 <span className="text-xs text-gray-500 font-medium">
                   {u.isOnline ? 'Now' : '1h'}
                 </span>
@@ -130,6 +137,7 @@ export default function ChatList({
                   </div>
                 )}
               </div>
+              </Link>
             </motion.div>
           ))}
         </AnimatePresence>
