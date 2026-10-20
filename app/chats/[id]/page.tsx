@@ -16,7 +16,8 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   const [recipient, setRecipient] = useState<UserProfileDetails | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     if (!user || !recipientId) return;
@@ -57,7 +58,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
        if (data) {
            setMessages(data);
        }
-       setIsLoading(false);
+       setIsInitialLoading(false);
     };
 
     fetchMessages();
@@ -67,7 +68,13 @@ export default function ChatPage({ params }: { params: { id: string } }) {
           const msg = payload.new;
           if ((msg.sender_id === user.id && msg.receiver_id === recipientId) ||
               (msg.sender_id === recipientId && msg.receiver_id === user.id)) {
-              setMessages((prev) => [...prev, msg]);
+              setIsSyncing(true);
+              setMessages((prev) => {
+                 // prevent duplicates
+                 if (prev.find(p => p.id === msg.id)) return prev;
+                 return [...prev, msg];
+              });
+              setIsSyncing(false);
           }
       })
       .subscribe();
@@ -94,8 +101,16 @@ export default function ChatPage({ params }: { params: { id: string } }) {
       }
   };
 
-  if (!recipient) {
-      return <div className="h-screen bg-[#050505] flex items-center justify-center text-white"><div className="animate-spin w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full"></div></div>;
+  if (isInitialLoading) {
+      return (
+        <div className="h-screen bg-[#050505] flex items-center justify-center text-white">
+          <div className="animate-spin w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full"></div>
+        </div>
+      );
+  }
+
+  if (!recipient && !isInitialLoading) {
+      return <div className="h-screen bg-[#050505] flex items-center justify-center text-white">User not found.</div>;
   }
 
   return (
@@ -147,12 +162,11 @@ export default function ChatPage({ params }: { params: { id: string } }) {
 
       {/* Message Thread Area */}
       <div className="flex-1 overflow-y-auto pt-20 pb-20 px-4 flex flex-col gap-3 scroll-smooth">
-         {!isLoading && messages.length === 0 && (
-            <div className="text-center mt-10">
-               <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 border border-white/10 shadow-[0_0_30px_rgba(255,255,255,0.05)]">
-                 <span className="text-3xl">👋</span>
-               </div>
-               <p className="text-white/40 text-sm font-medium">Say hi to {recipient.name}!</p>
+         {!isInitialLoading && messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center mt-20 p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl">
+                <div className="text-4xl mb-4">💬</div>
+                <h3 className="text-xl font-bold text-white mb-2">No messages yet.</h3>
+                <p className="text-white/60 text-center">Start the conversation with {recipient?.name}.</p>
             </div>
          )}
          <AnimatePresence>

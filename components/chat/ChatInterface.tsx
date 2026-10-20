@@ -581,71 +581,82 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                lastMessageTime: 0
           })) : [];
 
-          // Fetch recent messages to calculate unreadCount and lastMessageTime
-          let orString = `receiver_id.eq.${user.id},sender_id.eq.${user.id}`;
-          if (groupsFormatted.length > 0) {
-              orString += `,room_id.in.(${groupsFormatted.map(g => `"${g.id}"`).join(',')})`;
-          }
-
-          const { data: messagesData, error: msgError } = await supabase
-            .from('messages')
-            .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
-            .or(orString);
-
-          if (msgError) throw msgError;
+          // Fetch from chats table where user is a participant
+          // And join the profiles table to get recipient details. Sort by updated_at descending.
+          const { data: chatsData, error: chatsError } = await supabase
+            .from('chats')
+            .select('id, user1_id, user2_id, updated_at, unread_count, latest_message_id, user1:profiles!chats_user1_id_fkey(*), user2:profiles!chats_user2_id_fkey(*)')
+            .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+            .order('updated_at', { ascending: false });
 
           const statsMap = new Map<string, { unreadCount: number, lastMessageTime: number }>();
           const activeUserIds = new Set<string>();
+          let formattedProfiles: UserProfileDetails[] = [];
 
-          if (messagesData) {
-            messagesData.forEach(msg => {
-              const isGroup = !!msg.room_id;
-              const targetId = isGroup ? msg.room_id : (msg.sender_id === user.id ? msg.receiver_id : msg.sender_id);
-              if (!targetId) return;
+          if (chatsData && chatsData.length > 0) {
+            chatsData.forEach(chat => {
+              // Note: the joined data might be an array or single object depending on schema relations
+              const user1Obj = Array.isArray(chat.user1) ? chat.user1[0] : chat.user1;
+              const user2Obj = Array.isArray(chat.user2) ? chat.user2[0] : chat.user2;
 
-              if (!isGroup) activeUserIds.add(targetId);
-
-              const time = new Date(msg.created_at).getTime();
-              const isUnread = msg.sender_id !== user.id && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
-
-              if (!statsMap.has(targetId)) {
-                statsMap.set(targetId, { unreadCount: 0, lastMessageTime: 0 });
-              }
-
-              const stats = statsMap.get(targetId)!;
-              stats.lastMessageTime = Math.max(stats.lastMessageTime, time);
-              if (isUnread) {
-                stats.unreadCount += 1;
+              const otherUser = chat.user1_id === user.id ? user2Obj : user1Obj;
+              if (otherUser) {
+                  activeUserIds.add(otherUser.id);
+                  const time = chat.updated_at ? new Date(chat.updated_at).getTime() : 0;
+                  statsMap.set(otherUser.id, {
+                      unreadCount: chat.unread_count || 0,
+                      lastMessageTime: time
+                  });
+                  formattedProfiles.push({
+                      id: otherUser.id,
+                      name: otherUser.username || 'User',
+                      avatarInitials: (otherUser.username?.[0] || 'U').toUpperCase() + (otherUser.username?.[1] || 'S').toUpperCase(),
+                      avatarUrl: otherUser.avatar_url,
+                      bio: otherUser.bio || 'Earnmega user',
+                      joinDate: otherUser.created_at ? new Date(otherUser.created_at).toLocaleDateString() : 'Unknown',
+                      tier: otherUser.subscription_tier || 'FREE',
+                      isOnline: onlineUsers.has(otherUser.id),
+                      coinsGifted: otherUser.coins_gifted || 0,
+                      isSelf: false,
+                      unreadCount: chat.unread_count || 0,
+                      lastMessageTime: time
+                  });
               }
             });
           }
 
-          let formattedProfiles: UserProfileDetails[] = [];
-          if (activeUserIds.size > 0) {
-            const { data: profilesData, error: profilesError } = await supabase
-              .from('profiles')
-              .select('*')
-              .in('id', Array.from(activeUserIds));
+          // We do not query the messages table directly to build the chat list for 1-1, as requested.
+          // Only fetch group messages if groups exist.
+          if (groupsFormatted.length > 0) {
+              const orString = `room_id.in.(${groupsFormatted.map(g => `"${g.id}"`).join(',')})`;
+              const { data: messagesData, error: msgError } = await supabase
+                .from('messages')
+                .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
+                .or(orString)
+                .order('created_at', { ascending: false });
 
-            if (profilesError) throw profilesError;
+              if (!msgError && messagesData) {
+                messagesData.forEach(msg => {
+                  const targetId = msg.room_id;
+                  if (!targetId) return;
 
-            if (profilesData) {
-              formattedProfiles = profilesData.map(u => ({
-                  id: u.id,
-                  name: u.username || 'User',
-                  avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
-                  avatarUrl: u.avatar_url,
-                  bio: u.bio || 'Earnmega user',
-                  joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
-                  tier: u.subscription_tier || 'FREE',
-                  isOnline: onlineUsers.has(u.id),
-                  coinsGifted: u.coins_gifted || 0,
-                  isSelf: false,
-                  unreadCount: 0,
-                  lastMessageTime: 0
-              }));
-            }
+                  const time = new Date(msg.created_at).getTime();
+                  const isUnread = msg.sender_id !== user.id && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
+
+                  if (!statsMap.has(targetId)) {
+                    statsMap.set(targetId, { unreadCount: 0, lastMessageTime: 0 });
+                  }
+
+                  const stats = statsMap.get(targetId)!;
+                  stats.lastMessageTime = Math.max(stats.lastMessageTime, time);
+                  if (isUnread) {
+                    stats.unreadCount += 1;
+                  }
+                });
+              }
           }
+
+// Removed redundant profile fetching block, as we already joined it.
 
           // If no active chats, fetch some default profiles to show (discovery)
           if (formattedProfiles.length === 0 && groupsFormatted.length === 0) {

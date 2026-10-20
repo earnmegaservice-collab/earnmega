@@ -147,8 +147,10 @@ export default function ChatList({
             ))}
           </div>
         ) : !fetchError && filteredUsers.length === 0 ? (
-          <div className="text-center text-gray-500 mt-10 text-sm">
-            No chats found.
+          <div className="flex flex-col items-center justify-center mt-20 p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl">
+            <div className="text-4xl mb-4">💬</div>
+            <h3 className="text-xl font-bold text-white mb-2">No chats found.</h3>
+            <p className="text-white/60 text-center">Your conversations will appear here.</p>
           </div>
         ) : null}
       </div>
