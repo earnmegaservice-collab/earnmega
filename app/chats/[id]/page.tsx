@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { supabase } from '../../../utils/supabase';
 import { UserProfileDetails } from '../../../components/profile/UserProfileModal';
@@ -9,11 +9,11 @@ import { ArrowLeft, MoreVertical, Send, Phone, Video } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import VerifiedTick from '../../../components/ui/VerifiedTick';
 
-export default function ChatPage({ params }: { params: Promise<{ id: string }> | { id: string } }) {
+export default function ChatPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const resolvedParams = params instanceof Promise ? React.use(params) : params;
-  const recipientId = resolvedParams.id;
+  const params = useParams();
+  const recipientId = params?.id as string;
   const [recipient, setRecipient] = useState<UserProfileDetails | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
