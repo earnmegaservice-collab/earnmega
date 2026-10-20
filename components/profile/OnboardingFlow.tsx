@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import OnboardingWizard from './OnboardingWizard';
 import { SpatialPhotoStudio } from './SpatialPhotoStudio';
 import ExtendedQuestionnaire from './ExtendedQuestionnaire';
@@ -25,6 +26,63 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
 
   if (!isLoaded) return null;
 
+
+  const [isFinalizing, setIsFinalizing] = useState(false);
+
+  const dataUrlToBlob = async (dataUrl: string) => {
+    const res = await fetch(dataUrl);
+    return await res.blob();
+  };
+
+  const handleFlowComplete = async () => {
+    if (!user) return;
+    setIsFinalizing(true);
+    try {
+      const savedPhotos = JSON.parse(localStorage.getItem('em_matrix_photos') || '[]');
+      const uploadedUrls: string[] = [];
+
+      for (let i = 0; i < savedPhotos.length; i++) {
+        const photo = savedPhotos[i];
+        if (!photo.dataUrl) continue;
+        const blob = await dataUrlToBlob(photo.dataUrl);
+        const fileName = `${user.id}/spatial-${Date.now()}-${i}.jpg`;
+        const { error: uploadError } = await supabase.storage.from('profile_images').upload(fileName, blob, { upsert: true });
+        if (uploadError) throw uploadError;
+        const { data } = supabase.storage.from('profile_images').getPublicUrl(fileName);
+        uploadedUrls.push(data.publicUrl);
+      }
+
+      const formData = JSON.parse(localStorage.getItem('em_questionnaire_data') || '{}');
+
+      const { error } = await supabase.from('profiles').update({
+        publicImages: uploadedUrls,
+        gender: formData.gender,
+        location: formData.location,
+        looking_for: formData.intent,
+        vibe: formData.vibe,
+        zodiac: formData.zodiac_sign,
+        education: formData.education_level,
+        job: formData.job_title,
+        hobbies: formData.hobby,
+        communication_style: formData.communication_style,
+        intent: formData.intent
+      }).eq('id', user.id);
+
+      if (error) throw error;
+
+      localStorage.removeItem('em_onboarding_step');
+      localStorage.removeItem('em_matrix_photos');
+      localStorage.removeItem('em_questionnaire_data');
+
+      if (onComplete) onComplete();
+    } catch (err) {
+      console.error('Finalize error', err);
+      alert('Failed to initialize matrix. Please try again.');
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
   const handleStepChange = (newStep: Step) => {
     setStep(newStep);
     localStorage.setItem('em_onboarding_step', newStep);
@@ -39,11 +97,17 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
       ) : step === 'extended-questionnaire' ? (
         <ExtendedQuestionnaire onComplete={() => handleStepChange('facial-verification')} />
       ) : step === 'facial-verification' ? (
-        <FacialVerification onComplete={() => {
-          localStorage.removeItem('em_onboarding_step');
-          if (onComplete) onComplete();
-        }} />
+        <FacialVerification onComplete={handleFlowComplete} />
       ) : null}
+
+      {isFinalizing && (
+        <div className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center">
+          <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
+          <h2 className="text-2xl font-black text-white">Initializing Matrix...</h2>
+          <p className="text-emerald-400 mt-2">Securing profile data</p>
+        </div>
+      )}
     </>
+
   );
 }

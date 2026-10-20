@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
@@ -28,6 +27,7 @@ export default function ChatList({
   fetchError
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [navigationError, setNavigationError] = useState<string | null>(null);
   const router = useRouter();
 
   const filteredUsers = exploreUsers.filter(u =>
@@ -52,6 +52,14 @@ export default function ChatList({
 
       {/* Scrollable Chat List */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1">
+
+        {navigationError && (
+          <div className="m-4 p-4 rounded-2xl bg-red-950/50 border border-red-500/50 backdrop-blur-xl flex flex-col items-center justify-center text-center shadow-[0_0_20px_rgba(220,38,38,0.2)]">
+            <span className="text-red-400 font-bold mb-2">Navigation Error</span>
+            <span className="text-red-300 text-sm">{navigationError}</span>
+            <button onClick={() => setNavigationError(null)} className="mt-2 text-xs bg-red-500/20 text-red-200 px-3 py-1 rounded-full border border-red-500/30">Dismiss</button>
+          </div>
+        )}
         {fetchError && (
           <div className="m-4 p-4 rounded-2xl bg-red-950/50 border border-red-500/50 backdrop-blur-xl flex flex-col items-center justify-center text-center shadow-[0_0_20px_rgba(220,38,38,0.2)]">
             <span className="text-red-400 font-bold mb-2">Database Error</span>
@@ -69,17 +77,24 @@ export default function ChatList({
               exit={{ opacity: 0, y: -10 }}
               className="w-full relative"
             >
-              <Link
-                href={`/chats/${u.id}`}
+              <button
                 onClick={(e) => {
-                  if ((currentUserProfile as any)?.isVerified === false) {
-                    e.preventDefault();
-                    setShowVerificationGateModal(true);
-                    return;
+                  try {
+                    if (!u.id) {
+                      throw new Error('Chat ID is missing or undefined.');
+                    }
+                    if ((currentUserProfile as any)?.isVerified === false) {
+                      e.preventDefault();
+                      setShowVerificationGateModal(true);
+                      return;
+                    }
+                    setOtherUserProfile(u);
+                    router.push('/chats/' + u.id);
+                  } catch (err: any) {
+                    setNavigationError(err.message || 'Failed to open chat.');
                   }
-                  setOtherUserProfile(u);
                 }}
-                className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group"
+                className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group touch-manipulation pointer-events-auto"
               >
               {/* Left: Avatar */}
               <div className="pointer-events-none contents">
@@ -137,7 +152,7 @@ export default function ChatList({
                   </div>
                 )}
               </div>
-              </Link>
+              </button>
             </motion.div>
           ))}
         </AnimatePresence>
