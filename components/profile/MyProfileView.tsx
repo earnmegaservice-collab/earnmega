@@ -64,6 +64,7 @@ export default function MyProfileView({
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [localImages, setLocalImages] = useState<string[]>([]);
 
@@ -101,6 +102,7 @@ export default function MyProfileView({
 
   const handleSaveProfile = async () => {
     if (!user) return;
+    setIsSaving(true);
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -128,6 +130,8 @@ export default function MyProfileView({
       // Optional: trigger a refresh or callback to parent if needed
     } catch (error: any) {
       toast.error("Failed to save: " + error.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -172,31 +176,25 @@ export default function MyProfileView({
           const fileName = `${user.id}/profile_${Date.now()}.${fileExt}`;
 
           const { error: uploadError } = await supabase.storage
-              .from('avatars')
+              .from('profile_images')
               .upload(fileName, file);
 
           if (uploadError) throw uploadError;
 
           const { data: { publicUrl } } = supabase.storage
-              .from('avatars')
+              .from('profile_images')
               .getPublicUrl(fileName);
 
           const updatedImages = [...displayPhotos];
           updatedImages[selectedSlotIndex] = publicUrl;
 
           // Clean up array for DB (remove empty strings)
-          const dbImages = updatedImages.filter(url => url !== '');
+          const newArray = updatedImages.filter(url => url !== '');
 
-          setLocalImages(dbImages);
+          setLocalImages(newArray);
 
           // Phase 3 & 4: Upload Wiring - immediately updates the database array and local UI state
-          const { error: dbError } = await supabase
-              .from('profiles')
-              .update({
-                  profile_images: dbImages,
-                  publicImages: dbImages
-              })
-              .eq('id', user.id);
+          const { error: dbError } = await supabase.from('profiles').update({ "publicImages": newArray }).eq('id', user.id);
 
           if (dbError) throw dbError;
 
@@ -236,10 +234,10 @@ export default function MyProfileView({
             <div
               key={index}
               onClick={() => {
-                if (!imgUrl) {
+                if (isEditing) {
                     setSelectedSlotIndex(index);
                     fileInputRef.current?.click();
-                } else {
+                } else if (imgUrl) {
                     setFullscreenImage(imgUrl);
                 }
               }}
@@ -254,21 +252,28 @@ export default function MyProfileView({
                   />
                 </div>
               ) : imgUrl ? (
-                <img
-                  src={imgUrl}
-                  alt={`Photo ${index + 1}`}
-                  className="w-full h-full object-cover rounded-xl transition duration-300 group-hover:scale-105"
-                />
+                <>
+                  <img
+                    src={imgUrl}
+                    alt={`Photo ${index + 1}`}
+                    className="w-full h-full object-cover rounded-xl transition duration-300 group-hover:scale-105"
+                  />
+                  {isEditing && (
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <motion.div
+                        animate={{ scale: [1, 1.1, 1] }}
+                        transition={{ repeat: Infinity, duration: 2 }}
+                        className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)]"
+                      >
+                        <span className="text-emerald-400 text-xs font-bold">↻</span>
+                      </motion.div>
+                      <span className="text-white text-[9px] font-bold mt-1">Update</span>
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center text-white/20">
-                  <motion.div
-                    animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                    transition={{ repeat: Infinity, duration: 2 }}
-                    className="w-8 h-8 rounded-full border border-emerald-500/50 flex items-center justify-center bg-emerald-500/10 mb-2 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-                  >
-                    <span className="text-emerald-400 text-lg leading-none">+</span>
-                  </motion.div>
-                  <span className="text-[9px] font-bold">Slot {index + 1}</span>
+                <div className="w-full h-full flex flex-col items-center justify-center bg-black/20">
+                    {/* Empty slots shouldn't happen due to gate, but fallback */}
                 </div>
               )}
             </div>
@@ -308,6 +313,7 @@ export default function MyProfileView({
             </button>
             {onEditClick && (
               <button
+                disabled={isSaving}
                 onClick={isEditing ? handleSaveProfile : () => setIsEditing(true)}
                 className={`px-4 py-1.5 rounded-full border text-xs font-bold transition active:scale-95 ${
                   isEditing
@@ -315,7 +321,7 @@ export default function MyProfileView({
                     : 'bg-white/10 hover:bg-white/20 border-white/20 text-white'
                 }`}
               >
-                {isEditing ? 'Save Profile' : 'Edit'}
+                {isEditing ? (isSaving ? 'Saving...' : 'Save Profile') : 'Edit'}
               </button>
             )}
           </div>
@@ -347,122 +353,132 @@ export default function MyProfileView({
       <div className="px-6 space-y-3">
         <h4 className="text-[11px] font-bold uppercase tracking-wider text-white/40">Attributes & Lifestyle</h4>
         {isEditing ? (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-wrap gap-2">
             <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Gender</span>
-              <input type="text" value={editForm.gender !== undefined ? editForm.gender : mappedProfile.gender || ''} onChange={(e) => setEditForm({...editForm, gender: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Male/Female" />
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Gender</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all">
+                  <input type="text" value={editForm.gender !== undefined ? editForm.gender : mappedProfile.gender || ''} onChange={(e) => setEditForm({...editForm, gender: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-[90px] focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. Male" />
+              </div>
             </div>
+
             <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Location</span>
-              <input type="text" value={editForm.location !== undefined ? editForm.location : mappedProfile.location || ''} onChange={(e) => setEditForm({...editForm, location: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. New York" />
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Location</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all space-x-1.5">
+                  <MapPin className="w-3 h-3 text-emerald-500/70" />
+                  <input type="text" value={editForm.location !== undefined ? editForm.location : mappedProfile.location || ''} onChange={(e) => setEditForm({...editForm, location: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-[110px] focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. NY" />
+              </div>
             </div>
+
             <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Looking For</span>
-              <input type="text" value={editForm.intent !== undefined ? editForm.intent : mappedProfile.intent || ''} onChange={(e) => setEditForm({...editForm, intent: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Long-term" />
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Looking For</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all space-x-1.5">
+                  <Sparkles className="w-3 h-3 text-emerald-500/70" />
+                  <input type="text" value={editForm.intent !== undefined ? editForm.intent : mappedProfile.intent || ''} onChange={(e) => setEditForm({...editForm, intent: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-[120px] focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. Long-term" />
+              </div>
             </div>
+
             <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Vibe</span>
-              <input type="text" value={editForm.vibe !== undefined ? editForm.vibe : mappedProfile.vibe || ''} onChange={(e) => setEditForm({...editForm, vibe: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Chill" />
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Vibe</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all">
+                  <input type="text" value={editForm.vibe !== undefined ? editForm.vibe : mappedProfile.vibe || ''} onChange={(e) => setEditForm({...editForm, vibe: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-[90px] focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. Chill" />
+              </div>
             </div>
+
             <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Zodiac</span>
-              <input type="text" value={editForm.zodiac_sign !== undefined ? editForm.zodiac_sign : mappedProfile.zodiac || ''} onChange={(e) => setEditForm({...editForm, zodiac_sign: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Aries" />
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Zodiac</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all space-x-1.5">
+                  <span className="text-emerald-500/70 text-xs">♈</span>
+                  <input type="text" value={editForm.zodiac_sign !== undefined ? editForm.zodiac_sign : mappedProfile.zodiac || ''} onChange={(e) => setEditForm({...editForm, zodiac_sign: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-[80px] focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. Aries" />
+              </div>
             </div>
+
             <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Education</span>
-              <input type="text" value={editForm.education_level !== undefined ? editForm.education_level : mappedProfile.education || ''} onChange={(e) => setEditForm({...editForm, education_level: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Masters" />
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Education</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all space-x-1.5">
+                  <GraduationCap className="w-3 h-3 text-emerald-500/70" />
+                  <input type="text" value={editForm.education_level !== undefined ? editForm.education_level : mappedProfile.education || ''} onChange={(e) => setEditForm({...editForm, education_level: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-[120px] focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. Masters" />
+              </div>
             </div>
+
             <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Job</span>
-              <input type="text" value={editForm.job_title !== undefined ? editForm.job_title : mappedProfile.job || ''} onChange={(e) => setEditForm({...editForm, job_title: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Engineer" />
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Job</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all space-x-1.5">
+                  <Briefcase className="w-3 h-3 text-emerald-500/70" />
+                  <input type="text" value={editForm.job_title !== undefined ? editForm.job_title : mappedProfile.job || ''} onChange={(e) => setEditForm({...editForm, job_title: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-[110px] focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. Engineer" />
+              </div>
             </div>
-            <div className="flex flex-col space-y-1">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Hobbies</span>
-              <input type="text" value={editForm.hobbies !== undefined ? editForm.hobbies : mappedProfile.hobbies || ''} onChange={(e) => setEditForm({...editForm, hobbies: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Hiking" />
+
+            <div className="flex flex-col space-y-1 w-full">
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Hobbies</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all">
+                  <input type="text" value={editForm.hobbies !== undefined ? editForm.hobbies : mappedProfile.hobbies || ''} onChange={(e) => setEditForm({...editForm, hobbies: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-full focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. Hiking, Coding" />
+              </div>
             </div>
-            <div className="flex flex-col space-y-1 col-span-2">
-              <span className="text-[9px] uppercase tracking-wider text-white/50">Communication</span>
-              <input type="text" value={editForm.communication_style !== undefined ? editForm.communication_style : mappedProfile.communicationStyle || ''} onChange={(e) => setEditForm({...editForm, communication_style: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Direct" />
+
+            <div className="flex flex-col space-y-1 w-full">
+              <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 ml-1">Communication</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-black/40 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.1)] focus-within:border-emerald-400 focus-within:shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all space-x-1.5">
+                  <MessageSquare className="w-3 h-3 text-emerald-500/70" />
+                  <input type="text" value={editForm.communication_style !== undefined ? editForm.communication_style : mappedProfile.communicationStyle || ''} onChange={(e) => setEditForm({...editForm, communication_style: e.target.value})} className="bg-transparent text-emerald-400 text-xs font-bold w-full focus:outline-none placeholder:text-emerald-500/30" placeholder="e.g. Direct and honest" />
+              </div>
             </div>
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
             {mappedProfile.gender && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Gender</span>
-                <span className="text-white/90 text-xs">{mappedProfile.gender}</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)]">
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.gender}</span>
               </div>
             )}
             {mappedProfile.location && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Location</span>
-                <div className="flex items-center space-x-1">
-                  <MapPin className="w-3 h-3 text-rose-400" />
-                  <span className="text-white/90 text-xs">{mappedProfile.location}</span>
-                </div>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
+                <MapPin className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.location}</span>
               </div>
             )}
             {mappedProfile.intent && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/30 shadow-[0_0_12px_rgba(168,85,247,0.15)]">
-                <span className="text-[8px] uppercase tracking-wider text-purple-300 mb-0.5">Looking For</span>
-                <div className="flex items-center space-x-1">
-                  <Sparkles className="w-3 h-3 text-purple-400" />
-                  <span className="text-purple-200 text-xs">{mappedProfile.intent}</span>
-                </div>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
+                <Sparkles className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.intent}</span>
               </div>
             )}
             {mappedProfile.vibe && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Vibe</span>
-                <span className="text-white/90 text-xs">{mappedProfile.vibe}</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)]">
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.vibe}</span>
               </div>
             )}
             {mappedProfile.zodiac && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
-                <span className="text-[8px] uppercase tracking-wider text-amber-300 mb-0.5">Zodiac</span>
-                <span className="text-amber-200 text-xs">♈ {mappedProfile.zodiac}</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">♈ {mappedProfile.zodiac}</span>
               </div>
             )}
             {mappedProfile.education && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Education</span>
-                <div className="flex items-center space-x-1">
-                  <GraduationCap className="w-3 h-3 text-emerald-400" />
-                  <span className="text-white/90 text-xs">{mappedProfile.education}</span>
-                </div>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
+                <GraduationCap className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.education}</span>
               </div>
             )}
             {mappedProfile.job && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Career</span>
-                <div className="flex items-center space-x-1">
-                  <Briefcase className="w-3 h-3 text-blue-400" />
-                  <span className="text-white/90 text-xs">{mappedProfile.job}</span>
-                </div>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
+                <Briefcase className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.job}</span>
               </div>
             )}
             {mappedProfile.hobbies && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Hobbies</span>
-                <span className="text-white/90 text-xs">{mappedProfile.hobbies}</span>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)]">
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.hobbies}</span>
               </div>
             )}
             {mappedProfile.communicationStyle && (
-              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Communication</span>
-                <div className="flex items-center space-x-1">
-                  <MessageSquare className="w-3 h-3 text-pink-400" />
-                  <span className="text-white/90 text-xs">{mappedProfile.communicationStyle}</span>
-                </div>
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
+                <MessageSquare className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.communicationStyle}</span>
               </div>
             )}
             {mappedProfile.languages?.map((lang, idx) => (
-              <div key={idx} className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
-                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Language</span>
-                <div className="flex items-center space-x-1">
-                  <Globe className="w-3 h-3 text-cyan-400" />
-                  <span className="text-white/80 text-xs">{lang.trim()}</span>
-                </div>
+              <div key={idx} className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
+                <Globe className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{lang.trim()}</span>
               </div>
             ))}
           </div>
