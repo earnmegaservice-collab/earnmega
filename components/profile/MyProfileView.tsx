@@ -69,8 +69,8 @@ export default function MyProfileView({
   const [localImages, setLocalImages] = useState<string[]>([]);
 
   React.useEffect(() => {
-    if (profile.publicImages) {
-        setLocalImages(profile.publicImages);
+    if (profile?.publicImages) {
+        setLocalImages(profile?.publicImages || []);
     } else if (profile.profile_images) {
         setLocalImages(profile.profile_images);
     } else if (profile.avatarUrl) {
@@ -217,7 +217,7 @@ export default function MyProfileView({
   };
 
   // Guarantee exactly 6 slots
-  const displayPhotos = [...(mappedProfile.publicImages || [])];
+  const displayPhotos = [...(mappedProfile?.publicImages || [])];
   while (displayPhotos.length < 6) {
     displayPhotos.push('');
   }
