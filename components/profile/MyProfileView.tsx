@@ -63,7 +63,61 @@ export default function MyProfileView({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
+  const [localImages, setLocalImages] = useState<string[]>([]);
 
+  React.useEffect(() => {
+    if (profile.publicImages) {
+        setLocalImages(profile.publicImages);
+    } else if (profile.profile_images) {
+        setLocalImages(profile.profile_images);
+    } else if (profile.avatarUrl) {
+        setLocalImages([profile.avatarUrl]);
+    } else {
+        setLocalImages([]);
+    }
+  }, [profile]);
+
+
+
+
+  React.useEffect(() => {
+    if (isEditing) {
+      setEditForm({
+        bio: profile.bio || '',
+        gender: profile.gender || '',
+        location: profile.location || '',
+        intent: profile.intent || '',
+        vibe: profile.vibe || '',
+        zodiac_sign: profile.zodiac_sign || '',
+        education_level: profile.education_level || '',
+        job_title: profile.job_title || '',
+        hobby: profile.hobby || '',
+        communication_style: profile.communication_style || '',
+      });
+    }
+  }, [isEditing, profile]);
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+           ...editForm,
+           profile_images: localImages
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+      toast.success("Profile saved!");
+      setIsEditing(false);
+      // Optional: trigger a refresh or callback to parent if needed
+    } catch (error: any) {
+      toast.error("Failed to save: " + error.message);
+    }
+  };
 
   // Map from the `profile` object to the expected structure
   const mappedProfile: UserProfile = {
@@ -77,7 +131,7 @@ export default function MyProfileView({
       location_country: profile.location_country,
       ghost_mode: profile.ghost_mode,
       bio: profile.bio || '',
-      publicImages: profile.publicImages || profile.profile_images || (profile.avatarUrl ? [profile.avatarUrl] : []),
+      publicImages: localImages,
       zodiac: profile.zodiac_sign,
       job: profile.job_title,
       education: profile.education_level,
@@ -120,18 +174,9 @@ export default function MyProfileView({
           // Clean up array for DB (remove empty strings)
           const dbImages = updatedImages.filter(url => url !== '');
 
-          const { error: updateError } = await supabase
-              .from('profiles')
-              .update({ profile_images: dbImages })
-              .eq('id', user.id);
+          setLocalImages(dbImages);
 
-          if (updateError) throw updateError;
-
-          // The page might need a refresh to get the latest profile object, or we could update local state
-          mappedProfile.publicImages = dbImages;
-          displayPhotos[selectedSlotIndex] = publicUrl;
-
-          toast.success("Photo updated successfully!");
+          toast.success("Photo uploaded to slot! Remember to Save Profile.");
       } catch (error: any) {
           toast.error("Upload failed: " + error.message);
       } finally {
@@ -166,10 +211,18 @@ export default function MyProfileView({
           {displayPhotos.slice(0, 6).map((imgUrl, index) => (
             <div
               key={index}
-              onClick={() => { if (onEditClick) { setSelectedSlotIndex(index); fileInputRef.current?.click(); } else if (imgUrl) setFullscreenImage(imgUrl); }}
+              onClick={() => { if (isEditing) { setSelectedSlotIndex(index); fileInputRef.current?.click(); } else if (imgUrl) setFullscreenImage(imgUrl); }}
               className="relative aspect-[3/4] bg-white/[0.04] rounded-2xl overflow-hidden cursor-pointer group border border-white/[0.05]"
             >
-              {imgUrl ? (
+              {isUploading && selectedSlotIndex === index ? (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-black/40">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                    className="w-6 h-6 rounded-full border-2 border-emerald-500/30 border-t-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]"
+                  />
+                </div>
+              ) : imgUrl ? (
                 <img
                   src={imgUrl}
                   alt={`Photo ${index + 1}`}
@@ -218,10 +271,14 @@ export default function MyProfileView({
             </button>
             {onEditClick && (
               <button
-                onClick={onEditClick}
-                className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold transition active:scale-95 text-white"
+                onClick={isEditing ? handleSaveProfile : () => setIsEditing(true)}
+                className={`px-4 py-1.5 rounded-full border text-xs font-bold transition active:scale-95 ${
+                  isEditing
+                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/50 text-emerald-400 animate-pulse'
+                    : 'bg-white/10 hover:bg-white/20 border-white/20 text-white'
+                }`}
               >
-                Edit
+                {isEditing ? 'Save Profile' : 'Edit'}
               </button>
             )}
           </div>
@@ -234,74 +291,145 @@ export default function MyProfileView({
           </div>
         )}
 
-        {mappedProfile.bio && (
+        {isEditing ? (
+          <textarea
+            value={editForm.bio !== undefined ? editForm.bio : mappedProfile.bio}
+            onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+            className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs leading-relaxed font-light rounded-xl p-3 focus:outline-none focus:border-emerald-500/70 focus:ring-1 focus:ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)] resize-none"
+            rows={3}
+            placeholder="Write your neural bio..."
+          />
+        ) : mappedProfile.bio ? (
           <p className="text-xs text-white/80 leading-relaxed pt-1 font-light">
             {mappedProfile.bio}
           </p>
-        )}
+        ) : null}
       </div>
 
       {/* 3. LUMINOUS GLASSMORPHIC PILL TAGS */}
       <div className="px-6 space-y-3">
         <h4 className="text-[11px] font-bold uppercase tracking-wider text-white/40">Attributes & Lifestyle</h4>
-        <div className="flex flex-wrap gap-2">
-          {mappedProfile.gender && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              <span>{mappedProfile.gender}</span>
+        {isEditing ? (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col space-y-1">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Gender</span>
+              <input type="text" value={editForm.gender !== undefined ? editForm.gender : mappedProfile.gender || ''} onChange={(e) => setEditForm({...editForm, gender: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Male/Female" />
             </div>
-          )}
-          {mappedProfile.location && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              <MapPin className="w-3.5 h-3.5 text-rose-400" />
-              <span>{mappedProfile.location}</span>
+            <div className="flex flex-col space-y-1">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Location</span>
+              <input type="text" value={editForm.location !== undefined ? editForm.location : mappedProfile.location || ''} onChange={(e) => setEditForm({...editForm, location: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. New York" />
             </div>
-          )}
-          {mappedProfile.intent && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-200 text-xs shadow-[0_0_12px_rgba(168,85,247,0.15)]">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span>Looking for: {mappedProfile.intent}</span>
+            <div className="flex flex-col space-y-1">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Looking For</span>
+              <input type="text" value={editForm.intent !== undefined ? editForm.intent : mappedProfile.intent || ''} onChange={(e) => setEditForm({...editForm, intent: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Long-term" />
             </div>
-          )}
-          {mappedProfile.vibe && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              <span>{mappedProfile.vibe}</span>
+            <div className="flex flex-col space-y-1">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Vibe</span>
+              <input type="text" value={editForm.vibe !== undefined ? editForm.vibe : mappedProfile.vibe || ''} onChange={(e) => setEditForm({...editForm, vibe: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Chill" />
             </div>
-          )}
-          {mappedProfile.zodiac && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs shadow-[0_0_12px_rgba(245,158,11,0.15)]">
-              <span>♈ {mappedProfile.zodiac}</span>
+            <div className="flex flex-col space-y-1">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Zodiac</span>
+              <input type="text" value={editForm.zodiac_sign !== undefined ? editForm.zodiac_sign : mappedProfile.zodiac || ''} onChange={(e) => setEditForm({...editForm, zodiac_sign: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Aries" />
             </div>
-          )}
-          {mappedProfile.education && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              <GraduationCap className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{mappedProfile.education}</span>
+            <div className="flex flex-col space-y-1">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Education</span>
+              <input type="text" value={editForm.education_level !== undefined ? editForm.education_level : mappedProfile.education || ''} onChange={(e) => setEditForm({...editForm, education_level: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Masters" />
             </div>
-          )}
-          {mappedProfile.job && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              <Briefcase className="w-3.5 h-3.5 text-blue-400" />
-              <span>{mappedProfile.job}</span>
+            <div className="flex flex-col space-y-1">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Job</span>
+              <input type="text" value={editForm.job_title !== undefined ? editForm.job_title : mappedProfile.job || ''} onChange={(e) => setEditForm({...editForm, job_title: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Engineer" />
             </div>
-          )}
-          {mappedProfile.hobby && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              <span>{mappedProfile.hobby}</span>
+            <div className="flex flex-col space-y-1">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Hobby</span>
+              <input type="text" value={editForm.hobby !== undefined ? editForm.hobby : mappedProfile.hobby || ''} onChange={(e) => setEditForm({...editForm, hobby: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Hiking" />
             </div>
-          )}
-          {mappedProfile.communicationStyle && (
-            <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/90 text-xs">
-              <MessageSquare className="w-3.5 h-3.5 text-pink-400" />
-              <span>{mappedProfile.communicationStyle}</span>
+            <div className="flex flex-col space-y-1 col-span-2">
+              <span className="text-[9px] uppercase tracking-wider text-white/50">Communication</span>
+              <input type="text" value={editForm.communication_style !== undefined ? editForm.communication_style : mappedProfile.communicationStyle || ''} onChange={(e) => setEditForm({...editForm, communication_style: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 text-white text-xs rounded-xl p-2 focus:outline-none focus:border-emerald-500/70" placeholder="e.g. Direct" />
             </div>
-          )}
-          {mappedProfile.languages?.map((lang, idx) => (
-            <div key={idx} className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/15 text-white/80 text-xs">
-              <Globe className="w-3 h-3 text-cyan-400" />
-              <span>{lang.trim()}</span>
-            </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {mappedProfile.gender && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Gender</span>
+                <span className="text-white/90 text-xs">{mappedProfile.gender}</span>
+              </div>
+            )}
+            {mappedProfile.location && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Location</span>
+                <div className="flex items-center space-x-1">
+                  <MapPin className="w-3 h-3 text-rose-400" />
+                  <span className="text-white/90 text-xs">{mappedProfile.location}</span>
+                </div>
+              </div>
+            )}
+            {mappedProfile.intent && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/30 shadow-[0_0_12px_rgba(168,85,247,0.15)]">
+                <span className="text-[8px] uppercase tracking-wider text-purple-300 mb-0.5">Looking For</span>
+                <div className="flex items-center space-x-1">
+                  <Sparkles className="w-3 h-3 text-purple-400" />
+                  <span className="text-purple-200 text-xs">{mappedProfile.intent}</span>
+                </div>
+              </div>
+            )}
+            {mappedProfile.vibe && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Vibe</span>
+                <span className="text-white/90 text-xs">{mappedProfile.vibe}</span>
+              </div>
+            )}
+            {mappedProfile.zodiac && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
+                <span className="text-[8px] uppercase tracking-wider text-amber-300 mb-0.5">Zodiac</span>
+                <span className="text-amber-200 text-xs">♈ {mappedProfile.zodiac}</span>
+              </div>
+            )}
+            {mappedProfile.education && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Education</span>
+                <div className="flex items-center space-x-1">
+                  <GraduationCap className="w-3 h-3 text-emerald-400" />
+                  <span className="text-white/90 text-xs">{mappedProfile.education}</span>
+                </div>
+              </div>
+            )}
+            {mappedProfile.job && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Career</span>
+                <div className="flex items-center space-x-1">
+                  <Briefcase className="w-3 h-3 text-blue-400" />
+                  <span className="text-white/90 text-xs">{mappedProfile.job}</span>
+                </div>
+              </div>
+            )}
+            {mappedProfile.hobby && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Hobby</span>
+                <span className="text-white/90 text-xs">{mappedProfile.hobby}</span>
+              </div>
+            )}
+            {mappedProfile.communicationStyle && (
+              <div className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Communication</span>
+                <div className="flex items-center space-x-1">
+                  <MessageSquare className="w-3 h-3 text-pink-400" />
+                  <span className="text-white/90 text-xs">{mappedProfile.communicationStyle}</span>
+                </div>
+              </div>
+            )}
+            {mappedProfile.languages?.map((lang, idx) => (
+              <div key={idx} className="flex flex-col px-3 py-1.5 rounded-xl bg-white/[0.05] border border-white/15">
+                <span className="text-[8px] uppercase tracking-wider text-white/40 mb-0.5">Language</span>
+                <div className="flex items-center space-x-1">
+                  <Globe className="w-3 h-3 text-cyan-400" />
+                  <span className="text-white/80 text-xs">{lang.trim()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {mappedProfile.tier && (
@@ -322,7 +450,7 @@ export default function MyProfileView({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-2"
+            className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-2"
           >
             <button
               onClick={() => setFullscreenImage(null)}
