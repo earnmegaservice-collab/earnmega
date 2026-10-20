@@ -43,7 +43,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [bellShake, setBellShake] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !user?.id) return;
 
     // Fetch initial unread count
     const fetchUnreadCount = async () => {
@@ -57,8 +57,8 @@ export const AppShell: React.FC<AppShellProps> = ({
         setUnreadCount(count || 0);
 
         // App-Open Supernova: Check for unread gift notifications in the queue
-        const unreadGifts = data.filter(n => n.type === 'gift');
-        if (unreadGifts.length > 0) {
+        const unreadGifts = (data || []).filter(n => n.type === 'gift');
+        if ((unreadGifts || []).length > 0) {
            // Instantly trigger cinematic 3D gift animation globally for the first unread gift
            // To avoid overlapping, we just show the most recent one or queue them.
            // For simplicity, trigger the first one.
@@ -66,9 +66,9 @@ export const AppShell: React.FC<AppShellProps> = ({
            if (latestGift.content) {
              try {
                const parts = latestGift.content.split(':');
-               if (parts.length >= 3) {
+               if ((parts || []).length >= 3) {
                  const giftData = { name: parts[1], cost: parseInt(parts[2]) };
-                 const senderId = parts.length > 3 ? parts[3] : '';
+                 const senderId = (parts || []).length > 3 ? parts[3] : '';
                  const customEvent = new CustomEvent('gift_received_local', {
                    detail: { giftData: giftData, senderId: senderId, receiverId: user?.id }
                  });
@@ -117,9 +117,9 @@ export const AppShell: React.FC<AppShellProps> = ({
            try {
              // Expecting content like: GIFT:Rose:50:sender_id
              const parts = newNotif.content.split(':');
-             if (parts.length >= 3) {
+             if ((parts || []).length >= 3) {
                const giftData = { name: parts[1], cost: parseInt(parts[2]) };
-               const senderId = parts.length > 3 ? parts[3] : '';
+               const senderId = (parts || []).length > 3 ? parts[3] : '';
 
                // Dispatch custom event to App-Open Supernova GiftOverlay
                const customEvent = new CustomEvent('gift_received_local', {
