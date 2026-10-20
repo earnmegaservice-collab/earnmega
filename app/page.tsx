@@ -1,4 +1,4 @@
-'use client';
+"use client";
 import OnboardingFlow from '../components/profile/OnboardingFlow';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';

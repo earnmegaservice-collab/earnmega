@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -69,8 +69,7 @@ export default function ChatList({
               exit={{ opacity: 0, y: -10 }}
               className="w-full relative"
             >
-              <Link
-                href={`/chats/${u.id}`}
+              <div
                 onClick={(e) => {
                   if ((currentUserProfile as any)?.isVerified === false) {
                     e.preventDefault();
@@ -78,6 +77,9 @@ export default function ChatList({
                     return;
                   }
                   setOtherUserProfile(u);
+                  if (u.id) {
+                    router.push(`/chats/${u.id}`);
+                  }
                 }}
                 className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group"
               >
@@ -137,7 +139,7 @@ export default function ChatList({
                   </div>
                 )}
               </div>
-              </Link>
+              </div>
             </motion.div>
           ))}
         </AnimatePresence>
