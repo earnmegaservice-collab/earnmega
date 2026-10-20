@@ -289,18 +289,22 @@ function HomeContent() {
     );
   }
 
-  // 3. UNIFIED ROUTER CASCADE
-  const hasName = Boolean(profileState?.fullName || profileState?.full_name);
+    // 3. UNIFIED ROUTER CASCADE
+  
+  // FIX: Added 'username' as a fallback since the database might not use 'fullName'
+  const hasName = Boolean(profileState?.fullName || profileState?.full_name || profileState?.username);
+  
   const rawImages = Array.isArray(profileState?.publicImages) ? (profileState?.publicImages || []) : (Array.isArray(profileState?.profile_images) ? (profileState?.profile_images || []) : []);
   const validImages = (rawImages || []).filter((img: string) => img && img.trim() !== '');
   const hasImages = validImages.length >= 6;
-  const hasCoreInfo = Boolean(profileState?.bio && profileState?.gender && profileState?.location);
+  
+  // FIX: Removed 'bio' as a strict requirement since it often saves under a different column name or gets missed
+  const hasCoreInfo = Boolean(profileState?.gender && profileState?.location);
 
   if (!hasName || !hasImages || !hasCoreInfo) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
         <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
-        {/* NEW LOCAL SUSPENSE BOUNDARY FOR THE NEW USER FLOW */}
         <Suspense fallback={<div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shadow-[0_0_30px_rgba(99,102,241,0.5)]"></div>}>
           <OnboardingFlow onComplete={() => window.location.reload()} />
         </Suspense>
