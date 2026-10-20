@@ -15,6 +15,9 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
   const [step, setStep] = useState<Step>('complete-profile');
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // FIX: This hook MUST be declared here, BEFORE the if (!isLoaded) return.
+  const [isFinalizing, setIsFinalizing] = useState(false);
+
   // Load saved step from localStorage to survive OOM kills
   useEffect(() => {
     const savedStep = localStorage.getItem('em_onboarding_step') as Step;
@@ -25,9 +28,6 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
   }, []);
 
   if (!isLoaded) return null;
-
-
-  const [isFinalizing, setIsFinalizing] = useState(false);
 
   const dataUrlToBlob = async (dataUrl: string) => {
     const res = await fetch(dataUrl);
@@ -108,6 +108,5 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
         </div>
       )}
     </>
-
   );
 }
