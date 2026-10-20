@@ -69,6 +69,10 @@ function HomeContent() {
     let isMounted = true;
     const initializeApp = async () => {
       try {
+        // Prevent React Error #310 by deferring execution
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (!isMounted) return;
+
         const { data: { session: activeSession } } = await supabase.auth.getSession();
         if (isMounted) setSession(activeSession as any);
 

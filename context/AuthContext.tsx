@@ -22,30 +22,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      // Mock session for testing
-      if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
-        const mockUser = { id: 'mock-1', email: 'test@example.com' };
-        setSession({ user: mockUser } as any);
-        setUser(mockUser as any);
-      } else {
-        setSession(session);
-        setUser(session?.user ?? null);
+    let mounted = true;
+
+    // Prevent React Error #310 by avoiding synchronous token parsing on mount
+    const initAuth = async () => {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        if (!mounted) return;
+
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!mounted) return;
+
+        if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
+          const mockUser = { id: 'mock-1', email: 'test@example.com' };
+          setSession({ user: mockUser } as any);
+          setUser(mockUser as any);
+        } else {
+          setSession(session);
+          setUser(session?.user ?? null);
+        }
+        setIsLoading(false);
+      } catch (error) {
+        console.error("Auth context init error:", error);
+        if (mounted) setIsLoading(false);
       }
-      setIsLoading(false);
-    });
+    };
+
+    initAuth();
 
     // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
+      if (!mounted) return;
+      // Wrap state updates in setTimeout to escape synchronous execution paths that trigger Suspense errors
+      setTimeout(() => {
+        if (!mounted) return;
+        setSession(session);
+        setUser(session?.user ?? null);
+        setIsLoading(false);
+      }, 0);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   return (
