@@ -9,10 +9,11 @@ import { ArrowLeft, MoreVertical, Send, Phone, Video } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import VerifiedTick from '../../../components/ui/VerifiedTick';
 
-export default function ChatPage({ params }: { params: { id: string } }) {
+export default function ChatPage({ params }: { params: Promise<{ id: string }> | { id: string } }) {
   const { user } = useAuth();
   const router = useRouter();
-  const recipientId = params.id;
+  const resolvedParams = params instanceof Promise ? React.use(params) : params;
+  const recipientId = resolvedParams.id;
   const [recipient, setRecipient] = useState<UserProfileDetails | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
