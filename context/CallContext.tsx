@@ -9,7 +9,6 @@ import { createPortal } from 'react-dom';
 import { DevicePermissionsModal } from '../components/chat/DevicePermissionsModal';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Global Call Context
 interface CallContextType {
   initiateCall: (receiverId: string, receiverName: string, receiverAvatar: string | undefined, callType: 'audio' | 'video') => void;
   isCallActive: boolean;
@@ -26,6 +25,8 @@ export const useCall = () => useContext(CallContext);
 
 export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
+  
+  // Call State Management
   const [callState, setCallState] = useState<'idle' | 'calling' | 'ringing' | 'connected' | 'reconnecting' | 'ended'>('idle');
   const [isIncoming, setIsIncoming] = useState(false);
   const [callType, setCallType] = useState<'audio' | 'video'>('audio');
@@ -34,84 +35,73 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
+  
   const [incomingOffer, setIncomingOffer] = useState<any>(null);
+  const [permissionsError, setPermissionsError] = useState(false);
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [pendingCallType, setPendingCallType] = useState<'audio' | 'video' | null>(null);
+  const [mounted, setMounted] = useState(false);
 
-
+  // Hardware & Network Refs
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const channelRef = useRef<any>(null);
+  
+  // The ICE Candidate Fix: Queue candidates that arrive before the call is answered
+  const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
 
+  // Bulletproof Audio Engine Refs
   const ringtoneRef = useRef<HTMLAudioElement | null>(null);
-
   const dialToneRef = useRef<HTMLAudioElement | null>(null);
 
-  const audioContextRef = useRef<any>(null);
-  const ringtoneSourceRef = useRef<any>(null);
-
-  const initAudioContext = () => {
-     if (!audioContextRef.current) {
-         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-     }
-  };
-
-  const playPremiumRingtone = async () => {
-     try {
-         initAudioContext();
-         if (audioContextRef.current.state === 'suspended') {
-             await audioContextRef.current.resume();
-         }
-         const response = await fetch('/ringtone.mp3');
-         const arrayBuffer = await response.arrayBuffer();
-         const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-
-         const source = audioContextRef.current.createBufferSource();
-         source.buffer = audioBuffer;
-         source.loop = true;
-         source.connect(audioContextRef.current.destination);
-         source.start(0);
-         ringtoneSourceRef.current = source;
-     } catch (err) {
-         console.error("Audio engine failed to play ringtone", err);
-     }
-  };
-
-  const stopPremiumRingtone = () => {
-      if (ringtoneSourceRef.current) {
-          try {
-             ringtoneSourceRef.current.stop();
-             ringtoneSourceRef.current.disconnect();
-          } catch(e) {}
-          ringtoneSourceRef.current = null;
-      }
-  };
-
-
-  const channelRef = useRef<any>(null);
-
-  useEffect(() => {
+  // Initialize Audio securely on mount
+  useEffect(() => { 
+    setMounted(true);
     ringtoneRef.current = new Audio('/ringtone.mp3');
     ringtoneRef.current.loop = true;
     dialToneRef.current = new Audio('/dialtone.mp3');
     dialToneRef.current.loop = true;
+    
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js').catch(console.error);
+    }
+
     return () => {
-      ringtoneRef.current?.pause();
-      dialToneRef.current?.pause();
+      stopSounds();
       ringtoneRef.current = null;
       dialToneRef.current = null;
     };
   }, []);
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true);
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js').catch(console.error);
+  const playRingtone = async () => {
+    try {
+      if (ringtoneRef.current) {
+        ringtoneRef.current.currentTime = 0;
+        await ringtoneRef.current.play();
+      }
+      if (navigator.vibrate) {
+        navigator.vibrate([1000, 500, 1000, 500, 1000]);
+      }
+    } catch (e) {
+      console.warn("Browser blocked autoplay. Waiting for user interaction.", e);
     }
-  }, []);
+  };
+
+  const playDialTone = async () => {
+    try {
+      if (dialToneRef.current) {
+        dialToneRef.current.currentTime = 0;
+        await dialToneRef.current.play();
+      }
+    } catch (e) {
+      console.warn("Dial tone playback blocked.", e);
+    }
+  };
 
   const stopSounds = useCallback(() => {
-    stopPremiumRingtone();
     if (ringtoneRef.current) {
       ringtoneRef.current.pause();
       ringtoneRef.current.currentTime = 0;
@@ -122,36 +112,25 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
+  // Global Call Listener Pipeline
   useEffect(() => {
     if (!user) return;
 
-    // For broadcast, we must use a shared channel name
     const channel = supabase.channel('chat-events')
       .on('broadcast', { event: 'incoming_call' }, async (payload: any) => {
         if (payload.payload.receiverId !== user.id) return;
-        if (callState !== 'idle') return;
+        if (callState !== 'idle') return; // User is already in a call
 
+        iceCandidateQueue.current = []; // Reset queue for new call
         setIsIncoming(true);
         setCallType(payload.payload.callType);
         setCallerInfo({ id: payload.payload.callerId, name: payload.payload.callerName, avatar: payload.payload.callerAvatar });
         setIncomingOffer(payload.payload.offer);
         setCallState('ringing');
 
-        playPremiumRingtone();
+        playRingtone();
 
-        if (ringtoneRef.current) {
-           ringtoneRef.current.play().catch(console.error);
-        }
-
-        try {
-           const globalRingtone = document.getElementById('global-ringtone') as HTMLAudioElement;
-           if (globalRingtone) globalRingtone.play().catch(console.error);
-        } catch (e) {}
-
-        if (navigator.vibrate) {
-            navigator.vibrate([1000, 1000, 1000, 1000, 1000]);
-        }
-
+        // Push Notification Trigger
         if (document.hidden && 'serviceWorker' in navigator) {
             navigator.serviceWorker.ready.then(registration => {
                 registration.showNotification(`Incoming ${payload.payload.callType} call from ${payload.payload.callerName}`, {
@@ -168,7 +147,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       .on('broadcast', { event: 'call_ringing' }, (payload: any) => {
         if (payload.payload.callerId === user.id && callState === 'calling') {
            setCallState('ringing');
-           dialToneRef.current?.play().catch(console.error);
+           playDialTone();
         }
       })
       .on('broadcast', { event: 'call_answered' }, async (payload: any) => {
@@ -176,9 +155,15 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
         if (callState === 'calling' || callState === 'ringing') {
             stopSounds();
             setCallState('connected');
+            
+            // Critical WebRTC Fix: Process Answer and Flush Queue
             if (peerConnectionRef.current) {
                try {
                  await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.payload.answer));
+                 while (iceCandidateQueue.current.length > 0) {
+                    const candidate = iceCandidateQueue.current.shift();
+                    if (candidate) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+                 }
                } catch (err) {
                  console.error("Failed to set remote desc on answer", err);
                }
@@ -187,16 +172,16 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       })
       .on('broadcast', { event: 'webrtc_ice_candidate' }, async (payload: any) => {
         if (payload.payload.targetId !== user.id) return;
-        if (peerConnectionRef.current && payload.payload.candidate) {
+        
+        // Critical WebRTC Fix: Queue candidates if remote description isn't ready yet
+        if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
              try {
-                if (peerConnectionRef.current.remoteDescription) {
-                    await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.payload.candidate));
-                } else {
-                    console.log("ICE buffered (not implemented in stub)");
-                }
+                await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.payload.candidate));
              } catch (err) {
                 console.error("Error adding ice candidate", err);
              }
+        } else {
+             iceCandidateQueue.current.push(payload.payload.candidate);
         }
       })
       .on('broadcast', { event: 'call_ended' }, (payload: any) => {
@@ -213,11 +198,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
-
-  const [permissionsError, setPermissionsError] = useState(false);
-  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-  const [pendingCallType, setPendingCallType] = useState<'audio' | 'video' | null>(null);
+  }, [user, callState]);
 
   const initLocalStream = async (type: 'audio' | 'video') => {
     if (localStreamRef.current) {
@@ -226,9 +207,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: type === 'video' ? { width: { ideal: 3840, min: 1920 }, frameRate: { ideal: 60, min: 30 }, facingMode: "user" } : false,
+        video: type === 'video' ? { width: { ideal: 1920 }, frameRate: { ideal: 60 }, facingMode: "user" } : false,
         audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 }
       });
+      
       localStreamRef.current = stream;
       if (localVideoRef.current && type === 'video') {
          localVideoRef.current.srcObject = stream;
@@ -236,27 +218,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       return stream;
     } catch (err: any) {
       console.error("Media error:", err);
-      if (type === 'video') {
-         try {
-             const audioStream = await navigator.mediaDevices.getUserMedia({
-                 audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 }
-             });
-             localStreamRef.current = audioStream;
-             return audioStream;
-         } catch (fallbackErr) {
-             console.error("Fallback audio error:", fallbackErr);
-             if (err.name === 'NotAllowedError') {
-                setPermissionsError(true);
-             } else {
-                toast.error("Could not access camera/microphone");
-             }
-             throw err;
-         }
-      }
       if (err.name === 'NotAllowedError') {
          setPermissionsError(true);
       } else {
-         toast.error("Could not access camera/microphone");
+         toast.error("Could not access hardware. Check permissions.");
       }
       throw err;
     }
@@ -265,24 +230,24 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const initPeerConnection = () => {
     const servers = {
       iceServers: [
-        { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
       ]
     };
+    
     const pc = new RTCPeerConnection(servers);
 
     pc.onicecandidate = (event) => {
       if (event.candidate && channelRef.current) {
-        let targetId = callerInfo.id;
         channelRef.current.send({
             type: 'broadcast',
             event: 'webrtc_ice_candidate',
-            payload: { candidate: event.candidate, targetId: targetId }
+            payload: { candidate: event.candidate, targetId: callerInfo.id }
         });
       }
     };
 
     pc.ontrack = (event) => {
-      console.log("Track received!", event.track.kind);
       if (event.track.kind === 'video' && remoteVideoRef.current) {
          remoteVideoRef.current.srcObject = event.streams[0];
       }
@@ -298,14 +263,12 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const initiateCall = async (receiverId: string, receiverName: string, receiverAvatar: string | undefined, type: 'audio' | 'video') => {
      if (!user) return;
 
-     // Check permissions
      if (!localStorage.getItem('av_permissions_granted')) {
          setPendingCallType(type);
          setShowPermissionsModal(true);
-         // Stash args
          setCallerInfo({ id: receiverId, name: receiverName, avatar: receiverAvatar || '' });
          setIsIncoming(false);
-         setCallState('idle'); // Don't proceed yet
+         setCallState('idle'); 
          return;
      }
 
@@ -314,6 +277,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
   const executeInitiateCall = async (receiverId: string, receiverName: string, receiverAvatar: string | undefined, type: 'audio' | 'video') => {
      try {
+       iceCandidateQueue.current = [];
        await initLocalStream(type);
        setIsIncoming(false);
        setCallType(type);
@@ -338,7 +302,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
            offer: offer
          }
        });
-
      } catch (e) {
        console.error("Failed to initiate call", e);
        endCallLogic();
@@ -364,12 +327,16 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       const pc = initPeerConnection();
       localStreamRef.current?.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current!));
 
-      // Apply the offer before creating an answer
+      // Critical WebRTC Fix: Process Offer and Flush Queue
       if (incomingOffer) {
          await pc.setRemoteDescription(new RTCSessionDescription(incomingOffer));
+         while (iceCandidateQueue.current.length > 0) {
+            const candidate = iceCandidateQueue.current.shift();
+            if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+         }
       }
 
-      toast.success("Call connected");
+      toast.success("Call connected", { icon: '🔒' });
       setCallState('connected');
 
       const answer = await pc.createAnswer();
@@ -388,18 +355,26 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const declineCall = () => {
-     stopSounds();
      channelRef.current?.send({ type: 'broadcast', event: 'call_ended', payload: { targetId: callerInfo.id } });
      endCallLogic();
   };
 
   const endCallLogic = () => {
     stopSounds();
-    localStreamRef.current?.getTracks().forEach(track => track.stop());
+    if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+    }
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
+    
+    // Clear media sources to release hardware
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+
     setCallState('ended');
     setTimeout(() => {
        setCallState('idle');
@@ -408,6 +383,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     }, 1000);
   };
 
+  // Timer Logic
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (callState === 'connected') {
@@ -442,7 +418,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <CallContext.Provider value={{ initiateCall, isCallActive: callState !== 'idle', isInCall: callState === 'connected' }}>
       {children}
-      <audio id="global-ringtone" loop src="/ringtone.mp3" className="hidden" />
+      
       {mounted && createPortal(
          <CallOverlay
             callState={callState}
