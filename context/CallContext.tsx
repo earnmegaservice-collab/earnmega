@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { v4 as uuidv4 } from 'uuid';
 
 interface CallContextType {
-  initiateCall: (receiverId: string, receiverName: string, receiverAvatar: string | undefined, callType: 'audio' | 'video') => void;
+  initiateCall: (receiverId: string, receiverName: string, receiverAvatar: string | undefined, callType: 'audio' | 'video', isGroup?: boolean) => void;
   isCallActive: boolean;
   isInCall: boolean;
 }
@@ -355,7 +355,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     return pc;
   };
 
-  const initiateCall = (receiverId: string, receiverName: string, receiverAvatar: string | undefined, type: 'audio' | 'video') => {
+  const initiateCall = (receiverId: string, receiverName: string, receiverAvatar: string | undefined, type: 'audio' | 'video', isGroup?: boolean) => {
     if (!user) return;
     callRoleRef.current = 'caller';
     activePartnerIdRef.current = receiverId;
@@ -368,10 +368,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       setCallState('idle');
       return;
     }
-    executeInitiateCall(receiverId, receiverName, receiverAvatar, type);
+    executeInitiateCall(receiverId, receiverName, receiverAvatar, type, isGroup);
   };
 
-  const executeInitiateCall = async (receiverId: string, receiverName: string, receiverAvatar: string | undefined, type: 'audio' | 'video') => {
+  const executeInitiateCall = async (receiverId: string, receiverName: string, receiverAvatar: string | undefined, type: 'audio' | 'video', isGroup?: boolean) => {
     try {
       iceCandidateQueue.current = [];
       await initLocalStream(type);
@@ -388,11 +388,26 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      callChannelRef.current?.send({
-        type: 'broadcast',
-        event: 'incoming_call',
-        payload: { callerId: user!.id, callerName: user!.email?.split('@')[0] || 'User', callerAvatar: '', receiverId, callType: type, offer }
-      });
+      if (isGroup) {
+        const { data: members } = await supabase.from('room_participants').select('user_id').eq('room_id', receiverId);
+        if (members) {
+          members.forEach((m: any) => {
+            if (m.user_id !== user!.id) {
+               callChannelRef.current?.send({
+                 type: 'broadcast',
+                 event: 'incoming_call',
+                 payload: { callerId: user!.id, callerName: user!.email?.split('@')[0] || 'User', callerAvatar: '', receiverId: m.user_id, roomId: receiverId, callType: type, offer }
+               });
+            }
+          });
+        }
+      } else {
+        callChannelRef.current?.send({
+          type: 'broadcast',
+          event: 'incoming_call',
+          payload: { callerId: user!.id, callerName: user!.email?.split('@')[0] || 'User', callerAvatar: '', receiverId, callType: type, offer }
+        });
+      }
     } catch (e) {
       endCallSession(true);
     }
@@ -541,7 +556,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
               setShowPermissionsModal(false);
               localStorage.setItem('av_permissions_granted', 'true');
               if (isIncoming) executeAcceptCall();
-              else if (pendingCallType) executeInitiateCall(callerInfo.id, callerInfo.name, callerInfo.avatar, pendingCallType);
+              else if (pendingCallType) executeInitiateCall(callerInfo.id, callerInfo.name, callerInfo.avatar, pendingCallType, false);
             }}
             onDeny={() => {
               setShowPermissionsModal(false);

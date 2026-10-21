@@ -21,6 +21,7 @@ export interface UserProfileDetails {
   isVerified?: boolean;
   unreadCount?: number;
   lastMessageTime?: number;
+  isGroup?: boolean;
 }
 
 interface UserProfileModalProps {
