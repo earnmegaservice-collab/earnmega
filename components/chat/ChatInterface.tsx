@@ -20,7 +20,6 @@ const GiftModal = dynamic(() => import("../../components/chat/GiftModal"), { ssr
 const NavigationDrawer = dynamic(() => import("../../components/chat/NavigationDrawer"), { ssr: false });
 const StatusTab = dynamic(() => import("../../components/status/StatusTab"), { ssr: false });
 const StatusViewer = dynamic(() => import("../../components/status/StatusViewer"), { ssr: false });
-const UnlockModal = dynamic(() => import("../../components/status/UnlockModal"), { ssr: false });
 const ChatList = dynamic(() => import("./ChatList"), { ssr: false });
 const MessageForwardModal = dynamic(() => import("./MessageForwardModal"), { ssr: false });
 
@@ -282,8 +281,6 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
   const [activeStatusUsers, setActiveStatusUsers] = useState<Set<string>>(new Set());
   const [viewedStatuses, setViewedStatuses] = useState<Set<string>>(new Set());
-  const [unlockModalState, setUnlockModalState] = useState<{ isOpen: boolean, creatorId: string, creatorUsername: string } | null>(null);
-  const [unlockedStatuses, setUnlockedStatuses] = useState<Set<string>>(new Set());
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [storeTab, setStoreTab] = useState<'UPGRADES' | 'BUY_COINS'>('UPGRADES');
@@ -1502,14 +1499,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     return allViewed ? 'status-ring-viewed' : 'status-ring-active';
   };
 
-  const handleStatusClick = (groupId: string, statuses: any[], profile: any) => {
-    if (groupId === user?.id || unlockedStatuses.has(groupId)) {
-       setViewingStatuses({ groupId, statuses, profile });
-    } else {
-       setUnlockModalState({ isOpen: true, creatorId: groupId, creatorUsername: (profile?.username || 'unknown_user') || 'User' });
-       // Temporarily store what they clicked to show it after unlock
-       setViewingStatuses({ groupId, statuses, profile });
-    }
+    const handleStatusClick = (groupId: string, statuses: any[], profile: any) => {
+    setViewingStatuses({ groupId, statuses, profile });
   };
 
   if (needsVerification) {
@@ -1602,38 +1593,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                 textContent: s.text_content,
                 backgroundGradient: s.background_gradient,
                 viewsCount: 0,
-                isUnlocked: user?.id === viewingStatuses.groupId || unlockedStatuses.has(viewingStatuses.groupId),
                 isOwner: user?.id === viewingStatuses.groupId
               }))}
               onClose={() => setViewingStatuses(null)}
-              onUnlock={async (statusId) => {
-                 try {
-                     const { error } = await supabase.rpc('transfer_coins', {
-                        receiver_id: viewingStatuses.groupId,
-                        gift_cost: 10,
-                        gift_name: 'Status Unlock'
-                     });
-
-                     if (error) throw error;
-
-                     // Record unlock in DB or state
-                     setUnlockedStatuses(prev => new Set(prev).add(viewingStatuses.groupId));
-
-                     // Trigger notification to creator via realtime
-                     channelRef.current?.send({
-                         type: 'broadcast',
-                         event: 'status_unlocked',
-                         payload: { viewerId: user?.id, creatorId: viewingStatuses.groupId }
-                     });
-
-                     toast.success("Unlocked successfully!");
-                     return true;
-                 } catch (err: any) {
-                     toast.error(err.message || 'Failed to unlock');
-                     return false;
-                 }
-              }}
-              onSendReply={async (statusId, text, mediaPreview) => {
+                            onSendReply={async (statusId, text, mediaPreview) => {
                  if (!user) return;
                  const finalContent = `[REPLY:${statusId}:${mediaPreview}] ${text}`;
                  const msgId = uuidv4();
@@ -1695,7 +1658,6 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
                  toast.success("Status forwarded!");
               }}
-              userCoins={balance}
             />
           )}
 
