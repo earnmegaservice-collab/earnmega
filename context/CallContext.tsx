@@ -48,10 +48,8 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   
-  // Dedicated channel for calls to prevent collisions with chat
   const callChannelRef = useRef<any>(null);
-  // Separate channel strictly for logging the call to the DM
-  const chatChannelRef = useRef<any>(null);
+  const chatChannelRef = useRef<any>(null); // Dedicated to DM logs
   
   const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
   const durationRef = useRef(0);
@@ -59,26 +57,35 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const activePartnerIdRef = useRef<string>('');
 
   // ==========================================
-  // HARDWARE AUDIO SYNTHESIZER (NO MP3s NEEDED)
+  // HARDWARE AUDIO SYNTHESIZER
   // ==========================================
   const audioCtxRef = useRef<AudioContext | null>(null);
   const ringtoneIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const audioUnlockedRef = useRef(false);
 
   const getAudioContext = () => {
     if (!audioCtxRef.current) {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) audioCtxRef.current = new AudioCtx();
     }
-    if (audioCtxRef.current?.state === 'suspended') {
-      audioCtxRef.current.resume().catch(() => {});
-    }
     return audioCtxRef.current;
+  };
+
+  const unlockAudioEngine = () => {
+    if (audioUnlockedRef.current) return;
+    const ctx = getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().then(() => {
+        audioUnlockedRef.current = true;
+      });
+    }
   };
 
   const playChimeTone = (freq1: number, freq2: number, durationSec: number) => {
     try {
       const ctx = getAudioContext();
-      if (!ctx) return;
+      if (!ctx || ctx.state === 'suspended') return;
+      
       const osc1 = ctx.createOscillator();
       const osc2 = ctx.createOscillator();
       const gainNode = ctx.createGain();
@@ -106,7 +113,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
   const startRingtone = () => {
     stopSounds();
-    playChimeTone(440, 480, 1.2); // Initial Chime
+    unlockAudioEngine();
+    
+    // Play immediately, then loop
+    playChimeTone(440, 480, 1.2); 
     ringtoneIntervalRef.current = setInterval(() => {
       playChimeTone(440, 480, 1.2);
     }, 2800);
@@ -118,6 +128,8 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
   const startDialTone = () => {
     stopSounds();
+    unlockAudioEngine();
+    
     playChimeTone(425, 425, 1.0);
     ringtoneIntervalRef.current = setInterval(() => {
       playChimeTone(425, 425, 1.0);
@@ -134,16 +146,11 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  // Mount listeners & Audio unlocker
+  // Global listeners to unlock audio on first touch
   useEffect(() => {
     setMounted(true);
-    const unlockAudio = () => {
-      getAudioContext();
-      window.removeEventListener('click', unlockAudio);
-      window.removeEventListener('touchstart', unlockAudio);
-    };
-    window.addEventListener('click', unlockAudio);
-    window.addEventListener('touchstart', unlockAudio);
+    window.addEventListener('click', unlockAudioEngine);
+    window.addEventListener('touchstart', unlockAudioEngine);
 
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().catch(() => {});
@@ -151,8 +158,8 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => {
       stopSounds();
-      window.removeEventListener('click', unlockAudio);
-      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('click', unlockAudioEngine);
+      window.removeEventListener('touchstart', unlockAudioEngine);
     };
   }, [stopSounds]);
 
@@ -166,7 +173,9 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // 💾 Write Call History directly to DM
+  // ==========================================
+  // 💾 DM LOG FIX: WRITE HISTORY TO SUPABASE
+  // ==========================================
   const recordCallToDatabase = async (type: 'completed_call' | 'missed_call', finalSeconds: number) => {
     if (!user || !activePartnerIdRef.current) return;
 
@@ -181,35 +190,40 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       receiver_id: receiverId,
       content: type === 'completed_call' ? `Call Ended (${formattedDuration})` : 'Missed Call',
       message_type: type,
-      duration: type === 'completed_call' ? formattedDuration : null,
-      status: 'sent',
-      created_at: new Date().toISOString()
+      status: 'sent'
     };
 
     try {
-      await supabase.from('messages').insert(newRecord);
+      // 1. Save strictly to database
+      const { error } = await supabase.from('messages').insert(newRecord);
+      if (error) throw error;
       
-      // We push this strictly to the chat channel so the UI updates
-      chatChannelRef.current?.send({
-        type: 'broadcast',
-        event: 'new_message',
-        payload: { messageId, senderId: callerId, receiverId }
-      });
+      // 2. Broadcast over the ACTIVE chat channel
+      if (chatChannelRef.current) {
+         chatChannelRef.current.send({
+            type: 'broadcast',
+            event: 'new_message',
+            payload: { messageId, senderId: callerId, receiverId }
+         });
+      }
     } catch (err) {
-      console.error("Failed to log call entry:", err);
+      console.error("Failed to log call entry to DM:", err);
     }
   };
 
   // ==========================================
-  // WEBRTC SIGNALING (DEDICATED CHANNEL)
+  // WEBRTC SIGNALING (DEDICATED CHANNELS)
   // ==========================================
   useEffect(() => {
     if (!user) return;
 
-    // Chat Channel just for pushing DM logs
-    chatChannelRef.current = supabase.channel('chat-events');
+    // FIX 1: Explicitly subscribe to the Chat channel so DM history broadcasts actually fire
+    const chatChannel = supabase.channel('chat-events-logger').subscribe((status) => {
+       if (status === 'SUBSCRIBED') {
+           chatChannelRef.current = chatChannel;
+       }
+    });
 
-    // DEDICATED Call Channel (No collision with ChatInterface)
     const callChannel = supabase.channel('webrtc-global-calls')
       .on('broadcast', { event: 'incoming_call' }, async (payload: any) => {
         if (payload.payload.receiverId !== user.id) return;
@@ -229,16 +243,22 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
         setIncomingOffer(payload.payload.offer);
         setCallState('ringing');
 
+        // Play Synthesized Ringtone
         startRingtone();
 
-        // Local Notification if backgrounded
+        // Local Push Notification
         if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
-          new Notification(`Incoming ${payload.payload.callType} call`, {
-            body: `${payload.payload.callerName} is calling...`,
-            icon: payload.payload.callerAvatar || '/icon.svg',
-            requireInteraction: true,
-            vibrate: [1000, 500, 1000, 500, 1000],
-          });
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then((reg) => {
+              reg.showNotification(`Incoming ${payload.payload.callType} call`, {
+                body: `${payload.payload.callerName} is calling...`,
+                icon: payload.payload.callerAvatar || '/icon.svg',
+                requireInteraction: true,
+                vibrate: [1000, 500, 1000, 500, 1000],
+                data: { callerId: payload.payload.callerId }
+              });
+            });
+          }
         }
 
         callChannelRef.current?.send({
@@ -293,6 +313,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => {
       supabase.removeChannel(callChannel);
+      supabase.removeChannel(chatChannel);
     };
   }, [user, callState]);
 
@@ -435,6 +456,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     const finalSecs = durationRef.current;
     const wasConnected = callState === 'connected' || finalSecs > 0;
 
+    // Trigger DM Log explicitly
     if (isInitiatorOfEnd) {
       if (wasConnected) recordCallToDatabase('completed_call', finalSecs);
       else recordCallToDatabase('missed_call', 0);
