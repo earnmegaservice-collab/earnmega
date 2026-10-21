@@ -89,17 +89,9 @@ export default function ChatList({
                       return;
                     }
                     setOtherUserProfile(u);
-                    router.push('/chats/' + u.id);
                   } catch (err: any) {
                     setNavigationError(err.message || 'Failed to open chat.');
                   }
-
-
-                  setOtherUserProfile(u);
-                  if (u.id) {
-                    router.push(`/chats/${u.id}`);
-                  }
-
                 }}
                 className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group touch-manipulation pointer-events-auto"
               >
