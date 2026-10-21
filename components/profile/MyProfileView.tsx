@@ -1,11 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
-import { useRef } from 'react';
-
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BadgeCheck,
@@ -13,7 +11,6 @@ import {
   Briefcase,
   GraduationCap,
   Sparkles,
-  Heart,
   MessageSquare,
   Globe,
   X,
@@ -50,56 +47,73 @@ interface UserProfile {
 }
 
 export default function MyProfileView({
-  profile,
+  profile: initialProfileProp,
   onEditClick
 }: {
   profile: any;
   onEditClick?: () => void
 }) {
-  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // LIVE DATABASE TRUTH STATE
+  const [liveProfile, setLiveProfile] = useState<any>(initialProfileProp);
+  const [localImages, setLocalImages] = useState<string[]>([]);
+  const [editForm, setEditForm] = useState<any>({});
+
+  // UI STATE
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [editForm, setEditForm] = useState<any>({});
-  const [localImages, setLocalImages] = useState<string[]>([]);
 
-  React.useEffect(() => {
-    if (profile?.publicImages) {
-        setLocalImages(profile?.publicImages || []);
-    } else if (profile.profile_images) {
-        setLocalImages(profile.profile_images);
-    } else if (profile.avatarUrl) {
-        setLocalImages([profile.avatarUrl]);
-    } else {
-        setLocalImages([]);
-    }
-  }, [profile]);
+  // 1. FORCE DIRECT DATABASE FETCH ON MOUNT (KILLS THE AMNESIA BUG)
+  useEffect(() => {
+    let isMounted = true;
+    const fetchFreshProfile = async () => {
+      if (!user) return;
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+          
+        if (error) throw error;
+        if (data && isMounted) {
+          setLiveProfile(data);
+          setLocalImages(data.publicImages || data.profile_images || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch fresh profile data:", err);
+      }
+    };
+    
+    fetchFreshProfile();
+    return () => { isMounted = false; };
+  }, [user]);
 
-
-
-
-  React.useEffect(() => {
+  // 2. POPULATE EDIT FORM ONLY FROM LIVE DATA
+  useEffect(() => {
     if (isEditing) {
       setEditForm({
-        bio: profile.bio || '',
-        gender: profile.gender || '',
-        location: profile.location || '',
-        intent: profile.intent || '',
-        vibe: profile.vibe || '',
-        zodiac_sign: profile.zodiac_sign || '',
-        education_level: profile.education_level || '',
-        job_title: profile.job_title || '',
-        hobbies: profile.hobbies || '',
-        communication_style: profile.communication_style || '',
+        bio: liveProfile.bio || '',
+        gender: liveProfile.gender || '',
+        location: liveProfile.location || '',
+        intent: liveProfile.intent || '',
+        vibe: liveProfile.vibe || '',
+        zodiac_sign: liveProfile.zodiac_sign || '',
+        education_level: liveProfile.education_level || '',
+        job_title: liveProfile.job_title || '',
+        hobbies: liveProfile.hobbies || '',
+        communication_style: liveProfile.communication_style || '',
       });
     }
-  }, [isEditing, profile]);
+  }, [isEditing, liveProfile]);
 
+  // 3. PERMANENT TEXT SAVE
   const handleSaveProfile = async () => {
     if (!user) return;
     setIsSaving(true);
@@ -107,7 +121,16 @@ export default function MyProfileView({
       const { data, error } = await supabase
         .from('profiles')
         .update({
-           ...editForm,
+           bio: editForm.bio,
+           gender: editForm.gender,
+           location: editForm.location,
+           intent: editForm.intent,
+           vibe: editForm.vibe,
+           zodiac_sign: editForm.zodiac_sign,
+           education_level: editForm.education_level,
+           job_title: editForm.job_title,
+           hobbies: editForm.hobbies,
+           communication_style: editForm.communication_style,
            profile_images: localImages,
            publicImages: localImages
         })
@@ -117,17 +140,12 @@ export default function MyProfileView({
 
       if (error) throw error;
 
-      // Update local editForm state to reflect successful database changes
       if (data) {
-        setEditForm({
-            ...editForm,
-            ...data
-        });
+        setLiveProfile(data); // Lock into UI immediately
       }
 
-      toast.success("Profile saved!");
+      toast.success("Profile permanently saved!");
       setIsEditing(false);
-      // Optional: trigger a refresh or callback to parent if needed
     } catch (error: any) {
       toast.error("Failed to save: " + error.message);
     } finally {
@@ -135,37 +153,7 @@ export default function MyProfileView({
     }
   };
 
-  // Map from the `profile` object to the expected structure
-  const mappedProfile: UserProfile = {
-      name: profile.name || profile.username || 'User',
-      age: profile.age || 25, // Mock age
-      isVerified: profile.isVerified || profile.is_verified || false,
-      location: profile.location || '',
-      liveLocation: profile.liveLocation || '',
-      is_location_active: profile.is_location_active,
-      location_city: profile.location_city,
-      location_country: profile.location_country,
-      ghost_mode: profile.ghost_mode,
-      bio: profile.bio || '',
-      publicImages: localImages,
-      zodiac: profile.zodiac_sign,
-      job: profile.job_title,
-      education: profile.education_level,
-      height: profile.height,
-      familyPlans: profile.family_plans,
-      communicationStyle: profile.communication_style,
-      loveStyle: profile.love_style,
-      languages: profile.languages_spoken ? profile.languages_spoken.split(',') : [],
-      intent: profile.intent,
-      tier: profile.tier,
-      gender: profile.gender,
-      hobbies: profile.hobbies,
-
-      vibe: profile.vibe,
-
-  };
-
-
+  // 4. PERMANENT PHOTO SAVE (ISOLATED)
   const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file || selectedSlotIndex === null || !user) return;
@@ -177,7 +165,7 @@ export default function MyProfileView({
 
           const { error: uploadError } = await supabase.storage
               .from('profile_images')
-              .upload(fileName, file);
+              .upload(fileName, file, { upsert: true });
 
           if (uploadError) throw uploadError;
 
@@ -188,23 +176,19 @@ export default function MyProfileView({
           const updatedImages = [...displayPhotos];
           updatedImages[selectedSlotIndex] = publicUrl;
 
-          // Clean up array for DB (remove empty strings)
           const newArray = updatedImages.filter(url => url !== '');
-
           setLocalImages(newArray);
 
-
-          // Phase 3 & 4: Upload Wiring - immediately updates the database array and local UI state
+          // ONLY update images, do NOT overwrite text fields with an empty form
           const { error: dbError } = await supabase.from('profiles').update({
-             ...editForm,
-             "publicImages": newArray,
-             "profile_images": newArray
+             publicImages: newArray,
+             profile_images: newArray
           }).eq('id', user.id);
 
-
           if (dbError) throw dbError;
-
-          toast.success("Photo uploaded and saved successfully!");
+          
+          setLiveProfile((prev: any) => ({...prev, publicImages: newArray, profile_images: newArray}));
+          toast.success("Photo uploaded and saved permanently!");
       } catch (error: any) {
           toast.error("Upload failed: " + error.message);
       } finally {
@@ -212,12 +196,36 @@ export default function MyProfileView({
           setSelectedSlotIndex(null);
           if (fileInputRef.current) fileInputRef.current.value = '';
       }
-
-
   };
 
-  // Guarantee exactly 6 slots
-  const displayPhotos = [...(mappedProfile?.publicImages || [])];
+  const mappedProfile: UserProfile = {
+      name: liveProfile?.name || liveProfile?.username || liveProfile?.full_name || 'User',
+      age: liveProfile?.age || 25, 
+      isVerified: liveProfile?.isVerified || liveProfile?.is_verified || false,
+      location: liveProfile?.location || '',
+      liveLocation: liveProfile?.liveLocation || '',
+      is_location_active: liveProfile?.is_location_active,
+      location_city: liveProfile?.location_city,
+      location_country: liveProfile?.location_country,
+      ghost_mode: liveProfile?.ghost_mode,
+      bio: liveProfile?.bio || '',
+      publicImages: localImages,
+      zodiac: liveProfile?.zodiac_sign || liveProfile?.zodiac,
+      job: liveProfile?.job_title || liveProfile?.job,
+      education: liveProfile?.education_level || liveProfile?.education,
+      height: liveProfile?.height,
+      familyPlans: liveProfile?.family_plans,
+      communicationStyle: liveProfile?.communication_style,
+      loveStyle: liveProfile?.love_style,
+      languages: liveProfile?.languages_spoken ? liveProfile?.languages_spoken.split(',') : [],
+      intent: liveProfile?.intent,
+      tier: liveProfile?.tier,
+      gender: liveProfile?.gender,
+      hobbies: liveProfile?.hobbies,
+      vibe: liveProfile?.vibe,
+  };
+
+  const displayPhotos = [...localImages];
   while (displayPhotos.length < 6) {
     displayPhotos.push('');
   }
@@ -233,7 +241,6 @@ export default function MyProfileView({
         onChange={handlePhotoUpload}
       />
 
-      {/* 1. 3x2 CINEMATIC PHOTO GRID */}
       <div className="space-y-1.5 px-4">
         <div className="grid grid-cols-3 gap-1.5 w-full rounded-3xl overflow-hidden p-1 bg-white/[0.02] border border-white/10 backdrop-blur-2xl">
           {displayPhotos.slice(0, 6).map((imgUrl, index) => (
@@ -278,7 +285,7 @@ export default function MyProfileView({
                   )}
                 </>
               ) : (
-                                                <div className="w-full h-full flex flex-col items-center justify-center bg-black/20 group-hover:bg-white/5 transition-colors cursor-pointer" onClick={(e) => {
+                <div className="w-full h-full flex flex-col items-center justify-center bg-black/20 group-hover:bg-white/5 transition-colors cursor-pointer" onClick={(e) => {
                   e.stopPropagation();
                   setSelectedSlotIndex(index);
                   setIsEditing(true);
@@ -298,7 +305,6 @@ export default function MyProfileView({
         <p className="text-[10px] text-center text-white/40 tracking-wider">TAP ANY PHOTO TO EXPAND IN 4K</p>
       </div>
 
-      {/* 2. USER DETAILS HEADER */}
       <div className="px-6 space-y-2">
         <div className="flex items-start justify-between">
           <div className="flex flex-col space-y-1">
@@ -327,19 +333,17 @@ export default function MyProfileView({
             >
               <Settings size={16} />
             </button>
-            {onEditClick && (
-              <button
-                disabled={isSaving}
-                onClick={isEditing ? handleSaveProfile : () => setIsEditing(true)}
-                className={`px-4 py-1.5 rounded-full border text-xs font-bold transition active:scale-95 ${
-                  isEditing
-                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/50 text-emerald-400 animate-pulse'
-                    : 'bg-white/10 hover:bg-white/20 border-white/20 text-white'
-                }`}
-              >
-                {isEditing ? (isSaving ? 'Saving...' : 'Save Profile') : 'Edit'}
-              </button>
-            )}
+            <button
+              disabled={isSaving}
+              onClick={isEditing ? handleSaveProfile : () => setIsEditing(true)}
+              className={`px-4 py-1.5 rounded-full border text-xs font-bold transition active:scale-95 ${
+                isEditing
+                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/50 text-emerald-400 animate-pulse'
+                  : 'bg-white/10 hover:bg-white/20 border-white/20 text-white'
+              }`}
+            >
+              {isEditing ? (isSaving ? 'Saving...' : 'Save Profile') : 'Edit'}
+            </button>
           </div>
         </div>
 
@@ -365,7 +369,6 @@ export default function MyProfileView({
         ) : null}
       </div>
 
-      {/* 3. LUMINOUS GLASSMORPHIC PILL TAGS */}
       <div className="px-6 space-y-3">
         <h4 className="text-[11px] font-bold uppercase tracking-wider text-white/40">Attributes & Lifestyle</h4>
         {isEditing ? (
@@ -512,7 +515,6 @@ export default function MyProfileView({
          </div>
       )}
 
-      {/* 4. 100vh FULL-SCREEN LIGHTBOX OVERLAY */}
       <AnimatePresence>
         {fullscreenImage && (
           <motion.div
@@ -539,7 +541,7 @@ export default function MyProfileView({
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        userProfile={profile}
+        userProfile={liveProfile}
       />
     </div>
   );
