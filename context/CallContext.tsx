@@ -49,7 +49,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   
   const callChannelRef = useRef<any>(null);
-  const chatChannelRef = useRef<any>(null); // Dedicated to DM logs
+  const chatChannelRef = useRef<any>(null);
   
   const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
   const durationRef = useRef(0);
@@ -115,7 +115,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     stopSounds();
     unlockAudioEngine();
     
-    // Play immediately, then loop
     playChimeTone(440, 480, 1.2); 
     ringtoneIntervalRef.current = setInterval(() => {
       playChimeTone(440, 480, 1.2);
@@ -146,7 +145,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  // Global listeners to unlock audio on first touch
   useEffect(() => {
     setMounted(true);
     window.addEventListener('click', unlockAudioEngine);
@@ -194,11 +192,9 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     try {
-      // 1. Save strictly to database
       const { error } = await supabase.from('messages').insert(newRecord);
       if (error) throw error;
       
-      // 2. Broadcast over the ACTIVE chat channel
       if (chatChannelRef.current) {
          chatChannelRef.current.send({
             type: 'broadcast',
@@ -217,7 +213,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     if (!user) return;
 
-    // FIX 1: Explicitly subscribe to the Chat channel so DM history broadcasts actually fire
     const chatChannel = supabase.channel('chat-events-logger').subscribe((status) => {
        if (status === 'SUBSCRIBED') {
            chatChannelRef.current = chatChannel;
@@ -243,20 +238,20 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
         setIncomingOffer(payload.payload.offer);
         setCallState('ringing');
 
-        // Play Synthesized Ringtone
         startRingtone();
 
-        // Local Push Notification
+        // Local Push Notification (TypeScript Vercel Fix)
         if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.ready.then((reg) => {
-              reg.showNotification(`Incoming ${payload.payload.callType} call`, {
+              const notificationOptions: any = {
                 body: `${payload.payload.callerName} is calling...`,
                 icon: payload.payload.callerAvatar || '/icon.svg',
                 requireInteraction: true,
                 vibrate: [1000, 500, 1000, 500, 1000],
                 data: { callerId: payload.payload.callerId }
-              });
+              };
+              reg.showNotification(`Incoming ${payload.payload.callType} call`, notificationOptions);
             });
           }
         }
@@ -456,7 +451,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     const finalSecs = durationRef.current;
     const wasConnected = callState === 'connected' || finalSecs > 0;
 
-    // Trigger DM Log explicitly
     if (isInitiatorOfEnd) {
       if (wasConnected) recordCallToDatabase('completed_call', finalSecs);
       else recordCallToDatabase('missed_call', 0);
