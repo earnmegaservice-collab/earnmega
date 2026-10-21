@@ -432,16 +432,29 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const handleCreateGroup = async () => {
       if (!user || !groupName.trim() || selectedGroupUsers.size === 0) return;
       try {
-          const memberIds = Array.from(selectedGroupUsers);
-          const { data, error } = await supabase.rpc('create_group_with_members', {
-              group_name: groupName,
-              creator_id: user.id,
-              member_ids: memberIds
-          });
+          const { data: room, error: roomError } = await supabase
+              .from('rooms')
+              .insert({
+                  name: groupName,
+                  created_by: user.id,
+                  type: 'group'
+              })
+              .select()
+              .single();
 
-          if (error) {
-              throw error;
-          }
+          if (roomError) throw roomError;
+
+          const memberIds = Array.from(selectedGroupUsers);
+          const participants = [
+              { room_id: room.id, user_id: user.id, role: 'admin' },
+              ...memberIds.map(id => ({ room_id: room.id, user_id: id, role: 'member' }))
+          ];
+
+          const { error: partError } = await supabase
+              .from('room_participants')
+              .insert(participants);
+
+          if (partError) throw partError;
 
           toast.success("Group Created!");
           setIsGroupModalOpen(false);
@@ -594,18 +607,18 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         try {
           // 1. Fetch Groups the user is part of
           const { data: groupsData, error: groupsError } = await supabase
-              .from('group_members')
-              .select('group_id, groups ( id, name, created_at )')
+              .from('room_participants')
+              .select('room_id, rooms ( id, name, created_at )')
               .eq('user_id', user.id);
 
           if (groupsError) throw groupsError;
 
           const groupsFormatted = (groupsData && !groupsError) ? groupsData.map((gm: any) => ({
-               id: gm.groups.id,
-               name: gm.groups.name,
-               avatarInitials: (gm.groups.name?.[0] || 'G').toUpperCase() + (gm.groups.name?.[1] || 'R').toUpperCase(),
+               id: gm.rooms.id,
+               name: gm.rooms.name,
+               avatarInitials: (gm.rooms.name?.[0] || 'G').toUpperCase() + (gm.rooms.name?.[1] || 'R').toUpperCase(),
                bio: 'Group Chat',
-               joinDate: new Date(gm.groups.created_at).toLocaleDateString(),
+               joinDate: new Date(gm.rooms.created_at).toLocaleDateString(),
                tier: 'FREE' as const,
                isOnline: true,
                coinsGifted: 0,
