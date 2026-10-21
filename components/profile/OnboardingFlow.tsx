@@ -52,8 +52,10 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
 
       const formData = JSON.parse(localStorage.getItem('em_questionnaire_data') || '{}');
 
+      // The Fix: URLs are now mapped to BOTH publicImages and profile_images so they appear in the grid
       const { error } = await supabase.from('profiles').update({
         publicImages: uploadedUrls,
+        profile_images: uploadedUrls,
         gender: formData.gender,
         location: formData.location,
         looking_for: formData.intent,
