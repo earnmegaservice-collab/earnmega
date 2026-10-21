@@ -46,8 +46,8 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
       const { error: partError } = await supabase
         .from('room_participants')
         .insert([
-          { room_id: room.id, profile_id: authUser.id, role: 'admin' },
-          { room_id: room.id, profile_id: discoveredUser.id, role: 'member' }
+          { room_id: room.id, user_id: authUser.id, role: 'admin' },
+          { room_id: room.id, user_id: discoveredUser.id, role: 'member' }
         ]);
 
       if (partError) throw partError;
