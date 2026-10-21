@@ -446,8 +446,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
           const memberIds = Array.from(selectedGroupUsers);
           const participants = [
-              { room_id: room.id, user_id: user.id, role: 'admin' },
-              ...memberIds.map(id => ({ room_id: room.id, user_id: id, role: 'member' }))
+              { room_id: room.id, user_id: user.id },
+              ...memberIds.map(id => ({ room_id: room.id, user_id: id }))
           ];
 
           const { error: partError } = await supabase
@@ -701,7 +701,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
           }
 
           // 4. Fallback for new users (Discovery)
-          if (formattedProfiles.length === 0 && groupsFormatted.length === 0) {
+          if (formattedProfiles.length === 0) {
               const { data: defaultProfiles, error: defaultError } = await supabase
                 .from('profiles')
                 .select('*')
@@ -1993,10 +1993,10 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
         {/* Phase 3 Call Actions */}
         <div className="flex items-center space-x-3 mr-4">
-            <button onClick={() => { if (currentOtherUserProfile) initiateCall(currentOtherUserProfile.id, currentOtherUserProfile.name, currentOtherUserProfile.avatarUrl, 'audio'); }} className="text-amber-500 hover:text-amber-400 cursor-pointer transition-all hover:scale-110 drop-shadow-md">
+            <button onClick={() => { if (currentOtherUserProfile) initiateCall(currentOtherUserProfile.id, currentOtherUserProfile.name, currentOtherUserProfile.avatarUrl, 'audio', (currentOtherUserProfile as any).isGroup); }} className="text-amber-500 hover:text-amber-400 cursor-pointer transition-all hover:scale-110 drop-shadow-md">
                <Phone size={20} />
             </button>
-            <button onClick={() => { if (currentOtherUserProfile) initiateCall(currentOtherUserProfile.id, currentOtherUserProfile.name, currentOtherUserProfile.avatarUrl, 'video'); }} className="text-amber-500 hover:text-amber-400 cursor-pointer transition-all hover:scale-110 drop-shadow-md">
+            <button onClick={() => { if (currentOtherUserProfile) initiateCall(currentOtherUserProfile.id, currentOtherUserProfile.name, currentOtherUserProfile.avatarUrl, 'video', (currentOtherUserProfile as any).isGroup); }} className="text-amber-500 hover:text-amber-400 cursor-pointer transition-all hover:scale-110 drop-shadow-md">
                <Video size={22} />
             </button>
         </div>
@@ -2458,6 +2458,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                 <Mic size={20} />
               )}
             </motion.button>
+            {!(currentOtherUserProfile as any)?.isGroup && (
             <motion.button
               whileTap={{ scale: 0.9 }}
               type="button"
@@ -2467,6 +2468,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             >
               <Gift size={20} />
             </motion.button>
+            )}
             <motion.button
               whileTap={{ scale: 0.9 }}
               type="submit"
