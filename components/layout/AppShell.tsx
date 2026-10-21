@@ -19,6 +19,8 @@ import GiftOverlay from '../chat/GiftOverlay';
 import { useAuth } from '../../context/AuthContext';
 import NotificationDrawer from '../notifications/NotificationDrawer';
 import { supabase } from '../../utils/supabase';
+import { ProfileCompletionModal } from '../profile/ProfileCompletionModal';
+
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -41,6 +43,32 @@ export const AppShell: React.FC<AppShellProps> = ({
   const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [bellShake, setBellShake] = useState(false);
+
+  const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
+  const [profileImages, setProfileImages] = useState<string[]>([]);
+
+
+  useEffect(() => {
+    if (!user || !user?.id) return;
+
+    const checkProfileCompletion = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('profile_images')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data) {
+        const images = data.profile_images || [];
+        setProfileImages(images);
+        if (images.length < 6) {
+          setIsCompletionModalOpen(true);
+        }
+      }
+    };
+
+    checkProfileCompletion();
+  }, [user]);
 
   useEffect(() => {
     if (!user || !user?.id) return;
@@ -349,8 +377,21 @@ export const AppShell: React.FC<AppShellProps> = ({
           </>
         )}
       </AnimatePresence>
+
       <NotificationDrawer isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
       <SpatialRadarModal />
+      <ProfileCompletionModal
+        isOpen={isCompletionModalOpen}
+        onClose={() => setIsCompletionModalOpen(false)}
+        profileImages={profileImages}
+        onUploadSuccess={(newImages) => {
+          setProfileImages(newImages);
+          if (newImages.length >= 6) {
+            setIsCompletionModalOpen(false);
+          }
+        }}
+      />
+
     </div>
   );
 };

@@ -17,41 +17,32 @@ interface StatusItem {
   textContent?: string;
   backgroundGradient?: string;
   viewsCount: number;
-  isUnlocked: boolean;
   isOwner: boolean;
 }
 
 interface StatusViewerProps {
   statuses: StatusItem[];
   onClose: () => void;
-  onUnlock: (statusId: string) => Promise<boolean>;
   onSendReply: (statusId: string, text: string, mediaPreview?: string) => Promise<void>;
   onSendLike: (statusId: string) => Promise<void>;
   onForward: (statusId: string, receiverId: string) => Promise<void>;
-  userCoins: number;
 }
 
 export default function StatusViewer({
   statuses,
   onClose,
-  onUnlock,
   onSendReply,
   onSendLike,
   onForward,
-  userCoins,
 }: StatusViewerProps) {
 
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const status = statuses[currentIndex];
 
-  const [isUnlocked, setIsUnlocked] = useState(statuses[0]?.isUnlocked || statuses[0]?.isOwner);
-  React.useEffect(() => { setIsUnlocked(status?.isUnlocked || status?.isOwner) }, [currentIndex, status]);
-
   const [replyText, setReplyText] = useState('');
   const [isLiked, setIsLiked] = useState(false);
   const [floatingHearts, setFloatingHearts] = useState<{ id: number; x: number; y: number }[]>([]);
-  const [isUnlocking, setIsUnlocking] = useState(false);
 
   const [isCinematic, setIsCinematic] = useState(false);
   const [isForwardOpen, setIsForwardOpen] = useState(false);
@@ -72,7 +63,7 @@ export default function StatusViewer({
   };
 
   const handleHeartTap = () => {
-    if (!isUnlocked) return;
+
     const newHeart = { id: Date.now(), x: window.innerWidth / 2, y: window.innerHeight - 100 };
     setFloatingHearts((prev) => [...prev, newHeart]);
     setIsLiked(true);
@@ -83,22 +74,10 @@ export default function StatusViewer({
     }, 1000);
   };
 
-  const handleUnlockClick = async () => {
-    if (userCoins < 10) {
-      alert("Insufficient Balance. Top up your coins to view VIP statuses.");
-      return;
-    }
-    setIsUnlocking(true);
-    const success = await onUnlock(status?.id);
-    if (success) {
-      setIsUnlocked(true);
-    }
-    setIsUnlocking(false);
-  };
 
   const submitReply = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!replyText.trim() || !isUnlocked) return;
+    if (!replyText.trim()) return;
     const textToSend = replyText;
     setReplyText('');
     await onSendReply(status?.id, textToSend, status?.mediaUrl || status?.textContent);
@@ -210,7 +189,7 @@ export default function StatusViewer({
             src={status.mediaUrl}
             alt="Status media"
             className={`w-full h-full object-cover transition-all duration-700 ${
-              !isUnlocked ? 'filter blur-3xl scale-110 brightness-50' : 'filter-none scale-100'
+              'filter-none scale-100'
             }`}
           />
         )}
@@ -219,12 +198,12 @@ export default function StatusViewer({
           <video
             src={status.mediaUrl}
             className={`w-full h-full object-cover transition-all duration-700 ${
-              !isUnlocked ? 'filter blur-3xl scale-110 brightness-50' : 'filter-none scale-100'
+              'filter-none scale-100'
             }`}
             autoPlay
             playsInline
             muted
-            loop={isUnlocked}
+            loop={true}
           />
         )}
 
@@ -232,7 +211,7 @@ export default function StatusViewer({
           <div
             className={`w-full h-full flex items-center justify-center p-8 transition-all duration-700 ${
               status.backgroundGradient || 'bg-gradient-to-br from-purple-900 via-indigo-950 to-black'
-            } ${!isUnlocked ? 'filter blur-2xl brightness-50' : ''}`}
+            } ${''}`}
           >
             <p className="text-2xl md:text-3xl font-extrabold text-center text-white tracking-wide leading-relaxed drop-shadow-2xl">
               {status.textContent}
@@ -240,34 +219,7 @@ export default function StatusViewer({
           </div>
         )}
 
-        {/* 10-COIN PAYWALL */}
-        {!isUnlocked && (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-black/40 backdrop-blur-2xl">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="w-full max-w-xs p-6 rounded-3xl bg-white/[0.05] border border-white/20 backdrop-blur-3xl shadow-[0_0_50px_rgba(168,85,247,0.3)] text-center flex flex-col items-center"
-            >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-400 to-purple-600 p-[1px] mb-4 flex items-center justify-center shadow-lg">
-                <div className="w-full h-full bg-black/80 rounded-2xl flex items-center justify-center">
-                  <Lock className="w-6 h-6 text-amber-300" />
-                </div>
-              </div>
-              <h4 className="text-lg font-black text-white">VIP Locked Status</h4>
-              <p className="text-xs text-white/60 mt-1 mb-5 leading-relaxed">
-                Unlock this exclusive content and support the creator.
-              </p>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleUnlockClick(); }}
-                disabled={isUnlocking}
-                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-400 via-pink-500 to-purple-600 font-black text-xs uppercase tracking-wider text-white shadow-[0_0_20px_rgba(236,72,153,0.5)] active:scale-95 transition flex items-center justify-center space-x-2"
-              >
-                <Coins className="w-4 h-4 fill-white" />
-                <span>{isUnlocking ? 'Unlocking...' : 'Unlock for 10 Coins'}</span>
-              </button>
-            </motion.div>
-          </div>
-        )}
+
 
         {/* Floating Heart Animations */}
         {floatingHearts.map((h) => (
@@ -284,7 +236,7 @@ export default function StatusViewer({
       </div>
 
       <AnimatePresence>
-      {isUnlocked && !isCinematic && (
+      {!isCinematic && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
