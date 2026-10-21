@@ -1712,7 +1712,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   }
 
   return (
-    <div className="flex flex-col h-[100dvh] font-sans sm:max-w-md sm:mx-auto text-gray-100 selection:bg-purple-500/30 relative bg-neutral-950">
+    <div className="flex flex-col h-[100dvh] w-full overflow-hidden font-sans text-gray-100 selection:bg-purple-500/30 relative bg-neutral-950">
       {/* Verification Gate Modal */}
       <AnimatePresence>
           {showVerificationGateModal && (
@@ -2003,7 +2003,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       {/* Messages Area */}
       <main
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-6 relative z-10"
+        className="flex-1 overflow-y-auto p-4 space-y-6 relative z-10 w-full"
       >
         {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
           const isUser = message.sender === 'user';
@@ -2367,7 +2367,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       </main>
 
       {/* Input Area */}
-      <footer className="bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] p-3 pb-safe shrink-0 flex flex-col">
+      <footer className="bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] p-4 pb-safe shrink-0 w-full flex flex-col">
         <AnimatePresence>
           {replyingTo && (
             <motion.div
