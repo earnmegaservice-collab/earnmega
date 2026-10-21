@@ -251,6 +251,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
                 vibrate: [1000, 500, 1000, 500, 1000],
                 data: { callerId: payload.payload.callerId }
               };
+              // @ts-ignore
               reg.showNotification(`Incoming ${payload.payload.callType} call`, notificationOptions);
             });
           }
