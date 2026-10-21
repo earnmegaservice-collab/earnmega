@@ -316,6 +316,46 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedGroupUsers, setSelectedGroupUsers] = useState<Set<string>>(new Set());
+  const [isFetchingModalUsers, setIsFetchingModalUsers] = useState(false);
+  const [modalUsers, setModalUsers] = useState<UserProfileDetails[]>([]);
+
+  useEffect(() => {
+    if (isGroupModalOpen && user) {
+        const fetchUsers = async () => {
+            setIsFetchingModalUsers(true);
+            try {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .neq('id', user.id)
+                    .limit(50);
+
+                if (data && !error) {
+                    const formatted = data.map((u: any) => ({
+                        id: u.id,
+                        name: u.username || u.name || 'User',
+                        avatarInitials: (u.username || u.name || 'U').substring(0, 2).toUpperCase(),
+                        avatarUrl: u.avatar_url,
+                        bio: u.bio || '',
+                        joinDate: '',
+                        tier: u.subscription_tier || 'FREE',
+                        isOnline: false,
+                        coinsGifted: 0,
+                        isSelf: false,
+                        unreadCount: 0,
+                        lastMessageTime: 0
+                    }));
+                    setModalUsers(formatted);
+                }
+            } catch (err) {
+                console.error("Failed to fetch modal users", err);
+            } finally {
+                setIsFetchingModalUsers(false);
+            }
+        };
+        fetchUsers();
+    }
+  }, [isGroupModalOpen, user]);
 
 
 
@@ -392,29 +432,25 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const handleCreateGroup = async () => {
       if (!user || !groupName.trim() || selectedGroupUsers.size === 0) return;
       try {
-          const roomId = uuidv4();
-          const { error: roomError } = await supabase.from('rooms').insert({
-              id: roomId,
-              name: groupName,
-              created_by: user.id
+          const memberIds = Array.from(selectedGroupUsers);
+          const { data, error } = await supabase.rpc('create_group_with_members', {
+              group_name: groupName,
+              creator_id: user.id,
+              member_ids: memberIds
           });
-          if (roomError) throw roomError;
 
-          const participants = Array.from(selectedGroupUsers).map(uId => ({
-              room_id: roomId,
-              user_id: uId
-          }));
-          participants.push({ room_id: roomId, user_id: user.id });
-
-          const { error: partError } = await supabase.from('room_participants').insert(participants);
-          if (partError) throw partError;
+          if (error) {
+              throw error;
+          }
 
           toast.success("Group Created!");
           setIsGroupModalOpen(false);
           setGroupName('');
           setSelectedGroupUsers(new Set());
-      } catch (err) {
-          toast.error("Failed to create group");
+          setRefreshChatsKey(prev => prev + 1); // trigger list refresh
+      } catch (err: any) {
+          console.error("Group creation error:", err);
+          toast.error("Failed to create group: " + (err.message || "Unknown error"));
       }
   };
 
@@ -556,19 +592,20 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         setIsChatsLoading(true);
         setChatsFetchError(null);
         try {
-          const { data: roomsData, error: roomsError } = await supabase
-              .from('room_participants')
-              .select('room_id, rooms ( id, name, created_at )')
+          // 1. Fetch Groups the user is part of
+          const { data: groupsData, error: groupsError } = await supabase
+              .from('group_members')
+              .select('group_id, groups ( id, name, created_at )')
               .eq('user_id', user.id);
 
-          if (roomsError) throw roomsError;
+          if (groupsError) throw groupsError;
 
-          const groupsFormatted = (roomsData && !roomsError) ? roomsData.map((rp: any) => ({
-               id: rp.rooms.id,
-               name: rp.rooms.name,
-               avatarInitials: (rp.rooms.name?.[0] || 'G').toUpperCase() + (rp.rooms.name?.[1] || 'R').toUpperCase(),
+          const groupsFormatted = (groupsData && !groupsError) ? groupsData.map((gm: any) => ({
+               id: gm.groups.id,
+               name: gm.groups.name,
+               avatarInitials: (gm.groups.name?.[0] || 'G').toUpperCase() + (gm.groups.name?.[1] || 'R').toUpperCase(),
                bio: 'Group Chat',
-               joinDate: new Date(rp.rooms.created_at).toLocaleDateString(),
+               joinDate: new Date(gm.groups.created_at).toLocaleDateString(),
                tier: 'FREE' as const,
                isOnline: true,
                coinsGifted: 0,
@@ -578,8 +615,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                lastMessageTime: 0
           })) : [];
 
-          // Fetch from chats table where user is a participant
-          // And join the profiles table to get recipient details. Sort by updated_at descending.
+          // 2. Fetch Direct Messages (chats)
           const { data: chatsData, error: chatsError } = await supabase
             .from('chats')
             .select('id, user1_id, user2_id, updated_at, unread_count, latest_message_id, user1:profiles!chats_user1_id_fkey(*), user2:profiles!chats_user2_id_fkey(*)')
@@ -587,18 +623,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             .order('updated_at', { ascending: false });
 
           const statsMap = new Map<string, { unreadCount: number, lastMessageTime: number }>();
-          const activeUserIds = new Set<string>();
           let formattedProfiles: UserProfileDetails[] = [];
 
           if (chatsData && chatsData.length > 0) {
             chatsData.forEach(chat => {
-              // Note: the joined data might be an array or single object depending on schema relations
               const user1Obj = Array.isArray(chat.user1) ? chat.user1[0] : chat.user1;
               const user2Obj = Array.isArray(chat.user2) ? chat.user2[0] : chat.user2;
 
               const otherUser = chat.user1_id === user.id ? user2Obj : user1Obj;
               if (otherUser) {
-                  activeUserIds.add(otherUser.id);
                   const time = chat.updated_at ? new Date(chat.updated_at).getTime() : 0;
                   statsMap.set(otherUser.id, {
                       unreadCount: chat.unread_count || 0,
@@ -606,8 +639,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                   });
                   formattedProfiles.push({
                       id: otherUser.id,
-                      name: otherUser.username || 'User',
-                      avatarInitials: (otherUser.username?.[0] || 'U').toUpperCase() + (otherUser.username?.[1] || 'S').toUpperCase(),
+                      name: otherUser.username || otherUser.name || 'User',
+                      avatarInitials: (otherUser.username || otherUser.name || 'U').substring(0, 2).toUpperCase(),
                       avatarUrl: otherUser.avatar_url,
                       bio: otherUser.bio || 'Earnmega user',
                       joinDate: otherUser.created_at ? new Date(otherUser.created_at).toLocaleDateString() : 'Unknown',
@@ -622,15 +655,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
             });
           }
 
-          // We do not query the messages table directly to build the chat list for 1-1, as requested.
-          // Only fetch group messages if groups exist.
+          // 3. Fetch Unread Counters and Latest Message Time for Groups correctly
           if (groupsFormatted.length > 0) {
-              const orString = `room_id.in.(${groupsFormatted.map(g => `"${g.id}"`).join(',')})`;
+              const groupIds = groupsFormatted.map(g => g.id);
               const { data: messagesData, error: msgError } = await supabase
                 .from('messages')
                 .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
-                .or(orString)
-                .order('created_at', { ascending: false });
+                .in('room_id', groupIds)
+                .order('created_at', { ascending: false })
+                .limit(500);
 
               if (!msgError && messagesData) {
                 messagesData.forEach(msg => {
@@ -638,6 +671,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                   if (!targetId) return;
 
                   const time = new Date(msg.created_at).getTime();
+                  // Correct unread logic using read-receipt/status
                   const isUnread = msg.sender_id !== user.id && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
 
                   if (!statsMap.has(targetId)) {
@@ -653,9 +687,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               }
           }
 
-// Removed redundant profile fetching block, as we already joined it.
-
-          // If no active chats, fetch some default profiles to show (discovery)
+          // 4. Fallback for new users (Discovery)
           if (formattedProfiles.length === 0 && groupsFormatted.length === 0) {
               const { data: defaultProfiles, error: defaultError } = await supabase
                 .from('profiles')
@@ -664,12 +696,11 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                 .order('updated_at', { ascending: false })
                 .limit(20);
 
-              if (defaultError) throw defaultError;
-              if (defaultProfiles) {
+              if (!defaultError && defaultProfiles) {
                   formattedProfiles = defaultProfiles.map(u => ({
                       id: u.id,
-                      name: u.username || 'User',
-                      avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
+                      name: u.username || u.name || 'User',
+                      avatarInitials: (u.username || u.name || 'U').substring(0, 2).toUpperCase(),
                       avatarUrl: u.avatar_url,
                       bio: u.bio || 'Earnmega user',
                       joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
@@ -683,6 +714,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
               }
           }
 
+          // 5. Unify and Sort WhatsApp Style (newest activity at the absolute top)
           let allUsers = [...groupsFormatted, ...formattedProfiles];
 
           allUsers = allUsers.map(u => {
@@ -693,6 +725,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
              return u;
           });
 
+          // Sort strictly by lastMessageTime DESCENDING
           allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
 
           setExploreUsers(allUsers);
@@ -2456,23 +2489,29 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
                      onChange={(e) => setGroupName(e.target.value)}
                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-amber-500/50 mb-4"
                   />
-                  <div className="max-h-48 overflow-y-auto mb-4 space-y-2">
-                     {exploreUsers.map(u => (
-                        <div key={u.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-white/5 cursor-pointer" onClick={() => {
-                           const newSet = new Set(selectedGroupUsers);
-                           if (newSet.has(u.id)) newSet.delete(u.id);
-                           else newSet.add(u.id);
-                           setSelectedGroupUsers(newSet);
-                        }}>
-                           <div className="flex items-center space-x-3">
-                              <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                                 {u.avatarInitials}
-                              </div>
-                              <span className="text-white text-sm">{u.name}</span>
-                           </div>
-                           {selectedGroupUsers.has(u.id) && <Check size={16} className="text-amber-500" />}
-                        </div>
-                     ))}
+                                    <div className="max-h-48 overflow-y-auto mb-4 space-y-2">
+                     {isFetchingModalUsers ? (
+                         <div className="flex justify-center items-center py-4">
+                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-500"></div>
+                         </div>
+                     ) : (
+                         modalUsers.map(u => (
+                            <div key={u.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-white/5 cursor-pointer" onClick={() => {
+                               const newSet = new Set(selectedGroupUsers);
+                               if (newSet.has(u.id)) newSet.delete(u.id);
+                               else newSet.add(u.id);
+                               setSelectedGroupUsers(newSet);
+                            }}>
+                               <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                                     {u.avatarInitials}
+                                  </div>
+                                  <span className="text-white text-sm">{u.name}</span>
+                               </div>
+                               {selectedGroupUsers.has(u.id) && <Check size={16} className="text-amber-500" />}
+                            </div>
+                         ))
+                     )}
                   </div>
                   <button
                      onClick={handleCreateGroup}
