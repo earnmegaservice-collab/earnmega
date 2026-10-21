@@ -27,7 +27,6 @@ export const useCall = () => useContext(CallContext);
 export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   
-  // Call States
   const [callState, setCallState] = useState<'idle' | 'calling' | 'ringing' | 'connected' | 'reconnecting' | 'ended'>('idle');
   const [isIncoming, setIsIncoming] = useState(false);
   const [callType, setCallType] = useState<'audio' | 'video'>('audio');
@@ -43,7 +42,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const [pendingCallType, setPendingCallType] = useState<'audio' | 'video' | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  // References
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -55,121 +53,55 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const callRoleRef = useRef<'caller' | 'receiver'>('caller');
   const activePartnerIdRef = useRef<string>('');
 
-  // 🎵 Native Web Audio Synthesizer (Generates tones with 0 dependencies)
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const ringtoneIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const getAudioContext = () => {
-    if (!audioCtxRef.current) {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) audioCtxRef.current = new AudioCtx();
-    }
-    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume().catch(() => {});
-    }
-    return audioCtxRef.current;
-  };
-
-  const playChimeTone = (freq1: number, freq2: number, durationSec: number) => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-
-      osc1.type = 'sine';
-      osc2.type = 'sine';
-      osc1.frequency.setValueAtTime(freq1, ctx.currentTime);
-      osc2.frequency.setValueAtTime(freq2, ctx.currentTime);
-
-      gainNode.gain.setValueAtTime(0.2, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationSec);
-
-      osc1.connect(gainNode);
-      osc2.connect(gainNode);
-      gainNode.connect(ctx.destination);
-
-      osc1.start();
-      osc2.start();
-      osc1.stop(ctx.currentTime + durationSec);
-      osc2.stop(ctx.currentTime + durationSec);
-    } catch (e) {
-      console.warn("Audio synthesis error:", e);
-    }
-  };
-
-  const startRingtone = () => {
-    stopSounds();
-    // WhatsApp European standard dual chime (440Hz & 480Hz)
-    playChimeTone(440, 480, 1.2);
-    ringtoneIntervalRef.current = setInterval(() => {
-      playChimeTone(440, 480, 1.2);
-    }, 2800);
-
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate([1000, 500, 1000, 500, 1000]);
-    }
-  };
-
-  const startDialTone = () => {
-    stopSounds();
-    playChimeTone(425, 425, 1.0);
-    ringtoneIntervalRef.current = setInterval(() => {
-      playChimeTone(425, 425, 1.0);
-    }, 3000);
-  };
-
-  const stopSounds = useCallback(() => {
-    if (ringtoneIntervalRef.current) {
-      clearInterval(ringtoneIntervalRef.current);
-      ringtoneIntervalRef.current = null;
-    }
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(0);
-    }
-  }, []);
-
-  // Unlock AudioContext on the first tap anywhere
+  // Mount Audio & Service Worker
   useEffect(() => {
     setMounted(true);
-    const unlockAudio = () => {
-      getAudioContext();
-      window.removeEventListener('click', unlockAudio);
-      window.removeEventListener('touchstart', unlockAudio);
-    };
-    window.addEventListener('click', unlockAudio);
-    window.addEventListener('touchstart', unlockAudio);
-
-    // Request Notification permission on launch for background call popups
+    
+    // Register the background Service Worker for lock-screen notifications
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js').catch(console.error);
+    }
+    
+    // Request Notifications on load
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().catch(() => {});
     }
+  }, []);
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js').catch(() => {});
-    }
+  const playSound = (id: string) => {
+    try {
+      const audio = document.getElementById(id) as HTMLAudioElement;
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(e => console.warn(`Autoplay blocked for ${id}:`, e));
+      }
+      if (id === 'global-ringtone' && typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([1000, 500, 1000, 500, 1000]);
+      }
+    } catch (e) {}
+  };
 
-    return () => {
-      stopSounds();
-      window.removeEventListener('click', unlockAudio);
-      window.removeEventListener('touchstart', unlockAudio);
-    };
-  }, [stopSounds]);
+  const stopSounds = useCallback(() => {
+    try {
+      const ringtone = document.getElementById('global-ringtone') as HTMLAudioElement;
+      const dialtone = document.getElementById('global-dialtone') as HTMLAudioElement;
+      if (ringtone) { ringtone.pause(); ringtone.currentTime = 0; }
+      if (dialtone) { dialtone.pause(); dialtone.currentTime = 0; }
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(0);
+    } catch (e) {}
+  }, []);
 
-  // Keep durationRef synchronized for call log persistence
   useEffect(() => {
     durationRef.current = duration;
   }, [duration]);
 
-  // Format seconds to WhatsApp duration string (e.g., 01:23)
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // 💾 Record Call History Directly to 1-on-1 Chat Messages
+  // 💾 Record Call History to 1-on-1 Chat
   const recordCallToDatabase = async (type: 'completed_call' | 'missed_call', finalSeconds: number) => {
     if (!user || !activePartnerIdRef.current) return;
 
@@ -191,27 +123,23 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
 
     try {
       await supabase.from('messages').insert(newRecord);
-
-      // Notify open chat windows to mount the card immediately
+      // Broadcast to 'chat-events' so it appears instantly in the DM
       channelRef.current?.send({
         type: 'broadcast',
         event: 'new_message',
-        payload: {
-          messageId,
-          senderId: callerId,
-          receiverId
-        }
+        payload: { messageId, senderId: callerId, receiverId }
       });
     } catch (err) {
       console.error("Failed to log call entry:", err);
     }
   };
 
-  // WebRTC & Call Signaling Channel
+  // WEBRTC SIGNALING (Restored to 'chat-events')
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase.channel('calling-system-channel')
+    // FIX 1: Restored to 'chat-events' so signaling and DM history works!
+    const channel = supabase.channel('chat-events')
       .on('broadcast', { event: 'incoming_call' }, async (payload: any) => {
         if (payload.payload.receiverId !== user.id) return;
         if (callState !== 'idle') return;
@@ -230,19 +158,23 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
         setIncomingOffer(payload.payload.offer);
         setCallState('ringing');
 
-        startRingtone();
+        playSound('global-ringtone');
 
-        // 📲 Outside-App & Lock-Screen Notification Trigger
+        // Outside-App Service Worker Trigger
         if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.ready.then((reg) => {
+              // We simulate the push event structure here for foreground service worker bridging
               reg.showNotification(`Incoming ${payload.payload.callType} call`, {
                 body: `${payload.payload.callerName} is calling...`,
                 icon: payload.payload.callerAvatar || '/icon.svg',
-                tag: 'incoming-call',
                 requireInteraction: true,
                 vibrate: [1000, 500, 1000, 500, 1000],
-                data: { callerId: payload.payload.callerId }
+                data: { callerId: payload.payload.callerId },
+                actions: [
+                  { action: 'answer', title: 'Answer' },
+                  { action: 'decline', title: 'Decline' }
+                ]
               });
             });
           }
@@ -257,7 +189,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       .on('broadcast', { event: 'call_ringing' }, (payload: any) => {
         if (payload.payload.callerId === user.id && callState === 'calling') {
           setCallState('ringing');
-          startDialTone();
+          playSound('global-dialtone');
         }
       })
       .on('broadcast', { event: 'call_answered' }, async (payload: any) => {
@@ -273,9 +205,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
                 const candidate = iceCandidateQueue.current.shift();
                 if (candidate) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
               }
-            } catch (err) {
-              console.error("Failed to set remote description on answer:", err);
-            }
+            } catch (err) {}
           }
         }
       })
@@ -284,9 +214,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
         if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
           try {
             await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.payload.candidate));
-          } catch (err) {
-            console.error("Error adding ice candidate:", err);
-          }
+          } catch (err) {}
         } else {
           iceCandidateQueue.current.push(payload.payload.candidate);
         }
@@ -307,40 +235,28 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [user, callState]);
 
-  // Initialize Camera / Microphone
   const initLocalStream = async (type: 'audio' | 'video') => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
     }
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: type === 'video' ? { width: { ideal: 1280 }, frameRate: { ideal: 30 }, facingMode: 'user' } : false,
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
-
       localStreamRef.current = stream;
-      if (localVideoRef.current && type === 'video') {
-        localVideoRef.current.srcObject = stream;
-      }
+      if (localVideoRef.current && type === 'video') localVideoRef.current.srcObject = stream;
       return stream;
     } catch (err: any) {
-      console.error("Hardware access error:", err);
-      if (err.name === 'NotAllowedError') {
-        setPermissionsError(true);
-      } else {
-        toast.error("Could not access camera/microphone.");
-      }
+      if (err.name === 'NotAllowedError') setPermissionsError(true);
+      else toast.error("Could not access camera/microphone.");
       throw err;
     }
   };
 
   const initPeerConnection = () => {
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
-      ]
+      iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }]
     });
 
     pc.onicecandidate = (event) => {
@@ -354,12 +270,8 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     pc.ontrack = (event) => {
-      if (event.track.kind === 'video' && remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
-      if (event.track.kind === 'audio' && remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = event.streams[0];
-      }
+      if (event.track.kind === 'video' && remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+      if (event.track.kind === 'audio' && remoteAudioRef.current) remoteAudioRef.current.srcObject = event.streams[0];
     };
 
     peerConnectionRef.current = pc;
@@ -379,7 +291,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       setCallState('idle');
       return;
     }
-
     executeInitiateCall(receiverId, receiverName, receiverAvatar, type);
   };
 
@@ -391,7 +302,8 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       setCallType(type);
       setCallerInfo({ id: receiverId, name: receiverName, avatar: receiverAvatar || '' });
       setCallState('calling');
-      startDialTone();
+      
+      playSound('global-dialtone');
 
       const pc = initPeerConnection();
       localStreamRef.current?.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current!));
@@ -402,17 +314,9 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       channelRef.current?.send({
         type: 'broadcast',
         event: 'incoming_call',
-        payload: {
-          callerId: user!.id,
-          callerName: user!.email?.split('@')[0] || 'User',
-          callerAvatar: '',
-          receiverId,
-          callType: type,
-          offer
-        }
+        payload: { callerId: user!.id, callerName: user!.email?.split('@')[0] || 'User', callerAvatar: '', receiverId, callType: type, offer }
       });
     } catch (e) {
-      console.error("Call initiation failed:", e);
       endCallSession(true);
     }
   };
@@ -420,13 +324,11 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const acceptCall = async () => {
     stopSounds();
     if (!user) return;
-
     if (!localStorage.getItem('av_permissions_granted')) {
       setPendingCallType(callType);
       setShowPermissionsModal(true);
       return;
     }
-
     executeAcceptCall();
   };
 
@@ -445,7 +347,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       setCallState('connected');
-
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -455,7 +356,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
         payload: { callerId: callerInfo.id, receiverId: user!.id, answer }
       });
     } catch (e) {
-      console.error("Accept call error:", e);
       endCallSession(true);
     }
   };
@@ -474,16 +374,11 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     const finalSecs = durationRef.current;
     const wasConnected = callState === 'connected' || finalSecs > 0;
 
-    // Log to Supabase 1-on-1 Chat log
     if (isInitiatorOfEnd) {
-      if (wasConnected) {
-        recordCallToDatabase('completed_call', finalSecs);
-      } else {
-        recordCallToDatabase('missed_call', 0);
-      }
+      if (wasConnected) recordCallToDatabase('completed_call', finalSecs);
+      else recordCallToDatabase('missed_call', 0);
     }
 
-    // Clean up hardware
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(t => t.stop());
       localStreamRef.current = null;
@@ -506,13 +401,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
     }, 800);
   };
 
-  // ⏱️ Live Call Duration Tracker
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (callState === 'connected') {
-      interval = setInterval(() => {
-        setDuration(prev => prev + 1);
-      }, 1000);
+      interval = setInterval(() => { setDuration(prev => prev + 1); }, 1000);
     }
     return () => clearInterval(interval);
   }, [callState]);
@@ -539,6 +431,10 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <CallContext.Provider value={{ initiateCall, isCallActive: callState !== 'idle', isInCall: callState === 'connected' }}>
       {children}
+
+      {/* HARDCODED AUDIO ELEMENTS FOR RELIABLE PLAYBACK */}
+      <audio id="global-ringtone" src="/ringtone.mp3" loop playsInline className="hidden" />
+      <audio id="global-dialtone" src="/dialtone.mp3" loop playsInline className="hidden" />
 
       {mounted && createPortal(
         <CallOverlay
@@ -571,11 +467,8 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
             onGrant={() => {
               setShowPermissionsModal(false);
               localStorage.setItem('av_permissions_granted', 'true');
-              if (isIncoming) {
-                executeAcceptCall();
-              } else if (pendingCallType) {
-                executeInitiateCall(callerInfo.id, callerInfo.name, callerInfo.avatar, pendingCallType);
-              }
+              if (isIncoming) executeAcceptCall();
+              else if (pendingCallType) executeInitiateCall(callerInfo.id, callerInfo.name, callerInfo.avatar, pendingCallType);
             }}
             onDeny={() => {
               setShowPermissionsModal(false);
@@ -583,32 +476,6 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
               if (isIncoming) declineCall();
             }}
           />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {permissionsError && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 backdrop-blur-md"
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              className="bg-neutral-900 border border-white/10 rounded-3xl p-8 max-w-sm text-center shadow-2xl"
-            >
-              <h3 className="text-xl font-bold text-white mb-4">Hardware Access Denied</h3>
-              <p className="text-white/70 mb-6 text-sm">Please allow Camera and Microphone permissions in your browser to connect calls.</p>
-              <button
-                onClick={() => setPermissionsError(false)}
-                className="w-full py-3 rounded-full bg-emerald-500 text-white font-medium hover:scale-105 transition-transform"
-              >
-                Understood
-              </button>
-            </motion.div>
-          </motion.div>
         )}
       </AnimatePresence>
     </CallContext.Provider>
