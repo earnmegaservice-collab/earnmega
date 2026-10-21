@@ -92,7 +92,7 @@ export default function StatusViewer({
         dragElastic={0.8}
         onDragEnd={(e, info) => { if (info.offset.y > 100 || info.velocity.y > 500) onClose(); }}
         transition={{ type: "spring", stiffness: 250, damping: 25 }}
-        className="fixed inset-0 w-screen h-screen z-[100] bg-black flex flex-col justify-between overflow-hidden select-none"
+        className="fixed inset-0 z-[9999] w-full h-[100dvh] bg-black flex flex-col justify-between overflow-hidden select-none"
     >
       <AnimatePresence>
         {!isCinematic && (
@@ -188,18 +188,14 @@ export default function StatusViewer({
           <img
             src={status.mediaUrl}
             alt="Status media"
-            className={`w-full h-full object-cover transition-all duration-700 ${
-              'filter-none scale-100'
-            }`}
+            className="w-full h-full object-cover"
           />
         )}
 
         {isVideoUrl && status?.mediaUrl && (
           <video
             src={status.mediaUrl}
-            className={`w-full h-full object-cover transition-all duration-700 ${
-              'filter-none scale-100'
-            }`}
+            className="w-full h-full object-cover"
             autoPlay
             playsInline
             muted

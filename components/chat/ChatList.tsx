@@ -51,7 +51,7 @@ export default function ChatList({
       </div>
 
       {/* Scrollable Chat List */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full">
 
         {navigationError && (
           <div className="m-4 p-4 rounded-2xl bg-red-950/50 border border-red-500/50 backdrop-blur-xl flex flex-col items-center justify-center text-center shadow-[0_0_20px_rgba(220,38,38,0.2)]">
@@ -93,11 +93,11 @@ export default function ChatList({
                     setNavigationError(err.message || 'Failed to open chat.');
                   }
                 }}
-                className="flex items-center w-full p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-pointer group touch-manipulation pointer-events-auto"
+                className="flex items-center w-full px-4 py-3 hover:bg-white/5 transition-colors cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5"
               >
               {/* Left: Avatar */}
               <div className="pointer-events-none contents">
-              <div className={`relative w-14 h-14 rounded-full flex-shrink-0 flex items-center justify-center shadow-lg ${
+              <div className={`relative w-[60px] h-[60px] rounded-full flex-shrink-0 flex items-center justify-center shadow-lg ${
                 u.tier === 'PREMIUM' ? 'p-[2px]' :
                 u.tier === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
                 'border border-white/10 p-1 bg-white/5'
@@ -158,11 +158,11 @@ export default function ChatList({
           ))}
         </AnimatePresence>
         {isLoading ? (
-          <div className="flex flex-col gap-2 p-4">
+          <div className="flex flex-col w-full">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="flex items-center gap-4 p-4 rounded-[2rem] bg-white/[0.03] border border-white/5 backdrop-blur-3xl relative overflow-hidden shadow-2xl">
+              <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-white/5 bg-white/[0.03] backdrop-blur-3xl relative overflow-hidden">
                 <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                <div className="w-14 h-14 rounded-full bg-white/10 flex-shrink-0 animate-pulse border border-white/10" />
+                <div className="w-[60px] h-[60px] rounded-full bg-white/10 flex-shrink-0 animate-pulse border border-white/10" />
                 <div className="flex flex-col gap-2 flex-1">
                   <div className="w-1/2 h-4 rounded-full bg-white/10 animate-pulse" />
                   <div className="w-3/4 h-3 rounded-full bg-white/5 animate-pulse" />
