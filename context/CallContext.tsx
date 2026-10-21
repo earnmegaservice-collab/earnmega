@@ -57,87 +57,112 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const activePartnerIdRef = useRef<string>('');
 
   // ==========================================
-  // HARDWARE AUDIO SYNTHESIZER
+  // ULTRA-LOUD & SMOOTH HARMONIC SYNTHESIZER
   // ==========================================
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const ringtoneIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const audioUnlockedRef = useRef(false);
-
-  const getAudioContext = () => {
-    if (!audioCtxRef.current) {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) audioCtxRef.current = new AudioCtx();
-    }
-    return audioCtxRef.current;
-  };
+  const ringtoneIntervalRef = useRef<number | null>(null);
 
   const unlockAudioEngine = () => {
-    if (audioUnlockedRef.current) return;
-    const ctx = getAudioContext();
+    if (typeof window === 'undefined') return;
+    if (!audioCtxRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        audioCtxRef.current = new AudioContextClass();
+      }
+    }
+    const ctx = audioCtxRef.current;
     if (ctx && ctx.state === 'suspended') {
-      ctx.resume().then(() => {
-        audioUnlockedRef.current = true;
-      });
+      ctx.resume().catch(console.error);
     }
   };
 
-  const playChimeTone = (freq1: number, freq2: number, durationSec: number) => {
-    try {
-      const ctx = getAudioContext();
-      if (!ctx || ctx.state === 'suspended') return;
-      
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gainNode = ctx.createGain();
+  const playRingCycle = useCallback(() => {
+    if (typeof window === 'undefined') return;
 
-      osc1.type = 'sine';
-      osc2.type = 'sine';
-      osc1.frequency.setValueAtTime(freq1, ctx.currentTime);
-      osc2.frequency.setValueAtTime(freq2, ctx.currentTime);
-
-      gainNode.gain.setValueAtTime(0.2, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationSec);
-
-      osc1.connect(gainNode);
-      osc2.connect(gainNode);
-      gainNode.connect(ctx.destination);
-
-      osc1.start();
-      osc2.start();
-      osc1.stop(ctx.currentTime + durationSec);
-      osc2.stop(ctx.currentTime + durationSec);
-    } catch (e) {
-      console.warn("Audio synth failed", e);
+    if (!audioCtxRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        audioCtxRef.current = new AudioContextClass();
+      } else {
+        return;
+      }
     }
-  };
+
+    const ctx = audioCtxRef.current;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(console.error);
+    }
+
+    const now = ctx.currentTime;
+
+    const masterGain = ctx.createGain();
+    masterGain.connect(ctx.destination);
+    masterGain.gain.setValueAtTime(0, now);
+
+    const osc1 = ctx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(520, now);
+    osc1.connect(masterGain);
+
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(580, now);
+    osc2.connect(masterGain);
+
+    osc1.start(now);
+    osc2.start(now);
+
+    // Pulse 1
+    masterGain.gain.setValueAtTime(0, now);
+    masterGain.gain.linearRampToValueAtTime(0.5, now + 0.05);
+    masterGain.gain.setValueAtTime(0.5, now + 0.35);
+    masterGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+
+    // Pulse 2
+    masterGain.gain.setValueAtTime(0, now + 0.6);
+    masterGain.gain.linearRampToValueAtTime(0.5, now + 0.65);
+    masterGain.gain.setValueAtTime(0.5, now + 0.95);
+    masterGain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+
+    osc1.stop(now + 1.1);
+    osc2.stop(now + 1.1);
+  }, []);
 
   const startRingtone = () => {
-    stopSounds();
     unlockAudioEngine();
+    stopSounds();
     
-    playChimeTone(440, 480, 1.2); 
-    ringtoneIntervalRef.current = setInterval(() => {
-      playChimeTone(440, 480, 1.2);
-    }, 2800);
+    playRingCycle();
 
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate([1000, 500, 1000, 500, 1000]);
+      navigator.vibrate([1200, 400, 1200, 400, 1500]);
+    }
+
+    if (typeof window !== 'undefined' && ringtoneIntervalRef.current === null) {
+      ringtoneIntervalRef.current = window.setInterval(() => {
+        playRingCycle();
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([1200, 400, 1200, 400, 1500]);
+        }
+      }, 4000);
     }
   };
 
   const startDialTone = () => {
-    stopSounds();
     unlockAudioEngine();
+    stopSounds();
     
-    playChimeTone(425, 425, 1.0);
-    ringtoneIntervalRef.current = setInterval(() => {
-      playChimeTone(425, 425, 1.0);
-    }, 3000);
+    playRingCycle();
+    if (typeof window !== 'undefined' && ringtoneIntervalRef.current === null) {
+      ringtoneIntervalRef.current = window.setInterval(() => {
+        playRingCycle();
+      }, 4000);
+    }
   };
 
   const stopSounds = useCallback(() => {
-    if (ringtoneIntervalRef.current) {
-      clearInterval(ringtoneIntervalRef.current);
+    if (typeof window !== 'undefined' && ringtoneIntervalRef.current !== null) {
+      window.clearInterval(ringtoneIntervalRef.current);
       ringtoneIntervalRef.current = null;
     }
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -248,7 +273,7 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
                 body: `${payload.payload.callerName} is calling...`,
                 icon: payload.payload.callerAvatar || '/icon.svg',
                 requireInteraction: true,
-                vibrate: [1000, 500, 1000, 500, 1000],
+                vibrate: [1200, 400, 1200, 400, 1500],
                 data: { callerId: payload.payload.callerId }
               };
               // @ts-ignore
