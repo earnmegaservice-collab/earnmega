@@ -4,11 +4,12 @@ import { Loader2 } from 'lucide-react';
 import OnboardingWizard from './OnboardingWizard';
 import { SpatialPhotoStudio } from './SpatialPhotoStudio';
 import ExtendedQuestionnaire from './ExtendedQuestionnaire';
+import TheInterview from './TheInterview';
 import FacialVerification from './FacialVerification';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../utils/supabase';
 
-type Step = 'complete-profile' | 'spatial-studio' | 'extended-questionnaire' | 'facial-verification';
+type Step = 'complete-profile' | 'the-interview' | 'spatial-studio' | 'extended-questionnaire' | 'facial-verification';
 
 export default function OnboardingFlow({ onComplete }: { onComplete?: () => void }) {
   const { user } = useAuth();
@@ -19,7 +20,7 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
   // Load saved step from localStorage to survive OOM kills
   useEffect(() => {
     const savedStep = localStorage.getItem('em_onboarding_step') as Step;
-    if (savedStep && ['complete-profile', 'spatial-studio', 'extended-questionnaire', 'facial-verification'].includes(savedStep)) {
+    if (savedStep && ['complete-profile', 'the-interview', 'spatial-studio', 'extended-questionnaire', 'facial-verification'].includes(savedStep)) {
       setStep(savedStep);
     }
     setIsLoaded(true);
@@ -91,7 +92,9 @@ export default function OnboardingFlow({ onComplete }: { onComplete?: () => void
   return (
     <>
       {step === 'complete-profile' ? (
-        <OnboardingWizard onComplete={() => handleStepChange('spatial-studio')} />
+        <OnboardingWizard onComplete={() => handleStepChange('the-interview')} />
+      ) : step === 'the-interview' ? (
+        <TheInterview onComplete={() => handleStepChange('spatial-studio')} />
       ) : step === 'spatial-studio' ? (
         <SpatialPhotoStudio onComplete={() => handleStepChange('extended-questionnaire')} />
       ) : step === 'extended-questionnaire' ? (

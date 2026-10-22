@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import ReactDOM from 'react-dom';
+import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
 import VerifiedBadge from '../ui/VerifiedBadge';
 import { 
   X, Heart, Image as ImageIcon, ArrowUpRight, 
@@ -42,15 +43,33 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
     }
   }, [selectedCategory]);
 
+
   const loadProfilesForCategory = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      const categoryName = CATEGORIES.find(c => c.id === selectedCategory)?.name || selectedCategory;
+
+      // Strict category matching as per PHASE 4
+      let query = supabase
         .from('profiles')
         .select('*')
         .neq('id', user?.id)
         .eq('is_verified', true)
+        .contains('interests', [categoryName])
         .limit(10);
+
+      let { data, error } = await query;
+
+      // Fallback
+      if (!error && (!data || data.length === 0)) {
+         const fallbackQuery = await supabase
+            .from('profiles')
+            .select('*')
+            .neq('id', user?.id)
+            .eq('is_verified', true)
+            .limit(10);
+         data = fallbackQuery.data;
+      }
 
       if (error) throw error;
       setProfiles(data || []);
@@ -87,138 +106,195 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
     });
   };
 
+
+
+
   if (selectedCategory && profiles.length > 0) {
     const activeProfile = profiles[currentProfileIndex];
-    
-    // Extract up to 6 high-res photos from DB, fallback to avatar
-    const rawPhotos = activeProfile?.publicImages || activeProfile?.profile_images || [];
-    const profilePhotos = rawPhotos.length > 0 
-      ? rawPhotos.slice(0, 6) 
-      : (activeProfile?.avatar_url ? [activeProfile.avatar_url] : []);
-
-    const hasPhotos = profilePhotos.length > 0;
-    const displayImage = hasPhotos ? profilePhotos[currentPhotoIndex] : null;
-
-    // Tinder-style tap to navigate photos
-    const handlePhotoTap = (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!hasPhotos || profilePhotos.length <= 1) return;
-      
-      const { clientX } = e;
-      const screenWidth = window.innerWidth;
-      
-      if (clientX < screenWidth * 0.3) {
-        // Tap left 30%: Go back
-        setCurrentPhotoIndex(prev => Math.max(0, prev - 1));
-      } else {
-        // Tap right 70%: Go forward
-        setCurrentPhotoIndex(prev => Math.min(profilePhotos.length - 1, prev + 1));
-      }
-      
-      // Haptic tick
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(25);
-      }
-    };
-
     return (
-      <div className="fixed inset-0 z-[9999] bg-black overflow-y-auto overflow-x-hidden">
-         <AnimatePresence mode="wait">
-            <motion.div
-               key={activeProfile.id}
-               initial={{ opacity: 0, scale: 0.95 }}
-               animate={{ opacity: 1, scale: 1 }}
-               exit={{ opacity: 0, scale: 1.05 }}
-               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-               className="relative min-h-[150vh] w-full flex flex-col bg-slate-950"
-            >
-               {/* -------------------------------------------------------------
-                   1. 100vh FULL SCREEN HERO IMAGE (Tinder Style)
-               ------------------------------------------------------------- */}
-               <div className="relative h-[100dvh] w-full shrink-0">
-                  {/* Photo Engine & Tap Zones */}
-                  <div className="absolute inset-0 z-0" onClick={handlePhotoTap}>
-                    {displayImage ? (
-                        <img 
-                          src={displayImage} 
-                          alt={activeProfile.username} 
-                          className="w-full h-full object-cover transition-all duration-300" 
-                        />
-                    ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-indigo-900 to-slate-900 flex items-center justify-center">
-                            <ImageIcon size={80} className="text-white/20" />
-                        </div>
-                    )}
-                    {/* Protection Gradients */}
-                    <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
-                    <div className="absolute bottom-0 inset-x-0 h-80 bg-gradient-to-t from-black via-black/60 to-transparent pointer-events-none" />
-                  </div>
+      <ProfileView
+        activeProfile={activeProfile}
+        onSkip={handleSkip}
+        onLike={handleLike}
+        onClose={() => setSelectedCategory(null)}
+      />
+    );
+  }
 
-                  {/* Segmented Photo Progress Bars (Top) */}
-                  {profilePhotos.length > 1 && (
-                    <div className="absolute top-3 left-3 right-3 flex gap-1.5 z-50">
-                      {profilePhotos.map((_, idx) => (
-                        <div key={idx} className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden backdrop-blur-sm">
-                          <motion.div 
-                            initial={{ width: 0 }}
-                            animate={{ width: idx <= currentPhotoIndex ? '100%' : '0%' }}
-                            transition={{ duration: 0.3 }}
-                            className="h-full bg-white rounded-full shadow-[0_0_8px_white]"
-                          />
-                        </div>
-                      ))}
+  return <ExploreFeedCategories onSelect={setSelectedCategory} />;
+}
+
+// Subcomponent to handle hooks for ProfileUI
+function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile: any, onSkip: () => void, onLike: (p: any) => void, onClose: () => void }) {
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+
+  // Extract up to 6 high-res photos from DB, fallback to avatar
+  const rawPhotos = activeProfile?.publicImages || activeProfile?.profile_images || [];
+  const profilePhotos = rawPhotos.length > 0
+    ? rawPhotos.slice(0, 6)
+    : (activeProfile?.avatar_url ? [activeProfile.avatar_url] : []);
+
+  const hasPhotos = profilePhotos.length > 0;
+  const displayImage = hasPhotos ? profilePhotos[currentPhotoIndex] : null;
+
+  // Tinder-style tap to navigate photos
+  const handlePhotoTap = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!hasPhotos || profilePhotos.length <= 1) return;
+
+    const { clientX } = e;
+    const screenWidth = window.innerWidth;
+
+    if (clientX < screenWidth * 0.3) {
+      // Tap left 30%: Go back
+      setCurrentPhotoIndex(prev => Math.max(0, prev - 1));
+    } else {
+      // Tap right 70%: Go forward
+      setCurrentPhotoIndex(prev => Math.min(profilePhotos.length - 1, prev + 1));
+    }
+
+    // Haptic tick
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(15);
+    }
+  };
+
+  // Haptic tick when opening
+  useEffect(() => {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([30, 50, 30]);
+      }
+  }, [activeProfile.id]);
+
+  // Fix parallax scroll
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const { scrollY } = useScroll({ container: scrollContainerRef });
+  const bgScale = useTransform(scrollY, [0, 500], [1, 0.9]);
+  const bgOpacity = useTransform(scrollY, [0, 500], [1, 0.3]);
+
+  const profileContent = (
+    <div ref={scrollContainerRef} className="fixed inset-0 z-[99999] bg-black overflow-y-auto overflow-x-hidden">
+       <AnimatePresence mode="wait">
+          <motion.div
+             key={activeProfile.id}
+             initial={{ opacity: 0, scale: 0.95 }}
+             animate={{ opacity: 1, scale: 1 }}
+             exit={{ opacity: 0, scale: 1.05 }}
+             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+             className="relative min-h-[150vh] w-full flex flex-col bg-[#0a0a0c]"
+          >
+             {/* -------------------------------------------------------------
+                 1. 100vh FULL SCREEN HERO IMAGE (Tinder Style)
+             ------------------------------------------------------------- */}
+             <motion.div style={{ scale: bgScale, opacity: bgOpacity }} className="relative h-[100dvh] w-full shrink-0 origin-top">
+                {/* Photo Engine & Tap Zones */}
+                <div className="absolute inset-0 z-0" onClick={handlePhotoTap}>
+                  {displayImage ? (
+                      <img
+                        src={displayImage}
+                        alt={activeProfile.username}
+                        className="w-full h-full object-cover transition-all duration-300"
+                      />
+                  ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-indigo-900 to-slate-900 flex items-center justify-center">
+                          <ImageIcon size={80} className="text-white/20" />
+                      </div>
+                  )}
+                  {/* Protection Gradients */}
+                  <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
+                  <div className="absolute bottom-0 inset-x-0 h-[40vh] bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/80 to-transparent pointer-events-none" />
+                </div>
+
+                {/* Segmented Photo Progress Bars (Top) */}
+                {profilePhotos.length > 1 && (
+                  <div className="absolute top-3 left-3 right-3 flex gap-1.5 z-50">
+                    {profilePhotos.map((_: any, idx: number) => (
+                      <div key={idx} className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden backdrop-blur-sm">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: idx <= currentPhotoIndex ? '100%' : '0%' }}
+                          transition={{ duration: 0.3 }}
+                          className="h-full bg-white rounded-full shadow-[0_0_8px_white]"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Top-Right Close Button */}
+                <button
+                  onClick={onClose}
+                  className="absolute top-8 right-4 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/20 z-50 shadow-xl"
+                >
+                  <X size={20} />
+                </button>
+
+                {/* Core Info (Anchored above the bottom buttons) */}
+                <div className="absolute bottom-[100px] left-0 right-0 px-6 z-10 text-white pointer-events-none pb-6">
+                   <div className="flex items-center gap-3 mb-2 drop-shadow-2xl">
+                      <h2 className="text-5xl font-black tracking-tighter text-white drop-shadow-2xl">{activeProfile.username}, <span className="font-light">{activeProfile.age || '24'}</span></h2>
+                      {activeProfile.facial_verified === true && <VerifiedBadge />}
+                   </div>
+
+                   <div className="flex items-center gap-2 text-white/90 font-medium drop-shadow-md mb-4">
+                     <MapPin size={16} className="text-emerald-400" />
+                     <span className="text-sm">2 miles away • {activeProfile.intent || 'Long-term partner'}</span>
+                   </div>
+
+                   {activeProfile.bio && (
+                       <p className="text-xl font-medium text-slate-200 leading-relaxed tracking-wide drop-shadow-lg line-clamp-3">
+                           {activeProfile.bio}
+                       </p>
+                   )}
+                </div>
+             </motion.div>
+
+             {/* -------------------------------------------------------------
+                 2. MASSIVE SCROLLABLE DEEP PROFILE SHEET
+             ------------------------------------------------------------- */}
+             <div className="bg-[#0a0a0c] rounded-t-[48px] shadow-[0_-30px_90px_rgba(0,0,0,0.9)] mt-[-80px] pt-12 pb-48 px-6 relative z-40">
+                {/* Dynamic Ambient Glow */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-fuchsia-500/20 blur-[100px] pointer-events-none -z-10 rounded-full"></div>
+
+                {/* Scroll Down Prompt */}
+                <div className="w-full flex justify-center mb-8">
+                   <motion.div
+                     animate={{ y: [0, 8, 0] }}
+                     transition={{ duration: 1.5, repeat: Infinity }}
+                     className="opacity-50"
+                   >
+                     <ChevronDown size={28} />
+                   </motion.div>
+                </div>
+
+                <div className="flex flex-col gap-6">
+                  {/* The Interview Cards */}
+                  {activeProfile.prompt1 && (
+                    <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60}/></div>
+                      <span className="text-xs font-black uppercase tracking-[0.2em] text-fuchsia-400 mb-2 block">I describe myself as...</span>
+                      <p className="text-2xl font-bold text-white leading-snug">
+                        {activeProfile.prompt1}
+                      </p>
                     </div>
                   )}
 
-                  {/* Top-Right Close Button */}
-                  <button
-                    onClick={() => setSelectedCategory(null)}
-                    className="absolute top-8 right-4 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/20 z-50 shadow-xl"
-                  >
-                    <X size={20} />
-                  </button>
+                  {activeProfile.prompt2 && (
+                    <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                      <span className="text-xs font-black uppercase tracking-[0.2em] text-fuchsia-400 mb-2 block">My hidden talent is...</span>
+                      <p className="text-2xl font-bold text-white leading-snug">
+                        {activeProfile.prompt2}
+                      </p>
+                    </div>
+                  )}
 
-                  {/* Core Info (Anchored above the bottom buttons) */}
-                  <div className="absolute bottom-[130px] left-0 right-0 px-6 z-10 text-white pointer-events-none">
-                     <div className="flex items-center gap-3 mb-2 drop-shadow-xl">
-                        <h2 className="text-4xl font-black tracking-tight">{activeProfile.username}, <span className="font-light">{activeProfile.age || '24'}</span></h2>
-                        {activeProfile.is_verified && <VerifiedBadge />}
-                     </div>
-
-                     <div className="flex items-center gap-2 text-white/90 font-medium drop-shadow-md mb-4">
-                       <MapPin size={16} className="text-emerald-400" />
-                       <span className="text-sm">2 miles away • {activeProfile.intent || 'Long-term partner'}</span>
-                     </div>
-
-                     {activeProfile.bio && (
-                         <p className="text-base text-gray-100 mb-6 font-medium leading-relaxed drop-shadow-lg line-clamp-3">
-                             {activeProfile.bio}
-                         </p>
-                     )}
-
-                     {/* Scroll Down Prompt */}
-                     <motion.div 
-                       animate={{ y: [0, 8, 0] }}
-                       transition={{ duration: 1.5, repeat: Infinity }}
-                       className="flex justify-center mt-2 opacity-80"
-                     >
-                       <ChevronDown size={28} className="drop-shadow-lg" />
-                     </motion.div>
-                  </div>
-               </div>
-
-               {/* -------------------------------------------------------------
-                   2. MASSIVE SCROLLABLE DEEP PROFILE SHEET
-               ------------------------------------------------------------- */}
-               <div className="relative w-full bg-slate-950 rounded-t-[40px] -mt-12 p-8 pb-40 z-20 shadow-[0_-20px_60px_rgba(0,0,0,0.7)] flex flex-col gap-8 text-white">
-                  
-                  {/* Dynamic Block Quote Prompt */}
-                  <div className="bg-white/5 border border-white/10 rounded-3xl p-6 shadow-inner relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60}/></div>
-                    <span className="text-xs text-yellow-400 font-bold uppercase tracking-widest mb-2 block">About Me</span>
-                    <p className="text-xl font-medium leading-relaxed">
-                      "I describe myself as fun, easygoing, and incredibly adventurous. Big on family and I enjoy deep, late-night conversations."
-                    </p>
-                  </div>
+                  {activeProfile.prompt3 && (
+                    <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                      <span className="text-xs font-black uppercase tracking-[0.2em] text-fuchsia-400 mb-2 block">A perfect weekend is...</span>
+                      <p className="text-2xl font-bold text-white leading-snug">
+                        {activeProfile.prompt3}
+                      </p>
+                    </div>
+                  )}
 
                   {/* Essentials / Lifestyle Tags Grid */}
                   <div>
@@ -226,65 +302,71 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
                     <div className="grid grid-cols-2 gap-3">
                       <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
                         <Briefcase size={20} className="text-cyan-400" />
-                        <span className="text-sm font-medium">{activeProfile.job_title || 'Forex Trader at NK FX'}</span>
+                        <span className="text-sm font-medium text-white">{activeProfile.job_title || 'Forex Trader at NK FX'}</span>
                       </div>
                       <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
                         <GraduationCap size={20} className="text-purple-400" />
-                        <span className="text-sm font-medium">{activeProfile.education || 'Methodist University'}</span>
+                        <span className="text-sm font-medium text-white">{activeProfile.education || 'Methodist University'}</span>
                       </div>
                       <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
                         <Ruler size={20} className="text-pink-400" />
-                        <span className="text-sm font-medium">173 cm</span>
+                        <span className="text-sm font-medium text-white">173 cm</span>
                       </div>
                       <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
                         <Sparkles size={20} className="text-yellow-400" />
-                        <span className="text-sm font-medium">{activeProfile.zodiac_sign || 'Cancer'}</span>
+                        <span className="text-sm font-medium text-white">{activeProfile.zodiac_sign || 'Cancer'}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Lifestyle Badges */}
-                  <div>
-                    <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Lifestyle</h3>
-                    <div className="flex flex-wrap gap-3">
-                      <span className="px-4 py-2 bg-white/10 rounded-full text-sm font-medium flex items-center gap-2"><Dog size={16}/> Dog Lover</span>
-                      <span className="px-4 py-2 bg-white/10 rounded-full text-sm font-medium flex items-center gap-2"><Wine size={16}/> Social Drinker</span>
-                      <span className="px-4 py-2 bg-white/10 rounded-full text-sm font-medium">🚭 Non-smoker</span>
-                      <span className="px-4 py-2 bg-white/10 rounded-full text-sm font-medium flex items-center gap-2"><Music size={16}/> Hip-hop</span>
+                  {(activeProfile.interests || []).length > 0 && (
+                    <div>
+                      <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Lifestyle</h3>
+                      <div className="flex flex-wrap gap-3">
+                        {activeProfile.interests.map((interest: string, idx: number) => (
+                          <span key={idx} className="px-4 py-2 bg-white/10 rounded-full text-sm font-medium text-white border border-white/10 shadow-lg">{interest}</span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
+                </div>
+             </div>
 
-                  {/* Bottom Padder to allow scrolling past floating buttons */}
-                  <div className="h-24 w-full"></div>
-               </div>
+             {/* -------------------------------------------------------------
+                 3. FLOATING ACTION BUTTONS (Anchored to Screen Bottom)
+             ------------------------------------------------------------- */}
+             <div className="fixed bottom-8 left-0 right-0 flex justify-center gap-8 px-6 z-[100000] pointer-events-none">
+                <motion.button
+                   whileTap={{ scale: 0.85 }}
+                   onClick={onSkip}
+                   className="pointer-events-auto w-[72px] h-[72px] rounded-full bg-slate-900/80 backdrop-blur-2xl border-2 border-white/10 flex items-center justify-center text-gray-300 shadow-[0_10px_40px_rgba(0,0,0,0.5)] hover:bg-slate-800 transition-colors"
+                >
+                   <X size={34} strokeWidth={2.5} />
+                </motion.button>
 
-               {/* -------------------------------------------------------------
-                   3. FLOATING ACTION BUTTONS (Anchored to Screen Bottom)
-               ------------------------------------------------------------- */}
-               <div className="fixed bottom-8 left-0 right-0 flex justify-center gap-8 px-6 z-[99999] pointer-events-none">
-                  <motion.button
-                     whileTap={{ scale: 0.85 }}
-                     onClick={handleSkip}
-                     className="pointer-events-auto w-[72px] h-[72px] rounded-full bg-slate-900/80 backdrop-blur-2xl border-2 border-white/10 flex items-center justify-center text-gray-300 shadow-[0_10px_40px_rgba(0,0,0,0.5)] hover:bg-slate-800 transition-colors"
-                  >
-                     <X size={34} strokeWidth={2.5} />
-                  </motion.button>
+                <motion.button
+                   whileTap={{ scale: 0.85 }}
+                   onClick={() => onLike(activeProfile)}
+                   className="pointer-events-auto w-[72px] h-[72px] rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-white shadow-[0_10px_50px_rgba(244,63,94,0.6)] border-2 border-rose-400 hover:scale-105 transition-transform"
+                >
+                   <Heart size={34} fill="currentColor" />
+                </motion.button>
+             </div>
 
-                  <motion.button
-                     whileTap={{ scale: 0.85 }}
-                     onClick={() => handleLike(activeProfile)}
-                     className="pointer-events-auto w-[72px] h-[72px] rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-white shadow-[0_10px_50px_rgba(244,63,94,0.6)] border-2 border-rose-400 hover:scale-105 transition-transform"
-                  >
-                     <Heart size={34} fill="currentColor" />
-                  </motion.button>
-               </div>
+          </motion.div>
+       </AnimatePresence>
+    </div>
+  );
 
-            </motion.div>
-         </AnimatePresence>
-      </div>
-    );
-  }
+  return (
+    typeof window !== 'undefined'
+      ? ReactDOM.createPortal(profileContent, document.body) as React.ReactElement
+      : null
+  );
+}
 
+function ExploreFeedCategories({ onSelect }: { onSelect: (id: string) => void }) {
   // Categories Grid View (4K Unsplash Upgrade)
   return (
     <div className="flex-1 overflow-y-auto w-full max-w-full bg-black">
@@ -300,7 +382,7 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: i * 0.05, type: "spring", stiffness: 100 }}
             key={cat.id}
-            onClick={() => setSelectedCategory(cat.id)}
+            onClick={() => onSelect(cat.id)}
             className={`group relative rounded-[2rem] overflow-hidden cursor-pointer ${i % 3 === 0 ? 'col-span-2 aspect-[16/9]' : 'col-span-1 aspect-[4/5]'} shadow-2xl border border-white/10`}
           >
             {/* High-End 4K Image Background */}
