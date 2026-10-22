@@ -51,7 +51,23 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
   React.useEffect(() => {
     if (!user || !currentUser) return;
 
-    import('../../utils/supabase').then(({ supabase }) => {
+    import('../../utils/supabase').then(async ({ supabase }) => {
+      // Profile View Notification logic
+      if (user.id !== currentUser.id) {
+          try {
+              const { data } = await supabase.from('notifications')
+                  .select('id').eq('type', 'PROFILE_VIEW').eq('user_id', user.id).eq('actor_id', currentUser.id)
+                  .gte('created_at', new Date(Date.now() - 86400000).toISOString()).limit(1);
+              if (!data || data.length === 0) {
+                  await supabase.from('notifications').insert({
+                      user_id: user.id,
+                      actor_id: currentUser.id,
+                      type: 'PROFILE_VIEW',
+                      content: 'Viewed your profile'
+                  });
+              }
+          } catch(e) {}
+      }
       const checkStatuses = async () => {
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const { data: statuses } = await supabase

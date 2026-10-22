@@ -565,7 +565,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
 
 
-  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
 
   const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
   const [isChatsLoading, setIsChatsLoading] = useState(true);

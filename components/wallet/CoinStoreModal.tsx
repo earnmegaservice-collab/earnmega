@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { SubscriptionTier } from '../../types/user';
 import { useWallet } from '../../context/WalletContext';
+import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { usePaystackPayment } from 'react-paystack';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -85,8 +86,18 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
              // Fallback for demo functionality
              if (type === 'UPGRADE') {
                setSelectedPlan(payload as SubscriptionTier);
+               supabase.from('notifications').insert({
+                 user_id: user?.id,
+                 type: 'PREMIUM',
+                 content: `Successfully upgraded to ${payload} Tier`
+               });
              } else if (type === 'COIN') {
                setBalance(balance + (payload as number));
+               supabase.from('notifications').insert({
+                 user_id: user?.id,
+                 type: 'TRANSACTION',
+                 content: `Successfully purchased ${payload} Coins`
+               });
              }
           }
         } catch (error) {
