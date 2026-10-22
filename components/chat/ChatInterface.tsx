@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -128,6 +128,7 @@ const AudioPlayer = ({ src }: { src: string }) => {
     }
   };
 
+
   return (
     <div className="flex items-center space-x-3 w-[220px] bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-2.5 shadow-lg" onClick={e => e.stopPropagation()}>
       <audio
@@ -162,7 +163,8 @@ const AudioPlayer = ({ src }: { src: string }) => {
           <span>{durationStr}</span>
         </div>
       </div>
-    </div>
+
+      </div>
   );
 };
 
@@ -173,8 +175,30 @@ import DiscoveryContainer from '../explore/DiscoveryContainer';
 import MyProfileView from '../profile/MyProfileView';
 
 export const renderMessageContent = (message: any, currentUserId: string) => {
-  if (message.messageType === 'completed_call') {
+
+  if (message.messageType === 'forwarded_contact' && message.payload) {
      return (
+        <div className="flex flex-col gap-2 p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl w-64 my-1 shadow-lg cursor-pointer hover:bg-white/10 transition-colors" onClick={() => window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: message.payload.id } }))}>
+           <div className="flex items-center gap-3">
+              <img src={message.payload.avatar || '/placeholder.svg'} alt={message.payload.name} className="w-12 h-12 rounded-full object-cover border border-fuchsia-500/50 shadow-[0_0_10px_rgba(217,70,239,0.3)]" />
+              <div className="flex flex-col flex-1 min-w-0">
+                 <span className="text-white font-bold text-sm truncate">{message.payload.name}</span>
+                 <span className="text-white/50 text-[10px] uppercase tracking-wider font-semibold">Shared Contact</span>
+              </div>
+           </div>
+           {message.payload.bio && (
+              <p className="text-white/70 text-xs mt-1 line-clamp-2 italic border-t border-white/10 pt-2">{message.payload.bio}</p>
+           )}
+           <div className="mt-1 flex items-center justify-center w-full py-1.5 bg-fuchsia-500/20 text-fuchsia-300 text-xs font-bold rounded-xl border border-fuchsia-500/30">
+              View Profile
+           </div>
+        </div>
+     );
+  }
+
+  if (message.messageType === 'completed_call') {
+
+  return (
         <div className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 backdrop-blur-md w-72 my-1">
            <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400">
                <Phone size={16} />
@@ -187,7 +211,8 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
      );
   }
     if (message.messageType === 'missed_call') {
-     return (
+
+  return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between p-4 rounded-3xl bg-rose-950/40 border border-rose-500/40 w-80 my-2 backdrop-blur-xl shadow-lg">
           <div className="flex items-center gap-4">
              <div className="p-3 bg-rose-500/20 rounded-2xl text-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.3)]"><PhoneMissed size={22}/></div>
@@ -210,7 +235,8 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
   if (replyMatch) {
     const [, statusId, mediaPreview, actualText] = replyMatch;
 
-    return (
+
+  return (
       <div className={`flex flex-col space-y-1.5 max-w-[80%] ${isMe ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
         {isForwarded && (
           <span className="text-[10px] italic text-white/50 mb-1 flex items-center"><Send size={10} className="mr-1 inline" /> Forwarded</span>
@@ -247,13 +273,15 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
   }
 
   // Regular standard chat message processing (handles bold, italic formatting from formatText)
+
   return (
     <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium">
       {isForwarded && (
         <span className="text-[10px] italic text-white/50 mb-1 flex items-center"><Send size={10} className="mr-1 inline" /> Forwarded</span>
       )}
       {formatText(displayContent)}
-    </div>
+
+      </div>
   );
 };
 
@@ -296,6 +324,23 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [isViewOnceMode, setIsViewOnceMode] = useState(false);
   const [shatterEffectId, setShatterEffectId] = useState<string | null>(null);
   const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+  // Phase 4 states
+
+
+const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [activeWallpaper, setActiveWallpaper] = useState<string>('bg-[#050505]');
+  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
+  const [isBlockedByThem, setIsBlockedByThem] = useState(false);
+  const isBlockedRef = useRef(false);
+  useEffect(() => {
+     isBlockedRef.current = isBlockedByMe || isBlockedByThem;
+  }, [isBlockedByMe, isBlockedByThem]);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [isForwardContactModalOpen, setIsForwardContactModalOpen] = useState(false);
+  const [isClearChatConfirmOpen, setIsClearChatConfirmOpen] = useState(false);
+
   const [messageToForward, setMessageToForward] = useState<Message | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -469,7 +514,59 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
+ 
+
+  // Phase 4 Check Block
+  useEffect(() => {
+    const checkBlocked = async () => {
+       if (!user || !otherUserProfile) return;
+       const { data: myBlock } = await supabase.from('blocked_users').select('*').eq('blocker_id', user.id).eq('blocked_id', otherUserProfile.id).maybeSingle();
+       if (myBlock) setIsBlockedByMe(true);
+       else setIsBlockedByMe(false);
+
+       const { data: theirBlock } = await supabase.from('blocked_users').select('*').eq('blocker_id', otherUserProfile.id).eq('blocked_id', user.id).maybeSingle();
+       if (theirBlock) setIsBlockedByThem(true);
+       else setIsBlockedByThem(false);
+    };
+    checkBlocked();
+  }, [user, otherUserProfile]);
+
+  // Phase 4 Load Wallpaper
+  useEffect(() => {
+    if (!otherUserProfile || !user) return;
+    const key = `wallpaper_${user.id}_${otherUserProfile.id}`;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+       setActiveWallpaper(saved);
+    } else {
+       setActiveWallpaper('bg-[#050505]');
+    }
+  }, [otherUserProfile, user]);
+
+
+  const toggleBlock = async () => {
+     if (!user || !otherUserProfile) return;
+     if (isBlockedByMe) {
+        await supabase.from('blocked_users').delete().eq('blocker_id', user.id).eq('blocked_id', otherUserProfile.id);
+        setIsBlockedByMe(false);
+        toast.success('User unblocked');
+     } else {
+        await supabase.from('blocked_users').insert({ blocker_id: user.id, blocked_id: otherUserProfile.id });
+        setIsBlockedByMe(true);
+        toast.success('User blocked');
+     }
+  };
+
+  const saveWallpaper = (val: string) => {
+     setActiveWallpaper(val);
+     if (user && otherUserProfile) {
+        localStorage.setItem(`wallpaper_${user.id}_${otherUserProfile.id}`, val);
+     }
+  };
+
+
   const [isBlockedByMe, setIsBlockedByMe] = useState(false);
+
   const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
   const [isChatsLoading, setIsChatsLoading] = useState(true);
   const [chatsFetchError, setChatsFetchError] = useState<any>(null);
@@ -528,7 +625,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       })
       .subscribe();
 
-    return () => {
+
+  return () => {
       supabase.removeChannel(statusesChannel);
     };
   }, [user]);
@@ -572,7 +670,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         }
       });
 
-    return () => {
+
+  return () => {
       supabase.removeChannel(presenceChannel);
     };
   }, [user]);
@@ -588,7 +687,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       })
       .subscribe();
 
-    return () => {
+
+  return () => {
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -1001,7 +1101,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         }
       });
 
-    return () => {
+
+  return () => {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
@@ -1019,7 +1120,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
     };
     document.addEventListener('click', handleClickOutside);
     document.addEventListener('scroll', handleClickOutside, true);
-    return () => {
+
+  return () => {
       document.removeEventListener('click', handleClickOutside);
       document.removeEventListener('scroll', handleClickOutside, true);
     };
@@ -1519,7 +1621,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
   const renderStatus = (status?: 'sending' | 'sent' | 'delivered' | 'read') => {
     if (!status) return null;
-    return (
+
+  return (
       <motion.span
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -1555,7 +1658,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   }
 
   if (!currentOtherUserProfile) {
-    return (
+
+  return (
       <AppShell
         activeTab={activeTab}
         setActiveTab={setAppTab}
@@ -1724,6 +1828,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
       </AppShell>
     );
   }
+
 
   return (
     <div className="flex flex-col h-[100dvh] w-full overflow-hidden font-sans text-gray-100 selection:bg-purple-500/30 relative bg-neutral-950">
@@ -2012,19 +2117,65 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         >
           <Store size={14} className="text-amber-400" />
         </button>
+
+        {/* Phase 4: Chat Options Menu */}
+        <div className="relative ml-2">
+            <button
+               onClick={() => setIsChatMenuOpen(!isChatMenuOpen)}
+               className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-all"
+            >
+               <MoreVertical size={20} />
+            </button>
+            <AnimatePresence>
+               {isChatMenuOpen && (
+                  <motion.div
+                     initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                     animate={{ opacity: 1, scale: 1, y: 0 }}
+                     exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                     className="absolute right-0 top-full mt-2 w-56 bg-[#111] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100]"
+                  >
+                     <div className="py-2 flex flex-col">
+                        <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 flex items-center gap-3">
+                           <Camera size={16} className="text-white/50" /> Theme & Wallpaper
+                        </button>
+                        <button onClick={() => { setIsChatMenuOpen(false); setIsForwardContactModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 flex items-center gap-3">
+                           <Share size={16} className="text-white/50" /> Forward Account
+                        </button>
+                        <button onClick={() => { setIsChatMenuOpen(false); toggleBlock(); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 flex items-center gap-3">
+                           <Ban size={16} className="text-white/50" /> {isBlockedByMe ? 'Unblock' : 'Block'} User
+                        </button>
+                        <button onClick={() => { setIsChatMenuOpen(false); setIsReportModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 flex items-center gap-3">
+                           <ShieldAlert size={16} className="text-rose-400/50" /> Report
+                        </button>
+                        <button onClick={() => { setIsChatMenuOpen(false); toast('Search coming soon!', { icon: '🔍' }); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 flex items-center gap-3">
+                           <Search size={16} className="text-white/50" /> Search Chat
+                        </button>
+                        <div className="h-px w-full bg-white/10 my-1"></div>
+                        <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 flex items-center gap-3">
+                           <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
+                        </button>
+                     </div>
+                  </motion.div>
+               )}
+            </AnimatePresence>
+        </div>
       </header>
 
       {/* Messages Area */}
       <main
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-6 relative z-10 w-full"
+        className={`flex-1 overflow-y-auto p-4 space-y-6 relative z-10 w-full ${activeWallpaper.startsWith('bg-') ? activeWallpaper : 'bg-cover bg-center'}`}
+        style={activeWallpaper.startsWith('url') ? { backgroundImage: activeWallpaper } : {}}
       >
+        <div className="absolute inset-0 bg-black/40 pointer-events-none z-0"></div>
+
         {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
           const isUser = message.sender === 'user';
           const isTrayOpen = activeReactionId === message.id;
 
           if (message.isDeleted) {
-             return (
+
+  return (
                <motion.div
                  layout
                  initial={{ opacity: 0, y: 10 }}
@@ -2042,7 +2193,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
              );
           }
 
-          return (
+
+  return (
             <motion.div
               layout
               initial={{ opacity: 0, y: 10 }}
@@ -2382,6 +2534,15 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
       {/* Input Area */}
       <footer className="bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] p-4 pb-safe shrink-0 w-full flex flex-col">
+        {(isBlockedByMe || isBlockedByThem) ? (
+          <div className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl flex justify-center items-center cursor-pointer" onClick={() => isBlockedByMe ? toggleBlock() : null}>
+             <span className="text-white/50 text-sm font-medium">
+                {isBlockedByMe ? "You blocked this contact. Tap to unblock." : "This contact has blocked you. You cannot send messages."}
+             </span>
+          </div>
+        ) : (
+          <>
+
         <AnimatePresence>
           {replyingTo && (
             <motion.div
@@ -2497,6 +2658,8 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         <p className="text-center text-[10px] text-gray-600 mt-2 font-medium tracking-wide">
           Double-tap a message to react
         </p>
+        </>
+        )}
       </footer>
 
       <AnimatePresence>
@@ -2557,6 +2720,317 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
 
 
-    </div>
+
+
+      {/* Theme & Wallpaper Modal */}
+      <AnimatePresence>
+        {isThemeModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-[#111] border border-white/10 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl"
+            >
+              <div className="p-4 border-b border-white/10 flex justify-between items-center">
+                <h3 className="text-white font-bold text-lg">Theme & Wallpaper</h3>
+                <button onClick={() => setIsThemeModalOpen(false)} className="p-2 text-white/50 hover:text-white rounded-full bg-white/5">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-4 max-h-[60vh] overflow-y-auto space-y-6">
+                <div>
+                  <h4 className="text-white/70 text-sm font-semibold mb-3 uppercase tracking-wider">Solid Colors</h4>
+                  <div className="grid grid-cols-5 gap-3">
+                    {[
+                      { id: 'default', value: 'bg-[#050505]', label: 'Default' },
+                      { id: 'onyx', value: 'bg-[#0f1115]', label: 'Onyx' },
+                      { id: 'emerald', value: 'bg-[#022c22]', label: 'Emerald' },
+                      { id: 'indigo', value: 'bg-[#1e1b4b]', label: 'Indigo' },
+                      { id: 'ochre', value: 'bg-[#431407]', label: 'Ochre' },
+                      { id: 'charcoal', value: 'bg-[#171717]', label: 'Charcoal' }
+                    ].map(theme => (
+                      <div key={theme.id} className="flex flex-col items-center gap-1.5">
+                        <button
+                          onClick={() => saveWallpaper(theme.value)}
+                          className={`w-12 h-12 rounded-full border-2 transition-all ${activeWallpaper === theme.value ? 'border-fuchsia-500 scale-110' : 'border-white/10 hover:scale-105'}`}
+                          style={theme.value.startsWith('bg-[') ? {} : { backgroundColor: theme.value.replace('bg-', '') }}
+                          title={theme.label}
+                        >
+                           <div className={`w-full h-full rounded-full ${theme.value}`} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-white/70 text-sm font-semibold mb-3 uppercase tracking-wider">Abstract & Patterns</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                       onClick={() => saveWallpaper('bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#0f172a]')}
+                       className={`h-24 rounded-2xl border-2 transition-all bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#0f172a] flex items-end p-2 ${activeWallpaper === 'bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#0f172a]' ? 'border-fuchsia-500' : 'border-white/10'}`}
+                    >
+                       <span className="text-xs font-bold text-white shadow-sm">Cosmic</span>
+                    </button>
+                    <button
+                       onClick={() => saveWallpaper('bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-700 via-gray-900 to-black')}
+                       className={`h-24 rounded-2xl border-2 transition-all bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-700 via-gray-900 to-black flex items-end p-2 ${activeWallpaper === 'bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-700 via-gray-900 to-black' ? 'border-fuchsia-500' : 'border-white/10'}`}
+                    >
+                       <span className="text-xs font-bold text-white shadow-sm">Wireframe</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-white/70 text-sm font-semibold mb-3 uppercase tracking-wider">Premium Backdrops</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                       onClick={() => saveWallpaper('url(https://images.unsplash.com/photo-1534796636918-9ce8e18fb635?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80)')}
+                       className={`h-24 rounded-2xl border-2 transition-all bg-cover bg-center flex items-end p-2 ${activeWallpaper.includes('1534796636918') ? 'border-fuchsia-500' : 'border-white/10'}`}
+                       style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1534796636918-9ce8e18fb635?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80)' }}
+                    >
+                       <span className="text-xs font-bold text-white drop-shadow-md">Nebula</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-white/10 bg-white/5">
+                <button
+                  onClick={() => saveWallpaper('bg-[#050505]')}
+                  className="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold transition-all"
+                >
+                  Reset to Default
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Phase 4: Report Modal */}
+      <AnimatePresence>
+         {isReportModalOpen && (
+            <motion.div
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+               <motion.div
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  className="bg-[#111] border border-white/10 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-6"
+               >
+                  <div className="flex flex-col items-center text-center">
+                     <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
+                        <ShieldAlert size={32} className="text-rose-500" />
+                     </div>
+                     <h3 className="text-xl font-bold text-white mb-2">Report User</h3>
+                     <p className="text-sm text-white/60 mb-6">
+                        This report will be sent to the EarnMega Trust & Safety team. The user will not be notified.
+                     </p>
+                  </div>
+
+                  <div className="space-y-3 mb-6">
+                     {['Spam or scam', 'Inappropriate content', 'Harassment', 'Other'].map(reason => (
+                        <button
+                           key={reason}
+                           onClick={() => setReportReason(reason)}
+                           className={`w-full py-3 px-4 rounded-xl text-sm font-medium transition-all text-left ${reportReason === reason ? 'bg-rose-500 text-white border border-rose-400/50' : 'bg-white/5 text-white/70 border border-white/10 hover:bg-white/10'}`}
+                        >
+                           {reason}
+                        </button>
+                     ))}
+                  </div>
+
+                  <div className="flex gap-3">
+                     <button
+                        onClick={() => { setIsReportModalOpen(false); setReportReason(''); }}
+                        className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold transition-all text-sm"
+                     >
+                        Cancel
+                     </button>
+                     <button
+                        onClick={async () => {
+                           if (!reportReason) {
+                              toast.error('Please select a reason');
+                              return;
+                           }
+
+                           // Create report object
+                           await supabase.from('messages').insert({
+                              sender_id: user?.id,
+                              receiver_id: 'system',
+                              message_text: `[SYSTEM_REPORT] User ${user?.id} reported ${currentOtherUserProfile?.id} for: ${reportReason}. Please investigate.`,
+                              message_type: 'text'
+                           });
+
+                           toast.success('Report submitted securely. Thank you.', { icon: '🛡️' });
+                           setIsReportModalOpen(false);
+                           setReportReason('');
+                           // Option to block immediately
+                           if (!isBlockedByMe) {
+                              toggleBlock();
+                           }
+                        }}
+                        className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(225,29,72,0.4)]"
+                     >
+                        Submit Report
+                     </button>
+                  </div>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
+      {/* Phase 4: Forward Contact Modal */}
+      <AnimatePresence>
+         {isForwardContactModalOpen && (
+            <motion.div
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+               <motion.div
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  className="bg-[#111] border border-white/10 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
+               >
+                  <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
+                     <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                        <Share size={18} className="text-fuchsia-400" /> Share Contact
+                     </h3>
+                     <button onClick={() => setIsForwardContactModalOpen(false)} className="p-2 text-white/50 hover:text-white rounded-full hover:bg-white/10">
+                        <X size={20} />
+                     </button>
+                  </div>
+
+                  <div className="p-4 flex-1 overflow-y-auto space-y-2">
+                     <p className="text-xs text-white/50 mb-4 px-1 uppercase tracking-wider font-semibold">Select a chat to share with:</p>
+
+                     {Array.from(exploreUsers).filter((u: any) => u.id !== currentOtherUserProfile?.id && !u.isGroup).map((u: any) => (
+                        <div key={u.id} className="flex items-center justify-between p-3 rounded-2xl hover:bg-white/10 cursor-pointer transition-colors border border-transparent hover:border-white/10" onClick={async () => {
+                           // Forward logic
+                           setIsForwardContactModalOpen(false);
+                           const toastId = toast.loading('Sharing contact...');
+                           try {
+                              await supabase.from('messages').insert({
+                                 sender_id: user?.id,
+                                 receiver_id: u.id,
+                                 message_text: `Shared contact: ${currentOtherUserProfile?.name}`,
+                                 message_type: 'forwarded_contact',
+                                 is_view_once: false,
+                                 payload: {
+                                    id: currentOtherUserProfile?.id,
+                                    name: currentOtherUserProfile?.name,
+                                    avatar: currentOtherUserProfile?.avatarUrl,
+                                    bio: currentOtherUserProfile?.bio
+                                 }
+                              });
+                              toast.success('Contact shared successfully', { id: toastId });
+                           } catch (err) {
+                              toast.error('Failed to share contact', { id: toastId });
+                           }
+                        }}>
+                           <div className="flex items-center gap-3">
+                              <img src={u.avatarUrl || '/placeholder.svg'} alt={u.name} className="w-10 h-10 rounded-full object-cover border border-white/20" />
+                              <span className="text-white font-medium text-sm">{u.name}</span>
+                           </div>
+                           <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/50 group-hover:text-fuchsia-400 group-hover:bg-fuchsia-500/20 transition-all">
+                              <Send size={14} />
+                           </div>
+                        </div>
+                     ))}
+                  </div>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
+      {/* Phase 4: Clear Chat Confirm Modal */}
+      <AnimatePresence>
+         {isClearChatConfirmOpen && (
+            <motion.div
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+               <motion.div
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  className="bg-[#111] border border-white/10 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-6"
+               >
+                  <div className="flex flex-col items-center text-center">
+                     <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
+                        <Trash2 size={32} className="text-rose-500" />
+                     </div>
+                     <h3 className="text-xl font-bold text-white mb-2">Clear History</h3>
+                     <p className="text-sm text-white/60 mb-6">
+                        Are you sure you want to delete all messages in this chat? This cannot be undone.
+                     </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                     <button
+                        onClick={() => setIsClearChatConfirmOpen(false)}
+                        className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold transition-all text-sm"
+                     >
+                        Cancel
+                     </button>
+                     <button
+                        onClick={async () => {
+                           if (!user || !currentOtherUserProfile) return;
+                           const toastId = toast.loading('Clearing history...');
+                           try {
+                              // We can update the hidden_for array for all messages in this chat
+                              const chatMessages = messages.map(m => m.id);
+                              if (chatMessages.length > 0) {
+                                  // Since Supabase `array_append` requires RPC, we fetch and update individually
+                                  // BUT we will do it using Promise.all in batches to be efficient.
+                                  const batchSize = 10;
+                                  for (let i = 0; i < chatMessages.length; i += batchSize) {
+                                      const batch = chatMessages.slice(i, i + batchSize);
+                                      await Promise.all(batch.map(async (msgId) => {
+                                          const msg = messages.find(m => m.id === msgId);
+                                          if (msg) {
+                                              const hiddenFor = msg.hiddenFor || [];
+                                              if (!hiddenFor.includes(user.id)) {
+                                                  await supabase.from('messages').update({ hidden_for: [...hiddenFor, user.id] }).eq('id', msgId);
+                                              }
+                                          }
+                                      }));
+                                  }
+                              }
+
+                              setMessages([]);
+                              toast.success('Chat history cleared', { id: toastId });
+                              setIsClearChatConfirmOpen(false);
+                           } catch (err) {
+                              toast.error('Failed to clear history', { id: toastId });
+                           }
+                        }}
+                        className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(225,29,72,0.4)]"
+                     >
+                        Clear Chat
+                     </button>
+                  </div>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+</div>
   );
 }
