@@ -118,10 +118,10 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
 
       // Trigger the real-time gift notification payload matching GiftOverlay listener
       const { error: notifError } = await supabase.from('notifications').insert({
-        recipient_id: recipientId,
-        sender_id: user.id,
+        user_id: recipientId,
+        actor_id: user.id,
         type: 'GIFT',
-        message: `${gift.name}|${gift.cost}`
+        content: `${gift.name}|${gift.cost}`
       });
 
       if (notifError) {

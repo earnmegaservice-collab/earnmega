@@ -220,6 +220,15 @@ export const CallProvider = ({ children }: { children: React.ReactNode }) => {
       const { error } = await supabase.from('messages').insert(newRecord);
       if (error) throw error;
       
+      if (type === 'missed_call') {
+        supabase.from('notifications').insert({
+          user_id: receiverId,
+          actor_id: callerId,
+          type: 'MISSED_CALL',
+          content: 'Missed a call from you.'
+        });
+      }
+
       if (chatChannelRef.current) {
          chatChannelRef.current.send({
             type: 'broadcast',

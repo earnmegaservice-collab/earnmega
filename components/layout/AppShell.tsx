@@ -85,7 +85,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         setUnreadCount(count || 0);
 
         // App-Open Supernova: Check for unread gift notifications in the queue
-        const unreadGifts = (data || []).filter(n => n.type === 'gift');
+        const unreadGifts = (data || []).filter(n => n.type === 'GIFT');
         if ((unreadGifts || []).length > 0) {
            // Instantly trigger cinematic 3D gift animation globally for the first unread gift
            // To avoid overlapping, we just show the most recent one or queue them.
@@ -93,9 +93,9 @@ export const AppShell: React.FC<AppShellProps> = ({
            const latestGift = unreadGifts[0];
            if (latestGift.content) {
              try {
-               const parts = latestGift.content.split(':');
+               const parts = latestGift.content.split('|');
                if ((parts || []).length >= 3) {
-                 const giftData = { name: parts[1], cost: parseInt(parts[2]) };
+                 const giftData = { name: parts[0], cost: parseInt(parts[1]) };
                  const senderId = (parts || []).length > 3 ? parts[3] : '';
                  const customEvent = new CustomEvent('gift_received_local', {
                    detail: { giftData: giftData, senderId: senderId, receiverId: user?.id }
@@ -141,12 +141,12 @@ export const AppShell: React.FC<AppShellProps> = ({
         // Now that they are online (and received this via realtime if they just came online,
         // or fetched initially), we could trigger it.
         // For now, if a real-time 'INSERT' comes in for a gift, we trigger the overlay.
-        if (newNotif.type === 'gift' && newNotif.content) {
+        if (newNotif.type === 'GIFT' && newNotif.content) {
            try {
              // Expecting content like: GIFT:Rose:50:sender_id
-             const parts = newNotif.content.split(':');
+             const parts = newNotif.content.split('|');
              if ((parts || []).length >= 3) {
-               const giftData = { name: parts[1], cost: parseInt(parts[2]) };
+               const giftData = { name: parts[0], cost: parseInt(parts[1]) };
                const senderId = (parts || []).length > 3 ? parts[3] : '';
 
                // Dispatch custom event to App-Open Supernova GiftOverlay
@@ -217,7 +217,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             <Bell className="w-4 h-4 text-white/90" />
             {unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg border border-black">
-                {unreadCount}
+                {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
           </motion.button>
