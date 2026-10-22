@@ -514,7 +514,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
- 
+
 
   // Phase 4 Check Block
   useEffect(() => {
@@ -564,8 +564,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
      }
   };
 
-
-  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
 
   const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
   const [isChatsLoading, setIsChatsLoading] = useState(true);
