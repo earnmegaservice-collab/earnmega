@@ -21,6 +21,9 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
   const [pushNotifications, setPushNotifications] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showBlockedUsers, setShowBlockedUsers] = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
+  const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   useEffect(() => {
@@ -104,6 +107,45 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
       setShowDeleteConfirm(false);
     }
   };
+
+
+  const fetchBlockedUsers = async () => {
+    setIsLoadingBlocked(true);
+    try {
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('blocked_users')
+        .select(`
+          id,
+          blocked_id,
+          profiles:blocked_id (id, full_name, username, avatar_url)
+        `)
+        .eq('blocker_id', user.id);
+
+      if (error) throw error;
+      setBlockedUsers(data || []);
+    } catch (error: any) {
+      console.error('Failed to fetch blocked users:', error);
+    } finally {
+      setIsLoadingBlocked(false);
+    }
+  };
+
+  const handleUnblockUser = async (blockedRowId: string, blockedUserId: string) => {
+    try {
+      const { error } = await supabase
+        .from('blocked_users')
+        .delete()
+        .eq('id', blockedRowId);
+      if (error) throw error;
+
+      setBlockedUsers(prev => prev.filter(u => u.id !== blockedRowId));
+      toast.success('User unblocked successfully');
+    } catch (error: any) {
+      toast.error('Failed to unblock user');
+    }
+  };
+
 
   if (!isOpen) return null;
 
@@ -206,6 +248,25 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                   />
                 </button>
               </div>
+
+              <div className="w-full h-px bg-white/5" />
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-white">Blocked Users</h4>
+                  <p className="text-[10px] text-white/50 mt-0.5">Manage users you have blocked</p>
+                </div>
+                <button
+                  onClick={() => {
+                    fetchBlockedUsers();
+                    setShowBlockedUsers(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-xs font-bold"
+                >
+                  Manage
+                </button>
+              </div>
+
             </div>
           </div>
 
@@ -257,6 +318,66 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
         </div>
 
         {/* Delete Confirmation Modal Overlay */}
+
+        {/* Blocked Users Modal */}
+        <AnimatePresence>
+          {showBlockedUsers && (
+            <motion.div
+              initial={{ opacity: 0, x: '100%' }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+              className="absolute inset-0 z-[105] bg-black/95 backdrop-blur-xl flex flex-col"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-white/10 bg-zinc-900/50">
+                <h2 className="text-xl font-bold tracking-tight text-white">Blocked Users</h2>
+                <button
+                  onClick={() => setShowBlockedUsers(false)}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors text-white"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {isLoadingBlocked ? (
+                  <div className="flex justify-center p-8 text-white/50">Loading...</div>
+                ) : blockedUsers.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center p-8 text-center text-white/50">
+                    <p>No blocked users.</p>
+                  </div>
+                ) : (
+                  blockedUsers.map(bUser => {
+                    const prof = Array.isArray(bUser.profiles) ? bUser.profiles[0] : bUser.profiles;
+                    const name = prof?.full_name || prof?.username || 'Unknown User';
+                    const avatar = prof?.avatar_url;
+
+                    return (
+                      <div key={bUser.id} className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-xl">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center overflow-hidden">
+                            {avatar ? (
+                              <img src={avatar} alt={name} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-white text-sm font-bold">{name.charAt(0)}</span>
+                            )}
+                          </div>
+                          <span className="text-white font-medium">{name}</span>
+                        </div>
+                        <button
+                          onClick={() => handleUnblockUser(bUser.id, bUser.blocked_id)}
+                          className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 text-xs font-bold transition-colors"
+                        >
+                          Unblock
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence>
           {showDeleteConfirm && (
             <motion.div
