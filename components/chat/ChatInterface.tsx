@@ -514,6 +514,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
+ 
 
   // Phase 4 Check Block
   useEffect(() => {
@@ -562,6 +563,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         localStorage.setItem(`wallpaper_${user.id}_${otherUserProfile.id}`, val);
      }
   };
+
+
+  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
 
   const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
   const [isChatsLoading, setIsChatsLoading] = useState(true);
@@ -2559,7 +2563,20 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             </motion.div>
           )}
         </AnimatePresence>
-        <form
+
+        {isBlockedByMe ? (
+          <div className="w-full flex items-center justify-center p-4 bg-zinc-900 border border-rose-500/30 rounded-3xl shadow-lg relative z-10 text-center flex-col">
+            <p className="text-white text-sm mb-2">You blocked this user. Tap below to unblock.</p>
+            <button type="button" onClick={async () => {
+              if(!user || !otherUserProfile) return;
+              await supabase.from('blocked_users').delete().eq('blocker_id', user.id).eq('blocked_id', otherUserProfile.id);
+              setIsBlockedByMe(false);
+            }} className="text-rose-500 font-bold text-xs bg-rose-500/10 px-6 py-2 rounded-full border border-rose-500/30">
+              Unblock
+            </button>
+          </div>
+        ) : (
+<form
           onSubmit={handleSendMessage}
           className="flex items-end bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-white/20 transition-shadow shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative z-10"
         >
@@ -2637,6 +2654,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             </motion.button>
           </div>
         </form>
+        )}
         <p className="text-center text-[10px] text-gray-600 mt-2 font-medium tracking-wide">
           Double-tap a message to react
         </p>

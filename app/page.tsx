@@ -19,7 +19,6 @@ function HomeContent() {
   const { user, isLoading } = useAuth();
   const { balance } = useWallet();
   const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile'>('chats');
-  const [isStoreOpen, setIsStoreOpen] = useState(false);
 
   const [session, setSession] = useState<any>(null);
   const [profileState, setProfileState] = useState<any>(null);
@@ -296,12 +295,9 @@ function HomeContent() {
   }
 
   return (
-        <ErrorBoundary>
-      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance} onOpenStore={() => setIsStoreOpen(true)}>
-        <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
-        <RadarActivationModal />
-      </AppShell>
-      <CoinStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
+    <ErrorBoundary>
+      <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+      <RadarActivationModal />
     </ErrorBoundary>
   );
 }

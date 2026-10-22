@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Heart, Send, Eye, Lock, Coins, Forward, Trash, BarChart } from 'lucide-react';
 import ForwardModal from './ForwardModal';
@@ -34,7 +35,7 @@ export default function StatusViewer({
   onSendReply,
   onSendLike,
   onForward,
-}: StatusViewerProps) {
+}: StatusViewerProps): any {
 
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -85,7 +86,7 @@ export default function StatusViewer({
 
   const isVideoUrl = status?.mediaUrl?.match(/\.(mp4|mov|webm)$/i) || status?.mediaType === 'video';
 
-  return (
+  const content = (
     <motion.div
         drag="y"
         dragConstraints={{ top: 0, bottom: 0 }}
@@ -312,6 +313,12 @@ export default function StatusViewer({
       />
     </motion.div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(content, document.body);
+  }
+
+  return content;
 }
 
 function InsightsModal({ isOpen, onClose, statusId }: { isOpen: boolean, onClose: () => void, statusId?: string }) {
