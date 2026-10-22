@@ -10,6 +10,8 @@ import { AppShell } from '../components/layout/AppShell';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RadarActivationModal } from '../components/location/RadarActivationModal';
 import { useWallet } from '../context/WalletContext';
+import dynamic from 'next/dynamic';
+const CoinStoreModal = dynamic(() => import('../components/wallet/CoinStoreModal'), { ssr: false });
 
 type Step = 'login' | 'register' | 'verify-otp';
 
@@ -17,6 +19,7 @@ function HomeContent() {
   const { user, isLoading } = useAuth();
   const { balance } = useWallet();
   const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile'>('chats');
+  const [isStoreOpen, setIsStoreOpen] = useState(false);
 
   const [session, setSession] = useState<any>(null);
   const [profileState, setProfileState] = useState<any>(null);
@@ -293,11 +296,12 @@ function HomeContent() {
   }
 
   return (
-    <ErrorBoundary>
-      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance}>
+        <ErrorBoundary>
+      <AppShell activeTab={appTab} setActiveTab={setAppTab} coinBalance={balance} onOpenStore={() => setIsStoreOpen(true)}>
         <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
         <RadarActivationModal />
       </AppShell>
+      <CoinStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
     </ErrorBoundary>
   );
 }

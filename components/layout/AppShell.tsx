@@ -199,13 +199,13 @@ export const AppShell: React.FC<AppShellProps> = ({
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* Realtime Coin Counter */}
-          <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-amber-400/30 shadow-[0_0_12px_rgba(251,191,36,0.15)]">
-            <Coins className="w-4 h-4 text-amber-400 fill-amber-400 animate-pulse" />
-            <span className="text-xs font-bold text-amber-300 font-mono tracking-tight">
+                    {/* Realtime Coin Counter */}
+          <button onClick={onOpenStore} type="button" className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-amber-400/30 shadow-[0_0_12px_rgba(251,191,36,0.15)] touch-manipulation cursor-pointer hover:bg-white/[0.1] transition-colors">
+            <Coins className="w-4 h-4 text-amber-400 fill-amber-400 animate-pulse pointer-events-none" />
+            <span className="text-xs font-bold text-amber-300 font-mono tracking-tight pointer-events-none">
               {coinBalance.toLocaleString()}
             </span>
-          </div>
+          </button>
 
           {/* Notification Bell */}
           <motion.button
@@ -277,15 +277,16 @@ export const AppShell: React.FC<AppShellProps> = ({
           <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'chats' ? 'text-white font-bold' : 'text-white/40'}`}>Chats</span>
         </button>
 
-        {/* The Store Button (Center) */}
+                {/* The Store Button (Center) */}
         <button
           onClick={onOpenStore}
-          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+          type="button"
+          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group touch-manipulation cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center shadow-[0_0_15px_rgba(251,191,36,0.6)] border-2 border-yellow-300/50 mb-1 group-hover:scale-105 transition-transform duration-200">
-            <Store className="w-5 h-5 text-black fill-black/10" />
+          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center shadow-[0_0_15px_rgba(251,191,36,0.6)] border-2 border-yellow-300/50 mb-1 group-hover:scale-105 transition-transform duration-200 pointer-events-none">
+            <Store className="w-5 h-5 text-black fill-black/10 pointer-events-none" />
           </div>
-          <span className="text-[10px] font-bold tracking-tight text-amber-400">Store</span>
+          <span className="text-[10px] font-bold tracking-tight text-amber-400 pointer-events-none">Store</span>
         </button>
 
         <button
