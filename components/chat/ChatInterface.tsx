@@ -332,10 +332,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [activeWallpaper, setActiveWallpaper] = useState<string>('bg-[#050505]');
   const [isBlockedByMe, setIsBlockedByMe] = useState(false);
   const [isBlockedByThem, setIsBlockedByThem] = useState(false);
-  const isBlockedRef = useRef(false);
-  useEffect(() => {
-     isBlockedRef.current = isBlockedByMe || isBlockedByThem;
-  }, [isBlockedByMe, isBlockedByThem]);
+
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [isForwardContactModalOpen, setIsForwardContactModalOpen] = useState(false);
@@ -516,20 +513,56 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
  
 
-  // Phase 4 Check Block
+  const blockedUserIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const fetchBlockedUsers = async () => {
+       if (!user) return;
+       const { data: blockedByMe } = await supabase.from('blocked_users').select('blocked_id').eq('blocker_id', user.id);
+       const { data: blockedByThem } = await supabase.from('blocked_users').select('blocker_id').eq('blocked_id', user.id);
+
+       const blockedIds = new Set<string>();
+       if (blockedByMe) blockedByMe.forEach(b => blockedIds.add(b.blocked_id));
+       if (blockedByThem) blockedByThem.forEach(b => blockedIds.add(b.blocker_id));
+       blockedUserIdsRef.current = blockedIds;
+    };
+    fetchBlockedUsers();
+
+    // Set up realtime listener for blocks (optional, but good for completeness)
+    const channel = supabase.channel(`blocked_users_${user?.id}`)
+       .on('postgres_changes', { event: '*', schema: 'public', table: 'blocked_users' }, () => {
+           fetchBlockedUsers();
+       })
+       .subscribe();
+
+    return () => {
+       supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   useEffect(() => {
     const checkBlocked = async () => {
-       if (!user || !otherUserProfile) return;
-       const { data: myBlock } = await supabase.from('blocked_users').select('*').eq('blocker_id', user.id).eq('blocked_id', otherUserProfile.id).maybeSingle();
-       if (myBlock) setIsBlockedByMe(true);
-       else setIsBlockedByMe(false);
+       if (!otherUserProfile) {
+           setIsBlockedByMe(false);
+           setIsBlockedByThem(false);
+           return;
+       }
+       if (blockedUserIdsRef.current.has(otherUserProfile.id)) {
+           // Refetch specifically to determine who blocked who for the UI
+           const { data: myBlock } = await supabase.from('blocked_users').select('*').eq('blocker_id', user?.id).eq('blocked_id', otherUserProfile.id).maybeSingle();
+           if (myBlock) setIsBlockedByMe(true);
+           else setIsBlockedByMe(false);
 
-       const { data: theirBlock } = await supabase.from('blocked_users').select('*').eq('blocker_id', otherUserProfile.id).eq('blocked_id', user.id).maybeSingle();
-       if (theirBlock) setIsBlockedByThem(true);
-       else setIsBlockedByThem(false);
+           const { data: theirBlock } = await supabase.from('blocked_users').select('*').eq('blocker_id', otherUserProfile.id).eq('blocked_id', user?.id).maybeSingle();
+           if (theirBlock) setIsBlockedByThem(true);
+           else setIsBlockedByThem(false);
+       } else {
+           setIsBlockedByMe(false);
+           setIsBlockedByThem(false);
+       }
     };
     checkBlocked();
-  }, [user, otherUserProfile]);
+  }, [user, otherUserProfile, blockedUserIdsRef.current]);
 
   // Phase 4 Load Wallpaper
   useEffect(() => {
@@ -565,7 +598,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
 
 
-  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
 
   const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
   const [isChatsLoading, setIsChatsLoading] = useState(true);
@@ -681,6 +713,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     const channelId = `chat-updates-${Date.now()}`;
     const channel = supabase.channel(channelId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload: any) => {
+          if (payload.new) {
+              const otherId = payload.new.sender_id === user.id ? payload.new.receiver_id : payload.new.sender_id;
+              if (otherId && blockedUserIdsRef.current.has(otherId)) return;
+          }
           if (payload.new && (payload.new.receiver_id === user.id || payload.new.sender_id === user.id || payload.new.room_id)) {
               setRefreshChatsKey(prev => prev + 1);
           }
@@ -999,6 +1035,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         }
       })
       .on('broadcast', { event: 'new_message' }, async (payload) => {
+        if (payload.payload.senderId && blockedUserIdsRef.current.has(payload.payload.senderId)) return;
         if (payload.payload.receiverId === currentUserProfile?.id || (payload.payload.roomId && Array.from(exploreUsers).some((u: any) => u.isGroup && u.id === payload.payload.roomId))) {
           // Fetch the message from DB to get full details
           const { data, error } = await supabase
@@ -2563,20 +2600,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             </motion.div>
           )}
         </AnimatePresence>
-
-        {isBlockedByMe ? (
-          <div className="w-full flex items-center justify-center p-4 bg-zinc-900 border border-rose-500/30 rounded-3xl shadow-lg relative z-10 text-center flex-col">
-            <p className="text-white text-sm mb-2">You blocked this user. Tap below to unblock.</p>
-            <button type="button" onClick={async () => {
-              if(!user || !otherUserProfile) return;
-              await supabase.from('blocked_users').delete().eq('blocker_id', user.id).eq('blocked_id', otherUserProfile.id);
-              setIsBlockedByMe(false);
-            }} className="text-rose-500 font-bold text-xs bg-rose-500/10 px-6 py-2 rounded-full border border-rose-500/30">
-              Unblock
-            </button>
-          </div>
-        ) : (
-<form
+        <form
           onSubmit={handleSendMessage}
           className="flex items-end bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-white/20 transition-shadow shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative z-10"
         >
@@ -2654,7 +2678,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             </motion.button>
           </div>
         </form>
-        )}
         <p className="text-center text-[10px] text-gray-600 mt-2 font-medium tracking-wide">
           Double-tap a message to react
         </p>
@@ -2867,11 +2890,20 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            }
 
                            // Create report object
-                           await supabase.from('messages').insert({
-                              sender_id: user?.id,
-                              receiver_id: 'system',
-                              message_text: `[SYSTEM_REPORT] User ${user?.id} reported ${currentOtherUserProfile?.id} for: ${reportReason}. Please investigate.`,
-                              message_type: 'text'
+                           // Send silent email trigger via API Route
+                           await fetch('/api/report', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                 reporterId: user?.id,
+                                 reporterName: currentUserProfile?.name,
+                                 accusedId: currentOtherUserProfile?.id,
+                                 accusedName: currentOtherUserProfile?.name,
+                                 category: reportReason,
+                                 description: reportReason,
+                                 time: new Date().toISOString(),
+                                 recentMessages: messages.slice(-5)
+                              })
                            });
 
                            toast.success('Report submitted securely. Thank you.', { icon: '🛡️' });
