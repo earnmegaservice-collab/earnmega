@@ -1,0 +1,7 @@
+--- components/chat/ChatInterface.tsx
++++ components/chat/ChatInterface.tsx
+@@ -2562,1 +2562,2 @@
+            </motion.div>
+          )}
++        </AnimatePresence>
++        <form
