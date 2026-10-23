@@ -20,6 +20,9 @@ interface ChatListProps {
   setOtherUserProfile: (user: UserProfileDetails) => void;
   isLoading?: boolean;
   fetchError?: any;
+  onStatusClick: (statusGroupId: string, statuses: any[], creatorProfile: any) => void;
+  activeStatusUsers: Set<string>;
+  userStatusMap: Map<string, string[]>;
 }
 
 export default function ChatList({
@@ -29,7 +32,10 @@ export default function ChatList({
   setShowVerificationGateModal,
   setOtherUserProfile,
   isLoading,
-  fetchError
+  fetchError,
+  onStatusClick,
+  activeStatusUsers,
+  userStatusMap
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [navigationError, setNavigationError] = useState<string | null>(null);
@@ -56,6 +62,7 @@ export default function ChatList({
   const [reportCategory, setReportCategory] = useState('');
   const [reportDescription, setReportDescription] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<'All' | 'Unread' | 'Groups' | 'VIP'>('All');
 
   // Ref to trigger re-renders
   const [renderTrigger, setRenderTrigger] = useState(0);
@@ -109,9 +116,16 @@ export default function ChatList({
     }
   };
 
-  const filteredUsers = exploreUsers.filter(u =>
-    u.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredUsers = exploreUsers.filter(u => {
+    if (!u.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+
+    if (activeFilter === 'All') return true;
+    if (activeFilter === 'Unread') return (u.unreadCount ?? 0) > 0;
+    if (activeFilter === 'Groups') return (u as any).isGroup;
+    if (activeFilter === 'VIP') return u.tier?.toLowerCase() === 'premium' || u.tier?.toLowerCase() === 'pro';
+
+    return true;
+  });
 
   const handleBulkPin = () => {
     const newPinned = new Set(pinnedChats);
@@ -213,69 +227,87 @@ export default function ChatList({
 
   // --- DYNAMIC ISLAND TOP BAR ---
   const TopBar = (
-    <AnimatePresence mode="wait">
-      {isMultiSelectMode ? (
-        <motion.div 
-          key="multi-select"
-          initial={{ y: -100, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: -100, opacity: 0 }}
-          transition={{ type: "spring", stiffness: 400, damping: 30 }}
-          className="fixed top-4 left-4 right-4 z-[10000] px-6 py-4 bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-[32px] flex items-center justify-between shadow-[0_20px_60px_rgba(0,0,0,0.8)]"
-        >
-          <div className="flex items-center space-x-4">
-            <button onClick={() => { setIsMultiSelectMode(false); setSelectedChats(new Set()); }} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors active:scale-90">
-              <X size={20} />
-            </button>
-            <div className="flex items-center space-x-2">
-              <span className="text-white font-black text-xl tracking-tight">{selectedChats.size}</span>
-              <span className="px-3 py-1 rounded-full bg-fuchsia-500/20 text-fuchsia-400 text-[10px] font-black uppercase tracking-wider border border-fuchsia-500/30">Selected</span>
+    <div className="sticky top-0 z-[1000] bg-[#050505]/80 backdrop-blur-2xl border-b border-white/5 flex flex-col">
+      <AnimatePresence>
+        {isMultiSelectMode && (
+          <motion.div
+            key="multi-select"
+            initial={{ y: -100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -100, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            className="fixed top-4 left-4 right-4 z-[99999] px-6 py-4 bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-[32px] flex items-center justify-between shadow-[0_20px_60px_rgba(0,0,0,0.8)]"
+          >
+            <div className="flex items-center space-x-4">
+              <button onClick={() => { setIsMultiSelectMode(false); setSelectedChats(new Set()); if (navigator.vibrate) navigator.vibrate(10); }} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors active:scale-90">
+                <X size={20} />
+              </button>
+              <div className="flex items-center space-x-2">
+                <span className="text-white font-black text-xl tracking-tight">{selectedChats.size}</span>
+                <span className="px-3 py-1 rounded-full bg-fuchsia-500/20 text-fuchsia-400 text-[10px] font-black uppercase tracking-wider border border-fuchsia-500/30">Selected</span>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center space-x-1 relative">
-            <button onClick={handleBulkPin} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Pin size={20} /></button>
-            <button onClick={() => setShowDeleteConfirm(true)} className="text-rose-500 hover:bg-rose-500/20 p-2.5 rounded-full transition-colors active:scale-90"><Trash2 size={20} /></button>
-            <button onClick={handleBulkMute} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Bell size={20} /></button>
-            <button onClick={() => setShowThreeDotMenu(!showThreeDotMenu)} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><MoreVertical size={20} /></button>
+            <div className="flex items-center space-x-1 relative">
+              <button onClick={() => { handleBulkPin(); if (navigator.vibrate) navigator.vibrate(15); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Pin size={20} /></button>
+              <button onClick={() => { setShowDeleteConfirm(true); if (navigator.vibrate) navigator.vibrate(20); }} className="text-rose-500 hover:bg-rose-500/20 p-2.5 rounded-full transition-colors active:scale-90"><Trash2 size={20} /></button>
+              <button onClick={() => { handleBulkMute(); if (navigator.vibrate) navigator.vibrate(15); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Bell size={20} /></button>
+              <button onClick={() => { setShowThreeDotMenu(!showThreeDotMenu); if (navigator.vibrate) navigator.vibrate(10); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><MoreVertical size={20} /></button>
 
-            <AnimatePresence>
-              {showThreeDotMenu && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="absolute top-14 right-0 w-56 origin-top-right bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] py-2 z-50 overflow-hidden"
-                >
-                  <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Select All</button>
-                  <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Clear Selection</button>
-                  <div className="h-px bg-white/10 my-1 mx-2" />
-                  <button onClick={handleBlockUser} className="w-full text-left px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors">Block User</button>
-                  <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Report Trust & Safety</button>
-                  <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Forward Profile</button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </motion.div>
-      ) : (
-        <motion.div 
-          key="search-bar"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="sticky top-0 z-20 px-4 py-3 bg-[#050505]/80 backdrop-blur-2xl border-b border-white/5"
-        >
-          <div className="relative flex items-center">
-            <Search size={18} className="absolute left-4 text-white/40" />
-            <input
-              type="text"
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white/5 backdrop-blur-md rounded-[20px] pl-12 pr-4 py-3.5 text-sm text-white font-medium placeholder-white/30 outline-none border border-white/10 focus:border-fuchsia-500/50 focus:bg-white/10 transition-all shadow-inner"
-            />
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+              <AnimatePresence>
+                {showThreeDotMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="absolute top-14 right-0 w-56 origin-top-right bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] py-2 z-50 overflow-hidden"
+                  >
+                    <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Select All</button>
+                    <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Clear Selection</button>
+                    <div className="h-px bg-white/10 my-1 mx-2" />
+                    <button onClick={handleBlockUser} className="w-full text-left px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors">Block User</button>
+                    <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Report Trust & Safety</button>
+                    <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Forward Profile</button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="px-4 py-3 pb-2 w-full">
+        <div className="relative flex items-center mb-3">
+          <Search size={18} className="absolute left-4 text-white/40" />
+          <input
+            type="text"
+            placeholder="Search conversations..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-white/5 backdrop-blur-md rounded-[20px] pl-12 pr-4 py-3 text-sm text-white font-medium placeholder-white/30 outline-none border border-white/10 focus:border-fuchsia-500/50 focus:bg-white/10 transition-all shadow-inner"
+          />
+        </div>
+
+        {/* Filters */}
+        <div className="flex items-center space-x-2 overflow-x-auto scrollbar-hide select-none w-full" style={{ WebkitOverflowScrolling: 'touch' }}>
+          {(['All', 'Unread', 'Groups', 'VIP'] as const).map(filter => (
+            <button
+              key={filter}
+              onClick={() => {
+                if (navigator.vibrate) navigator.vibrate(10);
+                setActiveFilter(filter);
+              }}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border ${
+                activeFilter === filter
+                  ? 'bg-fuchsia-500 border-fuchsia-500 text-white shadow-[0_0_15px_rgba(217,70,239,0.4)]'
+                  : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+              }`}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 
   const sortedUsers = [...filteredUsers].sort((a, b) => {
@@ -290,7 +322,7 @@ export default function ChatList({
     <div className="flex flex-col h-full bg-[#050505] select-none" style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
       {TopBar}
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full pb-20">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full pb-20 scrollbar-hide">
         <AnimatePresence>
           {sortedUsers.map((u, i) => {
             // STRICT FAKE PREMIUM TAG NUKE
@@ -347,12 +379,24 @@ export default function ChatList({
                     onClick={(e) => {
                       e.stopPropagation(); // MANDATORY: PREVENT CHAT NAVIGATION
                       if (navigator.vibrate) navigator.vibrate(20);
+
+                      // Check for status first
+                      if (activeStatusUsers.has(u.id)) {
+                        const userStatuses = userStatusMap.get(u.id) || [];
+                        if (userStatuses.length > 0) {
+                          onStatusClick(u.id, [], u); // ChatInterface will fetch statuses.
+                          return;
+                        }
+                      }
+
                       setHdViewerUser(u);
                     }}
                   >
                     <div className={`relative w-[64px] h-[64px] rounded-full flex-shrink-0 flex items-center justify-center shadow-xl transition-transform active:scale-90 ${
-                      isPremiumUser ? 'p-[2px]' : 'border-2 border-white/10 bg-white/5'
-                    } ${getStatusRingClass(u.id)}`}>
+                      activeStatusUsers.has(u.id) && (userStatusMap.get(u.id) || []).length > 0
+                        ? 'p-[3px] bg-gradient-to-tr from-fuchsia-500 via-rose-500 to-amber-400 shadow-[0_0_20px_rgba(217,70,239,0.5)]'
+                        : (isPremiumUser ? 'p-[2px]' : 'border-2 border-white/10 bg-white/5')
+                    }`}>
                       {isPremiumUser && (
                         <div className="absolute inset-[-2px] rounded-full bg-gradient-to-tr from-amber-400 via-fuchsia-500 to-amber-400 animate-spin-slow shadow-[0_0_15px_rgba(217,70,239,0.3)]" />
                       )}
@@ -398,9 +442,14 @@ export default function ChatList({
                       {mutedChats.has(u.id) && <Bell size={14} className="text-white/40 opacity-50" />}
                     </div>
                     {(u.unreadCount ?? 0) > 0 && (
-                      <div className="bg-fuchsia-500 text-white font-black h-6 min-w-[24px] px-2 rounded-full flex items-center justify-center text-[12px] shadow-[0_0_15px_rgba(217,70,239,0.5)]">
+                      <motion.div
+                        initial={{ scale: 0.8, opacity: 0 }}
+                        animate={{ scale: [1, 1.1, 1], opacity: 1 }}
+                        transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                        className="bg-fuchsia-500 text-white font-black h-6 min-w-[24px] px-2 rounded-full flex items-center justify-center text-[12px] shadow-[0_0_15px_rgba(217,70,239,0.5)]"
+                      >
                         {u.unreadCount}
-                      </div>
+                      </motion.div>
                     )}
                   </div>
                 </div>
