@@ -44,6 +44,12 @@ interface UserProfile {
   gender?: string;
   hobbies?: string;
   vibe?: string;
+  prompt_1_q?: string;
+  prompt_1_a?: string;
+  prompt_2_q?: string;
+  prompt_2_a?: string;
+  prompt_3_q?: string;
+  prompt_3_a?: string;
 }
 
 export default function MyProfileView({
@@ -109,6 +115,12 @@ export default function MyProfileView({
         job_title: liveProfile.job_title || '',
         hobbies: liveProfile.hobbies || '',
         communication_style: liveProfile.communication_style || '',
+        prompt_1_q: liveProfile.prompt_1_q || '',
+        prompt_1_a: liveProfile.prompt_1_a || '',
+        prompt_2_q: liveProfile.prompt_2_q || '',
+        prompt_2_a: liveProfile.prompt_2_a || '',
+        prompt_3_q: liveProfile.prompt_3_q || '',
+        prompt_3_a: liveProfile.prompt_3_a || '',
       });
     }
   }, [isEditing, liveProfile]);
@@ -131,6 +143,12 @@ export default function MyProfileView({
            job_title: editForm.job_title,
            hobbies: editForm.hobbies,
            communication_style: editForm.communication_style,
+           prompt_1_q: editForm.prompt_1_q,
+           prompt_1_a: editForm.prompt_1_a,
+           prompt_2_q: editForm.prompt_2_q,
+           prompt_2_a: editForm.prompt_2_a,
+           prompt_3_q: editForm.prompt_3_q,
+           prompt_3_a: editForm.prompt_3_a,
            profile_images: localImages,
            publicImages: localImages
         })
@@ -223,6 +241,12 @@ export default function MyProfileView({
       gender: liveProfile?.gender,
       hobbies: liveProfile?.hobbies,
       vibe: liveProfile?.vibe,
+      prompt_1_q: liveProfile?.prompt_1_q,
+      prompt_1_a: liveProfile?.prompt_1_a,
+      prompt_2_q: liveProfile?.prompt_2_q,
+      prompt_2_a: liveProfile?.prompt_2_a,
+      prompt_3_q: liveProfile?.prompt_3_q,
+      prompt_3_a: liveProfile?.prompt_3_a,
   };
 
   const displayPhotos = [...localImages];
@@ -514,6 +538,87 @@ export default function MyProfileView({
              </div>
          </div>
       )}
+
+      {/* Deep Profile Prompts Section */}
+      <div className="px-6 space-y-4">
+        <h4 className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-2">Deep Profile Prompts</h4>
+
+        {/* Prompt 1 */}
+        {isEditing ? (
+            <div className="bg-black/40 border border-emerald-500/30 rounded-2xl p-4 shadow-[0_0_15px_rgba(16,185,129,0.1)] focus-within:border-emerald-500/70 transition-all group">
+                <input
+                  type="text"
+                  value={editForm.prompt_1_q !== undefined ? editForm.prompt_1_q : mappedProfile.prompt_1_q || ''}
+                  onChange={(e) => setEditForm({...editForm, prompt_1_q: e.target.value})}
+                  className="bg-transparent text-[10px] uppercase font-bold tracking-widest text-emerald-500/70 w-full focus:outline-none mb-2"
+                  placeholder="E.g. My hidden talent is..."
+                />
+                <textarea
+                  value={editForm.prompt_1_a !== undefined ? editForm.prompt_1_a : mappedProfile.prompt_1_a || ''}
+                  onChange={(e) => setEditForm({...editForm, prompt_1_a: e.target.value})}
+                  className="w-full bg-transparent text-white text-sm font-medium leading-relaxed resize-none focus:outline-none placeholder:text-white/20"
+                  rows={2}
+                  placeholder="Your answer..."
+                />
+            </div>
+        ) : mappedProfile.prompt_1_a ? (
+            <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-5 shadow-lg relative overflow-hidden backdrop-blur-xl">
+               <div className="absolute top-0 right-0 p-3 opacity-5"><Sparkles size={40}/></div>
+               <span className="text-[10px] uppercase tracking-widest text-emerald-400/80 font-bold block mb-2">{mappedProfile.prompt_1_q || "Prompt 1"}</span>
+               <p className="text-base text-white font-medium leading-snug">{mappedProfile.prompt_1_a}</p>
+            </div>
+        ) : null}
+
+        {/* Prompt 2 */}
+        {isEditing ? (
+            <div className="bg-black/40 border border-emerald-500/30 rounded-2xl p-4 shadow-[0_0_15px_rgba(16,185,129,0.1)] focus-within:border-emerald-500/70 transition-all group">
+                <input
+                  type="text"
+                  value={editForm.prompt_2_q !== undefined ? editForm.prompt_2_q : mappedProfile.prompt_2_q || ''}
+                  onChange={(e) => setEditForm({...editForm, prompt_2_q: e.target.value})}
+                  className="bg-transparent text-[10px] uppercase font-bold tracking-widest text-emerald-500/70 w-full focus:outline-none mb-2"
+                  placeholder="E.g. The most spontaneous thing I've done..."
+                />
+                <textarea
+                  value={editForm.prompt_2_a !== undefined ? editForm.prompt_2_a : mappedProfile.prompt_2_a || ''}
+                  onChange={(e) => setEditForm({...editForm, prompt_2_a: e.target.value})}
+                  className="w-full bg-transparent text-white text-sm font-medium leading-relaxed resize-none focus:outline-none placeholder:text-white/20"
+                  rows={2}
+                  placeholder="Your answer..."
+                />
+            </div>
+        ) : mappedProfile.prompt_2_a ? (
+            <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-5 shadow-lg relative overflow-hidden backdrop-blur-xl">
+               <span className="text-[10px] uppercase tracking-widest text-emerald-400/80 font-bold block mb-2">{mappedProfile.prompt_2_q || "Prompt 2"}</span>
+               <p className="text-base text-white font-medium leading-snug">{mappedProfile.prompt_2_a}</p>
+            </div>
+        ) : null}
+
+        {/* Prompt 3 */}
+        {isEditing ? (
+            <div className="bg-black/40 border border-emerald-500/30 rounded-2xl p-4 shadow-[0_0_15px_rgba(16,185,129,0.1)] focus-within:border-emerald-500/70 transition-all group">
+                <input
+                  type="text"
+                  value={editForm.prompt_3_q !== undefined ? editForm.prompt_3_q : mappedProfile.prompt_3_q || ''}
+                  onChange={(e) => setEditForm({...editForm, prompt_3_q: e.target.value})}
+                  className="bg-transparent text-[10px] uppercase font-bold tracking-widest text-emerald-500/70 w-full focus:outline-none mb-2"
+                  placeholder="E.g. I geek out on..."
+                />
+                <textarea
+                  value={editForm.prompt_3_a !== undefined ? editForm.prompt_3_a : mappedProfile.prompt_3_a || ''}
+                  onChange={(e) => setEditForm({...editForm, prompt_3_a: e.target.value})}
+                  className="w-full bg-transparent text-white text-sm font-medium leading-relaxed resize-none focus:outline-none placeholder:text-white/20"
+                  rows={2}
+                  placeholder="Your answer..."
+                />
+            </div>
+        ) : mappedProfile.prompt_3_a ? (
+            <div className="bg-white/[0.02] border border-white/10 rounded-2xl p-5 shadow-lg relative overflow-hidden backdrop-blur-xl">
+               <span className="text-[10px] uppercase tracking-widest text-emerald-400/80 font-bold block mb-2">{mappedProfile.prompt_3_q || "Prompt 3"}</span>
+               <p className="text-base text-white font-medium leading-snug">{mappedProfile.prompt_3_a}</p>
+            </div>
+        ) : null}
+      </div>
 
       <AnimatePresence>
         {fullscreenImage && (
