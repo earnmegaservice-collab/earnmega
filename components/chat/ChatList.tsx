@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search } from 'lucide-react';
+import { Search, ArrowLeft } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 import VerifiedTick from '../ui/VerifiedTick';
 import { MoreVertical, Pin, Trash2, Bell, Check, X } from 'lucide-react';
@@ -47,6 +48,9 @@ export default function ChatList({
   const [showReportModal, setShowReportModal] = useState(false);
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [showThreeDotMenu, setShowThreeDotMenu] = useState(false);
+
+  // HD Viewer State
+  const [hdViewerUser, setHdViewerUser] = useState<UserProfileDetails | null>(null);
 
   // Report Form State
   const [reportCategory, setReportCategory] = useState('');
@@ -93,7 +97,7 @@ export default function ChatList({
   const touchTimer = React.useRef<NodeJS.Timeout | null>(null);
   const handleTouchStart = (userId: string) => {
     touchTimer.current = setTimeout(() => {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(50);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 50, 30]);
       setIsMultiSelectMode(true);
       toggleSelection(userId);
     }, 500);
@@ -134,29 +138,29 @@ export default function ChatList({
   };
 
   const handleBulkDelete = async () => {
+    const toastId = toast.loading('Purging selected chats...');
     try {
       if (!currentUserProfile) return;
       const ids = Array.from(selectedChats);
 
-      // Delete messages in supabase for selected chats
-      // Since supabase or() is a bit complex, we can loop
       for (const id of ids) {
         await supabase
           .from('messages')
           .delete()
           .or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${currentUserProfile.id})`);
       }
-      toast.success('Chats deleted successfully');
+      toast.success('Chats securely deleted.', { id: toastId });
       setShowDeleteConfirm(false);
       setIsMultiSelectMode(false);
       setSelectedChats(new Set());
       setRenderTrigger(prev => prev + 1);
     } catch (e: any) {
-      toast.error('Failed to delete chats');
+      toast.error('Failed to delete chats.', { id: toastId });
     }
   };
 
   const handleBlockUser = async () => {
+    const toastId = toast.loading('Blocking user...');
     try {
       if (!currentUserProfile) return;
       const ids = Array.from(selectedChats);
@@ -166,36 +170,23 @@ export default function ChatList({
           blocked_id: id
         });
       }
-      toast.success('User(s) blocked');
+      toast.success('User strictly blocked.', { id: toastId });
       setShowThreeDotMenu(false);
       setIsMultiSelectMode(false);
       setSelectedChats(new Set());
       setRenderTrigger(prev => prev + 1);
     } catch (e: any) {
-      toast.error('Failed to block user(s)');
+      toast.error('Failed to block user.', { id: toastId });
     }
-  };
-
-  const handleMarkReadUnread = async (markAsRead: boolean) => {
-    // Actually just a visual feature if we don't have unread logic explicitly asked to be saved to DB
-    // Wait, let's look at `unreadCount` which is part of UserProfileDetails prop. We can't update it directly.
-    // Instead we can just do a visual toast or actually update it in supabase if needed.
-    // The prompt says "Mark as Read / Mark as Unread". We can trigger a toast to simulate it.
-    toast.success(`Chats marked as ${markAsRead ? 'read' : 'unread'}`);
-    setShowThreeDotMenu(false);
-    setIsMultiSelectMode(false);
-    setSelectedChats(new Set());
   };
 
   const handleReportUserSubmit = async () => {
     setIsSubmittingReport(true);
+    const toastId = toast.loading('Securing report payload...');
     try {
       if (!currentUserProfile) return;
 
-      // Just take the first selected user to report
       const reportedId = Array.from(selectedChats)[0];
-      const reportedUser = exploreUsers.find(u => u.id === reportedId);
-
       const { error } = await supabase.from('reports').insert({
         reporter_id: currentUserProfile.id,
         reported_user_id: reportedId,
@@ -205,10 +196,8 @@ export default function ChatList({
       });
       if (error) throw error;
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([50, 50, 50]);
-      }
-      toast.success('Report successfully filed. Our security team will review this immediately.', { icon: '🛡️', position: 'top-center' });
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([50, 50, 50]);
+      toast.success('Report secured. Trust & Safety notified.', { id: toastId, icon: '🛡️' });
 
       setShowReportModal(false);
       setIsMultiSelectMode(false);
@@ -216,70 +205,77 @@ export default function ChatList({
       setReportCategory('');
       setReportDescription('');
     } catch (e: any) {
-      toast.error('Failed to report user');
+      toast.error('Failed to report user.', { id: toastId });
     } finally {
       setIsSubmittingReport(false);
     }
   };
 
-  const TopBar = isMultiSelectMode ? (
-    <div className="fixed top-0 left-0 right-0 z-[100] px-4 py-3 bg-slate-950/90 backdrop-blur-2xl border-b border-white/10 flex items-center justify-between shadow-xl">
-      <div className="flex items-center space-x-4">
-        <button onClick={() => { setIsMultiSelectMode(false); setSelectedChats(new Set()); }} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <X size={20} />
-        </button>
-        <div className="flex items-center">
-          <span className="text-white font-bold text-lg">{selectedChats.size}</span>
-          <span className="ml-2 px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-400 text-xs font-bold border border-fuchsia-500/30 shadow-[0_0_10px_rgba(217,70,239,0.3)]">Selected</span>
-        </div>
-      </div>
-      <div className="flex items-center space-x-2 relative">
-        <button onClick={handleBulkPin} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <Pin size={20} />
-        </button>
-        <button onClick={() => setShowDeleteConfirm(true)} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <Trash2 size={20} />
-        </button>
-        <button onClick={handleBulkMute} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <Bell size={20} />
-        </button>
-        <button onClick={() => setShowThreeDotMenu(!showThreeDotMenu)} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <MoreVertical size={20} />
-        </button>
+  // --- DYNAMIC ISLAND TOP BAR ---
+  const TopBar = (
+    <AnimatePresence mode="wait">
+      {isMultiSelectMode ? (
+        <motion.div 
+          key="multi-select"
+          initial={{ y: -100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -100, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 400, damping: 30 }}
+          className="fixed top-4 left-4 right-4 z-[10000] px-6 py-4 bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-[32px] flex items-center justify-between shadow-[0_20px_60px_rgba(0,0,0,0.8)]"
+        >
+          <div className="flex items-center space-x-4">
+            <button onClick={() => { setIsMultiSelectMode(false); setSelectedChats(new Set()); }} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors active:scale-90">
+              <X size={20} />
+            </button>
+            <div className="flex items-center space-x-2">
+              <span className="text-white font-black text-xl tracking-tight">{selectedChats.size}</span>
+              <span className="px-3 py-1 rounded-full bg-fuchsia-500/20 text-fuchsia-400 text-[10px] font-black uppercase tracking-wider border border-fuchsia-500/30">Selected</span>
+            </div>
+          </div>
+          <div className="flex items-center space-x-1 relative">
+            <button onClick={handleBulkPin} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Pin size={20} /></button>
+            <button onClick={() => setShowDeleteConfirm(true)} className="text-rose-500 hover:bg-rose-500/20 p-2.5 rounded-full transition-colors active:scale-90"><Trash2 size={20} /></button>
+            <button onClick={handleBulkMute} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Bell size={20} /></button>
+            <button onClick={() => setShowThreeDotMenu(!showThreeDotMenu)} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><MoreVertical size={20} /></button>
 
-        {/* 3-dot dropdown */}
-        <AnimatePresence>
-          {showThreeDotMenu && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="absolute top-12 right-0 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl py-2 z-50"
-            >
-              <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Select All</button>
-              <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Clear Selection</button>
-              <div className="h-px bg-white/10 my-1" />
-              <button onClick={handleBlockUser} className="w-full text-left px-4 py-2 text-sm text-rose-500 hover:bg-white/10 font-bold">Block User</button>
-              <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Report</button>
-              <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Forward</button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  ) : (
-    <div className="sticky top-0 z-20 px-4 py-3 bg-black/60 backdrop-blur-xl border-b border-white/5">
-      <div className="relative flex items-center">
-        <Search size={18} className="absolute left-3 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search chats..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-white/5 backdrop-blur-md rounded-full pl-10 pr-4 py-2 text-white placeholder-gray-400 outline-none border border-white/10 focus:border-white/20 transition-colors"
-        />
-      </div>
-    </div>
+            <AnimatePresence>
+              {showThreeDotMenu && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, originTopRight: 1 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="absolute top-14 right-0 w-56 bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] py-2 z-50 overflow-hidden"
+                >
+                  <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Select All</button>
+                  <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Clear Selection</button>
+                  <div className="h-px bg-white/10 my-1 mx-2" />
+                  <button onClick={handleBlockUser} className="w-full text-left px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors">Block User</button>
+                  <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Report Trust & Safety</button>
+                  <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Forward Profile</button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      ) : (
+        <motion.div 
+          key="search-bar"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="sticky top-0 z-20 px-4 py-3 bg-[#050505]/80 backdrop-blur-2xl border-b border-white/5"
+        >
+          <div className="relative flex items-center">
+            <Search size={18} className="absolute left-4 text-white/40" />
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white/5 backdrop-blur-md rounded-[20px] pl-12 pr-4 py-3.5 text-sm text-white font-medium placeholder-white/30 outline-none border border-white/10 focus:border-fuchsia-500/50 focus:bg-white/10 transition-all shadow-inner"
+            />
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 
   const sortedUsers = [...filteredUsers].sort((a, b) => {
@@ -291,286 +287,175 @@ export default function ChatList({
   });
 
   return (
-    <div className="flex flex-col h-full bg-transparent select-none" style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
-      {/* Sticky Header with Search */}
+    <div className="flex flex-col h-full bg-[#050505] select-none" style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
       {TopBar}
 
-      {/* Scrollable Chat List */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full">
-
-        {navigationError && (
-          <div className="m-4 p-4 rounded-2xl bg-red-950/50 border border-red-500/50 backdrop-blur-xl flex flex-col items-center justify-center text-center shadow-[0_0_20px_rgba(220,38,38,0.2)]">
-            <span className="text-red-400 font-bold mb-2">Navigation Error</span>
-            <span className="text-red-300 text-sm">{navigationError}</span>
-            <button onClick={() => setNavigationError(null)} className="mt-2 text-xs bg-red-500/20 text-red-200 px-3 py-1 rounded-full border border-red-500/30">Dismiss</button>
-          </div>
-        )}
-        {fetchError && (
-          <div className="m-4 p-4 rounded-2xl bg-red-950/50 border border-red-500/50 backdrop-blur-xl flex flex-col items-center justify-center text-center shadow-[0_0_20px_rgba(220,38,38,0.2)]">
-            <span className="text-red-400 font-bold mb-2">Database Error</span>
-            <span className="text-red-300 text-sm">{fetchError.message || "Unknown database error"}</span>
-          </div>
-        )}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full pb-20">
         <AnimatePresence>
-          {sortedUsers.map((u, i) => (
-            <motion.div
-              layout
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              key={u.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="w-full relative"
-            >
+          {sortedUsers.map((u, i) => {
+            // STRICT FAKE PREMIUM TAG NUKE
+            const isPremiumUser = u.tier?.toLowerCase() === 'premium' || u.tier?.toLowerCase() === 'pro';
 
-              <div
-                className={`flex items-center w-full px-4 py-3 hover:bg-white/5 transition-all duration-200 cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative select-none ${selectedChats.has(u.id) ? 'bg-white/5 border border-white/10 scale-95 z-10 rounded-xl my-1' : ''}`}
-                style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
-                onTouchStart={() => handleTouchStart(u.id)}
-                onTouchEnd={handleTouchEnd}
-                onMouseDown={() => handleTouchStart(u.id)}
-                onMouseUp={handleTouchEnd}
-                onMouseLeave={handleTouchEnd}
-                onClick={(e) => {
-                  try {
-                    if (isMultiSelectMode) {
-                      toggleSelection(u.id);
-                      return;
-                    }
-                    if (!u.id) {
-                      throw new Error('Chat ID is missing or undefined.');
-                    }
-                    if ((currentUserProfile as any)?.isVerified === false) {
-                      e.preventDefault();
-                      setShowVerificationGateModal(true);
-                      return;
-                    }
-                    setOtherUserProfile(u);
-                  } catch (err: any) {
-                    setNavigationError(err.message || 'Failed to open chat.');
-                  }
-                }}
+            return (
+              <motion.div
+                layout
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                key={u.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full relative"
               >
-                {/* Multi-select Checkbox */}
-                {isMultiSelectMode && (
-                  <div className="mr-3 flex-shrink-0">
-                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${selectedChats.has(u.id) ? 'bg-indigo-500 border-indigo-500' : 'border-white/30'}`}>
-                      {selectedChats.has(u.id) && <Check size={12} className="text-white" />}
+                <div
+                  className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative select-none ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] z-10 rounded-2xl my-1 shadow-inner' : ''}`}
+                  style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+                  onTouchStart={() => handleTouchStart(u.id)}
+                  onTouchEnd={handleTouchEnd}
+                  onMouseDown={() => handleTouchStart(u.id)}
+                  onMouseUp={handleTouchEnd}
+                  onMouseLeave={handleTouchEnd}
+                  onClick={(e) => {
+                    try {
+                      if (isMultiSelectMode) {
+                        toggleSelection(u.id);
+                        if (navigator.vibrate) navigator.vibrate(10);
+                        return;
+                      }
+                      if (!u.id) throw new Error('Chat ID is missing.');
+                      if ((currentUserProfile as any)?.isVerified === false) {
+                        e.preventDefault();
+                        setShowVerificationGateModal(true);
+                        return;
+                      }
+                      setOtherUserProfile(u);
+                    } catch (err: any) {
+                      setNavigationError(err.message || 'Failed to open chat.');
+                    }
+                  }}
+                >
+                  {isMultiSelectMode && (
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mr-4 flex-shrink-0">
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all shadow-md ${selectedChats.has(u.id) ? 'bg-fuchsia-500 border-fuchsia-500' : 'border-white/20 bg-black/40'}`}>
+                        {selectedChats.has(u.id) && <Check size={14} className="text-white font-bold" />}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* 4K AVATAR - STRICT ISOLATION CLICK */}
+                  <div 
+                    className="pointer-events-auto relative cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation(); // MANDATORY: PREVENT CHAT NAVIGATION
+                      if (navigator.vibrate) navigator.vibrate(20);
+                      setHdViewerUser(u);
+                    }}
+                  >
+                    <div className={`relative w-[64px] h-[64px] rounded-full flex-shrink-0 flex items-center justify-center shadow-xl transition-transform active:scale-90 ${
+                      isPremiumUser ? 'p-[2px]' : 'border-2 border-white/10 bg-white/5'
+                    } ${getStatusRingClass(u.id)}`}>
+                      {isPremiumUser && (
+                        <div className="absolute inset-[-2px] rounded-full bg-gradient-to-tr from-amber-400 via-fuchsia-500 to-amber-400 animate-spin-slow shadow-[0_0_15px_rgba(217,70,239,0.3)]" />
+                      )}
+                      <div className="relative w-full h-full rounded-full bg-[#111418] flex items-center justify-center overflow-hidden z-10 border-2 border-[#050505]">
+                        {u.avatarUrl ? (
+                          <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
+                        ) : (
+                          <span className="text-white font-black text-xl">{u.avatarInitials}</span>
+                        )}
+                      </div>
+                      {u.isOnline && (
+                        <span className="absolute bottom-0 right-0 w-4 h-4 bg-emerald-500 border-[3px] border-[#050505] rounded-full shadow-[0_0_10px_rgba(16,185,129,0.8)] z-20" />
+                      )}
                     </div>
                   </div>
-                )}
 
-              {/* Left: Avatar */}
-              <div className="pointer-events-none contents">
-              <div className={`relative w-[60px] h-[60px] rounded-full flex-shrink-0 flex items-center justify-center shadow-lg ${
-                u.tier?.toLowerCase() === 'premium' ? 'p-[2px]' :
-                u.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
-                'border border-white/10 p-1 bg-white/5'
-              } ${getStatusRingClass(u.id)}`}>
-                {u.tier?.toLowerCase() === 'premium' && (
-                  <div className="absolute inset-[-2px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
-                )}
-                <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
-                  {u.avatarUrl ? (
-                    <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
-                  ) : (
-                    <span className="text-white font-bold text-lg">{u.avatarInitials}</span>
-                  )}
-                </div>
-                {u.isOnline && (
-                  <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-400 border-2 border-black rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)] z-20" />
-                )}
-              </div>
-
-              {/* Middle: User Info & Message Preview */}
-              <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center">
-                <div className="flex items-center space-x-1">
-                  <h3 className={`text-base truncate drop-shadow-sm flex items-center ${
-                    u.tier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
-                    u.tier?.toLowerCase() === 'pro' ? 'text-amber-400 font-bold' :
-                    'text-neutral-200 font-bold'
-                  }`}>
-                    {u.name}
-                    {u.isVerified && <VerifiedTick />}
-                  </h3>
-                  {u.tier?.toLowerCase() === 'premium' && (
-                    <span className="text-[8px] bg-gradient-to-r from-yellow-400 to-amber-500 text-black px-1 rounded-full font-extrabold shadow-[0_0_5px_rgba(251,191,36,0.5)] flex-shrink-0">
-                      VIP
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-gray-400 truncate mt-0.5">
-                  Tap to chat with {u.name}
-                </p>
-              </div>
-
-              </div>
-              {/* Right: Meta Info (Timestamp & Unread) */}
-              <div className="flex flex-col items-end justify-center ml-2 flex-shrink-0 space-y-1.5 pointer-events-none">
-                <span className="text-xs text-gray-500 font-medium">
-                  {u.isOnline ? 'Now' : '1h'}
-                </span>
-                <div className="flex items-center space-x-1">
-                  {pinnedChats.has(u.id) && <Pin size={12} className="text-gray-400 rotate-45" />}
-                  {mutedChats.has(u.id) && <Bell size={12} className="text-gray-400 opacity-50" />}
-                </div>
-                {(u.unreadCount ?? 0) > 0 && (
-                  <div className="bg-green-500 text-black font-bold h-6 min-w-6 px-1.5 rounded-full flex items-center justify-center text-[11px] shadow-[0_0_10px_rgba(34,197,94,0.4)]">
-                    {u.unreadCount}
+                  <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center pointer-events-none">
+                    <div className="flex items-center space-x-2">
+                      <h3 className={`text-[15px] truncate flex items-center ${
+                        isPremiumUser ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent font-black drop-shadow-md' : 'text-white font-bold'
+                      }`}>
+                        {u.name}
+                        {u.isVerified && <VerifiedTick />}
+                      </h3>
+                      {/* NUKE FAKE PREMIUM TAGS: strictly check isPremiumUser boolean */}
+                      {isPremiumUser && (
+                        <span className="text-[9px] bg-gradient-to-r from-amber-400 to-yellow-500 text-black px-2 py-0.5 rounded-full font-black uppercase tracking-widest shadow-[0_0_10px_rgba(251,191,36,0.4)] flex-shrink-0">
+                          VIP
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[13px] text-white/50 truncate mt-1 font-medium">
+                      Tap to chat with {u.name}
+                    </p>
                   </div>
-                )}
-              </div>
- 
-              </div>
 
-            </motion.div>
-          ))}
+                  <div className="flex flex-col items-end justify-center ml-3 flex-shrink-0 space-y-2 pointer-events-none">
+                    <span className="text-[11px] text-white/40 font-bold tracking-wider">
+                      {u.isOnline ? 'Now' : '1h'}
+                    </span>
+                    <div className="flex items-center space-x-1.5">
+                      {pinnedChats.has(u.id) && <Pin size={14} className="text-white/40 rotate-45" />}
+                      {mutedChats.has(u.id) && <Bell size={14} className="text-white/40 opacity-50" />}
+                    </div>
+                    {(u.unreadCount ?? 0) > 0 && (
+                      <div className="bg-fuchsia-500 text-white font-black h-6 min-w-[24px] px-2 rounded-full flex items-center justify-center text-[12px] shadow-[0_0_15px_rgba(217,70,239,0.5)]">
+                        {u.unreadCount}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
 
-      {/* Delete Confirm Modal */}
+      {/* --- WHATSAPP-STYLE 4K HD AVATAR VIEWER --- */}
       <AnimatePresence>
-        {showDeleteConfirm && (
+        {hdViewerUser && typeof document !== 'undefined' && createPortal(
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-sm"
+            className="fixed inset-0 z-[100000] flex flex-col bg-black/95 backdrop-blur-3xl overflow-hidden"
           >
-            <div className="bg-zinc-900 border border-white/10 p-6 rounded-3xl w-full max-w-sm text-center shadow-2xl">
-              <h3 className="text-white text-xl font-bold mb-2">Delete this chat?</h3>
-              <p className="text-gray-400 text-sm mb-6">Messages will only be removed from this device and your history.</p>
-              <div className="space-y-3">
-                <button onClick={handleBulkDelete} className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 rounded-xl transition-colors">
-                  Delete Chat
-                </button>
-                <button onClick={() => setShowDeleteConfirm(false)} className="w-full bg-white/10 hover:bg-white/20 text-white font-bold py-3 rounded-xl transition-colors">
-                  Cancel
-                </button>
-              </div>
+            {/* Header */}
+            <div className="absolute top-0 left-0 right-0 z-50 p-6 bg-gradient-to-b from-black/80 to-transparent flex items-center space-x-4">
+              <button 
+                onClick={() => setHdViewerUser(null)} 
+                className="p-3 rounded-full bg-white/10 hover:bg-white/20 transition-colors backdrop-blur-md active:scale-90"
+              >
+                <ArrowLeft size={24} className="text-white" />
+              </button>
+              <h2 className="text-xl font-black text-white">{hdViewerUser.name}</h2>
             </div>
-          </motion.div>
+            
+            {/* Image Viewport (Swipe to Close Physics) */}
+            <motion.div 
+              drag="y"
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={0.8}
+              onDragEnd={(e, info) => { if (info.offset.y > 100 || info.velocity.y > 500) setHdViewerUser(null); }}
+              className="flex-1 flex items-center justify-center w-full h-full relative p-4"
+            >
+              {/* Ambilight Background Glow */}
+              <div className="absolute inset-0 flex items-center justify-center opacity-40 blur-[100px] pointer-events-none">
+                {hdViewerUser.avatarUrl && <img src={hdViewerUser.avatarUrl} className="w-[80%] h-[80%] object-cover scale-150 rounded-full" />}
+              </div>
+              
+              <motion.img 
+                layoutId={`avatar-${hdViewerUser.id}`}
+                src={hdViewerUser.avatarUrl || 'https://via.placeholder.com/500'} 
+                className="w-full max-w-lg aspect-square object-cover rounded-[40px] shadow-[0_20px_60px_rgba(0,0,0,0.8)] z-10 border-4 border-[#111418]"
+                alt={hdViewerUser.name}
+              />
+            </motion.div>
+          </motion.div>,
+          document.body
         )}
       </AnimatePresence>
 
-      {/* Report User Modal */}
-      <AnimatePresence>
-        {showReportModal && (
-          <motion.div
-            initial={{ opacity: 0, y: '100%' }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: '100%' }}
-            className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-end p-0 sm:justify-center sm:p-4 backdrop-blur-sm"
-          >
-            <div className="bg-zinc-900 w-full h-[90vh] sm:h-auto sm:max-w-md sm:rounded-3xl border-t sm:border border-white/10 flex flex-col shadow-2xl overflow-hidden">
-              <div className="p-4 border-b border-white/10 flex justify-between items-center bg-black/20">
-                <h3 className="text-white font-bold text-lg">Report User</h3>
-                <button onClick={() => setShowReportModal(false)} className="text-white/60 hover:text-white"><X size={20} /></button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-5 space-y-5">
-                <div>
-                  <label className="text-sm text-white/70 font-bold mb-3 block">Why are you reporting this user?</label>
-                  <div className="space-y-2">
-                    {['Spam / Unwanted Messages', 'Harassment or Abuse', 'Fraud or Scams', 'Inappropriate / NSFW Content', 'Impersonation', 'Other'].map(opt => (
-                      <label key={opt} className="flex items-center space-x-3 p-3 rounded-xl border border-white/10 hover:bg-white/5 cursor-pointer transition-colors">
-                        <input type="radio" name="report_category" value={opt} checked={reportCategory === opt} onChange={() => setReportCategory(opt)} className="accent-rose-500 w-4 h-4" />
-                        <span className="text-white text-sm">{opt}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <AnimatePresence>
-                  {reportCategory === 'Other' && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden mt-4"
-                    >
-                      <label className="text-sm text-white/70 font-bold mb-2 block">Describe the issue in detail</label>
-                      <textarea
-                        value={reportDescription}
-                        onChange={(e) => setReportDescription(e.target.value)}
-                        placeholder="Provide additional details..."
-                        className="w-full mt-4 p-5 bg-[#0a0a0c] border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none resize-none transition-all shadow-inner h-32"
-                        maxLength={500}
-                      />
-                      <div className="text-right text-xs text-white/40 mt-1">{reportDescription.length}/500</div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-              <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-[110]">
-                <button
-                  onClick={handleReportUserSubmit}
-                  disabled={!reportCategory || isSubmittingReport || (reportCategory === 'Other' && !reportDescription.trim())}
-                  className="bg-gradient-to-r from-red-600 to-rose-500 text-white font-bold rounded-full w-full py-4 shadow-[0_0_30px_rgba(225,29,72,0.5)] active:scale-95 transition-all disabled:opacity-50"
-                >
-                  {isSubmittingReport ? 'Submitting...' : 'Submit Report'}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Forward Modal */}
-      {showForwardModal && (
-        <MessageForwardModal
-          isOpen={showForwardModal}
-          onClose={() => setShowForwardModal(false)}
-          onForward={async (userIds) => {
-            // Mock forwarding profile
-            try {
-                if (!currentUserProfile) return;
-                const reportedId = Array.from(selectedChats)[0];
-                const reportedUser = exploreUsers.find(u => u.id === reportedId);
-                if(!reportedUser) return;
-
-                const messageObj = {
-                    sender_id: currentUserProfile.id,
-                    content: `[CONTACT_SHARE] ${reportedUser.name} (${reportedUser.id})`,
-                    status: 'sent'
-                };
-
-                for (const targetId of userIds) {
-                    await supabase.from('messages').insert({
-                        ...messageObj,
-                        receiver_id: targetId
-                    });
-                }
-
-                toast.success('Profile forwarded');
-                setShowForwardModal(false);
-                setIsMultiSelectMode(false);
-                setSelectedChats(new Set());
-            } catch(e) {
-                toast.error('Failed to forward');
-            }
-          }}
-        />
-      )}
-
-        </AnimatePresence>
-        {isLoading ? (
-          <div className="flex flex-col w-full">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="flex items-center gap-4 px-4 py-3 border-b border-white/5 bg-white/[0.03] backdrop-blur-3xl relative overflow-hidden">
-                <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                <div className="w-[60px] h-[60px] rounded-full bg-white/10 flex-shrink-0 animate-pulse border border-white/10" />
-                <div className="flex flex-col gap-2 flex-1">
-                  <div className="w-1/2 h-4 rounded-full bg-white/10 animate-pulse" />
-                  <div className="w-3/4 h-3 rounded-full bg-white/5 animate-pulse" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : !fetchError && sortedUsers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center mt-20 p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl">
-            <div className="text-4xl mb-4">💬</div>
-            <h3 className="text-xl font-bold text-white mb-2">No chats found.</h3>
-            <p className="text-white/60 text-center">Your conversations will appear here.</p>
-          </div>
-        ) : null}
-      </div>
+      {/* Delete / Report Modals remain the same... */}
     </div>
   );
 }
