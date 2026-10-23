@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Heart, Send, Eye, Trash, BarChart, MoreVertical, Volume2, VolumeX } from 'lucide-react';
+import { X, Heart, Send, Eye, Trash, BarChart, MoreVertical, Volume2, VolumeX, Sparkles } from 'lucide-react';
 import ForwardModal from './ForwardModal';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
@@ -42,7 +42,7 @@ export default function StatusViewer({
   const [localStatuses, setLocalStatuses] = useState(statuses);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [isMuted, setIsMuted] = useState(false); // Unmuted by default for sound
+  const [isMuted, setIsMuted] = useState(false); // FULL AUDIO ENABLED BY DEFAULT
   
   const status = localStatuses[currentIndex];
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -56,6 +56,25 @@ export default function StatusViewer({
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
   const [isReportMenuOpen, setIsReportMenuOpen] = useState(false);
 
+  // --- BULLETPROOF AUDIO & VIDEO SYNC EFFECT ---
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.muted = isMuted;
+      const playPromise = videoRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.log('Autoplay with sound blocked by browser policy, forcing muted recovery:', err);
+          if (videoRef.current) {
+            videoRef.current.muted = true;
+            setIsMuted(true);
+            videoRef.current.play().catch(() => {});
+          }
+        });
+      }
+    }
+  }, [currentIndex, isMuted, status?.mediaUrl]);
+
   // --- VIEW TRACKER ENGINE ---
   useEffect(() => {
     if (!status || status.isOwner) return;
@@ -63,7 +82,6 @@ export default function StatusViewer({
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        // Insert view record. Database should handle unique constraints or count grouping.
         await supabase.from('status_views').insert({
           status_id: status.id,
           user_id: user.id
@@ -77,7 +95,7 @@ export default function StatusViewer({
 
   const handlePrev = () => { 
     if (currentIndex > 0) setCurrentIndex(currentIndex - 1); 
-    if (navigator.vibrate) navigator.vibrate(10);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10);
   };
   
   const handleNext = () => { 
@@ -91,7 +109,7 @@ export default function StatusViewer({
   // --- HIDE & REPORT ENGINE ---
   const handleHideStatus = async () => {
     setIsReportMenuOpen(false);
-    const toastId = toast.loading('Hiding all updates from this user...');
+    const toastId = toast.loading('Hiding updates from this user...');
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
@@ -136,7 +154,6 @@ export default function StatusViewer({
       await supabase.from('statuses').delete().eq('id', status.id);
       toast.success('Status deleted', { id: toastId });
 
-      // Forceful React state purge
       setLocalStatuses(prev => {
         const updated = prev.filter(s => s.id !== status.id);
         if (updated.length === 0) {
@@ -156,7 +173,6 @@ export default function StatusViewer({
   const handleTap = (e: React.MouseEvent) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    // Right tap skips, Left tap goes back
     if (x <= rect.width * 0.3) handlePrev();
     else handleNext();
   };
@@ -170,11 +186,11 @@ export default function StatusViewer({
   const handlePointerUp = () => {
     setIsPaused(false);
     setIsCinematic(false);
-    if (videoRef.current) videoRef.current.play();
+    if (videoRef.current) videoRef.current.play().catch(() => {});
   };
 
   const handleHeartTap = () => {
-    if (navigator.vibrate) navigator.vibrate([15, 30, 15]);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([15, 30, 15]);
     const newHeart = { id: Date.now(), x: window.innerWidth / 2, y: window.innerHeight - 150 };
     setFloatingHearts((prev) => [...prev, newHeart]);
     setIsLiked(true);
@@ -195,7 +211,9 @@ export default function StatusViewer({
 
   if (!status) return null;
 
-  const isVideoUrl = status?.mediaUrl?.match(/\.(mp4|mov|webm)$/i) || status?.mediaType === 'video';
+  const isVideoUrl = Boolean(
+    status?.mediaUrl?.match(/\.(mp4|mov|webm|ogg|m4v)$/i) || status?.mediaType === 'video'
+  );
 
   const content = (
     <motion.div
@@ -252,7 +270,14 @@ export default function StatusViewer({
                   />
                 </div>
                 <div className="flex flex-col">
-                  <span className="font-black text-sm tracking-wide text-white drop-shadow-md">{status.username}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-black text-sm tracking-wide text-white drop-shadow-md">{status.username}</span>
+                    {isVideoUrl && !isMuted && (
+                      <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-fuchsia-500/20 border border-fuchsia-500/40 text-[8px] font-black text-fuchsia-300 animate-pulse">
+                        <Sparkles size={8} /> AUDIO LIVE
+                      </span>
+                    )}
+                  </div>
                   {/* OWNER ONLY VIEWS */}
                   {status.isOwner && (
                     <div className="flex items-center space-x-1.5 text-[10px] font-bold text-white/80">
@@ -264,13 +289,24 @@ export default function StatusViewer({
               </div>
 
               <div className="flex items-center space-x-3">
-                {/* VIDEO AUDIO TOGGLE */}
+                {/* VIDEO AUDIO TOGGLE BUTTON */}
                 {isVideoUrl && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
-                    className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-3xl border border-white/20 flex items-center justify-center active:scale-90 transition pointer-events-auto shadow-2xl"
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      const newMutedState = !isMuted;
+                      setIsMuted(newMutedState);
+                      if (videoRef.current) videoRef.current.muted = newMutedState;
+                      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10);
+                    }}
+                    title={isMuted ? "Unmute Video Audio" : "Mute Video Audio"}
+                    className={`w-9 h-9 rounded-full backdrop-blur-3xl border flex items-center justify-center active:scale-90 transition pointer-events-auto shadow-2xl ${
+                      isMuted 
+                        ? 'bg-white/10 border-white/20 text-white/60' 
+                        : 'bg-fuchsia-600 border-fuchsia-400 text-white shadow-[0_0_15px_rgba(217,70,239,0.7)]'
+                    }`}
                   >
-                    {isMuted ? <VolumeX className="w-4 h-4 text-white" /> : <Volume2 className="w-4 h-4 text-white" />}
+                    {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                   </button>
                 )}
 
@@ -302,7 +338,7 @@ export default function StatusViewer({
                     <AnimatePresence>
                       {isReportMenuOpen && (
                          <motion.div 
-                           initial={{ opacity: 0, scale: 0.9, originTopRight: 1 }}
+                           initial={{ opacity: 0, scale: 0.9 }}
                            animate={{ opacity: 1, scale: 1 }}
                            exit={{ opacity: 0, scale: 0.9 }}
                            className="absolute top-12 right-0 w-48 bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] py-2 z-50 flex flex-col pointer-events-auto overflow-hidden"
@@ -352,7 +388,7 @@ export default function StatusViewer({
             className="w-full h-full object-contain md:object-cover scale-105"
             autoPlay
             playsInline
-            muted={isMuted} // Controlled by luxury toggle
+            muted={isMuted}
             loop={false}
             onEnded={handleNext}
           />
@@ -408,7 +444,7 @@ export default function StatusViewer({
                 onClick={(e) => {
                   e.stopPropagation();
                   setReplyText(prev => prev + emoji);
-                  if (navigator.vibrate) navigator.vibrate(10);
+                  if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10);
                 }}
                 className="text-3xl hover:scale-125 transition-transform drop-shadow-2xl"
               >
@@ -477,7 +513,7 @@ export default function StatusViewer({
 function InsightsModal({ isOpen, onClose, statusId }: { isOpen: boolean, onClose: () => void, statusId?: string }) {
   const [views, setViews] = useState<any[]>([]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen && statusId) {
       const fetchInsights = async () => {
         const { data, error } = await supabase
@@ -485,8 +521,11 @@ function InsightsModal({ isOpen, onClose, statusId }: { isOpen: boolean, onClose
           .select('created_at, profiles:user_id (username, avatar_url)')
           .eq('status_id', statusId);
         if (!error && data) {
-          // Deduplicate views by username for cleaner UI
-          const uniqueViews = data.filter((v, i, a) => a.findIndex(t => (t.profiles?.username === v.profiles?.username)) === i);
+          const uniqueViews = data.filter((v: any, i: number, a: any[]) => a.findIndex((t: any) => {
+            const tProf = Array.isArray(t.profiles) ? t.profiles[0] : t.profiles;
+            const vProf = Array.isArray(v.profiles) ? v.profiles[0] : v.profiles;
+            return tProf?.username === vProf?.username;
+          }) === i);
           setViews(uniqueViews);
         }
       };
@@ -506,17 +545,20 @@ function InsightsModal({ isOpen, onClose, statusId }: { isOpen: boolean, onClose
         <button onClick={onClose} className="p-3 rounded-full bg-white/10 hover:bg-white/20 transition-colors"><X size={18} className="text-white" /></button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-        {views.map((v, i) => (
-          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} key={i} className="flex items-center space-x-4 bg-white/5 p-3 rounded-2xl border border-white/5">
-             <div className="w-12 h-12 rounded-full p-[2px] bg-gradient-to-tr from-fuchsia-500 to-amber-500">
-               <img src={v.profiles?.avatar_url || 'https://via.placeholder.com/150'} className="w-full h-full rounded-full border-2 border-black object-cover" />
-             </div>
-             <div className="flex-1">
-               <p className="font-black text-white text-base tracking-wide">{v.profiles?.username || 'User'}</p>
-               <p className="text-xs font-bold text-white/40">{new Date(v.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-             </div>
-          </motion.div>
-        ))}
+        {views.map((v: any, i: number) => {
+          const profile = Array.isArray(v.profiles) ? v.profiles[0] : v.profiles;
+          return (
+            <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} key={i} className="flex items-center space-x-4 bg-white/5 p-3 rounded-2xl border border-white/5">
+               <div className="w-12 h-12 rounded-full p-[2px] bg-gradient-to-tr from-fuchsia-500 to-amber-500">
+                 <img src={profile?.avatar_url || 'https://via.placeholder.com/150'} className="w-full h-full rounded-full border-2 border-black object-cover" alt="" />
+               </div>
+               <div className="flex-1">
+                 <p className="font-black text-white text-base tracking-wide">{profile?.username || 'User'}</p>
+                 <p className="text-xs font-bold text-white/40">{new Date(v.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+               </div>
+            </motion.div>
+          );
+        })}
         {views.length === 0 && (
           <div className="flex flex-col items-center justify-center h-40 opacity-50">
             <Eye size={40} className="text-white/20 mb-3" />
