@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, X, MoreVertical, Edit2, UserPlus, Image as ImageIcon, ShieldAlert, UserMinus, Camera, Check } from 'lucide-react';
+import { Users, X, MoreVertical, Edit2, UserPlus, Image as ImageIcon, ShieldAlert, UserMinus, Camera, Check, Link as LinkIcon, Copy, Clock, CheckCircle } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { UserProfileDetails } from '../profile/UserProfileModal';
@@ -27,6 +27,9 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [joinRequests, setJoinRequests] = useState<any[]>([]);
+  const [isRequestsLoading, setIsRequestsLoading] = useState(false);
 
   useEffect(() => {
     setNewGroupName(groupName);
@@ -70,6 +73,77 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
     } finally {
       setIsLoading(false);
     }
+  };
+
+
+  const fetchJoinRequests = async () => {
+      if (currentUserRole !== 'admin') return;
+      setIsRequestsLoading(true);
+      try {
+          const { data, error } = await supabase
+              .from('group_join_requests')
+              .select('id, user_id, status, created_at, profiles(id, full_name, avatar_url, username)')
+              .eq('group_id', groupId)
+              .eq('status', 'pending');
+          if (error) throw error;
+          setJoinRequests(data || []);
+      } catch (err) {
+          console.error("Failed to fetch join requests", err);
+      } finally {
+          setIsRequestsLoading(false);
+      }
+  };
+
+  useEffect(() => {
+      if (isOpen && currentUserRole === 'admin') {
+          fetchJoinRequests();
+      }
+  }, [isOpen, currentUserRole, groupId]);
+
+  const generateInviteLink = async () => {
+      try {
+          const code = uuidv4().substring(0, 8);
+          const { error } = await supabase.from('group_invites').insert({
+              group_id: groupId,
+              created_by: currentUserId,
+              code: code,
+              expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days
+          });
+          if (error) throw error;
+          const link = `${window.location.origin}/invite/${code}`;
+          setInviteLink(link);
+          toast.success("Invite link generated!");
+      } catch (err) {
+          console.error("Failed to generate invite", err);
+          toast.error("Failed to generate link");
+      }
+  };
+
+  const handleRequestAction = async (requestId: string, userId: string, action: 'approved' | 'rejected') => {
+      try {
+          const { error } = await supabase
+              .from('group_join_requests')
+              .update({ status: action })
+              .eq('id', requestId);
+
+          if (error) throw error;
+
+          if (action === 'approved') {
+              await supabase.from('room_participants').insert({
+                  room_id: groupId,
+                  user_id: userId,
+                  role: 'member'
+              });
+              toast.success("User approved and added!");
+              fetchParticipants();
+          } else {
+              toast.success("Request rejected.");
+          }
+          fetchJoinRequests();
+      } catch (err) {
+          console.error("Failed action", err);
+          toast.error("Failed to process request");
+      }
   };
 
   useEffect(() => {
@@ -299,7 +373,56 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                 </div>
              )}
 
-             {/* Participants List */}
+             {/* Admin Section: Invites & Requests */}
+        {currentUserRole === 'admin' && (
+            <div className="p-6 border-b border-white/5 space-y-6">
+                <div>
+                    <h4 className="text-white/50 text-xs font-bold uppercase tracking-wider mb-4 flex items-center justify-between">
+                        Invite Link
+                    </h4>
+                    {!inviteLink ? (
+                        <button onClick={generateInviteLink} className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-amber-500 font-bold flex items-center justify-center gap-2 transition-all">
+                            <LinkIcon size={16} /> Generate Invite Link
+                        </button>
+                    ) : (
+                        <div className="flex items-center justify-between bg-black/40 border border-white/10 rounded-xl p-3">
+                            <span className="text-white/70 text-sm truncate mr-4">{inviteLink}</span>
+                            <button onClick={() => { navigator.clipboard.writeText(inviteLink); toast.success("Copied!"); }} className="p-2 bg-amber-500/10 text-amber-500 rounded-lg hover:bg-amber-500/20 transition-colors">
+                                <Copy size={16} />
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {joinRequests.length > 0 && (
+                    <div>
+                        <h4 className="text-white/50 text-xs font-bold uppercase tracking-wider mb-4 flex items-center justify-between">
+                            Pending Requests
+                            <span className="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-pulse">{joinRequests.length}</span>
+                        </h4>
+                        <div className="space-y-3">
+                            {joinRequests.map(req => (
+                                <div key={req.id} className="flex items-center justify-between bg-white/5 border border-white/5 p-3 rounded-xl">
+                                    <div className="flex items-center gap-3">
+                                        <img src={req.profiles?.avatar_url || '/dummy.jpg'} className="w-10 h-10 rounded-full object-cover" />
+                                        <div>
+                                            <p className="text-white text-sm font-bold">{req.profiles?.full_name || req.profiles?.username}</p>
+                                            <p className="text-white/40 text-xs flex items-center gap-1"><Clock size={10}/> {new Date(req.created_at).toLocaleDateString()}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => handleRequestAction(req.id, req.user_id, 'approved')} className="p-2 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-all"><CheckCircle size={18} /></button>
+                                        <button onClick={() => handleRequestAction(req.id, req.user_id, 'rejected')} className="p-2 bg-rose-500/20 text-rose-400 rounded-lg hover:bg-rose-500/30 transition-all"><X size={18} /></button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* Participants List */}
              <div className="px-6 pb-20">
                  <h3 className="text-sm font-black text-white/50 uppercase tracking-widest mb-4">Participants</h3>
                  <div className="mb-4">
