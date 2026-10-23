@@ -241,7 +241,7 @@ export default function ChatList({
             <AnimatePresence>
               {showThreeDotMenu && (
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.9, originTopRight: 1 }}
+                  initial={{ opacity: 0, scale: 0.9, originX: 1, originY: 0 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
                   className="absolute top-14 right-0 w-56 bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] py-2 z-50 overflow-hidden"
@@ -378,11 +378,11 @@ export default function ChatList({
                         {u.isVerified && <VerifiedTick />}
                       </h3>
                       {/* NUKE FAKE PREMIUM TAGS: strictly check isPremiumUser boolean */}
-                      {isPremiumUser && (
+                      {isPremiumUser ? (
                         <span className="text-[9px] bg-gradient-to-r from-amber-400 to-yellow-500 text-black px-2 py-0.5 rounded-full font-black uppercase tracking-widest shadow-[0_0_10px_rgba(251,191,36,0.4)] flex-shrink-0">
                           VIP
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <p className="text-[13px] text-white/50 truncate mt-1 font-medium">
                       Tap to chat with {u.name}
