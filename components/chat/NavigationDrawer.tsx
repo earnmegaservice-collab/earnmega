@@ -145,27 +145,52 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
       }
 
       const file = event.target.files[0];
+
+      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+      if (file.size > MAX_FILE_SIZE) {
+        throw new Error('File size exceeds 10MB limit.');
+      }
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Invalid file type. Only images are allowed.');
+      }
+
       const fileExt = file.name.split('.').pop();
       const fileName = `${user?.id}-${Math.random()}.${fileExt}`;
       const filePath = `${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('avatars')
+        .from('profile_images')
         .upload(filePath, file, { upsert: true });
 
       if (uploadError) {
         throw uploadError;
       }
 
-      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      const { data } = supabase.storage.from('profile_images').getPublicUrl(filePath);
       setAvatarUrl(data.publicUrl);
 
       // Auto-save the profile when avatar is successfully uploaded
       if (user) {
+        // Fetch current profile to append to publicImages and profile_images arrays safely
+        const { data: currentProfile } = await supabase
+          .from('profiles')
+          .select('publicImages, profile_images')
+          .eq('id', user.id)
+          .single();
+
+        const currentPublicImages = currentProfile?.publicImages || [];
+        const currentProfileImages = currentProfile?.profile_images || [];
+
+        // Avoid duplicates
+        const updatedPublicImages = [...new Set([...currentPublicImages, data.publicUrl])];
+        const updatedProfileImages = [...new Set([...currentProfileImages, data.publicUrl])];
+
         const { error: profileError } = await supabase
           .from('profiles')
           .update({
             avatar_url: data.publicUrl,
+            publicImages: updatedPublicImages,
+            profile_images: updatedProfileImages,
           })
           .eq('id', user.id);
 

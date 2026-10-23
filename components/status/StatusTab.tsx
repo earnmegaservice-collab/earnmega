@@ -123,14 +123,14 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
     const muteSet = new Set<string>(localMutes);
 
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('status_mutes')
-        .select('*')
-        .or(`user_id.eq.${user.id},muter_id.eq.${user.id}`);
+        .select('muted_id')
+        .eq('muter_id', user.id);
 
       if (data && Array.isArray(data)) {
         data.forEach((row: any) => {
-          const targetId = row.muted_user_id || row.muted_id;
+          const targetId = row.muted_id;
           if (targetId) muteSet.add(targetId);
         });
       }
@@ -159,15 +159,17 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
         );
       }
       try {
-        await supabase
-          .from('status_mutes')
-          .delete()
-          .match({ user_id: user.id, muted_user_id: targetUserId });
-        await supabase
+        const { error } = await supabase
           .from('status_mutes')
           .delete()
           .match({ muter_id: user.id, muted_id: targetUserId });
-      } catch {}
+
+        if (error) throw error;
+      } catch (err: any) {
+        console.error('Failed to unhide user:', err);
+        toast.error('Failed to unhide user');
+        return; // Revert optimistic update? For now just return
+      }
       toast.success('User unhidden! Updates restored to your feed.');
     } else {
       updatedSet.add(targetUserId);
@@ -179,11 +181,16 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
         );
       }
       try {
-        await supabase.from('status_mutes').insert({
-          user_id: user.id,
-          muted_user_id: targetUserId
+        const { error } = await supabase.from('status_mutes').insert({
+          muter_id: user.id,
+          muted_id: targetUserId
         });
-      } catch {}
+        if (error && error.code !== '23505') throw error;
+      } catch (err: any) {
+        console.error('Failed to hide user:', err);
+        toast.error('Failed to hide user');
+        return;
+      }
       toast.success('Status updates hidden.');
     }
   };
@@ -319,6 +326,19 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
+    // File validation
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error('File size exceeds 10MB limit.');
+      if (ppFileInputRef.current) ppFileInputRef.current.value = '';
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('Invalid file type. Only images are allowed.');
+      if (ppFileInputRef.current) ppFileInputRef.current.value = '';
+      return;
+    }
+
     // 1. Instant Optimistic Preview on UI
     const optimisticBlobUrl = URL.createObjectURL(file);
     const previousAvatar = myAvatarUrl;
@@ -331,30 +351,40 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
       const fileExt = file.name.split('.').pop() || 'jpg';
       const fileName = `avatars/${user.id}-${uuidv4()}.${fileExt}`;
 
-      // 2. Upload to proven public 'statuses' bucket first (fallback to 'avatars' if needed)
+      // 2. Upload to 'profile_images' bucket exclusively
       let finalPublicUrl = '';
-      const { error: statusBucketErr } = await supabase.storage
-        .from('statuses')
+      const { error: uploadErr } = await supabase.storage
+        .from('profile_images')
         .upload(fileName, file, { upsert: true });
 
-      if (!statusBucketErr) {
-        const { data: urlData } = supabase.storage.from('statuses').getPublicUrl(fileName);
-        finalPublicUrl = urlData.publicUrl;
-      } else {
-        const fallbackName = `${user.id}-${uuidv4()}.${fileExt}`;
-        const { error: avatarBucketErr } = await supabase.storage
-          .from('avatars')
-          .upload(fallbackName, file, { upsert: true });
-
-        if (avatarBucketErr) throw avatarBucketErr;
-        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(fallbackName);
-        finalPublicUrl = urlData.publicUrl;
+      if (uploadErr) {
+         throw uploadErr;
       }
 
+      const { data: urlData } = supabase.storage.from('profile_images').getPublicUrl(fileName);
+      finalPublicUrl = urlData.publicUrl;
+
       // 3. Persist to Supabase `profiles` table
+      const { data: currentProfile } = await supabase
+        .from('profiles')
+        .select('publicImages, profile_images')
+        .eq('id', user.id)
+        .single();
+
+      const currentPublicImages = currentProfile?.publicImages || [];
+      const currentProfileImages = currentProfile?.profile_images || [];
+
+      // Avoid duplicates
+      const updatedPublicImages = [...new Set([...currentPublicImages, finalPublicUrl])];
+      const updatedProfileImages = [...new Set([...currentProfileImages, finalPublicUrl])];
+
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ avatar_url: finalPublicUrl })
+        .update({
+          avatar_url: finalPublicUrl,
+          publicImages: updatedPublicImages,
+          profile_images: updatedProfileImages,
+        })
         .eq('id', user.id);
 
       if (updateError) throw updateError;
@@ -406,13 +436,27 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
+    // Media Validation
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error('File size exceeds 50MB limit.');
+      if (statusFileInputRef.current) statusFileInputRef.current.value = '';
+      return;
+    }
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    if (!isVideo && !isImage) {
+      toast.error('Invalid file type. Only images and videos are allowed.');
+      if (statusFileInputRef.current) statusFileInputRef.current.value = '';
+      return;
+    }
+
     setIsUploadingStatus(true);
     const toastId = toast.loading('Publishing 4K Status...');
 
     try {
       const fileExt = file.name.split('.').pop() || 'jpg';
-      const isVideo = file.type.startsWith('video/');
-      const fileName = `${uuidv4()}.${fileExt}`;
+      const fileName = `${user.id}/${uuidv4()}.${fileExt}`; // Segment by user_id for better security/RLS
 
       const { error: uploadError } = await supabase.storage.from('statuses').upload(fileName, file);
       if (uploadError) throw uploadError;

@@ -30,6 +30,51 @@ interface StatusViewerProps {
   onHideUser?: (userId: string) => void;
 }
 
+function VideoProgressBar({ isActive, isCompleted, isPaused, videoRef }: { isActive: boolean, isCompleted: boolean, isPaused: boolean, videoRef?: React.RefObject<HTMLVideoElement> }) {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (isCompleted) {
+      setProgress(100);
+      return;
+    }
+    if (!isActive || !videoRef || !videoRef.current) {
+      setProgress(0);
+      return;
+    }
+
+    const video = videoRef.current;
+    let animationFrameId: number;
+
+    const updateProgress = () => {
+      if (video.duration) {
+        setProgress((video.currentTime / video.duration) * 100);
+      }
+      if (!isPaused) {
+        animationFrameId = requestAnimationFrame(updateProgress);
+      }
+    };
+
+    if (!isPaused) {
+      animationFrameId = requestAnimationFrame(updateProgress);
+    }
+
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    };
+  }, [isActive, isCompleted, isPaused, videoRef]);
+
+  return (
+    <div
+      className="absolute top-0 left-0 h-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.8)]"
+      style={{
+        width: `${progress}%`,
+        transition: isPaused ? 'none' : 'width 0.1s linear'
+      }}
+    />
+  );
+}
+
 export default function StatusViewer({
   statuses,
   onClose,
@@ -73,7 +118,7 @@ export default function StatusViewer({
         });
       }
     }
-  }, [currentIndex, isMuted, status?.mediaUrl]);
+  }, [currentIndex, status?.mediaUrl]); // Removed `isMuted` from dependencies so it doesn't reset currentTime on mute toggle
 
   // --- VIEW TRACKER ENGINE ---
   useEffect(() => {
@@ -82,10 +127,14 @@ export default function StatusViewer({
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        await supabase.from('status_views').insert({
+        const { error } = await supabase.from('status_views').insert({
           status_id: status.id,
           user_id: user.id
         });
+        // 23505 is unique violation, meaning already viewed, which is expected
+        if (error && error.code !== '23505') {
+           throw error;
+        }
       } catch (error) {
         console.error('Silent view track failed', error);
       }
@@ -114,7 +163,8 @@ export default function StatusViewer({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      await supabase.from('status_mutes').insert({ muter_id: user.id, muted_id: status.userId });
+      const { error } = await supabase.from('status_mutes').insert({ muter_id: user.id, muted_id: status.userId });
+      if (error && error.code !== '23505') throw error; // Ignore unique constraint violation if already muted
       
       toast.success('User hidden successfully', { id: toastId });
       if (onHideUser) onHideUser(status.userId);
@@ -131,18 +181,20 @@ export default function StatusViewer({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      await supabase.from('reports').insert({
+      const { error } = await supabase.from('reports').insert({
         reporter_id: user.id,
         reported_user_id: status.userId,
         content_type: 'status',
         reason: 'Inappropriate Content',
         details: `Reported status ${status.id}`
       });
+      if (error) throw error;
 
       toast.success('Report secured. Team notified.', { id: toastId });
       if (onHideUser) onHideUser(status.userId);
       onClose(); 
     } catch (err: any) {
+      console.error('REPORT_DB_ERROR:', err.message);
       toast.error('Failed to report', { id: toastId });
     }
   };
@@ -151,7 +203,27 @@ export default function StatusViewer({
   const handleDelete = async () => {
     const toastId = toast.loading('Deleting 4K Media...');
     try {
-      await supabase.from('statuses').delete().eq('id', status.id);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      if (status.userId !== user.id) throw new Error('Not owner');
+
+      const { error } = await supabase.from('statuses').delete().match({ id: status.id, user_id: user.id });
+      if (error) throw error;
+
+      // Also clean up from storage if possible
+      if (status.mediaUrl) {
+         try {
+           const urlObj = new URL(status.mediaUrl);
+           const parts = urlObj.pathname.split('/statuses/');
+           if (parts.length > 1) {
+             const path = parts[1];
+             await supabase.storage.from('statuses').remove([path]);
+           }
+         } catch(e) {
+           console.error('Failed to cleanup media from storage', e);
+         }
+      }
+
       toast.success('Status deleted', { id: toastId });
 
       setLocalStatuses(prev => {
@@ -242,21 +314,38 @@ export default function StatusViewer({
           >
             {/* LUXURY PROGRESS BARS */}
             <div className="px-2 pt-14 md:pt-4 pb-2 flex space-x-1 bg-gradient-to-b from-black/90 via-black/40 to-transparent">
-              {localStatuses.map((s, i) => (
-                <div key={s.id} className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden relative backdrop-blur-md">
-                  <div
-                    className="absolute top-0 left-0 h-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.8)]"
-                    style={{
-                      width: i < currentIndex ? '100%' : (i > currentIndex ? '0%' : '0%'),
-                      animation: i === currentIndex ? `fillProgress ${isVideoUrl ? '15s' : '5s'} linear forwards` : 'none',
-                      animationPlayState: isPaused ? 'paused' : 'running'
-                    }}
-                    onAnimationEnd={() => {
-                       if (i === currentIndex && !isPaused) handleNext();
-                    }}
-                  />
-                </div>
-              ))}
+              {localStatuses.map((s, i) => {
+                const sIsVideo = Boolean(s.mediaUrl?.match(/\.(mp4|mov|webm|ogg|m4v)$/i) || s.mediaType === 'video');
+                return (
+                  <div key={s.id} className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden relative backdrop-blur-md">
+                    {/* For images, we can still use CSS animations. For videos, we sync with time update if possible, or wait for ended event and hide CSS progress bar.
+                        Actually, it's better to animate it over the video duration. Since we don't have it upfront easily without state, we can just rely on the video's onEnded event
+                        and let the progress bar fill using an interval or CSS if we fetch duration.
+                        Let's use state for video progress if it's the current video, or just remove animation for videos and let a custom progress bar fill via JS.
+                    */}
+                    {!sIsVideo ? (
+                      <div
+                        className="absolute top-0 left-0 h-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.8)]"
+                        style={{
+                          width: i < currentIndex ? '100%' : (i > currentIndex ? '0%' : '0%'),
+                          animation: i === currentIndex ? `fillProgress 5s linear forwards` : 'none',
+                          animationPlayState: isPaused ? 'paused' : 'running'
+                        }}
+                        onAnimationEnd={() => {
+                           if (i === currentIndex && !isPaused) handleNext();
+                        }}
+                      />
+                    ) : (
+                      <VideoProgressBar
+                        isActive={i === currentIndex}
+                        isCompleted={i < currentIndex}
+                        isPaused={isPaused}
+                        videoRef={i === currentIndex ? videoRef : undefined}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* TOP ACTION BAR */}
