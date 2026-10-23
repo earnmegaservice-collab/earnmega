@@ -7,10 +7,12 @@ import VerifiedBadge from '../ui/VerifiedBadge';
 import { 
   X, Heart, Image as ImageIcon, ArrowUpRight, 
   ChevronDown, MapPin, Briefcase, GraduationCap, 
-  Sparkles, Wine, Ruler, Dog, Music 
+  Sparkles, Wine, Ruler, Dog, Music, Zap
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useWallet } from '../../context/WalletContext';
+import { toast } from 'react-hot-toast';
 
 // 4K Ultra-Realistic 2026 Category Backgrounds
 const CATEGORIES = [
@@ -18,10 +20,14 @@ const CATEGORIES = [
   { id: 'travel', name: 'Travel', imageUrl: 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2000&auto=format&fit=crop' },
   { id: 'nightlife', name: 'Nightlife', imageUrl: 'https://images.unsplash.com/photo-1555096462-c1c5eb4e4d64?q=80&w=2000&auto=format&fit=crop' },
   { id: 'fitness', name: 'Fitness', imageUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=2000&auto=format&fit=crop' },
-  { id: 'food', name: 'Foodies', imageUrl: 'https://images.unsplash.com/photo-1544025162-83b482ba83fb?q=80&w=2000&auto=format&fit=crop' },
+  { id: 'food', name: 'Foodies', imageUrl: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=2000&auto=format&fit=crop' },
   { id: 'cinema', name: 'Cinema', imageUrl: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=2000&auto=format&fit=crop' },
   { id: 'gaming', name: 'Gaming', imageUrl: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=2000&auto=format&fit=crop' },
   { id: 'fashion', name: 'Fashion', imageUrl: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?q=80&w=2000&auto=format&fit=crop' },
+  { id: 'luxury', name: 'Luxury', imageUrl: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?q=80&w=2000&auto=format&fit=crop' },
+  { id: 'entrepreneurship', name: 'Entrepreneurship', imageUrl: 'https://images.unsplash.com/photo-1556761175-5973dc0f32e7?q=80&w=2000&auto=format&fit=crop' },
+  { id: 'astrology', name: 'Astrology', imageUrl: 'https://images.unsplash.com/photo-1532968961962-8a0cb3a2d4f5?q=80&w=2000&auto=format&fit=crop' },
+  { id: 'arts', name: 'Arts', imageUrl: 'https://images.unsplash.com/photo-1518998053401-878c73041ea2?q=80&w=2000&auto=format&fit=crop' },
 ];
 
 interface ExploreFeedProps {
@@ -127,6 +133,22 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
 // Subcomponent to handle hooks for ProfileUI
 function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile: any, onSkip: () => void, onLike: (p: any) => void, onClose: () => void }) {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [showSparkExplosion, setShowSparkExplosion] = useState(false);
+  const { balance, setBalance } = useWallet();
+
+  const handleSpark = () => {
+    if (balance < 1) {
+      toast.error('Not enough coins for a Spark!');
+      return;
+    }
+    setBalance(balance - 1);
+    setShowSparkExplosion(true);
+    toast.success('Spark sent! ✨', { icon: '⚡' });
+    setTimeout(() => {
+      setShowSparkExplosion(false);
+      onLike(activeProfile); // Automatically like after sparking
+    }, 1500);
+  };
 
   // Extract up to 6 high-res photos from DB, fallback to avatar
   const rawPhotos = activeProfile?.publicImages || activeProfile?.profile_images || [];
@@ -251,110 +273,158 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
              {/* -------------------------------------------------------------
                  2. MASSIVE SCROLLABLE DEEP PROFILE SHEET
              ------------------------------------------------------------- */}
-             <div className="bg-[#0a0a0c] rounded-t-[48px] shadow-[0_-30px_90px_rgba(0,0,0,0.9)] mt-[-80px] pt-12 pb-48 px-6 relative z-40">
-                {/* Dynamic Ambient Glow */}
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-fuchsia-500/20 blur-[100px] pointer-events-none -z-10 rounded-full"></div>
+             {(!activeProfile.bio && !activeProfile.prompt_1_a) ? null : (
+               <div className="bg-[#111418] rounded-t-[40px] shadow-[0_-30px_90px_rgba(0,0,0,0.9)] mt-[-80px] pt-8 pb-32 px-6 relative z-40">
+                  {/* Dynamic Ambient Glow */}
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-fuchsia-500/20 blur-[100px] pointer-events-none -z-10 rounded-full"></div>
 
-                {/* Scroll Down Prompt */}
-                <div className="w-full flex justify-center mb-8">
-                   <motion.div
-                     animate={{ y: [0, 8, 0] }}
-                     transition={{ duration: 1.5, repeat: Infinity }}
-                     className="opacity-50"
-                   >
-                     <ChevronDown size={28} />
-                   </motion.div>
-                </div>
-
-                <div className="flex flex-col gap-6">
-                  {/* The Interview Cards */}
-                  {activeProfile.prompt1 && (
-                    <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60}/></div>
-                      <span className="text-xs font-black uppercase tracking-[0.2em] text-fuchsia-400 mb-2 block">I describe myself as...</span>
-                      <p className="text-2xl font-bold text-white leading-snug">
-                        {activeProfile.prompt1}
-                      </p>
-                    </div>
-                  )}
-
-                  {activeProfile.prompt2 && (
-                    <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-                      <span className="text-xs font-black uppercase tracking-[0.2em] text-fuchsia-400 mb-2 block">My hidden talent is...</span>
-                      <p className="text-2xl font-bold text-white leading-snug">
-                        {activeProfile.prompt2}
-                      </p>
-                    </div>
-                  )}
-
-                  {activeProfile.prompt3 && (
-                    <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-                      <span className="text-xs font-black uppercase tracking-[0.2em] text-fuchsia-400 mb-2 block">A perfect weekend is...</span>
-                      <p className="text-2xl font-bold text-white leading-snug">
-                        {activeProfile.prompt3}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Essentials / Lifestyle Tags Grid */}
-                  <div>
-                    <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Essentials</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                        <Briefcase size={20} className="text-cyan-400" />
-                        <span className="text-sm font-medium text-white">{activeProfile.job_title || 'Forex Trader at NK FX'}</span>
-                      </div>
-                      <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                        <GraduationCap size={20} className="text-purple-400" />
-                        <span className="text-sm font-medium text-white">{activeProfile.education || 'Methodist University'}</span>
-                      </div>
-                      <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                        <Ruler size={20} className="text-pink-400" />
-                        <span className="text-sm font-medium text-white">173 cm</span>
-                      </div>
-                      <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                        <Sparkles size={20} className="text-yellow-400" />
-                        <span className="text-sm font-medium text-white">{activeProfile.zodiac_sign || 'Cancer'}</span>
-                      </div>
-                    </div>
+                  {/* Scroll Down Prompt */}
+                  <div className="w-full flex justify-center mb-8">
+                     <motion.div
+                       animate={{ y: [0, 8, 0] }}
+                       transition={{ duration: 1.5, repeat: Infinity }}
+                       className="opacity-50"
+                     >
+                       <ChevronDown size={28} />
+                     </motion.div>
                   </div>
 
-                  {/* Lifestyle Badges */}
-                  {(activeProfile.interests || []).length > 0 && (
+                  <div className="flex flex-col gap-6">
+                    {/* The Interview Cards */}
+                    {activeProfile.prompt_1_a && (
+                      <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60}/></div>
+                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_1_q}</span>
+                        <p className="text-3xl font-black text-white leading-tight tracking-tight">
+                          {activeProfile.prompt_1_a}
+                        </p>
+                      </div>
+                    )}
+
+                    {activeProfile.prompt_2_a && (
+                      <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_2_q}</span>
+                        <p className="text-3xl font-black text-white leading-tight tracking-tight">
+                          {activeProfile.prompt_2_a}
+                        </p>
+                      </div>
+                    )}
+
+                    {activeProfile.prompt_3_a && (
+                      <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_3_q}</span>
+                        <p className="text-3xl font-black text-white leading-tight tracking-tight">
+                          {activeProfile.prompt_3_a}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Essentials / Lifestyle Tags Grid */}
                     <div>
-                      <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Lifestyle</h3>
-                      <div className="flex flex-wrap gap-3">
-                        {activeProfile.interests.map((interest: string, idx: number) => (
-                          <span key={idx} className="px-4 py-2 bg-white/10 rounded-full text-sm font-medium text-white border border-white/10 shadow-lg">{interest}</span>
-                        ))}
+                      <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Essentials</h3>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                          <Briefcase size={20} className="text-cyan-400" />
+                          <span className="text-sm font-medium text-white">{activeProfile.job_title || 'Forex Trader at NK FX'}</span>
+                        </div>
+                        <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                          <GraduationCap size={20} className="text-purple-400" />
+                          <span className="text-sm font-medium text-white">{activeProfile.education || 'Methodist University'}</span>
+                        </div>
+                        <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                          <Ruler size={20} className="text-pink-400" />
+                          <span className="text-sm font-medium text-white">173 cm</span>
+                        </div>
+                        <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                          <Sparkles size={20} className="text-yellow-400" />
+                          <span className="text-sm font-medium text-white">{activeProfile.zodiac_sign || 'Cancer'}</span>
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
-             </div>
+
+                    {/* Lifestyle Badges */}
+                    {(activeProfile.interests || []).length > 0 && (
+                      <div>
+                        <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Lifestyle</h3>
+                        <div className="flex flex-wrap gap-3">
+                          {activeProfile.interests.map((interest: string, idx: number) => (
+                            <span key={idx} className="bg-white/10 border border-white/5 text-white font-semibold rounded-full px-4 py-2 flex items-center gap-2">{interest}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+               </div>
+             )}
 
              {/* -------------------------------------------------------------
                  3. FLOATING ACTION BUTTONS (Anchored to Screen Bottom)
              ------------------------------------------------------------- */}
-             <div className="fixed bottom-8 left-0 right-0 flex justify-center gap-8 px-6 z-[100000] pointer-events-none">
+             <div className="fixed bottom-8 left-0 right-0 flex justify-center gap-6 px-6 z-[100000] pointer-events-none items-center">
                 <motion.button
                    whileTap={{ scale: 0.85 }}
                    onClick={onSkip}
-                   className="pointer-events-auto w-[72px] h-[72px] rounded-full bg-slate-900/80 backdrop-blur-2xl border-2 border-white/10 flex items-center justify-center text-gray-300 shadow-[0_10px_40px_rgba(0,0,0,0.5)] hover:bg-slate-800 transition-colors"
+                   className="pointer-events-auto w-[64px] h-[64px] rounded-full bg-slate-900/80 backdrop-blur-2xl border-2 border-white/10 flex items-center justify-center text-gray-300 shadow-[0_10px_40px_rgba(0,0,0,0.5)] hover:bg-slate-800 transition-colors"
                 >
-                   <X size={34} strokeWidth={2.5} />
+                   <X size={30} strokeWidth={2.5} />
+                </motion.button>
+
+                <motion.button
+                   whileTap={{ scale: 0.85 }}
+                   onClick={handleSpark}
+                   className="pointer-events-auto w-14 h-14 bg-gradient-to-b from-amber-400 to-orange-500 rounded-full flex items-center justify-center text-white shadow-[0_0_30px_rgba(245,158,11,0.6)] border border-amber-300 hover:scale-105 transition-transform relative overflow-hidden"
+                >
+                   <Zap size={28} fill="currentColor" className="text-white drop-shadow-md" />
+                   {showSparkExplosion && (
+                     <motion.div
+                       initial={{ scale: 0, opacity: 1 }}
+                       animate={{ scale: 5, opacity: 0 }}
+                       transition={{ duration: 0.8, ease: "easeOut" }}
+                       className="absolute inset-0 bg-yellow-300 rounded-full"
+                     />
+                   )}
                 </motion.button>
 
                 <motion.button
                    whileTap={{ scale: 0.85 }}
                    onClick={() => onLike(activeProfile)}
-                   className="pointer-events-auto w-[72px] h-[72px] rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-white shadow-[0_10px_50px_rgba(244,63,94,0.6)] border-2 border-rose-400 hover:scale-105 transition-transform"
+                   className="pointer-events-auto w-[64px] h-[64px] rounded-full bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center text-white shadow-[0_10px_50px_rgba(244,63,94,0.6)] border-2 border-rose-400 hover:scale-105 transition-transform"
                 >
-                   <Heart size={34} fill="currentColor" />
+                   <Heart size={30} fill="currentColor" />
                 </motion.button>
              </div>
 
           </motion.div>
+
+          <AnimatePresence>
+            {showSparkExplosion && (
+               <motion.div
+                 initial={{ opacity: 0 }}
+                 animate={{ opacity: 1 }}
+                 exit={{ opacity: 0 }}
+                 className="fixed inset-0 z-[100001] pointer-events-none flex items-center justify-center"
+               >
+                  {/* Big Spark Particle Explosion Container */}
+                  <div className="relative w-full h-full">
+                     {[...Array(20)].map((_, i) => {
+                       const angle = (Math.PI * 2 * i) / 20;
+                       const velocity = 150 + Math.random() * 150;
+                       const tx = Math.cos(angle) * velocity;
+                       const ty = Math.sin(angle) * velocity;
+                       return (
+                         <motion.div
+                           key={i}
+                           initial={{ x: '50vw', y: '80vh', scale: 1, opacity: 1 }}
+                           animate={{ x: `calc(50vw + ${tx}px)`, y: `calc(80vh + ${ty}px)`, scale: 0, opacity: 0 }}
+                           transition={{ duration: 1, ease: 'easeOut' }}
+                           className="absolute w-4 h-4 bg-yellow-400 rounded-full shadow-[0_0_15px_rgba(250,204,21,1)]"
+                         />
+                       );
+                     })}
+                  </div>
+               </motion.div>
+            )}
+          </AnimatePresence>
        </AnimatePresence>
     </div>
   );

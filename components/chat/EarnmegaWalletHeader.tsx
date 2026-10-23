@@ -99,14 +99,14 @@ export default function EarnmegaWalletHeader() {
 
         <div
           className={`hidden sm:flex px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest transition-colors border ${
-            subscriptionTier === 'PREMIUM'
+            subscriptionTier?.toUpperCase() === 'PREMIUM'
               ? 'bg-purple-900/30 text-purple-300 border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-              : subscriptionTier === 'PRO'
+              : subscriptionTier?.toUpperCase() === 'PRO'
               ? 'bg-blue-900/30 text-blue-300 border-blue-500/50'
               : 'bg-gray-800 text-gray-300 border-gray-600'
           }`}
         >
-          {subscriptionTier === 'PREMIUM' ? 'PREMIUM' : subscriptionTier === 'PRO' ? 'PRO' : 'BASE'}
+          {subscriptionTier?.toUpperCase() === 'PREMIUM' ? 'PREMIUM' : subscriptionTier?.toUpperCase() === 'PRO' ? 'PRO' : 'BASE'}
         </div>
 
         {/* Action Section */}

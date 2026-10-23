@@ -7,8 +7,32 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../utils/supabase';
 
 const INTERESTS = [
-  'Foodie', 'Gym Rat', 'Nightlife', 'Investor', 'Creative',
-  'Techie', 'Traveler', 'Gamer', 'Artist', 'Musician'
+  // Pets
+  'Dog', 'Cat', 'Reptile', 'None',
+  // Drinking
+  'Socially', 'Never', 'Frequently',
+  // Smoking
+  'Smoker', '420',
+  // Fitness
+  'Gym Rat', 'Yoga', 'Occasional',
+  // Diet
+  'Vegan', 'Vegetarian', 'Carnivore',
+  // Personality
+  'Introvert', 'Extrovert', 'Ambivert',
+  // Comm. Style
+  'Texter', 'Caller', 'FaceTime',
+  // Other
+  'Foodie', 'Nightlife', 'Investor', 'Creative',
+  'Techie', 'Traveler', 'Gamer', 'Artist', 'Musician', 'Bookworm'
+];
+
+const PROMPT_OPTIONS = [
+  "My most chaotic daily habit is...",
+  "I'll know I've made it when...",
+  "The most spontaneous thing I've done is...",
+  "A boundary I will never cross is...",
+  "I geek out on...",
+  "My love language is..."
 ];
 
 interface TheInterviewProps {
@@ -18,9 +42,14 @@ interface TheInterviewProps {
 export default function TheInterview({ onComplete }: TheInterviewProps) {
   const { user } = useAuth();
 
-  const [prompt1, setPrompt1] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p1') || '' : '');
-  const [prompt2, setPrompt2] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p2') || '' : '');
-  const [prompt3, setPrompt3] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p3') || '' : '');
+  const [prompt1Q, setPrompt1Q] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p1_q') || PROMPT_OPTIONS[0] : PROMPT_OPTIONS[0]);
+  const [prompt1A, setPrompt1A] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p1_a') || '' : '');
+
+  const [prompt2Q, setPrompt2Q] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p2_q') || PROMPT_OPTIONS[1] : PROMPT_OPTIONS[1]);
+  const [prompt2A, setPrompt2A] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p2_a') || '' : '');
+
+  const [prompt3Q, setPrompt3Q] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p3_q') || PROMPT_OPTIONS[2] : PROMPT_OPTIONS[2]);
+  const [prompt3A, setPrompt3A] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('em_interview_p3_a') || '' : '');
 
   const [selectedInterests, setSelectedInterests] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
@@ -47,7 +76,7 @@ export default function TheInterview({ onComplete }: TheInterviewProps) {
     e.preventDefault();
     if (!user) return;
 
-    if (!prompt1 || !prompt2 || !prompt3 || selectedInterests.length === 0) {
+    if (!prompt1A || !prompt2A || !prompt3A || selectedInterests.length === 0) {
       setErrorToast("Please answer all prompts and select at least one interest.");
       return;
     }
@@ -57,17 +86,23 @@ export default function TheInterview({ onComplete }: TheInterviewProps) {
 
     try {
       const { error } = await supabase.from('profiles').update({
-        prompt1,
-        prompt2,
-        prompt3,
+        prompt_1_q: prompt1Q,
+        prompt_1_a: prompt1A,
+        prompt_2_q: prompt2Q,
+        prompt_2_a: prompt2A,
+        prompt_3_q: prompt3Q,
+        prompt_3_a: prompt3A,
         interests: selectedInterests
       }).eq('id', user.id);
 
       if (error) throw error;
 
-      localStorage.removeItem('em_interview_p1');
-      localStorage.removeItem('em_interview_p2');
-      localStorage.removeItem('em_interview_p3');
+      localStorage.removeItem('em_interview_p1_q');
+      localStorage.removeItem('em_interview_p1_a');
+      localStorage.removeItem('em_interview_p2_q');
+      localStorage.removeItem('em_interview_p2_a');
+      localStorage.removeItem('em_interview_p3_q');
+      localStorage.removeItem('em_interview_p3_a');
       localStorage.removeItem('em_interview_interests');
 
       onComplete();
@@ -97,20 +132,38 @@ export default function TheInterview({ onComplete }: TheInterviewProps) {
 
         <form onSubmit={handleSave} className="space-y-8 relative z-10">
 
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div>
-               <label className="block text-xs font-bold text-fuchsia-400 uppercase tracking-widest pl-1 mb-2">I describe myself as...</label>
-               <textarea required rows={2} value={prompt1} onChange={(e) => { setPrompt1(e.target.value); localStorage.setItem('em_interview_p1', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 px-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-medium resize-none" placeholder="Fun, easygoing, and incredibly adventurous..." />
+               <select
+                 value={prompt1Q}
+                 onChange={(e) => { setPrompt1Q(e.target.value); localStorage.setItem('em_interview_p1_q', e.target.value); }}
+                 className="block w-full text-xs font-bold text-fuchsia-400 uppercase tracking-widest bg-transparent border-b border-fuchsia-500/30 pb-2 mb-2 focus:outline-none focus:border-fuchsia-500"
+               >
+                 {PROMPT_OPTIONS.map(opt => <option key={opt} value={opt} className="bg-neutral-900 text-white">{opt}</option>)}
+               </select>
+               <textarea required rows={2} value={prompt1A} onChange={(e) => { setPrompt1A(e.target.value); localStorage.setItem('em_interview_p1_a', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 px-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-medium resize-none" placeholder="Your answer..." />
             </div>
 
             <div>
-               <label className="block text-xs font-bold text-fuchsia-400 uppercase tracking-widest pl-1 mb-2">My hidden talent is...</label>
-               <textarea required rows={2} value={prompt2} onChange={(e) => { setPrompt2(e.target.value); localStorage.setItem('em_interview_p2', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 px-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-medium resize-none" placeholder="I can name any movie from a single frame..." />
+               <select
+                 value={prompt2Q}
+                 onChange={(e) => { setPrompt2Q(e.target.value); localStorage.setItem('em_interview_p2_q', e.target.value); }}
+                 className="block w-full text-xs font-bold text-fuchsia-400 uppercase tracking-widest bg-transparent border-b border-fuchsia-500/30 pb-2 mb-2 focus:outline-none focus:border-fuchsia-500"
+               >
+                 {PROMPT_OPTIONS.map(opt => <option key={opt} value={opt} className="bg-neutral-900 text-white">{opt}</option>)}
+               </select>
+               <textarea required rows={2} value={prompt2A} onChange={(e) => { setPrompt2A(e.target.value); localStorage.setItem('em_interview_p2_a', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 px-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-medium resize-none" placeholder="Your answer..." />
             </div>
 
             <div>
-               <label className="block text-xs font-bold text-fuchsia-400 uppercase tracking-widest pl-1 mb-2">A perfect weekend is...</label>
-               <textarea required rows={2} value={prompt3} onChange={(e) => { setPrompt3(e.target.value); localStorage.setItem('em_interview_p3', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 px-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-medium resize-none" placeholder="Trying a new restaurant then hitting a rooftop bar..." />
+               <select
+                 value={prompt3Q}
+                 onChange={(e) => { setPrompt3Q(e.target.value); localStorage.setItem('em_interview_p3_q', e.target.value); }}
+                 className="block w-full text-xs font-bold text-fuchsia-400 uppercase tracking-widest bg-transparent border-b border-fuchsia-500/30 pb-2 mb-2 focus:outline-none focus:border-fuchsia-500"
+               >
+                 {PROMPT_OPTIONS.map(opt => <option key={opt} value={opt} className="bg-neutral-900 text-white">{opt}</option>)}
+               </select>
+               <textarea required rows={2} value={prompt3A} onChange={(e) => { setPrompt3A(e.target.value); localStorage.setItem('em_interview_p3_a', e.target.value); }} className="w-full bg-neutral-950/80 border border-neutral-800 rounded-2xl py-4 px-4 text-white text-sm focus:outline-none focus:border-fuchsia-500 font-medium resize-none" placeholder="Your answer..." />
             </div>
           </div>
 
