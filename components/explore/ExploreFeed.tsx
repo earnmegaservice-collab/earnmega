@@ -303,8 +303,8 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
 
                     {activeProfile.prompt_2_a && (
                       <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_2_q}</span>
-                        <p className="text-3xl font-black text-white leading-tight tracking-tight">
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_2_q}</span>
+                        <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
                           {activeProfile.prompt_2_a}
                         </p>
                       </div>
@@ -312,8 +312,8 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
 
                     {activeProfile.prompt_3_a && (
                       <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_3_q}</span>
-                        <p className="text-3xl font-black text-white leading-tight tracking-tight">
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_3_q}</span>
+                        <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
                           {activeProfile.prompt_3_a}
                         </p>
                       </div>
