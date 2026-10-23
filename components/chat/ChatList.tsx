@@ -378,11 +378,11 @@ export default function ChatList({
                         {u.isVerified && <VerifiedTick />}
                       </h3>
                       {/* NUKE FAKE PREMIUM TAGS: strictly check isPremiumUser boolean */}
-                      {isPremiumUser && (
+                      {isPremiumUser ? (
                         <span className="text-[9px] bg-gradient-to-r from-amber-400 to-yellow-500 text-black px-2 py-0.5 rounded-full font-black uppercase tracking-widest shadow-[0_0_10px_rgba(251,191,36,0.4)] flex-shrink-0">
                           VIP
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <p className="text-[13px] text-white/50 truncate mt-1 font-medium">
                       Tap to chat with {u.name}

@@ -138,12 +138,12 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
 
   const handleSpark = () => {
     if (balance < 1) {
-      toast.error('Not enough coins for a Spark!');
-      return;
+      // temporarily bypass for testing
+    } else {
+      setBalance(balance - 1);
     }
-    setBalance(balance - 1);
     setShowSparkExplosion(true);
-    toast.success('Spark sent! ✨', { icon: '⚡' });
+    toast.success('⚡ Spark Sent! (Test Mode)');
     setTimeout(() => {
       setShowSparkExplosion(false);
       onLike(activeProfile); // Automatically like after sparking
@@ -262,19 +262,15 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
                      <span className="text-sm">2 miles away • {activeProfile.intent || 'Long-term partner'}</span>
                    </div>
 
-                   {activeProfile.bio && (
-                       <p className="text-xl font-medium text-slate-200 leading-relaxed tracking-wide drop-shadow-lg line-clamp-3">
-                           {activeProfile.bio}
-                       </p>
-                   )}
+
                 </div>
              </motion.div>
 
              {/* -------------------------------------------------------------
                  2. MASSIVE SCROLLABLE DEEP PROFILE SHEET
              ------------------------------------------------------------- */}
-             {(!activeProfile.bio && !activeProfile.prompt_1_a) ? null : (
-               <div className="bg-[#050505]/75 backdrop-blur-[50px] shadow-2xl rounded-t-[40px] mt-[-80px] pt-8 pb-32 px-6 relative z-40">
+             {(!activeProfile.bio && !activeProfile.prompt_1_a && !activeProfile.prompt_2_a && !activeProfile.prompt_3_a) ? null : (
+               <div className="bg-[#050505]/75 backdrop-blur-[50px] border-t border-white/10 rounded-t-[48px] px-8 pt-10 pb-40 w-full mt-[-100px] relative z-40 shadow-[0_-40px_100px_rgba(0,0,0,0.9)]">
                   {/* Dynamic Ambient Glow */}
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-fuchsia-500/20 blur-[100px] pointer-events-none -z-10 rounded-full"></div>
 
@@ -290,19 +286,27 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
                   </div>
 
                   <div className="flex flex-col gap-6">
-                                        {/* The Interview Cards */}
-                    {(activeProfile.prompt_1_a || activeProfile.bio) && (
-                      <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                    {/* The Interview Cards */}
+                    {activeProfile.bio && (
+                      <div className="mb-4">
+                        <p className="text-xl font-medium text-slate-200 leading-relaxed tracking-wide drop-shadow-lg">
+                            {activeProfile.bio}
+                        </p>
+                      </div>
+                    )}
+
+                    {activeProfile.prompt_1_a && (
+                      <div className="bg-transparent relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60}/></div>
-                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_1_q || 'About me'}</span>
-                        <p className="text-3xl font-black text-white leading-tight tracking-tight">
-                          {activeProfile.prompt_1_a || activeProfile.bio}
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_1_q}</span>
+                        <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
+                          {activeProfile.prompt_1_a}
                         </p>
                       </div>
                     )}
 
                     {activeProfile.prompt_2_a && (
-                      <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                      <div className="bg-transparent relative overflow-hidden">
                         <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_2_q}</span>
                         <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
                           {activeProfile.prompt_2_a}
@@ -311,7 +315,7 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
                     )}
 
                     {activeProfile.prompt_3_a && (
-                      <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+                      <div className="bg-transparent relative overflow-hidden">
                         <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_3_q}</span>
                         <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
                           {activeProfile.prompt_3_a}
@@ -323,22 +327,30 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
                     <div>
                       <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Essentials</h3>
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                          <Briefcase size={20} className="text-cyan-400" />
-                          <span className="text-sm font-medium text-white">{activeProfile.job_title || 'Forex Trader at NK FX'}</span>
-                        </div>
-                        <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                          <GraduationCap size={20} className="text-purple-400" />
-                          <span className="text-sm font-medium text-white">{activeProfile.education || 'Methodist University'}</span>
-                        </div>
-                        <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                          <Ruler size={20} className="text-pink-400" />
-                          <span className="text-sm font-medium text-white">173 cm</span>
-                        </div>
-                        <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                          <Sparkles size={20} className="text-yellow-400" />
-                          <span className="text-sm font-medium text-white">{activeProfile.zodiac_sign || 'Cancer'}</span>
-                        </div>
+                        {activeProfile.job_title && (
+                          <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                            <Briefcase size={20} className="text-cyan-400" />
+                            <span className="text-sm font-medium text-white">{activeProfile.job_title}</span>
+                          </div>
+                        )}
+                        {activeProfile.education && (
+                          <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                            <GraduationCap size={20} className="text-purple-400" />
+                            <span className="text-sm font-medium text-white">{activeProfile.education}</span>
+                          </div>
+                        )}
+                        {activeProfile.height && (
+                          <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                            <Ruler size={20} className="text-pink-400" />
+                            <span className="text-sm font-medium text-white">{activeProfile.height} cm</span>
+                          </div>
+                        )}
+                        {activeProfile.zodiac_sign && (
+                          <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                            <Sparkles size={20} className="text-yellow-400" />
+                            <span className="text-sm font-medium text-white">{activeProfile.zodiac_sign}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 

@@ -101,7 +101,7 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
 
 
   const isProOrHigher = user.tier === 'PRO' || user.tier === 'PREMIUM';
-  const isPremium = user.tier === 'PREMIUM';
+  const isPremium = user.tier?.toLowerCase() === 'premium' || user.tier?.toLowerCase() === 'pro';
 
   return (
     <AnimatePresence>
@@ -192,24 +192,31 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
                 </div>
               </div>
 
-              {/* Profile Info */}
-              <div className="flex flex-col space-y-4">
-                <div>
-                  <h2 className="text-xl font-bold text-white flex items-center gap-2 drop-shadow-sm">
-                    {user.name}
-                  </h2>
-                  <p className="text-sm text-white/50 mt-1 font-medium">Joined {user.joinDate}</p>
+              {/* Profile Info (Editorial Glass Bio Sheet) */}
+              <div className="bg-[#050505]/75 backdrop-blur-[50px] border-t border-white/10 rounded-t-[48px] px-8 pt-10 pb-10 w-full mt-4 relative z-40 shadow-[0_-40px_100px_rgba(0,0,0,0.9)] flex-1 overflow-y-auto">
+                <div className="flex items-center gap-3 mb-6">
+                  <h2 className="text-4xl font-black tracking-tighter text-white drop-shadow-xl">{user.name}</h2>
+                  {user.isVerified && (
+                     <span className="text-blue-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                           <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                     </span>
+                  )}
                 </div>
 
-                <div className="bg-white/5 backdrop-blur-xl p-3 rounded-xl border border-white/10 shadow-inner">
-                  <p className="text-sm text-white/80 leading-relaxed italic font-medium">
-                    "{user.bio}"
-                  </p>
-                </div>
+                {user.bio && (
+                  <div className="mb-4">
+                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">Bio</span>
+                    <p className="text-xl font-medium text-slate-200 leading-relaxed tracking-wide drop-shadow-lg mb-8">
+                        {user.bio}
+                    </p>
+                  </div>
+                )}
 
                 {/* Premium Stats */}
                 {isPremium && (
-                  <div className="flex items-center justify-between bg-yellow-500/10 backdrop-blur-md p-3 rounded-xl border border-yellow-500/30 shadow-[0_4px_15px_rgba(234,179,8,0.1)]">
+                  <div className="flex items-center justify-between bg-yellow-500/10 backdrop-blur-md p-3 rounded-xl border border-yellow-500/30 shadow-[0_4px_15px_rgba(234,179,8,0.1)] mb-4">
                     <span className="text-sm text-white/70 font-bold">Coins Gifted</span>
                     <span className="text-sm font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-amber-500 flex items-center gap-1 drop-shadow-sm">
                       {user.coinsGifted.toLocaleString()} 🪙
