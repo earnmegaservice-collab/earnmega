@@ -274,7 +274,7 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
                  2. MASSIVE SCROLLABLE DEEP PROFILE SHEET
              ------------------------------------------------------------- */}
              {(!activeProfile.bio && !activeProfile.prompt_1_a) ? null : (
-               <div className="bg-[#111418] rounded-t-[40px] shadow-[0_-30px_90px_rgba(0,0,0,0.9)] mt-[-80px] pt-8 pb-32 px-6 relative z-40">
+               <div className="bg-[#050505]/75 backdrop-blur-[50px] shadow-2xl rounded-t-[40px] mt-[-80px] pt-8 pb-32 px-6 relative z-40">
                   {/* Dynamic Ambient Glow */}
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-fuchsia-500/20 blur-[100px] pointer-events-none -z-10 rounded-full"></div>
 
@@ -290,13 +290,13 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
                   </div>
 
                   <div className="flex flex-col gap-6">
-                    {/* The Interview Cards */}
-                    {activeProfile.prompt_1_a && (
+                                        {/* The Interview Cards */}
+                    {(activeProfile.prompt_1_a || activeProfile.bio) && (
                       <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60}/></div>
-                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_1_q}</span>
+                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_1_q || 'About me'}</span>
                         <p className="text-3xl font-black text-white leading-tight tracking-tight">
-                          {activeProfile.prompt_1_a}
+                          {activeProfile.prompt_1_a || activeProfile.bio}
                         </p>
                       </div>
                     )}

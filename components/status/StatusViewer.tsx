@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Heart, Send, Eye, Lock, Coins, Forward, Trash, BarChart } from 'lucide-react';
+import { X, Heart, Send, Eye, Lock, Coins, Forward, Trash, BarChart, MoreVertical } from 'lucide-react';
 import ForwardModal from './ForwardModal';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
@@ -27,6 +27,7 @@ interface StatusViewerProps {
   onSendReply: (statusId: string, text: string, mediaPreview?: string) => Promise<void>;
   onSendLike: (statusId: string) => Promise<void>;
   onForward: (statusId: string, receiverId: string) => Promise<void>;
+  onHideUser?: (userId: string) => void;
 }
 
 export default function StatusViewer({
@@ -35,11 +36,13 @@ export default function StatusViewer({
   onSendReply,
   onSendLike,
   onForward,
+  onHideUser,
 }: StatusViewerProps): any {
 
-
+  const [localStatuses, setLocalStatuses] = useState(statuses);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const status = statuses[currentIndex];
+  const [isPaused, setIsPaused] = useState(false);
+  const status = localStatuses[currentIndex];
 
   const [replyText, setReplyText] = useState('');
   const [isLiked, setIsLiked] = useState(false);
@@ -48,9 +51,55 @@ export default function StatusViewer({
   const [isCinematic, setIsCinematic] = useState(false);
   const [isForwardOpen, setIsForwardOpen] = useState(false);
   const [isInsightsOpen, setIsInsightsOpen] = useState(false);
+  const [isReportMenuOpen, setIsReportMenuOpen] = useState(false);
 
   const handlePrev = () => { if (currentIndex > 0) setCurrentIndex(currentIndex - 1); };
-  const handleNext = () => { if (currentIndex < statuses.length - 1) setCurrentIndex(currentIndex + 1); else onClose(); };
+  const handleNext = () => { if (currentIndex < localStatuses.length - 1) setCurrentIndex(currentIndex + 1); else onClose(); };
+
+  const handleHideStatus = async () => {
+    setIsReportMenuOpen(false);
+    const toastId = toast.loading('Hiding status...');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const { error } = await supabase.from('status_mutes').insert({
+        user_id: session.user.id,
+        muted_user_id: status.userId
+      });
+      if (error) throw error;
+
+      toast.success('Status hidden', { id: toastId });
+      if (onHideUser) onHideUser(status.userId);
+      onClose(); // Instantly close after hiding
+    } catch (err: any) {
+      toast.error('Failed to hide status', { id: toastId });
+    }
+  };
+
+  const handleReportStatus = async () => {
+    setIsReportMenuOpen(false);
+    const toastId = toast.loading('Reporting status...');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const { error } = await supabase.from('reports').insert({
+        reporter_id: session.user.id,
+        reported_user_id: status.userId,
+        content_type: 'status',
+        reason: 'Inappropriate Content',
+        details: `Reported status ${status.id}`
+      });
+      if (error) throw error;
+
+      toast.success('Report submitted', { id: toastId });
+      if (onHideUser) onHideUser(status.userId);
+      onClose(); // Hide it and close it
+    } catch (err: any) {
+      toast.error('Failed to report status', { id: toastId });
+    }
+  };
 
   const handleTap = (e: React.MouseEvent) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -64,7 +113,6 @@ export default function StatusViewer({
   };
 
   const handleHeartTap = () => {
-
     const newHeart = { id: Date.now(), x: window.innerWidth / 2, y: window.innerHeight - 100 };
     setFloatingHearts((prev) => [...prev, newHeart]);
     setIsLiked(true);
@@ -74,7 +122,6 @@ export default function StatusViewer({
       setFloatingHearts((prev) => prev.filter((h) => h.id !== newHeart.id));
     }, 1000);
   };
-
 
   const submitReply = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +142,12 @@ export default function StatusViewer({
         transition={{ type: "spring", stiffness: 250, damping: 25 }}
         className="fixed inset-0 z-[9999] w-full h-[100dvh] bg-black flex flex-col justify-between overflow-hidden select-none"
     >
+      <style>{`
+        @keyframes progress {
+          from { width: 0%; }
+          to { width: 100%; }
+        }
+      `}</style>
       <AnimatePresence>
         {!isCinematic && (
           <motion.div
@@ -105,20 +158,28 @@ export default function StatusViewer({
           >
             {/* PROGRESS BARS */}
             <div className="px-4 pt-4 flex space-x-1">
-              {statuses.map((s, i) => (
-                <div key={s.id} className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: i < currentIndex ? '100%' : '0%' }}
-                    animate={{ width: i < currentIndex ? '100%' : (i === currentIndex ? '100%' : '0%') }}
-                    transition={{ duration: 5, ease: "linear" }}
-                    className="h-full bg-white"
+              {localStatuses.map((s, i) => (
+                <div key={s.id} className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden relative">
+                  <div
+                    className="absolute top-0 left-0 h-full bg-white"
+                    style={{
+                      width: i < currentIndex ? '100%' : (i > currentIndex ? '0%' : '100%'),
+                      transition: i === currentIndex ? 'width 5s linear' : 'none',
+                      animation: i === currentIndex ? `progress 5s linear forwards` : 'none',
+                      animationPlayState: isPaused ? 'paused' : 'running'
+                    }}
+                    onAnimationEnd={() => {
+                       if (i === currentIndex && !isPaused) {
+                          handleNext();
+                       }
+                    }}
                   />
                 </div>
               ))}
             </div>
 
             {/* TOP OVERLAY BAR */}
-            <div className="p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between pointer-events-auto">
+            <div className="p-4 bg-gradient-to-b from-black/80 to-transparent flex items-center justify-between pointer-events-auto">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-full p-[2px] bg-gradient-to-tr from-amber-400 to-purple-500">
                   <img
@@ -140,7 +201,7 @@ export default function StatusViewer({
               </div>
 
               <div className="flex items-center space-x-2">
-                {status?.isOwner && (
+                {status?.isOwner ? (
                   <>
                     <button
                       onClick={(e) => { e.stopPropagation(); setIsInsightsOpen(true); }}
@@ -156,7 +217,16 @@ export default function StatusViewer({
                            const { error } = await supabase.from('statuses').delete().eq('id', status.id);
                            if (error) throw error;
                            toast.success('Status deleted', { id: toastId });
-                           onClose();
+
+                           const newStatuses = localStatuses.filter(s => s.id !== status.id);
+                           if (newStatuses.length === 0) {
+                             onClose();
+                           } else {
+                             setLocalStatuses(newStatuses);
+                             if (currentIndex >= newStatuses.length) {
+                               setCurrentIndex(newStatuses.length - 1);
+                             }
+                           }
                          } catch (err: any) {
                            toast.error('Failed to delete', { id: toastId });
                          }
@@ -166,6 +236,19 @@ export default function StatusViewer({
                       <Trash className="w-4 h-4 text-rose-500" />
                     </button>
                   </>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setIsReportMenuOpen(!isReportMenuOpen); }}
+                    className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-2xl border border-white/10 flex items-center justify-center active:scale-90 transition pointer-events-auto relative"
+                  >
+                    <MoreVertical className="w-4 h-4 text-white" />
+                    {isReportMenuOpen && (
+                       <div className="absolute top-12 right-0 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl py-2 z-50 flex flex-col pointer-events-auto">
+                          <div onClick={(ev) => { ev.stopPropagation(); handleHideStatus(); }} className="px-4 py-3 text-sm text-white hover:bg-white/10 text-left border-b border-white/5 cursor-pointer">Hide Status</div>
+                          <div onClick={(ev) => { ev.stopPropagation(); handleReportStatus(); }} className="px-4 py-3 text-sm text-rose-500 hover:bg-white/10 text-left font-bold cursor-pointer">Report User</div>
+                       </div>
+                    )}
+                  </button>
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); onClose(); }}
@@ -183,6 +266,9 @@ export default function StatusViewer({
       <div
         onDoubleClick={(e) => { e.stopPropagation(); handleHeartTap(); }}
         onClick={handleTap}
+        onPointerDown={() => setIsPaused(true)}
+        onPointerUp={() => setIsPaused(false)}
+        onPointerLeave={() => setIsPaused(false)}
         className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden cursor-pointer"
       >
         {!isVideoUrl && status?.mediaType === 'image' && status?.mediaUrl && (
@@ -216,8 +302,6 @@ export default function StatusViewer({
           </div>
         )}
 
-
-
         {/* Floating Heart Animations */}
         {floatingHearts.map((h) => (
           <motion.div
@@ -238,7 +322,7 @@ export default function StatusViewer({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
-          className="absolute bottom-0 left-0 right-0 z-30 p-4 pb-8 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col"
+          className="absolute bottom-0 left-0 right-0 z-30 p-4 pb-8 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col pointer-events-auto"
         >
           <div className="flex space-x-4 mb-4 justify-center">
             {['🔥', '😍', '😂', '😮', '😢', '👏'].map((emoji) => (
