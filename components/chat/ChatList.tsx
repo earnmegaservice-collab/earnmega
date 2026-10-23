@@ -192,6 +192,11 @@ export default function ChatList({
     try {
       if (!currentUserProfile) return;
 
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || user.id !== currentUserProfile.id) {
+        throw new Error('Authentication mismatch');
+      }
+
       // Just take the first selected user to report
       const reportedId = Array.from(selectedChats)[0];
       const reportedUser = exploreUsers.find(u => u.id === reportedId);
@@ -203,7 +208,10 @@ export default function ChatList({
         reason: reportCategory,
         details: reportDescription
       });
-      if (error) throw error;
+      if (error) {
+        console.error('REPORT_DB_ERROR:', error.message);
+        throw new Error('Database insertion failed');
+      }
 
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
         navigator.vibrate([50, 50, 50]);
@@ -216,70 +224,87 @@ export default function ChatList({
       setReportCategory('');
       setReportDescription('');
     } catch (e: any) {
+      console.error('REPORT_DB_ERROR:', e.message);
       toast.error('Failed to report user');
     } finally {
       setIsSubmittingReport(false);
     }
   };
 
-  const TopBar = isMultiSelectMode ? (
-    <div className="fixed top-0 left-0 right-0 z-[100] px-4 py-3 bg-slate-950/90 backdrop-blur-2xl border-b border-white/10 flex items-center justify-between shadow-xl">
-      <div className="flex items-center space-x-4">
-        <button onClick={() => { setIsMultiSelectMode(false); setSelectedChats(new Set()); }} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <X size={20} />
-        </button>
-        <div className="flex items-center">
-          <span className="text-white font-bold text-lg">{selectedChats.size}</span>
-          <span className="ml-2 px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-400 text-xs font-bold border border-fuchsia-500/30 shadow-[0_0_10px_rgba(217,70,239,0.3)]">Selected</span>
-        </div>
-      </div>
-      <div className="flex items-center space-x-2 relative">
-        <button onClick={handleBulkPin} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <Pin size={20} />
-        </button>
-        <button onClick={() => setShowDeleteConfirm(true)} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <Trash2 size={20} />
-        </button>
-        <button onClick={handleBulkMute} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <Bell size={20} />
-        </button>
-        <button onClick={() => setShowThreeDotMenu(!showThreeDotMenu)} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
-          <MoreVertical size={20} />
-        </button>
+  const TopBar = (
+    <AnimatePresence mode="wait">
+      {isMultiSelectMode ? (
+        <motion.div
+          key="multi-select"
+          initial={{ y: -100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -100, opacity: 0 }}
+          className="fixed top-4 left-4 right-4 z-[100000] px-4 py-3 bg-slate-950/90 backdrop-blur-2xl border border-white/10 rounded-2xl flex items-center justify-between shadow-2xl"
+        >
+          <div className="flex items-center space-x-4">
+            <button onClick={() => { setIsMultiSelectMode(false); setSelectedChats(new Set()); }} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
+              <X size={20} />
+            </button>
+            <div className="flex items-center">
+              <span className="text-white font-bold text-lg">{selectedChats.size}</span>
+              <span className="ml-2 px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-400 text-xs font-bold border border-fuchsia-500/30 shadow-[0_0_10px_rgba(217,70,239,0.3)]">Selected</span>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 relative">
+            <button onClick={handleBulkPin} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
+              <Pin size={20} />
+            </button>
+            <button onClick={() => setShowDeleteConfirm(true)} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
+              <Trash2 size={20} />
+            </button>
+            <button onClick={handleBulkMute} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
+              <Bell size={20} />
+            </button>
+            <button onClick={() => setShowThreeDotMenu(!showThreeDotMenu)} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
+              <MoreVertical size={20} />
+            </button>
 
-        {/* 3-dot dropdown */}
-        <AnimatePresence>
-          {showThreeDotMenu && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="absolute top-12 right-0 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl py-2 z-50"
-            >
-              <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Select All</button>
-              <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Clear Selection</button>
-              <div className="h-px bg-white/10 my-1" />
-              <button onClick={handleBlockUser} className="w-full text-left px-4 py-2 text-sm text-rose-500 hover:bg-white/10 font-bold">Block User</button>
-              <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Report</button>
-              <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Forward</button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  ) : (
-    <div className="sticky top-0 z-20 px-4 py-3 bg-black/60 backdrop-blur-xl border-b border-white/5">
-      <div className="relative flex items-center">
-        <Search size={18} className="absolute left-3 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search chats..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-white/5 backdrop-blur-md rounded-full pl-10 pr-4 py-2 text-white placeholder-gray-400 outline-none border border-white/10 focus:border-white/20 transition-colors"
-        />
-      </div>
-    </div>
+            {/* 3-dot dropdown */}
+            <AnimatePresence>
+              {showThreeDotMenu && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                  className="absolute top-12 right-0 w-48 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl py-2 z-50"
+                >
+                  <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Select All</button>
+                  <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Clear Selection</button>
+                  <div className="h-px bg-white/10 my-1" />
+                  <button onClick={handleBlockUser} className="w-full text-left px-4 py-2 text-sm text-rose-500 hover:bg-white/10 font-bold">Block User</button>
+                  <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Report</button>
+                  <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10">Forward</button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      ) : (
+        <motion.div
+          key="search-bar"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="sticky top-0 z-20 px-4 py-3 bg-black/60 backdrop-blur-xl border-b border-white/5"
+        >
+          <div className="relative flex items-center">
+            <Search size={18} className="absolute left-3 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search chats..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white/5 backdrop-blur-md rounded-full pl-10 pr-4 py-2 text-white placeholder-gray-400 outline-none border border-white/10 focus:border-white/20 transition-colors"
+            />
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 
   const sortedUsers = [...filteredUsers].sort((a, b) => {
@@ -478,15 +503,26 @@ export default function ChatList({
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm text-white/70 font-bold mb-2 block">Describe the issue in detail (optional)</label>
-                  <textarea
-                    value={reportDescription}
-                    onChange={(e) => setReportDescription(e.target.value)}
-                    maxLength={500}
-                    placeholder="Provide additional details..."
-                    className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-rose-500/50 min-h-[100px] resize-none"
-                  />
-                  <div className="text-right text-xs text-white/40 mt-1">{reportDescription.length}/500</div>
+                  <AnimatePresence>
+                    {reportCategory === 'Other' && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className='overflow-hidden'
+                      >
+                        <label className="text-sm text-white/70 font-bold mb-2 block mt-2">Describe the issue in detail</label>
+                        <textarea
+                          value={reportDescription}
+                          onChange={(e) => setReportDescription(e.target.value)}
+                          maxLength={500}
+                          placeholder="Provide additional details..."
+                          className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-rose-500/50 min-h-[100px] resize-none"
+                        />
+                        <div className="text-right text-xs text-white/40 mt-1">{reportDescription.length}/500</div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
               <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-[110]">
