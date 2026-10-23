@@ -363,11 +363,11 @@ export default function ChatList({
               {/* Left: Avatar */}
               <div className="pointer-events-none contents">
               <div className={`relative w-[60px] h-[60px] rounded-full flex-shrink-0 flex items-center justify-center shadow-lg ${
-                u.tier?.toUpperCase() === 'PREMIUM' ? 'p-[2px]' :
-                u.tier?.toUpperCase() === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
+                u.tier?.toLowerCase() === 'premium' ? 'p-[2px]' :
+                u.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
                 'border border-white/10 p-1 bg-white/5'
               } ${getStatusRingClass(u.id)}`}>
-                {u.tier?.toUpperCase() === 'PREMIUM' && (
+                {u.tier?.toLowerCase() === 'premium' && (
                   <div className="absolute inset-[-2px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
                 )}
                 <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
@@ -386,14 +386,14 @@ export default function ChatList({
               <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center">
                 <div className="flex items-center space-x-1">
                   <h3 className={`text-base truncate drop-shadow-sm flex items-center ${
-                    u.tier?.toUpperCase() === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
-                    u.tier?.toUpperCase() === 'PRO' ? 'text-amber-400 font-bold' :
+                    u.tier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
+                    u.tier?.toLowerCase() === 'pro' ? 'text-amber-400 font-bold' :
                     'text-neutral-200 font-bold'
                   }`}>
                     {u.name}
                     {u.isVerified && <VerifiedTick />}
                   </h3>
-                  {u.tier?.toUpperCase() === 'PREMIUM' && (
+                  {u.tier?.toLowerCase() === 'premium' && (
                     <span className="text-[8px] bg-gradient-to-r from-yellow-400 to-amber-500 text-black px-1 rounded-full font-extrabold shadow-[0_0_5px_rgba(251,191,36,0.5)] flex-shrink-0">
                       VIP
                     </span>
@@ -477,22 +477,31 @@ export default function ChatList({
                     ))}
                   </div>
                 </div>
-                <div>
-                  <label className="text-sm text-white/70 font-bold mb-2 block">Describe the issue in detail (optional)</label>
-                  <textarea
-                    value={reportDescription}
-                    onChange={(e) => setReportDescription(e.target.value)}
-                    maxLength={500}
-                    placeholder="Provide additional details..."
-                    className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-rose-500/50 min-h-[100px] resize-none"
-                  />
-                  <div className="text-right text-xs text-white/40 mt-1">{reportDescription.length}/500</div>
-                </div>
+                <AnimatePresence>
+                  {reportCategory === 'Other' && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden mt-4"
+                    >
+                      <label className="text-sm text-white/70 font-bold mb-2 block">Describe the issue in detail</label>
+                      <textarea
+                        value={reportDescription}
+                        onChange={(e) => setReportDescription(e.target.value)}
+                        placeholder="Provide additional details..."
+                        className="w-full mt-4 p-5 bg-[#0a0a0c] border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none resize-none transition-all shadow-inner h-32"
+                        maxLength={500}
+                      />
+                      <div className="text-right text-xs text-white/40 mt-1">{reportDescription.length}/500</div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-[110]">
                 <button
                   onClick={handleReportUserSubmit}
-                  disabled={!reportCategory || isSubmittingReport}
+                  disabled={!reportCategory || isSubmittingReport || (reportCategory === 'Other' && !reportDescription.trim())}
                   className="bg-gradient-to-r from-red-600 to-rose-500 text-white font-bold rounded-full w-full py-4 shadow-[0_0_30px_rgba(225,29,72,0.5)] active:scale-95 transition-all disabled:opacity-50"
                 >
                   {isSubmittingReport ? 'Submitting...' : 'Submit Report'}

@@ -2078,12 +2078,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div
           onClick={() => openProfile(currentOtherUserProfile)}
           className={`relative w-8 h-8 rounded-full flex items-center justify-center shadow-lg mr-3 shrink-0 cursor-pointer ${
-            currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' ? 'p-[2px]' :
-            currentOtherUserProfile.tier?.toUpperCase() === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
+            currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[2px]' :
+            currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
             'border border-white/10 p-1 bg-white/5'
           } ${getStatusRingClass(currentOtherUserProfile.id)}`}
         >
-           {currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' && (
+           {currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
              <div className="absolute inset-[-2px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
            )}
            <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
@@ -2097,12 +2097,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(currentOtherUserProfile)}>
           <div className="flex items-center">
             <h1 className={`text-base leading-tight truncate drop-shadow-sm mr-2 ${
-              currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
-              currentOtherUserProfile.tier?.toUpperCase() === 'PRO' ? 'text-amber-400 font-bold' :
+              currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
+              currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'text-amber-400 font-bold' :
               'text-neutral-200 font-bold'
             }`}>{currentOtherUserProfile.name}</h1>
             {currentOtherUserProfile.isVerified && <VerifiedBadge />}
-            {currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' && (
+            {currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
                <motion.span
                  animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                  transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
@@ -2111,7 +2111,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                  PREMIUM
                </motion.span>
             )}
-            {currentOtherUserProfile.tier?.toUpperCase() === 'PRO' && (
+            {currentOtherUserProfile.tier?.toLowerCase() === 'pro' && (
                <motion.span
                  animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                  transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
@@ -2242,25 +2242,25 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             >
               {/* Sender Name and Badge (Pro/Premium) */}
               <div className={`flex items-center space-x-1.5 mb-1 ${isUser ? 'mr-1' : 'ml-9'}`}>
-                {isUser && subscriptionTier?.toUpperCase() === 'PREMIUM' && (
+                {isUser && subscriptionTier?.toLowerCase() === 'premium' && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(250,204,21,0.5)] border border-yellow-400/50">PREMIUM</motion.span>
                 )}
-                {isUser && subscriptionTier?.toUpperCase() === 'PRO' && (
+                {isUser && subscriptionTier?.toLowerCase() === 'pro' && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_5px_rgba(96,165,250,0.5)] border border-blue-400/50">PRO</motion.span>
                 )}
 
                 <span className={`text-xs drop-shadow-sm ${
                   isUser
-                    ? (subscriptionTier?.toUpperCase() === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' : subscriptionTier?.toUpperCase() === 'PRO' ? 'text-amber-400 font-bold' : 'font-bold text-white/70')
-                    : (currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' : currentOtherUserProfile.tier?.toUpperCase() === 'PRO' ? 'text-amber-400 font-bold' : 'font-bold text-white/70')
+                    ? (subscriptionTier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' : subscriptionTier?.toLowerCase() === 'pro' ? 'text-amber-400 font-bold' : 'font-bold text-white/70')
+                    : (currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' : currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'text-amber-400 font-bold' : 'font-bold text-white/70')
                 }`}>
                   {isUser && currentUserProfile ? currentUserProfile.name : currentOtherUserProfile.name}
                 </span>
 
-                {!isUser && currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' && (
+                {!isUser && currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(250,204,21,0.5)] border border-yellow-400/50">PREMIUM</motion.span>
                 )}
-                {!isUser && currentOtherUserProfile.tier?.toUpperCase() === 'PRO' && (
+                {!isUser && currentOtherUserProfile.tier?.toLowerCase() === 'pro' && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_5px_rgba(96,165,250,0.5)] border border-blue-400/50">PRO</motion.span>
                 )}
               </div>
@@ -2273,12 +2273,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   <div
                     onClick={() => openProfile(currentOtherUserProfile)}
                     className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
-                      currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' ? 'p-[1.5px]' :
-                      currentOtherUserProfile.tier?.toUpperCase() === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
+                      currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[1.5px]' :
+                      currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
                       'border border-white/20 hover:border-white/40 bg-white/5 backdrop-blur-md'
                     }`}
                   >
-                    {currentOtherUserProfile.tier?.toUpperCase() === 'PREMIUM' && (
+                    {currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
                       <div className="absolute inset-[-1.5px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
                     )}
                     <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
@@ -2295,12 +2295,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   <div
                     onClick={() => openProfile(currentUserProfile)}
                     className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer order-last ml-2 shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
-                      currentUserProfile.tier?.toUpperCase() === 'PREMIUM' ? 'p-[1.5px]' :
+                      currentUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[1.5px]' :
                       currentUserProfile.tier?.toUpperCase() === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
                       'border border-white/20 hover:border-white/40 bg-white/5 backdrop-blur-md transition-colors'
                     }`}
                   >
-                    {currentUserProfile.tier?.toUpperCase() === 'PREMIUM' && (
+                    {currentUserProfile.tier?.toLowerCase() === 'premium' && (
                       <div className="absolute inset-[-1.5px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
                     )}
                     <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">

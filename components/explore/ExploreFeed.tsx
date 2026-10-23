@@ -273,8 +273,8 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
              {/* -------------------------------------------------------------
                  2. MASSIVE SCROLLABLE DEEP PROFILE SHEET
              ------------------------------------------------------------- */}
-             {(!activeProfile.bio && !activeProfile.prompt_1_a && !activeProfile.prompt_2_a && !activeProfile.prompt_3_a) ? null : (
-               <div className="bg-[#050505]/75 backdrop-blur-[50px] border-t border-white/10 rounded-t-[48px] px-8 pt-10 pb-40 w-full mt-[-100px] relative z-40 shadow-[0_-40px_100px_rgba(0,0,0,0.9)]">
+             {(!activeProfile.bio && !activeProfile.prompt_1_a) ? null : (
+               <div className="bg-[#050505]/75 backdrop-blur-[50px] shadow-2xl rounded-t-[40px] mt-[-80px] pt-8 pb-32 px-6 relative z-40">
                   {/* Dynamic Ambient Glow */}
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-fuchsia-500/20 blur-[100px] pointer-events-none -z-10 rounded-full"></div>
 
@@ -290,13 +290,13 @@ function ProfileView({ activeProfile, onSkip, onLike, onClose }: { activeProfile
                   </div>
 
                   <div className="flex flex-col gap-6">
-                    {/* The Interview Cards */}
-                    {activeProfile.prompt_1_a && (
+                                        {/* The Interview Cards */}
+                    {(activeProfile.prompt_1_a || activeProfile.bio) && (
                       <div className="bg-gradient-to-br from-white/10 to-transparent border border-white/15 backdrop-blur-2xl rounded-3xl p-6 shadow-2xl relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60}/></div>
-                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_1_q}</span>
-                        <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
-                          {activeProfile.prompt_1_a}
+                        <span className="text-sm font-bold text-gray-400 mb-2 block">{activeProfile.prompt_1_q || 'About me'}</span>
+                        <p className="text-3xl font-black text-white leading-tight tracking-tight">
+                          {activeProfile.prompt_1_a || activeProfile.bio}
                         </p>
                       </div>
                     )}
