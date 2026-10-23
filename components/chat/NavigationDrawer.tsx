@@ -284,7 +284,7 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center">
                           <h3 className="text-sm font-bold text-gray-100 truncate mr-2">{u.name}</h3>
-                          {u.tier === 'PREMIUM' && (
+                          {u.tier?.toUpperCase() === 'PREMIUM' && (
                              <motion.span
                                animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                                transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
@@ -293,7 +293,7 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
                                PREMIUM
                              </motion.span>
                           )}
-                          {u.tier === 'PRO' && (
+                          {u.tier?.toUpperCase() === 'PRO' && (
                              <motion.span
                                animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                                transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
