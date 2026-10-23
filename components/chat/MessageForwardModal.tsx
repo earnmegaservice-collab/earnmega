@@ -116,13 +116,13 @@ export default function MessageForwardModal({ isOpen, onClose, onForward }: Mess
             )}
           </div>
 
-          <div className="p-4 border-t border-white/10">
+          <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-[110]">
             <button
               onClick={handleSend}
               disabled={isSending || selectedUsers.size === 0}
-              className="w-full py-3 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-bold transition-colors disabled:opacity-50 flex items-center justify-center"
+              className="bg-fuchsia-600 text-white font-bold rounded-full w-full py-4 shadow-[0_0_30px_rgba(192,38,211,0.5)] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center"
             >
-              {isSending ? 'Sending...' : `Forward (${selectedUsers.size})`}
+              {isSending ? 'Sending...' : `Forward to ${selectedUsers.size} chats ->`}
             </button>
           </div>
         </motion.div>

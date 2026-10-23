@@ -2889,24 +2889,24 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               return;
                            }
 
-                           // Create report object
-                           // Send silent email trigger via API Route
-                           await fetch('/api/report', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                 reporterId: user?.id,
-                                 reporterName: currentUserProfile?.name,
-                                 accusedId: currentOtherUserProfile?.id,
-                                 accusedName: currentOtherUserProfile?.name,
-                                 category: reportReason,
-                                 description: reportReason,
-                                 time: new Date().toISOString(),
-                                 recentMessages: messages.slice(-5)
-                              })
+                           const { error } = await supabase.from('reports').insert({
+                              reporter_id: user?.id,
+                              reported_user_id: currentOtherUserProfile?.id,
+                              content_type: 'chat',
+                              reason: reportReason,
+                              details: reportReason
                            });
 
-                           toast.success('Report submitted securely. Thank you.', { icon: '🛡️' });
+                           if (error) {
+                              toast.error('Failed to submit report');
+                              return;
+                           }
+
+                           if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                              navigator.vibrate([50, 50, 50]);
+                           }
+                           toast.success('Report successfully filed. Our security team will review this immediately.', { icon: '🛡️', position: 'top-center' });
+
                            setIsReportModalOpen(false);
                            setReportReason('');
                            // Option to block immediately
@@ -2914,7 +2914,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               toggleBlock();
                            }
                         }}
-                        className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(225,29,72,0.4)]"
+                        className="flex-1 py-3 bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-400 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_30px_rgba(225,29,72,0.5)]"
                      >
                         Submit Report
                      </button>
