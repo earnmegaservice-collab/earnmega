@@ -196,26 +196,20 @@ export default function ChatList({
       const reportedId = Array.from(selectedChats)[0];
       const reportedUser = exploreUsers.find(u => u.id === reportedId);
 
-      const res = await fetch('/api/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reporterId: currentUserProfile.id,
-          reporterName: currentUserProfile.name,
-          accusedId: reportedId,
-          accusedName: reportedUser?.name || 'Unknown',
-          category: reportCategory,
-          description: reportDescription,
-          time: new Date().toISOString(),
-          recentMessages: []
-        })
+      const { error } = await supabase.from('reports').insert({
+        reporter_id: currentUserProfile.id,
+        reported_user_id: reportedId,
+        content_type: 'chat',
+        reason: reportCategory,
+        details: reportDescription
       });
-      const data = await res.json();
-      if (data.success) {
-        toast.success(data.message);
-      } else {
-        toast.error('Failed to send report');
+      if (error) throw error;
+
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([50, 50, 50]);
       }
+      toast.success('Report successfully filed. Our security team will review this immediately.', { icon: '🛡️', position: 'top-center' });
+
       setShowReportModal(false);
       setIsMultiSelectMode(false);
       setSelectedChats(new Set());
@@ -229,12 +223,15 @@ export default function ChatList({
   };
 
   const TopBar = isMultiSelectMode ? (
-    <div className="sticky top-0 z-30 px-4 py-3 bg-black/90 backdrop-blur-xl border-b border-white/5 flex items-center justify-between shadow-xl">
+    <div className="fixed top-0 left-0 right-0 z-[100] px-4 py-3 bg-slate-950/90 backdrop-blur-2xl border-b border-white/10 flex items-center justify-between shadow-xl">
       <div className="flex items-center space-x-4">
         <button onClick={() => { setIsMultiSelectMode(false); setSelectedChats(new Set()); }} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
           <X size={20} />
         </button>
-        <span className="text-white font-bold text-lg">{selectedChats.size}</span>
+        <div className="flex items-center">
+          <span className="text-white font-bold text-lg">{selectedChats.size}</span>
+          <span className="ml-2 px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-400 text-xs font-bold border border-fuchsia-500/30 shadow-[0_0_10px_rgba(217,70,239,0.3)]">Selected</span>
+        </div>
       </div>
       <div className="flex items-center space-x-2 relative">
         <button onClick={handleBulkPin} className="text-white hover:bg-white/10 p-2 rounded-full transition-colors">
@@ -294,7 +291,7 @@ export default function ChatList({
   });
 
   return (
-    <div className="flex flex-col h-full bg-transparent">
+    <div className="flex flex-col h-full bg-transparent select-none" style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
       {/* Sticky Header with Search */}
       {TopBar}
 
@@ -327,7 +324,8 @@ export default function ChatList({
             >
 
               <div
-                className={`flex items-center w-full px-4 py-3 hover:bg-white/5 transition-colors cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative ${selectedChats.has(u.id) ? 'bg-indigo-900/30' : ''}`}
+                className={`flex items-center w-full px-4 py-3 hover:bg-white/5 transition-all duration-200 cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative select-none ${selectedChats.has(u.id) ? 'bg-white/5 border border-white/10 scale-95 z-10 rounded-xl my-1' : ''}`}
+                style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
                 onTouchStart={() => handleTouchStart(u.id)}
                 onTouchEnd={handleTouchEnd}
                 onMouseDown={() => handleTouchStart(u.id)}
@@ -491,13 +489,13 @@ export default function ChatList({
                   <div className="text-right text-xs text-white/40 mt-1">{reportDescription.length}/500</div>
                 </div>
               </div>
-              <div className="p-4 border-t border-white/10 bg-black/20">
+              <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-[110]">
                 <button
                   onClick={handleReportUserSubmit}
                   disabled={!reportCategory || isSubmittingReport}
-                  className="w-full bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors"
+                  className="bg-gradient-to-r from-red-600 to-rose-500 text-white font-bold rounded-full w-full py-4 shadow-[0_0_30px_rgba(225,29,72,0.5)] active:scale-95 transition-all disabled:opacity-50"
                 >
-                  {isSubmittingReport ? 'Submitting...' : 'Confirm Report'}
+                  {isSubmittingReport ? 'Submitting...' : 'Submit Report'}
                 </button>
               </div>
             </div>
