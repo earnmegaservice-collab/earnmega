@@ -22,6 +22,7 @@ const StatusTab = dynamic(() => import("../../components/status/StatusTab"), { s
 const StatusViewer = dynamic(() => import("../../components/status/StatusViewer"), { ssr: false });
 const ChatList = dynamic(() => import("./ChatList"), { ssr: false });
 const MessageForwardModal = dynamic(() => import("./MessageForwardModal"), { ssr: false });
+const CreateGroupModal = dynamic(() => import("./CreateGroupModal"), { ssr: false });
 
 type Message = {
   id: string;
@@ -356,48 +357,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
-  const [groupName, setGroupName] = useState('');
-  const [selectedGroupUsers, setSelectedGroupUsers] = useState<Set<string>>(new Set());
-  const [isFetchingModalUsers, setIsFetchingModalUsers] = useState(false);
-  const [modalUsers, setModalUsers] = useState<UserProfileDetails[]>([]);
-
-  useEffect(() => {
-    if (isGroupModalOpen && user) {
-        const fetchUsers = async () => {
-            setIsFetchingModalUsers(true);
-            try {
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .neq('id', user.id)
-                    .limit(50);
-
-                if (data && !error) {
-                    const formatted = data.map((u: any) => ({
-                        id: u.id,
-                        name: u.username || u.name || 'User',
-                        avatarInitials: (u.username || u.name || 'U').substring(0, 2).toUpperCase(),
-                        avatarUrl: u.avatar_url,
-                        bio: u.bio || '',
-                        joinDate: '',
-                        tier: u.subscription_tier || 'FREE',
-                        isOnline: false,
-                        coinsGifted: 0,
-                        isSelf: false,
-                        unreadCount: 0,
-                        lastMessageTime: 0
-                    }));
-                    setModalUsers(formatted);
-                }
-            } catch (err) {
-                console.error("Failed to fetch modal users", err);
-            } finally {
-                setIsFetchingModalUsers(false);
-            }
-        };
-        fetchUsers();
-    }
-  }, [isGroupModalOpen, user]);
 
 
 
@@ -471,43 +430,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
 
-  const handleCreateGroup = async () => {
-      if (!user || !groupName.trim() || selectedGroupUsers.size === 0) return;
-      try {
-          const { data: room, error: roomError } = await supabase
-              .from('rooms')
-              .insert({
-                  name: groupName,
-                  created_by: user.id,
-                  type: 'group'
-              })
-              .select()
-              .single();
-
-          if (roomError) throw roomError;
-
-          const memberIds = Array.from(selectedGroupUsers);
-          const participants = [
-              { room_id: room.id, user_id: user.id },
-              ...memberIds.map(id => ({ room_id: room.id, user_id: id }))
-          ];
-
-          const { error: partError } = await supabase
-              .from('room_participants')
-              .insert(participants);
-
-          if (partError) throw partError;
-
-          toast.success("Group Created!");
-          setIsGroupModalOpen(false);
-          setGroupName('');
-          setSelectedGroupUsers(new Set());
-          setRefreshChatsKey(prev => prev + 1); // trigger list refresh
-      } catch (err: any) {
-          console.error("Group creation error:", err);
-          toast.error("Failed to create group: " + (err.message || "Unknown error"));
-      }
-  };
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
@@ -2703,57 +2625,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       <AnimatePresence>
          {isGroupModalOpen && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-               <motion.div
-                 initial={{ scale: 0.9, opacity: 0 }}
-                 animate={{ scale: 1, opacity: 1 }}
-                 exit={{ scale: 0.9, opacity: 0 }}
-                 className="bg-neutral-950/90 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-2xl max-w-sm w-full relative"
-               >
-                  <button onClick={() => setIsGroupModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
-                     <X size={20} />
-                  </button>
-                  <h3 className="text-xl font-bold text-white mb-4 flex items-center"><Users className="mr-2 text-amber-500" /> Create Group</h3>
-                  <input
-                     type="text"
-                     placeholder="Group Name"
-                     value={groupName}
-                     onChange={(e) => setGroupName(e.target.value)}
-                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-amber-500/50 mb-4"
-                  />
-                                    <div className="max-h-48 overflow-y-auto mb-4 space-y-2">
-                     {isFetchingModalUsers ? (
-                         <div className="flex justify-center items-center py-4">
-                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-500"></div>
-                         </div>
-                     ) : (
-                         modalUsers.map(u => (
-                            <div key={u.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-white/5 cursor-pointer" onClick={() => {
-                               const newSet = new Set(selectedGroupUsers);
-                               if (newSet.has(u.id)) newSet.delete(u.id);
-                               else newSet.add(u.id);
-                               setSelectedGroupUsers(newSet);
-                            }}>
-                               <div className="flex items-center space-x-3">
-                                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                                     {u.avatarInitials}
-                                  </div>
-                                  <span className="text-white text-sm">{u.name}</span>
-                               </div>
-                               {selectedGroupUsers.has(u.id) && <Check size={16} className="text-amber-500" />}
-                            </div>
-                         ))
-                     )}
-                  </div>
-                  <button
-                     onClick={handleCreateGroup}
-                     disabled={!groupName.trim() || selectedGroupUsers.size === 0}
-                     className="w-full bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] font-bold py-3 rounded-xl transition-colors disabled:opacity-50"
-                  >
-                     Create Group
-                  </button>
-               </motion.div>
-            </div>
+            <CreateGroupModal
+               isOpen={isGroupModalOpen}
+               onClose={() => setIsGroupModalOpen(false)}
+               userId={user?.id || ''}
+               onGroupCreated={() => {
+                   setIsGroupModalOpen(false);
+                   setRefreshChatsKey(prev => prev + 1);
+               }}
+            />
          )}
       </AnimatePresence>
 

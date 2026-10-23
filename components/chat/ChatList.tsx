@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, ArrowLeft } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 import VerifiedTick from '../ui/VerifiedTick';
-import { MoreVertical, Pin, Trash2, Bell, Check, X } from 'lucide-react';
+import { MoreVertical, Pin, Trash2, Bell, Check, X, Users } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import MessageForwardModal from './MessageForwardModal';
@@ -63,6 +63,9 @@ export default function ChatList({
   const [reportDescription, setReportDescription] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'All' | 'Unread' | 'Groups' | 'VIP'>('All');
+
+  // Filter State
+  const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'Unread' | 'Groups'>('All');
 
   // Ref to trigger re-renders
   const [renderTrigger, setRenderTrigger] = useState(0);
@@ -310,7 +313,13 @@ export default function ChatList({
     </div>
   );
 
-  const sortedUsers = [...filteredUsers].sort((a, b) => {
+  const finalFilteredUsers = filteredUsers.filter(u => {
+    if (activeFilterTab === 'Unread') return (u.unreadCount ?? 0) > 0;
+    if (activeFilterTab === 'Groups') return u.isGroup === true;
+    return true;
+  });
+
+  const sortedUsers = [...finalFilteredUsers].sort((a, b) => {
     const aPinned = pinnedChats.has(a.id);
     const bPinned = pinnedChats.has(b.id);
     if (aPinned && !bPinned) return -1;
@@ -404,7 +413,13 @@ export default function ChatList({
                         {u.avatarUrl ? (
                           <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover rounded-full" />
                         ) : (
-                          <span className="text-white font-black text-xl">{u.avatarInitials}</span>
+                          u.isGroup ? (
+                              <div className="w-full h-full flex flex-wrap items-center justify-center bg-white/10 p-1">
+                                 <Users size={28} className="text-white/70" />
+                              </div>
+                          ) : (
+                              <span className="text-white font-black text-xl">{u.avatarInitials}</span>
+                          )
                         )}
                       </div>
                       {u.isOnline && (
