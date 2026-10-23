@@ -477,22 +477,31 @@ export default function ChatList({
                     ))}
                   </div>
                 </div>
-                <div>
-                  <label className="text-sm text-white/70 font-bold mb-2 block">Describe the issue in detail (optional)</label>
-                  <textarea
-                    value={reportDescription}
-                    onChange={(e) => setReportDescription(e.target.value)}
-                    maxLength={500}
-                    placeholder="Provide additional details..."
-                    className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-rose-500/50 min-h-[100px] resize-none"
-                  />
-                  <div className="text-right text-xs text-white/40 mt-1">{reportDescription.length}/500</div>
-                </div>
+                <AnimatePresence>
+                  {reportCategory === 'Other' && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden mt-4"
+                    >
+                      <label className="text-sm text-white/70 font-bold mb-2 block">Describe the issue in detail</label>
+                      <textarea
+                        value={reportDescription}
+                        onChange={(e) => setReportDescription(e.target.value)}
+                        placeholder="Provide additional details..."
+                        className="w-full mt-4 p-5 bg-[#0a0a0c] border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none resize-none transition-all shadow-inner h-32"
+                        maxLength={500}
+                      />
+                      <div className="text-right text-xs text-white/40 mt-1">{reportDescription.length}/500</div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/90 to-transparent z-[110]">
                 <button
                   onClick={handleReportUserSubmit}
-                  disabled={!reportCategory || isSubmittingReport}
+                  disabled={!reportCategory || isSubmittingReport || (reportCategory === 'Other' && !reportDescription.trim())}
                   className="bg-gradient-to-r from-red-600 to-rose-500 text-white font-bold rounded-full w-full py-4 shadow-[0_0_30px_rgba(225,29,72,0.5)] active:scale-95 transition-all disabled:opacity-50"
                 >
                   {isSubmittingReport ? 'Submitting...' : 'Submit Report'}
