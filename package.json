@@ -26,8 +26,10 @@
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.6.1",
     "countries-list": "^3.4.1",
+    "dotenv": "^18.0.9",
     "postcss": "^8.5.29",
     "tailwindcss": "^4.3.3",
+    "ts-node": "^10.9.2",
     "typescript": "^7.0.2"
   }
 }
