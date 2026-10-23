@@ -23,6 +23,7 @@ const StatusViewer = dynamic(() => import("../../components/status/StatusViewer"
 const ChatList = dynamic(() => import("./ChatList"), { ssr: false });
 const MessageForwardModal = dynamic(() => import("./MessageForwardModal"), { ssr: false });
 const CreateGroupModal = dynamic(() => import("./CreateGroupModal"), { ssr: false });
+const GroupInfoDrawer = dynamic(() => import("./GroupInfoDrawer"), { ssr: false });
 
 type Message = {
   id: string;
@@ -39,6 +40,8 @@ type Message = {
   isViewOnce?: boolean;
   viewedBy?: string[];
   isDeleted?: boolean;
+  isSystemMessage?: boolean;
+  systemEventType?: string;
   hiddenFor?: string[];
   messageType?: 'missed_call' | 'text' | 'image' | 'audio' | 'gift' | 'completed_call';
   duration?: string;
@@ -316,6 +319,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [isTierLockModalOpen, setIsTierLockModalOpen] = useState(false);
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isGroupInfoDrawerOpen, setIsGroupInfoDrawerOpen] = useState(false);
   const [activeGift, setActiveGift] = useState<{ id: string, icon: React.ReactNode } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -850,7 +854,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             return {
               id: msg.id,
               text,
-              sender: msg.sender_id === user.id ? 'user' : 'other',
+              sender:
+ msg.sender_id === user.id ? 'user' : 'other',
               timestamp: new Date(msg.created_at),
               reactions: [],
               status: msg.status || 'read',
@@ -858,7 +863,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               audioUrl: msg.audio_url,
               replyToId,
               replyToSender,
-              replyToText
+              replyToText,
+              isSystemMessage: msg.is_system_message || false,
+              systemEventType: msg.system_event_type || null
             };
           });
 
@@ -1806,7 +1813,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             />
           </div>
         </div>
-      </AppShell>
+
+      {currentOtherUserProfile?.isGroup && user?.id && (
+         <GroupInfoDrawer
+           isOpen={isGroupInfoDrawerOpen}
+           onClose={() => setIsGroupInfoDrawerOpen(false)}
+           groupId={currentOtherUserProfile.id}
+           groupName={currentOtherUserProfile.name}
+           groupAvatar={currentOtherUserProfile.avatarUrl}
+           currentUserId={user.id}
+           onGroupUpdated={() => {
+              // Optionally trigger a chat list refresh if needed, for now just close
+           }}
+         />
+      )}
+    </AppShell>
     );
   }
 
@@ -2038,7 +2059,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
              )}
            </div>
         </div>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openProfile(currentOtherUserProfile)}>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { if ((currentOtherUserProfile as any).isGroup) setIsGroupInfoDrawerOpen(true); else openProfile(currentOtherUserProfile); }}>
           <div className="flex items-center">
             <h1 className={`text-base leading-tight truncate drop-shadow-sm mr-2 ${
               currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
@@ -2151,7 +2172,19 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div className="absolute inset-0 bg-black/40 pointer-events-none z-0"></div>
 
         {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
+
+          if (message.isSystemMessage) {
+              return (
+                  <div key={message.id} className="w-full flex justify-center my-4">
+                      <div className="px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/5 text-[11px] font-bold text-white/70 shadow-sm text-center max-w-[80%] break-words">
+                          {message.text}
+                      </div>
+                  </div>
+              );
+          }
+
           const isUser = message.sender === 'user';
+
           const isTrayOpen = activeReactionId === message.id;
 
           if (message.isDeleted) {
