@@ -1608,8 +1608,27 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     return allViewed ? 'status-ring-viewed' : 'status-ring-active';
   };
 
-    const handleStatusClick = (groupId: string, statuses: any[], profile: any) => {
-    setViewingStatuses({ groupId, statuses, profile });
+    const handleStatusClick = async (groupId: string, statuses: any[], profile: any) => {
+    // If called from ChatList with empty statuses, fetch them here
+    if (statuses.length === 0) {
+       try {
+         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+         const { data, error } = await supabase
+           .from('statuses')
+           .select('*')
+           .eq('user_id', groupId)
+           .gt('created_at', twentyFourHoursAgo)
+           .order('created_at', { ascending: true });
+
+         if (data && !error) {
+             setViewingStatuses({ groupId, statuses: data, profile });
+         }
+       } catch (err) {
+         console.error("Failed to fetch statuses for viewer", err);
+       }
+    } else {
+       setViewingStatuses({ groupId, statuses, profile });
+    }
   };
 
   if (needsVerification) {
@@ -1666,6 +1685,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   setOtherUserProfile={setOtherUserProfile}
                   isLoading={isChatsLoading}
                   fetchError={chatsFetchError}
+                  onStatusClick={handleStatusClick}
+                  activeStatusUsers={activeStatusUsers}
+                  userStatusMap={userStatusMap}
                 />
                 <button
                    onClick={() => setIsGroupModalOpen(true)}
