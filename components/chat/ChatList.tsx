@@ -363,11 +363,11 @@ export default function ChatList({
               {/* Left: Avatar */}
               <div className="pointer-events-none contents">
               <div className={`relative w-[60px] h-[60px] rounded-full flex-shrink-0 flex items-center justify-center shadow-lg ${
-                u.tier?.toUpperCase() === 'PREMIUM' ? 'p-[2px]' :
-                u.tier?.toUpperCase() === 'PRO' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
+                u.tier?.toLowerCase() === 'premium' ? 'p-[2px]' :
+                u.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
                 'border border-white/10 p-1 bg-white/5'
               } ${getStatusRingClass(u.id)}`}>
-                {u.tier?.toUpperCase() === 'PREMIUM' && (
+                {u.tier?.toLowerCase() === 'premium' && (
                   <div className="absolute inset-[-2px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
                 )}
                 <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
@@ -386,14 +386,14 @@ export default function ChatList({
               <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center">
                 <div className="flex items-center space-x-1">
                   <h3 className={`text-base truncate drop-shadow-sm flex items-center ${
-                    u.tier?.toUpperCase() === 'PREMIUM' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
-                    u.tier?.toUpperCase() === 'PRO' ? 'text-amber-400 font-bold' :
+                    u.tier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
+                    u.tier?.toLowerCase() === 'pro' ? 'text-amber-400 font-bold' :
                     'text-neutral-200 font-bold'
                   }`}>
                     {u.name}
                     {u.isVerified && <VerifiedTick />}
                   </h3>
-                  {u.tier?.toUpperCase() === 'PREMIUM' && (
+                  {u.tier?.toLowerCase() === 'premium' && (
                     <span className="text-[8px] bg-gradient-to-r from-yellow-400 to-amber-500 text-black px-1 rounded-full font-extrabold shadow-[0_0_5px_rgba(251,191,36,0.5)] flex-shrink-0">
                       VIP
                     </span>
