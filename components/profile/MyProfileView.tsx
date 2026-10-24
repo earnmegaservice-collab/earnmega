@@ -254,9 +254,12 @@ export default function MyProfileView({
     displayPhotos.push('');
   }
 
-  return (
-    <div className="w-full pb-10 space-y-6 pt-4">
+    // All attributes dynamic array
+  const allAnswers = Object.entries(liveProfile?.attributes || {}).filter(([_, val]) => val !== null && val !== '');
+  const username = mappedProfile.name;
 
+  return (
+    <div className="w-full pb-10 space-y-6 overflow-x-hidden pt-0">
       <input
         type="file"
         ref={fileInputRef}
@@ -265,11 +268,62 @@ export default function MyProfileView({
         onChange={handlePhotoUpload}
       />
 
-      <div className="space-y-1.5 px-4">
-        <div className="grid grid-cols-3 gap-1.5 w-full rounded-3xl overflow-hidden p-1 bg-white/[0.02] border border-white/10 backdrop-blur-2xl">
+      {/* 1. THE VIEWPORT BREAKOUT HERO (EDGE-TO-EDGE) */}
+      <div className="relative w-[100vw] left-1/2 -translate-x-1/2 h-[55vh] -mt-4">
+        {displayPhotos[0] ? (
+          <motion.img
+            src={displayPhotos[0]}
+            className="absolute inset-0 w-full h-full object-cover z-0"
+            initial={{ scale: 1.05 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 1.2, ease: "easeOut" }}
+          />
+        ) : (
+          <div className="absolute inset-0 w-full h-full bg-slate-900 flex items-center justify-center z-0">
+             <span className="text-6xl font-bold text-white/20">No Image</span>
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#020202] via-[#020202]/60 to-transparent z-10" />
+        <div className="absolute bottom-6 left-0 w-full px-6 z-20 flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+             <h1 className="text-5xl md:text-6xl font-black text-white tracking-tighter drop-shadow-[0_10px_20px_rgba(0,0,0,0.9)]">{username}</h1>
+             {mappedProfile.isVerified && <VerifiedTick />}
+          </div>
+          {mappedProfile.location && (
+            <div className="flex items-center gap-1.5 text-white/90 font-medium mt-2">
+               <MapPin size={16} className="text-rose-400" />
+               <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400 font-bold">{mappedProfile.location}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Floating Action Buttons */}
+        <div className="absolute top-4 right-6 z-30 flex items-center gap-3">
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="backdrop-blur-xl bg-black/40 ring-1 ring-white/20 rounded-full p-2.5 transition active:scale-95 text-white"
+          >
+            <Settings size={18} />
+          </button>
+          <button
+            disabled={isSaving}
+            onClick={isEditing ? handleSaveProfile : () => setIsEditing(true)}
+            className={`backdrop-blur-xl bg-black/40 ring-1 ring-white/20 rounded-full px-4 py-2 text-xs font-bold transition active:scale-95 ${
+              isEditing ? 'bg-emerald-500/20 ring-emerald-500/50 text-emerald-400 animate-pulse' : 'text-white'
+            }`}
+          >
+            {isEditing ? (isSaving ? 'Saving...' : 'Save') : 'Edit Profile'}
+          </button>
+        </div>
+      </div>
+
+      {/* 3. THE 6-IMAGE CINEMATIC VAULT */}
+      <div className="mx-6 mt-8 mb-6 p-[1px] rounded-[24px] bg-gradient-to-br from-fuchsia-600/50 via-transparent to-cyan-600/50">
+        <div className="bg-[#050505] rounded-[23px] p-4 grid grid-cols-3 gap-2">
           {displayPhotos.slice(0, 6).map((imgUrl, index) => (
-            <div
+            <motion.div
               key={index}
+              whileTap={{ scale: 0.93 }}
               onClick={() => {
                 if (isEditing) {
                     setSelectedSlotIndex(index);
@@ -278,7 +332,7 @@ export default function MyProfileView({
                     setFullscreenImage(imgUrl);
                 }
               }}
-              className="relative aspect-[3/4] bg-white/[0.04] rounded-2xl overflow-hidden cursor-pointer group border border-white/[0.05]"
+              className="aspect-[4/5] rounded-xl overflow-hidden ring-1 ring-white/10 relative group shadow-[inset_0_0_10px_rgba(255,255,255,0.2)] cursor-pointer"
             >
               {isUploading && selectedSlotIndex === index ? (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-black/40">
@@ -307,9 +361,10 @@ export default function MyProfileView({
                       <span className="text-white text-[9px] font-bold mt-1">Update</span>
                     </div>
                   )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-white/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                 </>
               ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center bg-black/20 group-hover:bg-white/5 transition-colors cursor-pointer" onClick={(e) => {
+                <div className="w-full h-full flex flex-col items-center justify-center bg-black/20 group-hover:bg-white/5 transition-colors" onClick={(e) => {
                   e.stopPropagation();
                   setSelectedSlotIndex(index);
                   setIsEditing(true);
@@ -323,61 +378,13 @@ export default function MyProfileView({
                   </motion.div>
                 </div>
               )}
-            </div>
+            </motion.div>
           ))}
         </div>
-        <p className="text-[10px] text-center text-white/40 tracking-wider">TAP ANY PHOTO TO EXPAND IN 4K</p>
       </div>
 
-      <div className="px-6 space-y-2">
-        <div className="flex items-start justify-between">
-          <div className="flex flex-col space-y-1">
-            <div className="flex items-center space-x-2">
-              <h2 className="text-2xl font-black text-white tracking-tight">{mappedProfile.name}</h2>
-              {mappedProfile.isVerified && <VerifiedTick />}
-            </div>
-            <div>
-              {mappedProfile.ghost_mode ? (
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
-                  <span className="text-xs font-bold text-white/80">Ghost Mode Active 👻</span>
-                </div>
-              ) : mappedProfile.is_location_active && mappedProfile.location_city ? (
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full backdrop-blur-md">
-                  <motion.div animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-                  <span className="text-xs font-bold text-white/90">{mappedProfile.location_city}, {mappedProfile.location_country}</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2 mt-1">
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 transition active:scale-95 text-white"
-            >
-              <Settings size={16} />
-            </button>
-            <button
-              disabled={isSaving}
-              onClick={isEditing ? handleSaveProfile : () => setIsEditing(true)}
-              className={`px-4 py-1.5 rounded-full border text-xs font-bold transition active:scale-95 ${
-                isEditing
-                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/50 text-emerald-400 animate-pulse'
-                  : 'bg-white/10 hover:bg-white/20 border-white/20 text-white'
-              }`}
-            >
-              {isEditing ? (isSaving ? 'Saving...' : 'Save Profile') : 'Edit'}
-            </button>
-          </div>
-        </div>
-
-        {mappedProfile.location && (
-          <div className="flex items-center space-x-1.5 text-xs text-white/60">
-            <MapPin className="w-3.5 h-3.5 text-rose-400" />
-            <span>{mappedProfile.location}</span>
-          </div>
-        )}
-
+      {/* Bio / Description */}
+      <div className="px-6 relative z-20 mt-6">
         {isEditing ? (
           <textarea
             value={editForm.bio !== undefined ? editForm.bio : mappedProfile.bio}
@@ -387,13 +394,16 @@ export default function MyProfileView({
             placeholder="Write your neural bio..."
           />
         ) : mappedProfile.bio ? (
-          <p className="text-xs text-white/80 leading-relaxed pt-1 font-light">
-            {mappedProfile.bio}
-          </p>
+           <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-6 shadow-2xl relative overflow-hidden backdrop-blur-3xl">
+              <span className="text-[10px] text-fuchsia-400 font-bold uppercase tracking-widest mb-3 block">About Me</span>
+              <p className="text-xl font-medium text-slate-100 leading-relaxed tracking-wide">
+                  {mappedProfile.bio}
+              </p>
+           </div>
         ) : null}
       </div>
 
-      <div className="px-6 space-y-3">
+      <div className="px-6 space-y-3 mt-6">
         <h4 className="text-[11px] font-bold uppercase tracking-wider text-white/40">Attributes & Lifestyle</h4>
         {isEditing ? (
           <div className="flex flex-wrap gap-2">
@@ -467,64 +477,22 @@ export default function MyProfileView({
             </div>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {mappedProfile.gender && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)]">
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.gender}</span>
-              </div>
-            )}
-            {mappedProfile.location && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
-                <MapPin className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.location}</span>
-              </div>
-            )}
-            {mappedProfile.intent && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
-                <Sparkles className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.intent}</span>
-              </div>
-            )}
-            {mappedProfile.vibe && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)]">
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.vibe}</span>
-              </div>
-            )}
-            {mappedProfile.zodiac && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">♈ {mappedProfile.zodiac}</span>
-              </div>
-            )}
-            {mappedProfile.education && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
-                <GraduationCap className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.education}</span>
-              </div>
-            )}
-            {mappedProfile.job && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
-                <Briefcase className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.job}</span>
-              </div>
-            )}
-            {mappedProfile.hobbies && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)]">
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.hobbies}</span>
-              </div>
-            )}
-            {mappedProfile.communicationStyle && (
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
-                <MessageSquare className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{mappedProfile.communicationStyle}</span>
-              </div>
-            )}
-            {mappedProfile.languages?.map((lang, idx) => (
-              <div key={idx} className="flex items-center px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/10 hover:bg-white/[0.1] hover:border-emerald-500/30 transition-all cursor-default shadow-[0_0_10px_rgba(0,0,0,0.2)] space-x-1.5">
-                <Globe className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400 text-xs font-bold drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]">{lang.trim()}</span>
-              </div>
-            ))}
-          </div>
+          allAnswers.length > 0 ? (
+            <div className="flex overflow-x-auto gap-3 py-2 hide-scrollbar snap-x snap-mandatory" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', marginLeft: '-24px', paddingLeft: '24px', marginRight: '-24px', paddingRight: '24px' }}>
+                <style jsx>{`
+                    .hide-scrollbar::-webkit-scrollbar {
+                        display: none;
+                    }
+                `}</style>
+                {allAnswers.map(([key, val], idx) => (
+                    <div key={idx} className="snap-start flex-shrink-0 px-5 py-2.5 rounded-full bg-white/10 backdrop-blur-3xl border border-white/20 shadow-[0_0_20px_rgba(255,255,255,0.05)] hover:bg-white/20 transition-all text-white font-bold text-sm tracking-wide">
+                        {String(val)}
+                    </div>
+                ))}
+            </div>
+          ) : (
+            <div className="text-white/40 text-sm">No attributes set</div>
+          )
         )}
       </div>
 
