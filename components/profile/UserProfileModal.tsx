@@ -117,17 +117,16 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
       photos = [fullProfile.avatar_url];
   }
 
-  // Gather tags
+  // Gather tags (Dynamic Attribute Mapping)
   const tags: string[] = [];
 
-  // Map through ALL available demographic, attribute, and lifestyle fields
   const ignoredKeys = ['id', 'user_id', 'created_at', 'updated_at', 'avatar_url', 'publicImages', 'profile_images', 'name', 'username', 'email', 'tier', 'bio', 'prompt_1_q', 'prompt_1_a', 'prompt_2_q', 'prompt_2_a', 'prompt_3_q', 'prompt_3_a', 'is_verified', 'is_location_active', 'location_city', 'location_country', 'coins_gifted', 'ghost_mode', 'last_seen'];
+
   if (fullProfile) {
      for (const [key, value] of Object.entries(fullProfile)) {
         if (ignoredKeys.includes(key)) continue;
         if (!value) continue;
         if (typeof value === 'string' || typeof value === 'number') {
-           // Some special cases for formatting
            if (key === 'intent') tags.push(`Looking for ${value}`);
            else if (key === 'zodiac_sign' || key === 'zodiac') tags.push(`♈ ${value}`);
            else if (key === 'hobbies' || key === 'languages_spoken') {
@@ -142,91 +141,124 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
      }
   }
 
-  // Deduplicate tags
+  // Dynamic mapping of attributes object if it exists (from instructions)
+  if (fullProfile?.attributes) {
+      const allAttributes = Object.entries(fullProfile.attributes || {}).filter(([key, val]) => val !== null && val !== '');
+      for (const [key, val] of allAttributes) {
+         if (typeof val === 'string' || typeof val === 'number') {
+             tags.push(String(val));
+         }
+      }
+  }
+
   const uniqueTags = Array.from(new Set(tags));
 
   return (
     <AnimatePresence>
       {isOpen && user && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[9999] bg-[#050505] overflow-y-auto overflow-x-hidden">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[9999] bg-[#020202] overflow-y-auto overflow-x-hidden">
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="relative min-h-[150vh] w-full flex flex-col"
+            className="relative min-h-[150vh] w-full flex flex-col pb-20"
           >
-            {/* 1. HERO HEADER */}
-            <div className="relative h-[40dvh] w-full shrink-0">
+            {/* Close Button */}
+            <button
+               onClick={onClose}
+               className="absolute top-6 right-6 w-10 h-10 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur-xl transition-colors z-[100] shadow-lg"
+            >
+               <X size={20} strokeWidth={2.5} />
+            </button>
+
+            {/* 1. THE EDGE-TO-EDGE "AURA" HERO */}
+            <div className="relative w-full h-[55vh] flex-shrink-0">
                {photos.length > 0 ? (
-                  <img src={photos[0]} alt={user.name} className="absolute inset-0 w-full h-full object-cover" />
+                  <motion.img
+                     src={photos[0]}
+                     className="absolute inset-0 w-full h-full object-cover z-0"
+                     initial={{ scale: 1.1 }}
+                     animate={{ scale: 1 }}
+                     transition={{ duration: 1.5, ease: "easeOut" }}
+                  />
                ) : (
-                  <div className="absolute inset-0 w-full h-full bg-slate-900 flex items-center justify-center">
+                  <div className="absolute inset-0 w-full h-full bg-slate-900 flex items-center justify-center z-0">
                      <span className="text-6xl font-bold text-white/20">{user.avatarInitials}</span>
                   </div>
                )}
-               {/* Heavy gradient fade into background */}
-               <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/80 to-transparent" />
+               {/* The Vantablack Fade */}
+               <div className="absolute inset-0 bg-gradient-to-t from-[#020202] via-[#020202]/60 to-transparent z-10" />
 
-               {/* Close Button */}
-               <button
-                  onClick={onClose}
-                  className="absolute top-6 right-6 w-10 h-10 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur-xl transition-colors z-50 pointer-events-auto shadow-lg"
-               >
-                  <X size={20} strokeWidth={2.5} />
-               </button>
-
-               {/* Overlapping Info */}
-               <div className="absolute bottom-6 left-0 right-0 px-6 z-20 pointer-events-none">
-                  <div className="flex items-center gap-3 drop-shadow-2xl">
-                     <h2 className="text-4xl font-extrabold tracking-tight text-white">{user.name}{fullProfile?.age ? `, ${fullProfile.age}` : ''}</h2>
+               {/* The Identity Lockup */}
+               <div className="absolute bottom-6 left-0 w-full px-6 z-20">
+                  <div className="flex items-center gap-3">
+                     <h1 className="text-5xl font-black text-white tracking-tighter drop-shadow-[0_10px_20px_rgba(0,0,0,0.9)]">
+                        {user.name}
+                     </h1>
                      {user.isVerified && (
-                        <div className="text-blue-400">
-                          <CheckCircle size={24} className="fill-blue-500 text-white" />
-                        </div>
+                        <CheckCircle size={28} className="fill-blue-500 text-white drop-shadow-[0_10px_20px_rgba(0,0,0,0.9)]" />
                      )}
                   </div>
+               </div>
+            </div>
+
+            {/* 2. THE FLOATING "BLACK CARD" */}
+            <div className="mx-6 -mt-8 relative z-30 flex items-center justify-between p-5 rounded-2xl bg-white/5 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.7)]">
+               <div className="flex flex-col">
                   {fullProfile?.location && (
-                     <div className="flex items-center gap-1.5 text-white/90 font-medium drop-shadow-md mt-2">
+                     <div className="flex items-center gap-1.5 text-white/90 font-medium">
                         <MapPin size={16} className="text-rose-400" />
-                        <span className="text-sm">{fullProfile.location}</span>
+                        <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400 font-bold">{fullProfile.location}</span>
                      </div>
                   )}
+                  {fullProfile?.age && (
+                     <span className="text-sm bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400 font-medium mt-1">
+                        Age {fullProfile.age}
+                     </span>
+                  )}
+               </div>
+               <div className="flex flex-col items-end">
                   {isPremium && (
-                      <div className="mt-3 inline-block px-4 py-1.5 rounded-full bg-gradient-to-r from-yellow-400 to-amber-500 text-black text-xs font-black uppercase tracking-widest shadow-[0_0_15px_rgba(251,191,36,0.4)]">
-                        VIP Member
+                      <div className="inline-block px-4 py-1.5 rounded-full bg-gradient-to-r from-yellow-400 to-amber-500 text-black text-xs font-black uppercase tracking-widest shadow-[0_0_15px_rgba(251,191,36,0.4)]">
+                        VIP
                       </div>
                   )}
                   {!isPremium && user.tier === 'PRO' && (
-                      <div className="mt-3 inline-block px-4 py-1.5 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-black uppercase tracking-widest backdrop-blur-sm">
-                        PRO Member
+                      <div className="inline-block px-4 py-1.5 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-300 text-xs font-black uppercase tracking-widest backdrop-blur-sm">
+                        PRO
+                      </div>
+                  )}
+                  {user.isOnline && (
+                      <div className="flex items-center gap-1.5 mt-2">
+                          <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
+                          <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Online</span>
                       </div>
                   )}
                </div>
             </div>
 
-            {/* 2. GLOWING MEDIA GALLERY */}
+            {/* 3. THE 6-IMAGE CINEMATIC VAULT */}
             {photos.length > 1 && (
-               <div className="px-6 py-8">
-                  <h3 className="text-xs font-bold text-white/40 uppercase tracking-widest mb-4">Gallery</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+               <div className="mx-6 mt-8 p-[1px] rounded-3xl bg-gradient-to-br from-fuchsia-600/40 via-transparent to-cyan-600/40">
+                  <div className="bg-[#020202] rounded-[23px] p-4 grid grid-cols-3 gap-2">
                      {photos.map((photo: string, idx: number) => (
-                        <div key={idx} className="p-[1px] rounded-2xl bg-gradient-to-br from-fuchsia-500/40 via-transparent to-cyan-500/40 shadow-lg">
-                           <motion.div
-                              whileTap={{ scale: 0.98 }}
-                              className="w-full aspect-[3/4] bg-[#050505] rounded-2xl overflow-hidden cursor-pointer"
-                           >
-                              <img src={photo} className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity" alt="Gallery image" />
-                           </motion.div>
-                        </div>
+                        <motion.div
+                           key={idx}
+                           whileTap={{ scale: 0.93 }}
+                           className="aspect-[4/5] rounded-xl overflow-hidden ring-1 ring-white/10 shadow-inner relative group cursor-pointer"
+                        >
+                           <img src={photo} className="w-full h-full object-cover" alt="Vault image" />
+                           <div className="absolute inset-0 bg-gradient-to-t from-white/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                           <div className="absolute bottom-0 left-0 w-full h-[20%] bg-gradient-to-t from-white to-transparent opacity-0 group-hover:opacity-10 transition-opacity" />
+                        </motion.div>
                      ))}
                   </div>
                </div>
             )}
 
-            {/* 3. LUXURY ATTRIBUTES & BIO */}
-            <div className="px-6 pb-20 flex flex-col gap-8 pt-4">
-
+            {/* 4. LUXURY ATTRIBUTES & BIO */}
+            <div className="px-6 pt-8 flex flex-col gap-8">
                 {user.bio && (
                    <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-6 shadow-2xl relative overflow-hidden backdrop-blur-3xl">
                       <span className="text-[10px] text-fuchsia-400 font-bold uppercase tracking-widest mb-3 block">About Me</span>
@@ -237,21 +269,44 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
                 )}
 
                 {uniqueTags.length > 0 && (
-                   <div>
+                   <motion.div
+                      initial="hidden"
+                      whileInView="visible"
+                      viewport={{ once: true, amount: 0.2 }}
+                      variants={{
+                         hidden: { opacity: 0 },
+                         visible: {
+                            opacity: 1,
+                            transition: { staggerChildren: 0.1 }
+                         }
+                      }}
+                   >
                       <h3 className="text-xs font-bold text-white/40 uppercase tracking-widest mb-4">Attributes</h3>
-                      <div className="flex flex-wrap gap-3 overflow-x-auto hide-scrollbar pb-2 [mask-image:linear-gradient(to_right,black_80%,transparent)]">
+                      <div className="flex overflow-x-auto gap-3 px-6 pb-6 hide-scrollbar snap-x snap-mandatory mask-image-linear-edges" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                          <style jsx>{`
+                              .hide-scrollbar::-webkit-scrollbar {
+                                  display: none;
+                              }
+                          `}</style>
                           {uniqueTags.map((tag, idx) => (
-                              <div key={idx} className="px-4 py-2 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 text-sm font-medium text-white/90 shadow-[0_0_15px_rgba(255,255,255,0.05)] whitespace-nowrap">
-                                  {tag}
-                              </div>
+                              <motion.div
+                                 key={idx}
+                                 variants={{
+                                    hidden: { opacity: 0, y: 20 },
+                                    visible: { opacity: 1, y: 0, transition: { type: 'spring', damping: 20, stiffness: 200 } }
+                                 }}
+                                 className="snap-start flex-shrink-0 px-6 py-3 rounded-full bg-[#0a0a0a]/80 backdrop-blur-xl border border-white/10 shadow-[0_0_15px_rgba(255,255,255,0.04)] hover:border-fuchsia-500/50 transition-colors"
+                              >
+                                  <span className="text-white/95 font-bold text-sm tracking-wide">{tag}</span>
+                              </motion.div>
                           ))}
                       </div>
-                   </div>
+                   </motion.div>
                 )}
 
                 {/* Deep Prompts */}
                 {fullProfile?.prompt_1_a && (
-                    <div className="bg-gradient-to-br from-indigo-900/20 to-purple-900/20 border border-purple-500/10 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(139,92,246,0.05)]">
+                    <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(255,255,255,0.05)]">
                       <span className="text-[10px] text-purple-400 font-bold uppercase tracking-widest mb-3 block">{fullProfile.prompt_1_q || "Prompt 1"}</span>
                       <p className="text-lg font-medium text-white/90 leading-relaxed">
                         {fullProfile.prompt_1_a}
@@ -260,7 +315,7 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
                 )}
 
                 {fullProfile?.prompt_2_a && (
-                    <div className="bg-gradient-to-br from-rose-900/20 to-pink-900/20 border border-pink-500/10 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(244,63,94,0.05)]">
+                    <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(255,255,255,0.05)]">
                       <span className="text-[10px] text-pink-400 font-bold uppercase tracking-widest mb-3 block">{fullProfile.prompt_2_q || "Prompt 2"}</span>
                       <p className="text-lg font-medium text-white/90 leading-relaxed">
                         {fullProfile.prompt_2_a}
