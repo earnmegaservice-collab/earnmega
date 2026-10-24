@@ -23,6 +23,7 @@ export interface UserProfileDetails {
   unreadCount?: number;
   lastMessageTime?: number;
   isGroup?: boolean;
+  is_bot?: boolean;
 }
 
 interface UserProfileModalProps {

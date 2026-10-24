@@ -337,6 +337,15 @@ export default function ChatList({
             // STRICT FAKE PREMIUM TAG NUKE
             const isPremiumUser = u.tier?.toLowerCase() === 'premium' || u.tier?.toLowerCase() === 'pro';
 
+            // UNIFIED BOT IDENTITY
+            let displayName = u.name;
+            if (u.is_bot) {
+                const storedBotName = typeof window !== 'undefined' ? localStorage.getItem(`bot_name_${u.id}`) : null;
+                if (storedBotName) {
+                    displayName = storedBotName;
+                }
+            }
+
             return (
               <motion.div
                 layout
@@ -431,9 +440,10 @@ export default function ChatList({
                   <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center pointer-events-none">
                     <div className="flex items-center space-x-2">
                       <h3 className={`text-[15px] truncate flex items-center ${
+                        u.is_bot ? 'bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 drop-shadow-[0_0_10px_rgba(232,121,249,0.8)] font-extrabold' :
                         isPremiumUser ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent font-black drop-shadow-md' : 'text-white font-bold'
                       }`}>
-                        {u.name}
+                        {displayName}
                         {u.isVerified && <VerifiedTick />}
                       </h3>
                       {/* NUKE FAKE PREMIUM TAGS: strictly check isPremiumUser boolean */}
@@ -444,7 +454,7 @@ export default function ChatList({
                       ) : null}
                     </div>
                     <p className="text-[13px] text-white/50 truncate mt-1 font-medium">
-                      Tap to chat with {u.name}
+                      Tap to chat with {displayName}
                     </p>
                   </div>
 
