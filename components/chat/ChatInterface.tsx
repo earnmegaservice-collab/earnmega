@@ -670,14 +670,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   useEffect(() => {
     if (!user) return;
     const channelId = `chat-updates-${Date.now()}`;
+    // Using a more complex filter with postgres_changes isn't natively supported for full .or() strings via realtime filter param natively (it only supports simple eq).
+    // We filter inside the callback to emulate the exact strict `or` condition for isolation.
     const channel = supabase.channel(channelId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload: any) => {
           if (payload.new) {
-              const otherId = payload.new.sender_id === user.id ? payload.new.receiver_id : payload.new.sender_id;
+              const msg = payload.new;
+              const otherId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
               if (otherId && blockedUserIdsRef.current.has(otherId)) return;
-          }
-          if (payload.new && (payload.new.receiver_id === user.id || payload.new.sender_id === user.id || payload.new.room_id)) {
-              setRefreshChatsKey(prev => prev + 1);
+
+              // Strict isolation check to prevent data bleed from other bot chats
+              // Only refresh if the message involves the current user and the current viewing profile (if not a group)
+              const isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id || msg.room_id;
+
+              if (isRelevant) {
+                  setRefreshChatsKey(prev => prev + 1);
+              }
           }
       })
       .subscribe();
@@ -998,7 +1006,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       })
       .on('broadcast', { event: 'new_message' }, async (payload) => {
         if (payload.payload.senderId && blockedUserIdsRef.current.has(payload.payload.senderId)) return;
-        if (payload.payload.receiverId === currentUserProfile?.id || (payload.payload.roomId && Array.from(exploreUsers).some((u: any) => u.isGroup && u.id === payload.payload.roomId))) {
+
+        const isToMe = payload.payload.receiverId === currentUserProfile?.id;
+        const isFromOtherToMe = isToMe && payload.payload.senderId === currentOtherUserProfile?.id;
+        const isGroupMatch = payload.payload.roomId && currentOtherUserProfile?.id === payload.payload.roomId;
+
+        // Strict isolation check to prevent cross-contamination from other chats/bots
+        // We only append to the active message list if it exactly matches our current active 1-on-1 or group.
+        if (isFromOtherToMe || isGroupMatch || (isToMe && !currentOtherUserProfile)) {
           // Fetch the message from DB to get full details
           const { data, error } = await supabase
              .from('messages')
@@ -1358,6 +1373,28 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             roomId: (currentOtherUserProfile as any).isGroup ? currentOtherUserProfile.id : undefined
          }
       });
+
+      if (currentOtherUserProfile.is_bot) {
+        try {
+          const pastMessagesForAI = messages.slice(-10).map(m => ({
+            role: m.sender === 'user' ? 'user' : 'assistant',
+            content: m.text
+          }));
+          pastMessagesForAI.push({ role: 'user', content: finalContentToSave });
+
+          fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: pastMessagesForAI,
+              sender_id: user.id,
+              receiver_id: currentOtherUserProfile.id
+            })
+          }).catch(err => console.error("AI trigger failed", err));
+        } catch (e) {
+          console.error("Failed to call AI endpoint", e);
+        }
+      }
 
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -2095,10 +2132,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { if ((currentOtherUserProfile as any).isGroup) setIsGroupInfoDrawerOpen(true); else openProfile(currentOtherUserProfile); }}>
           <div className="flex items-center">
             <h1 className={`text-base leading-tight truncate drop-shadow-sm mr-2 ${
+              currentOtherUserProfile.is_bot ? 'bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 drop-shadow-[0_0_10px_rgba(232,121,249,0.8)] font-extrabold' :
               currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
               currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'text-amber-400 font-bold' :
               'text-neutral-200 font-bold'
-            }`}>{currentOtherUserProfile.name}</h1>
+            }`}>
+              {currentOtherUserProfile.is_bot && typeof window !== 'undefined' && localStorage.getItem(`bot_name_${currentOtherUserProfile.id}`) ? localStorage.getItem(`bot_name_${currentOtherUserProfile.id}`) : currentOtherUserProfile.name}
+            </h1>
             {currentOtherUserProfile.isVerified && <VerifiedBadge />}
             {currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
                <motion.span
@@ -2199,8 +2239,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       {/* Messages Area */}
       <main
         ref={scrollContainerRef}
-        className={`flex-1 overflow-y-auto p-4 space-y-6 relative z-10 w-full ${activeWallpaper.startsWith('bg-') ? activeWallpaper : 'bg-cover bg-center'}`}
-        style={activeWallpaper.startsWith('url') ? { backgroundImage: activeWallpaper } : {}}
+        className={`flex-1 overflow-y-auto p-4 space-y-6 relative z-10 w-full ${
+          currentOtherUserProfile.is_bot ? 'bg-[linear-gradient(45deg,#020617,#312e81,#4c1d95,#000000)] bg-[length:400%_400%] animate-[gradient_8s_ease_infinite]' :
+          activeWallpaper.startsWith('bg-') ? activeWallpaper : 'bg-cover bg-center'
+        }`}
+        style={currentOtherUserProfile.is_bot ? {} : activeWallpaper.startsWith('url') ? { backgroundImage: activeWallpaper } : {}}
       >
         <div className="absolute inset-0 bg-black/40 pointer-events-none z-0"></div>
 
@@ -2381,6 +2424,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     className={`px-4 py-2.5 relative transition-all duration-200 cursor-pointer ${
                       isUser
                         ? 'bg-white/10 hover:bg-white/20 backdrop-blur-xl border border-amber-500/20 text-white rounded-2xl rounded-tr-sm shadow-[0_8px_32px_rgba(0,0,0,0.37)]'
+                        : currentOtherUserProfile.is_bot
+                        ? 'bg-white/10 backdrop-blur-2xl border border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.05)] rounded-2xl rounded-tl-sm text-gray-100'
                         : 'bg-white/5 hover:bg-white/10 backdrop-blur-2xl text-gray-100 border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.3)] rounded-2xl rounded-tl-sm'
                     } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
@@ -2661,7 +2706,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 <Mic size={20} />
               )}
             </motion.button>
-            {!(currentOtherUserProfile as any)?.isGroup && (
+            {!(currentOtherUserProfile as any)?.isGroup && !currentOtherUserProfile.is_bot && (
             <motion.button
               whileTap={{ scale: 0.9 }}
               type="button"
