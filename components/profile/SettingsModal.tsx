@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
-import { X, ExternalLink, LogOut, Trash2 } from 'lucide-react';
+import { X, ExternalLink, LogOut, Trash2, ArrowLeft, Mail, MessageCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface SettingsModalProps {
@@ -17,8 +17,10 @@ interface SettingsModalProps {
 export default function SettingsModal({ isOpen, onClose, userProfile, onProfileUpdated }: SettingsModalProps) {
   const { user } = useAuth();
   const [ghostMode, setGhostMode] = useState(false);
-  const [hapticFeedback, setHapticFeedback] = useState(false);
-  const [pushNotifications, setPushNotifications] = useState(false);
+  const [hapticFeedback, setHapticFeedback] = useState(true);
+  const [pushNotifications, setPushNotifications] = useState(true);
+  const [minAge, setMinAge] = useState(18);
+  const [maxAge, setMaxAge] = useState(100);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showBlockedUsers, setShowBlockedUsers] = useState(false);
@@ -28,48 +30,87 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
 
   useEffect(() => {
     if (userProfile) {
-      setGhostMode(userProfile.ghost_mode || false);
+      setGhostMode(userProfile.ghost_mode ?? false);
+      setHapticFeedback(userProfile.haptic_feedback ?? true);
+      setPushNotifications(userProfile.push_notifications ?? true);
+      setMinAge(userProfile.min_age ?? 18);
+      setMaxAge(userProfile.max_age ?? 100);
     }
   }, [userProfile]);
 
+  useEffect(() => {
+    const timeoutId = setTimeout(async () => {
+      if (!userProfile) return;
+      if (minAge === (userProfile.min_age ?? 18) && maxAge === (userProfile.max_age ?? 100)) return;
+      try {
+        await supabase.from('profiles').update({ min_age: minAge, max_age: maxAge }).eq('id', userProfile.id);
+        if (onProfileUpdated) onProfileUpdated();
+      } catch (error) {
+        console.error('Failed to update age preferences', error);
+      }
+    }, 800);
+    return () => clearTimeout(timeoutId);
+  }, [minAge, maxAge, userProfile]);
+
   const triggerHaptic = () => {
     if (hapticFeedback && typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(50);
+      navigator.vibrate(15);
     }
   };
 
   const handleToggleGhostMode = async () => {
-    triggerHaptic();
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(15);
+    }
     const newValue = !ghostMode;
     setGhostMode(newValue);
     setIsUpdating(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ ghost_mode: newValue })
-        .eq('id', userProfile.id);
+      const { error } = await supabase.from('profiles').update({ ghost_mode: newValue }).eq('id', userProfile.id);
       if (error) throw error;
       if (onProfileUpdated) onProfileUpdated();
     } catch (error: any) {
       toast.error('Failed to update Ghost Mode');
-      setGhostMode(!newValue); // Revert
+      setGhostMode(!newValue);
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const handleToggleHaptic = () => {
+  const handleToggleHaptic = async () => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(15);
+    }
     const newValue = !hapticFeedback;
     setHapticFeedback(newValue);
-    if (newValue && typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate(50);
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase.from('profiles').update({ haptic_feedback: newValue }).eq('id', userProfile.id);
+      if (error) throw error;
+      if (onProfileUpdated) onProfileUpdated();
+    } catch (error: any) {
+      toast.error('Failed to update Haptic Feedback');
+      setHapticFeedback(!newValue);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
-  const handleTogglePushNotifications = () => {
+  const handleTogglePushNotifications = async () => {
     triggerHaptic();
-    setPushNotifications(!pushNotifications);
-    // Future implementation: register/unregister push notifications
+    const newValue = !pushNotifications;
+    setPushNotifications(newValue);
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase.from('profiles').update({ push_notifications: newValue }).eq('id', userProfile.id);
+      if (error) throw error;
+      if (onProfileUpdated) onProfileUpdated();
+    } catch (error: any) {
+      toast.error('Failed to update Push Notifications');
+      setPushNotifications(!newValue);
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const handleLogOut = async () => {
@@ -158,14 +199,18 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
         transition={{ type: 'spring', damping: 28, stiffness: 220 }}
         className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-3xl border-t border-white/10 flex flex-col overflow-hidden text-white font-sans"
       >
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
-          <h2 className="text-xl font-bold tracking-tight">Settings Hub</h2>
-          <button
+        {/* THE STICKY LUXURY HEADER */}
+        <div className="sticky top-0 z-50 backdrop-blur-2xl bg-[#050505]/80 border-b border-white/5 flex items-center justify-between p-4">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
             onClick={onClose}
-            className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+            className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors text-white"
           >
-            <X size={20} />
-          </button>
+            <ArrowLeft size={20} />
+          </motion.button>
+          <h2 className="text-xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">Settings Hub</h2>
+          <div className="w-9" /> {/* Spacer for centering */}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -201,12 +246,12 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                 <button
                   disabled={isUpdating}
                   onClick={handleToggleGhostMode}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${ghostMode ? 'bg-indigo-500' : 'bg-gray-700'}`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${ghostMode ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]' : 'bg-white/10'}`}
                 >
                   <motion.span
                     layout
                     transition={{ type: "spring", stiffness: 700, damping: 30 }}
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${ghostMode ? 'translate-x-6' : 'translate-x-1'}`}
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${ghostMode ? 'translate-x-6' : 'translate-x-1'}`}
                   />
                 </button>
               </div>
@@ -219,13 +264,14 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                   <p className="text-[10px] text-white/50 mt-0.5">App vibrations and micro-interactions</p>
                 </div>
                 <button
+                  disabled={isUpdating}
                   onClick={handleToggleHaptic}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${hapticFeedback ? 'bg-indigo-500' : 'bg-gray-700'}`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${hapticFeedback ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]' : 'bg-white/10'}`}
                 >
                   <motion.span
                     layout
                     transition={{ type: "spring", stiffness: 700, damping: 30 }}
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${hapticFeedback ? 'translate-x-6' : 'translate-x-1'}`}
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${hapticFeedback ? 'translate-x-6' : 'translate-x-1'}`}
                   />
                 </button>
               </div>
@@ -238,13 +284,14 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                   <p className="text-[10px] text-white/50 mt-0.5">Status & message alerts</p>
                 </div>
                 <button
+                  disabled={isUpdating}
                   onClick={handleTogglePushNotifications}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${pushNotifications ? 'bg-indigo-500' : 'bg-gray-700'}`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${pushNotifications ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]' : 'bg-white/10'}`}
                 >
                   <motion.span
                     layout
                     transition={{ type: "spring", stiffness: 700, damping: 30 }}
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${pushNotifications ? 'translate-x-6' : 'translate-x-1'}`}
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${pushNotifications ? 'translate-x-6' : 'translate-x-1'}`}
                   />
                 </button>
               </div>
@@ -287,6 +334,111 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                  <span>Learn More</span>
                  <ExternalLink size={14} />
                </a>
+            </div>
+          </div>
+
+          {/* Holographic Age Range Matchmaker */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Matchmaking Preferences</h3>
+            <div className="space-y-6">
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-sm font-bold text-white">Age Range</h4>
+                  <div className="px-2 py-1 bg-white/10 rounded-md backdrop-blur-md border border-white/5 opacity-0">
+                    <span className="text-xs font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-cyan-400">
+                      {minAge} - {maxAge}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-white/50 mb-8">Show people within this age range</p>
+
+                <div className="relative px-2 mb-8">
+                  {/* Min Age Slider */}
+                  <div className="relative w-full mb-8">
+                    <div
+                      className="absolute -top-8 -ml-4 w-8 h-6 bg-white/10 backdrop-blur-md border border-white/20 rounded flex items-center justify-center pointer-events-none shadow-[0_0_10px_rgba(217,70,239,0.3)] z-10"
+                      style={{ left: `${((minAge - 1) / 99) * 100}%` }}
+                    >
+                      <span className="text-[10px] font-bold text-white">{minAge}</span>
+                      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-white/20" />
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={minAge}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (val <= maxAge) { setMinAge(val); triggerHaptic(); }
+                      }}
+                      className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-fuchsia-500 relative z-0"
+                    />
+                  </div>
+
+                  {/* Max Age Slider */}
+                  <div className="relative w-full">
+                    <div
+                      className="absolute -top-8 -ml-4 w-8 h-6 bg-white/10 backdrop-blur-md border border-white/20 rounded flex items-center justify-center pointer-events-none shadow-[0_0_10px_rgba(34,211,238,0.3)] z-10"
+                      style={{ left: `${((maxAge - 1) / 99) * 100}%` }}
+                    >
+                      <span className="text-[10px] font-bold text-white">{maxAge}</span>
+                      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] border-t-white/20" />
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={maxAge}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (val >= minAge) { setMaxAge(val); triggerHaptic(); }
+                      }}
+                      className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500 relative z-0"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Elite Concierge */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">24/7 Concierge</h3>
+            <div className="space-y-4">
+              <a
+                href="mailto:earnmegadesk@gmail.com"
+                className="flex items-center justify-between w-full p-4 bg-[#111] hover:bg-[#1a1a1a] border border-white/5 rounded-xl transition-all group"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-white/10 transition-colors">
+                    <Mail className="w-5 h-5 text-white/70" />
+                  </div>
+                  <div className="text-left">
+                    <h4 className="text-sm font-bold text-white">Email Support</h4>
+                    <p className="text-[10px] text-white/50">earnmegadesk@gmail.com</p>
+                  </div>
+                </div>
+                <ExternalLink size={16} className="text-white/30 group-hover:text-white/70 transition-colors" />
+              </a>
+
+              <a
+                href="https://wa.me/233534671381"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between w-full p-4 bg-[#111] hover:bg-[#1a1a1a] border border-[#25D366]/20 hover:border-[#25D366]/40 rounded-xl transition-all group relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-[#25D366]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="flex items-center space-x-3 relative z-10">
+                  <div className="w-10 h-10 rounded-full bg-[#25D366]/10 flex items-center justify-center group-hover:bg-[#25D366]/20 transition-colors">
+                    <MessageCircle className="w-5 h-5 text-[#25D366]" />
+                  </div>
+                  <div className="text-left">
+                    <h4 className="text-sm font-bold text-white">WhatsApp VIP Line</h4>
+                    <p className="text-[10px] text-[#25D366]/70">Fastest response time</p>
+                  </div>
+                </div>
+                <ExternalLink size={16} className="text-white/30 group-hover:text-[#25D366] transition-colors relative z-10" />
+              </a>
             </div>
           </div>
 
