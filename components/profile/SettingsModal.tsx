@@ -97,7 +97,9 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
   };
 
   const handleTogglePushNotifications = async () => {
-    triggerHaptic();
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(15);
+    }
     const newValue = !pushNotifications;
     setPushNotifications(newValue);
     setIsUpdating(true);
@@ -196,28 +198,26 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-        className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-3xl border-t border-white/10 flex flex-col overflow-hidden text-white font-sans"
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        className="fixed inset-0 z-[999] bg-[#020202] overflow-y-auto w-full h-full text-white font-sans"
       >
         {/* THE STICKY LUXURY HEADER */}
-        <div className="sticky top-0 z-50 backdrop-blur-2xl bg-[#050505]/80 border-b border-white/5 flex items-center justify-between p-4">
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
+        <div className="sticky top-0 z-50 flex items-center justify-between px-6 py-4 bg-[#020202]/80 backdrop-blur-3xl border-b border-white/5">
+          <button
             onClick={onClose}
-            className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors text-white"
+            className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
           >
             <ArrowLeft size={20} />
-          </motion.button>
-          <h2 className="text-xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-white/70">Settings Hub</h2>
+          </button>
+          <h1 className="text-lg font-bold tracking-widest uppercase bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-500">Settings</h1>
           <div className="w-9" /> {/* Spacer for centering */}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto space-y-4 pt-4">
 
           {/* Card A: Account Identity */}
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Account Identity</h3>
+          <div className="mx-4 mb-6 p-5 rounded-[24px] bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_0_30px_rgba(255,255,255,0.02)]">
+            <h3 className="text-xs font-black tracking-[0.2em] text-gray-500 uppercase mb-4">Account Identity</h3>
             <div className="space-y-4">
               <div>
                 <label className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Registered Email</label>
@@ -235,8 +235,8 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
           </div>
 
           {/* Card B: Privacy & Preferences */}
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Privacy & Preferences</h3>
+          <div className="mx-4 mb-6 p-5 rounded-[24px] bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_0_30px_rgba(255,255,255,0.02)]">
+            <h3 className="text-xs font-black tracking-[0.2em] text-gray-500 uppercase mb-4">Privacy & Preferences</h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -246,7 +246,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                 <button
                   disabled={isUpdating}
                   onClick={handleToggleGhostMode}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${ghostMode ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]' : 'bg-white/10'}`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${ghostMode ? 'bg-gradient-to-r from-fuchsia-600 to-cyan-500 shadow-[0_0_15px_rgba(192,38,211,0.5)]' : 'bg-white/10'}`}
                 >
                   <motion.span
                     layout
@@ -266,7 +266,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                 <button
                   disabled={isUpdating}
                   onClick={handleToggleHaptic}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${hapticFeedback ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]' : 'bg-white/10'}`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${hapticFeedback ? 'bg-gradient-to-r from-fuchsia-600 to-cyan-500 shadow-[0_0_15px_rgba(192,38,211,0.5)]' : 'bg-white/10'}`}
                 >
                   <motion.span
                     layout
@@ -286,7 +286,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                 <button
                   disabled={isUpdating}
                   onClick={handleTogglePushNotifications}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${pushNotifications ? 'bg-gradient-to-r from-fuchsia-500 to-cyan-500 shadow-[0_0_10px_rgba(217,70,239,0.5)]' : 'bg-white/10'}`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none ${pushNotifications ? 'bg-gradient-to-r from-fuchsia-600 to-cyan-500 shadow-[0_0_15px_rgba(192,38,211,0.5)]' : 'bg-white/10'}`}
                 >
                   <motion.span
                     layout
@@ -318,8 +318,8 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
           </div>
 
           {/* Card C: Legal & Community */}
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Legal & Community</h3>
+          <div className="mx-4 mb-6 p-5 rounded-[24px] bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_0_30px_rgba(255,255,255,0.02)]">
+            <h3 className="text-xs font-black tracking-[0.2em] text-gray-500 uppercase mb-4">Legal & Community</h3>
             <div>
                <h4 className="text-sm font-bold text-white mb-2">Rules & Regulations</h4>
                <p className="text-xs text-white/60 mb-4 leading-relaxed">
@@ -338,8 +338,8 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
           </div>
 
           {/* Holographic Age Range Matchmaker */}
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Matchmaking Preferences</h3>
+          <div className="mx-4 mb-6 p-5 rounded-[24px] bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_0_30px_rgba(255,255,255,0.02)]">
+            <h3 className="text-xs font-black tracking-[0.2em] text-gray-500 uppercase mb-4">Matchmaking Preferences</h3>
             <div className="space-y-6">
               <div>
                 <div className="flex justify-between items-center mb-2">
@@ -402,8 +402,8 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
           </div>
 
           {/* Elite Concierge */}
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">24/7 Concierge</h3>
+          <div className="mx-4 mb-6 p-5 rounded-[24px] bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_0_30px_rgba(255,255,255,0.02)]">
+            <h3 className="text-xs font-black tracking-[0.2em] text-gray-500 uppercase mb-4">24/7 Concierge</h3>
             <div className="space-y-4">
               <a
                 href="mailto:earnmegadesk@gmail.com"
@@ -443,26 +443,24 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
           </div>
 
           {/* Card D: The Danger Zone */}
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-            <h3 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">The Danger Zone</h3>
+          <div className="mx-4 mb-6 p-5 rounded-[24px] bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_0_30px_rgba(255,255,255,0.02)]">
+            <h3 className="text-xs font-black tracking-[0.2em] text-gray-500 uppercase mb-4">The Danger Zone</h3>
             <div className="space-y-4">
-              <motion.button
-                whileTap={{ scale: 0.96 }}
+              <button
                 onClick={handleLogOut}
-                className="flex items-center justify-center w-full py-3 space-x-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors text-white font-medium"
+                className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all font-bold tracking-wide"
               >
                 <LogOut size={16} />
                 <span>Log Out</span>
-              </motion.button>
+              </button>
 
-              <motion.button
-                whileTap={{ scale: 0.96 }}
+              <button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="flex items-center justify-center w-full py-3 space-x-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition-colors text-rose-500 font-bold"
+                className="w-full flex items-center justify-center gap-2 py-4 mt-3 rounded-xl bg-red-950/20 border border-red-900/50 text-red-500 hover:bg-red-900/40 hover:shadow-[0_0_20px_rgba(220,38,38,0.2)] transition-all font-bold tracking-wide"
               >
                 <Trash2 size={16} />
                 <span>Delete Account</span>
-              </motion.button>
+              </button>
             </div>
           </div>
 
