@@ -5,10 +5,13 @@
     "start": "next start"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.101",
+    "@ai-sdk/react": "^4.0.156",
     "@paystack/inline-js": "^2.26.0",
     "@playwright/test": "^1.64.1",
     "@supabase/supabase-js": "^2.118.0",
     "@use-gesture/react": "^10.3.1",
+    "ai": "^7.0.152",
     "face-api.js": "^0.22.2",
     "framer-motion": "^14.6.0",
     "lucide-react": "^1.61.0",
