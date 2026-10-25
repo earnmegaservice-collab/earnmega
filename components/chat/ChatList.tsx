@@ -173,16 +173,40 @@ export default function ChatList({
     setRenderTrigger(prev => prev + 1);
   };
 
+  const handlePermanentDelete = async (targetId: string) => {
+    if (!currentUserProfile) return;
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUserProfile.id})`);
+
+    if (error) {
+      toast.error(`Database Error: ${error.message}`);
+      console.error(error);
+      return;
+    }
+
+    if (setChats) {
+      setChats(prev => prev.filter((c: any) => c.id !== targetId));
+    }
+    toast.success("Chat permanently erased.");
+  };
+
   const handleDeleteSelected = async () => {
     if (!currentUserProfile) return;
 
     // 1. Delete from backend
     const idsArray = Array.from(selectedChats);
     for (const targetUserId of idsArray) {
-      await supabase.from('messages').delete().or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${targetUserId}),and(sender_id.eq.${targetUserId},receiver_id.eq.${currentUserProfile.id})`);
+      const { error } = await supabase.from('messages').delete().or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${targetUserId}),and(sender_id.eq.${targetUserId},receiver_id.eq.${currentUserProfile.id})`);
+      if (error) {
+        toast.error(`Database Error: ${error.message}`);
+        console.error(error);
+        return;
+      }
     }
 
-    // 2. Clear from UI immediately
+    // 2. Clear from UI
     if (setChats) {
       setChats(prev => prev.filter((c: any) => !idsArray.includes(c.id)));
     }
@@ -212,7 +236,12 @@ export default function ChatList({
 
   const handleBlockUser = async (userIdToBlock: string) => {
     if (!currentUserProfile) return;
-    await supabase.from('blocked_users').insert({ blocker_id: currentUserProfile.id, blocked_id: userIdToBlock });
+    const { error } = await supabase.from('blocked_users').insert({ blocker_id: currentUserProfile.id, blocked_id: userIdToBlock });
+    if (error) {
+      toast.error(`Database Error: ${error.message}`);
+      console.error(error);
+      return;
+    }
     setShowThreeDotMenu(false);
     setSelectedChats(new Set());
     toast.success("User frozen.");
@@ -230,9 +259,13 @@ export default function ChatList({
       reason: finalReason
     });
 
-    if (error) { toast.error("Failed to report user."); return; }
+    if (error) {
+      toast.error(`Report Failed: ${error.message}`);
+      console.error(error);
+      return;
+    }
 
-    toast.success("Report submitted successfully.");
+    toast.success("Report secured.");
     setShowReportModal(false);
     setShowThreeDotMenu(false);
   };
@@ -361,14 +394,24 @@ export default function ChatList({
             }
 
             return (
+              <div key={u.id} className="relative w-full overflow-hidden bg-rose-600/90 border-b border-white/5 flex items-center justify-end shadow-inner">
+                <div className="absolute right-6 z-0">
+                  <Trash2 className="text-white drop-shadow-md" size={24} />
+                </div>
               <motion.div
                 layout
+                drag="x"
+                dragConstraints={{ left: -100, right: 0 }}
+                onDragEnd={(e, info) => {
+                  if (info.offset.x < -70) {
+                    handlePermanentDelete(u.id);
+                  }
+                }}
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                key={u.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="w-full relative"
+                className="w-full relative z-10 bg-[#050505]"
               >
                 <div
                   className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative select-none ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] z-10 rounded-2xl my-1 shadow-inner' : ''}`}
@@ -497,6 +540,7 @@ export default function ChatList({
                   </div>
                 </div>
               </motion.div>
+              </div>
             );
           })}
         </AnimatePresence>

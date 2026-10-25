@@ -540,11 +540,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const toggleBlock = async () => {
      if (!user || !otherUserProfile) return;
      if (isBlockedByMe) {
-        await supabase.from('blocked_users').delete().eq('blocker_id', user.id).eq('blocked_id', otherUserProfile.id);
+        const { error } = await supabase.from('blocked_users').delete().eq('blocker_id', user.id).eq('blocked_id', otherUserProfile.id);
+        if (error) {
+           toast.error(`Database Error: ${error.message}`);
+           console.error(error);
+           return;
+        }
         setIsBlockedByMe(false);
         toast.success('User unblocked');
      } else {
-        await supabase.from('blocked_users').insert({ blocker_id: user.id, blocked_id: otherUserProfile.id });
+        const { error } = await supabase.from('blocked_users').insert({ blocker_id: user.id, blocked_id: otherUserProfile.id });
+        if (error) {
+           toast.error(`Database Error: ${error.message}`);
+           console.error(error);
+           return;
+        }
         setIsBlockedByMe(true);
         toast.success('User blocked');
      }
@@ -2645,11 +2655,20 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       {/* Input Area */}
       <footer className={`bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] ${isBlockedByMe || isBlockedByThem ? 'p-0' : 'p-4 pb-safe'} shrink-0 w-full flex flex-col`}>
         {(isBlockedByMe || isBlockedByThem) ? (
-          <div className="w-full p-4 bg-red-950/40 backdrop-blur-xl border-t border-red-900/50 flex flex-col items-center justify-center cursor-pointer" onClick={() => isBlockedByMe ? toggleBlock() : null}>
-            <Lock className="text-red-500 mb-2" size={24} />
-            <p className="text-red-400 font-bold tracking-widest text-xs uppercase">User Blocked</p>
-            <p className="text-red-500/60 text-[10px] mt-1">You cannot send or receive messages.</p>
-          </div>
+          isBlockedByMe ? (
+            <div className="w-full p-4 bg-[#050505]/95 backdrop-blur-xl border-t border-white/5 flex justify-center items-center">
+              <button onClick={toggleBlock} className="px-6 py-3 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-white/70 text-xs font-bold tracking-widest uppercase flex items-center gap-2">
+                <Lock size={16} className="text-red-500" />
+                You blocked this contact. Tap to unblock.
+              </button>
+            </div>
+          ) : (
+            <div className="w-full p-4 bg-red-950/40 backdrop-blur-xl border-t border-red-900/50 flex flex-col items-center justify-center cursor-not-allowed">
+              <Lock className="text-red-500 mb-2" size={24} />
+              <p className="text-red-400 font-bold tracking-widest text-xs uppercase">User Blocked</p>
+              <p className="text-red-500/60 text-[10px] mt-1">You cannot send or receive messages.</p>
+            </div>
+          )
         ) : (
           <>
 
@@ -2941,14 +2960,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            });
 
                            if (error) {
-                              toast.error('Failed to submit report');
+                              toast.error(`Report Failed: ${error.message}`);
+                              console.error(error);
                               return;
                            }
 
                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
                               navigator.vibrate([50, 50, 50]);
                            }
-                           toast.success('Report successfully filed. Our security team will review this immediately.', { icon: '🛡️', position: 'top-center' });
+                           toast.success('Report secured.', { icon: '🛡️', position: 'top-center' });
 
                            setIsReportModalOpen(false);
                            setReportReason('');
@@ -3070,7 +3090,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                              .or(`and(sender_id.eq.${user.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${user.id})`);
 
                            if (error) {
-                             toast.error("Failed to erase database history.");
+                             toast.error(`Database Error: ${error.message}`);
+                             console.error(error);
                              return;
                            }
 
