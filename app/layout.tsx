@@ -1,4 +1,7 @@
 import "./globals.css";
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { WalletProvider } from "../context/WalletContext";
 import { CallProvider } from "../context/CallContext";
 import { AuthProvider } from "../context/AuthContext";

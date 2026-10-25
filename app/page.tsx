@@ -10,8 +10,9 @@ import { AppShell } from '../components/layout/AppShell';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RadarActivationModal } from '../components/location/RadarActivationModal';
 import { useWallet } from '../context/WalletContext';
-import dynamic from 'next/dynamic';
-const CoinStoreModal = dynamic(() => import('../components/wallet/CoinStoreModal'), { ssr: false });
+import nextDynamic from 'next/dynamic';
+const CoinStoreModal = nextDynamic(() => import('../components/wallet/CoinStoreModal'), { ssr: false });
+
 
 type Step = 'login' | 'register' | 'verify-otp';
 
