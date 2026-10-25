@@ -373,6 +373,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
+  const [reportOtherText, setReportOtherText] = useState('');
   const [isForwardContactModalOpen, setIsForwardContactModalOpen] = useState(false);
   const [isClearChatConfirmOpen, setIsClearChatConfirmOpen] = useState(false);
 
@@ -2203,34 +2204,37 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             </button>
             <AnimatePresence>
                {isChatMenuOpen && (
-                  <motion.div
-                     initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                     animate={{ opacity: 1, scale: 1, y: 0 }}
-                     exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                     className="absolute right-0 top-full mt-2 w-56 bg-[#111] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100]"
-                  >
-                     <div className="py-2 flex flex-col">
-                        <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 flex items-center gap-3">
-                           <Camera size={16} className="text-white/50" /> Theme & Wallpaper
-                        </button>
-                        <button onClick={() => { setIsChatMenuOpen(false); setIsForwardContactModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 flex items-center gap-3">
-                           <Share size={16} className="text-white/50" /> Forward Account
-                        </button>
-                        <button onClick={() => { setIsChatMenuOpen(false); toggleBlock(); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 flex items-center gap-3">
-                           <Ban size={16} className="text-white/50" /> {isBlockedByMe ? 'Unblock' : 'Block'} User
-                        </button>
-                        <button onClick={() => { setIsChatMenuOpen(false); setIsReportModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 flex items-center gap-3">
-                           <ShieldAlert size={16} className="text-rose-400/50" /> Report
-                        </button>
-                        <button onClick={() => { setIsChatMenuOpen(false); toast('Search coming soon!', { icon: '🔍' }); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 flex items-center gap-3">
-                           <Search size={16} className="text-white/50" /> Search Chat
-                        </button>
-                        <div className="h-px w-full bg-white/10 my-1"></div>
-                        <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 flex items-center gap-3">
-                           <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
-                        </button>
-                     </div>
-                  </motion.div>
+                  <>
+                     <div className="fixed inset-0 z-40" onClick={() => setIsChatMenuOpen(false)} />
+                     <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                        className="absolute right-0 top-full mt-2 w-56 bg-[#0a0a0a]/80 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.8)] overflow-hidden z-[100]"
+                     >
+                        <div className="py-2 flex flex-col">
+                           <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3">
+                              <Camera size={16} className="text-white/50" /> Theme & Wallpaper
+                           </button>
+                           <button onClick={() => { setIsChatMenuOpen(false); setIsForwardContactModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3">
+                              <Share size={16} className="text-white/50" /> Forward Account
+                           </button>
+                           <button onClick={() => { setIsChatMenuOpen(false); toggleBlock(); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3">
+                              <Ban size={16} className="text-white/50" /> {isBlockedByMe ? 'Unblock' : 'Block'} User
+                           </button>
+                           <button onClick={() => { setIsChatMenuOpen(false); setIsReportModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3">
+                              <ShieldAlert size={16} className="text-rose-400/50" /> Report
+                           </button>
+                           <button onClick={() => { setIsChatMenuOpen(false); toast('Search coming soon!', { icon: '🔍' }); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3">
+                              <Search size={16} className="text-white/50" /> Search Chat
+                           </button>
+                           <div className="h-px w-full bg-white/10 my-1"></div>
+                           <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3">
+                              <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
+                           </button>
+                        </div>
+                     </motion.div>
+                  </>
                )}
             </AnimatePresence>
         </div>
@@ -2880,19 +2884,33 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            {reason}
                         </button>
                      ))}
+                     <AnimatePresence>
+                        {reportReason === 'Other' && (
+                           <motion.textarea
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: '100px', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              value={reportOtherText}
+                              onChange={(e) => setReportOtherText(e.target.value)}
+                              className="w-full mt-4 p-4 rounded-xl bg-white/5 border border-white/10 focus:border-fuchsia-500/50 focus:ring-1 focus:ring-fuchsia-500/50 outline-none text-white/90 placeholder-gray-500 resize-none transition-all"
+                              placeholder="Please provide specific details..."
+                           />
+                        )}
+                     </AnimatePresence>
                   </div>
 
                   <div className="flex gap-3">
                      <button
-                        onClick={() => { setIsReportModalOpen(false); setReportReason(''); }}
+                        onClick={() => { setIsReportModalOpen(false); setReportReason(''); setReportOtherText(''); }}
                         className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold transition-all text-sm"
                      >
                         Cancel
                      </button>
                      <button
+                        disabled={!reportReason || (reportReason === 'Other' && !reportOtherText.trim())}
                         onClick={async () => {
-                           if (!reportReason) {
-                              toast.error('Please select a reason');
+                           if (!reportReason || (reportReason === 'Other' && !reportOtherText.trim())) {
+                              toast.error('Please provide a reason');
                               return;
                            }
 
@@ -2901,7 +2919,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               reported_user_id: currentOtherUserProfile?.id,
                               content_type: 'chat',
                               reason: reportReason,
-                              details: reportReason
+                              details: reportReason === 'Other' ? reportOtherText : reportReason
                            });
 
                            if (error) {

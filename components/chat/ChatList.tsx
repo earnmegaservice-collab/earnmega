@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, ArrowLeft } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 import VerifiedTick from '../ui/VerifiedTick';
-import { MoreVertical, Pin, Trash2, Bell, Check, X, Users } from 'lucide-react';
+import { MoreVertical, Pin, PinOff, Trash2, Bell, Check, X, Users, ShieldAlert } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import MessageForwardModal from './MessageForwardModal';
@@ -107,10 +107,16 @@ export default function ChatList({
   const touchTimer = React.useRef<NodeJS.Timeout | null>(null);
   const handleTouchStart = (userId: string) => {
     touchTimer.current = setTimeout(() => {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 50, 30]);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
       setIsMultiSelectMode(true);
       toggleSelection(userId);
-    }, 500);
+    }, 600);
+  };
+  const handleTouchMove = () => {
+    if (touchTimer.current) {
+      clearTimeout(touchTimer.current);
+      touchTimer.current = null;
+    }
   };
   const handleTouchEnd = () => {
     if (touchTimer.current) {
@@ -132,11 +138,17 @@ export default function ChatList({
 
   const handleBulkPin = () => {
     const newPinned = new Set(pinnedChats);
+    let allPinned = true;
     selectedChats.forEach(id => {
-      if (newPinned.has(id)) newPinned.delete(id);
+      if (!newPinned.has(id)) allPinned = false;
+    });
+
+    selectedChats.forEach(id => {
+      if (allPinned) newPinned.delete(id);
       else newPinned.add(id);
     });
     savePinnedChats(newPinned);
+    toast.success(allPinned ? 'Chats unpinned' : 'Chats pinned');
     setIsMultiSelectMode(false);
     setSelectedChats(new Set());
     setRenderTrigger(prev => prev + 1);
@@ -144,11 +156,17 @@ export default function ChatList({
 
   const handleBulkMute = () => {
     const newMuted = new Set(mutedChats);
+    let allMuted = true;
     selectedChats.forEach(id => {
-      if (newMuted.has(id)) newMuted.delete(id);
+      if (!newMuted.has(id)) allMuted = false;
+    });
+
+    selectedChats.forEach(id => {
+      if (allMuted) newMuted.delete(id);
       else newMuted.add(id);
     });
     saveMutedChats(newMuted);
+    toast.success(allMuted ? 'Chats unmuted' : 'Chats muted');
     setIsMultiSelectMode(false);
     setSelectedChats(new Set());
     setRenderTrigger(prev => prev + 1);
@@ -251,26 +269,31 @@ export default function ChatList({
               </div>
             </div>
             <div className="flex items-center space-x-1 relative">
-              <button onClick={() => { handleBulkPin(); if (navigator.vibrate) navigator.vibrate(15); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Pin size={20} /></button>
+              <button onClick={() => { handleBulkPin(); if (navigator.vibrate) navigator.vibrate(15); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90">
+                {Array.from(selectedChats).every(id => pinnedChats.has(id)) ? <PinOff size={20} /> : <Pin size={20} />}
+              </button>
               <button onClick={() => { setShowDeleteConfirm(true); if (navigator.vibrate) navigator.vibrate(20); }} className="text-rose-500 hover:bg-rose-500/20 p-2.5 rounded-full transition-colors active:scale-90"><Trash2 size={20} /></button>
               <button onClick={() => { handleBulkMute(); if (navigator.vibrate) navigator.vibrate(15); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Bell size={20} /></button>
               <button onClick={() => { setShowThreeDotMenu(!showThreeDotMenu); if (navigator.vibrate) navigator.vibrate(10); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><MoreVertical size={20} /></button>
 
               <AnimatePresence>
                 {showThreeDotMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="absolute top-14 right-0 w-56 origin-top-right bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] py-2 z-50 overflow-hidden"
-                  >
-                    <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Select All</button>
-                    <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Clear Selection</button>
-                    <div className="h-px bg-white/10 my-1 mx-2" />
-                    <button onClick={handleBlockUser} className="w-full text-left px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors">Block User</button>
-                    <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Report Trust & Safety</button>
-                    <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors">Forward Profile</button>
-                  </motion.div>
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowThreeDotMenu(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      className="absolute top-14 right-0 w-56 origin-top-right bg-[#0a0a0a]/80 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.8)] py-2 z-50 overflow-hidden"
+                    >
+                      <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200">Select All</button>
+                      <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200">Clear Selection</button>
+                      <div className="h-px bg-white/10 my-1 mx-2" />
+                      <button onClick={handleBlockUser} className="w-full text-left px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors duration-200">Block User</button>
+                      <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200">Report Trust & Safety</button>
+                      <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200">Forward Profile</button>
+                    </motion.div>
+                  </>
                 )}
               </AnimatePresence>
             </div>
@@ -360,6 +383,7 @@ export default function ChatList({
                   className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative select-none ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] z-10 rounded-2xl my-1 shadow-inner' : ''}`}
                   style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
                   onTouchStart={() => handleTouchStart(u.id)}
+                  onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
                   onMouseDown={() => handleTouchStart(u.id)}
                   onMouseUp={handleTouchEnd}
