@@ -178,24 +178,24 @@ import ExploreFeed from '../explore/ExploreFeed';
 import DiscoveryContainer from '../explore/DiscoveryContainer';
 import MyProfileView from '../profile/MyProfileView';
 
+import { User } from 'lucide-react';
 export const renderMessageContent = (message: any, currentUserId: string) => {
-
-  if (message.messageType === 'forwarded_contact' && message.payload) {
+  if (message.text && message.text.startsWith('$$PROFILE_SHARE$$')) {
+     const sharedId = message.text.split('$$')[2];
      return (
-        <div className="flex flex-col gap-2 p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl w-64 my-1 shadow-lg cursor-pointer hover:bg-white/10 transition-colors" onClick={() => window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: message.payload.id } }))}>
-           <div className="flex items-center gap-3">
-              <img src={message.payload.avatar || '/placeholder.svg'} alt={message.payload.name} className="w-12 h-12 rounded-full object-cover border border-fuchsia-500/50 shadow-[0_0_10px_rgba(217,70,239,0.3)]" />
-              <div className="flex flex-col flex-1 min-w-0">
-                 <span className="text-white font-bold text-sm truncate">{message.payload.name}</span>
-                 <span className="text-white/50 text-[10px] uppercase tracking-wider font-semibold">Shared Contact</span>
-              </div>
-           </div>
-           {message.payload.bio && (
-              <p className="text-white/70 text-xs mt-1 line-clamp-2 italic border-t border-white/10 pt-2">{message.payload.bio}</p>
-           )}
-           <div className="mt-1 flex items-center justify-center w-full py-1.5 bg-fuchsia-500/20 text-fuchsia-300 text-xs font-bold rounded-xl border border-fuchsia-500/30">
-              View Profile
-           </div>
+        <div className="w-[250px] p-4 rounded-2xl bg-gradient-to-br from-[#1a1a1a] to-[#0a0a0a] border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-12 h-12 rounded-full bg-fuchsia-600/20 border border-fuchsia-500 flex items-center justify-center shrink-0">
+              <User className="text-fuchsia-500" size={24} />
+            </div>
+            <div>
+              <p className="text-white font-bold text-sm">Shared Contact</p>
+              <p className="text-white/50 text-[10px] uppercase tracking-wider">Tap to view profile</p>
+            </div>
+          </div>
+          <button onClick={() => window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: sharedId } }))} className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-fuchsia-400 text-xs font-black tracking-widest uppercase transition-all">
+            View Profile
+          </button>
         </div>
      );
   }
@@ -1779,6 +1779,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   onStatusClick={handleStatusClick}
                   activeStatusUsers={activeStatusUsers}
                   userStatusMap={userStatusMap}
+                  blockedUserIds={blockedUserIdsRef.current}
                 />
                 <button
                    onClick={() => setIsGroupModalOpen(true)}
@@ -2642,12 +2643,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       </main>
 
       {/* Input Area */}
-      <footer className="bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] p-4 pb-safe shrink-0 w-full flex flex-col">
+      <footer className={`bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] ${isBlockedByMe || isBlockedByThem ? 'p-0' : 'p-4 pb-safe'} shrink-0 w-full flex flex-col`}>
         {(isBlockedByMe || isBlockedByThem) ? (
-          <div className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl flex justify-center items-center cursor-pointer" onClick={() => isBlockedByMe ? toggleBlock() : null}>
-             <span className="text-white/50 text-sm font-medium">
-                {isBlockedByMe ? "You blocked this contact. Tap to unblock." : "This contact has blocked you. You cannot send messages."}
-             </span>
+          <div className="w-full p-4 bg-red-950/40 backdrop-blur-xl border-t border-red-900/50 flex flex-col items-center justify-center cursor-pointer" onClick={() => isBlockedByMe ? toggleBlock() : null}>
+            <Lock className="text-red-500 mb-2" size={24} />
+            <p className="text-red-400 font-bold tracking-widest text-xs uppercase">User Blocked</p>
+            <p className="text-red-500/60 text-[10px] mt-1">You cannot send or receive messages.</p>
           </div>
         ) : (
           <>
@@ -2936,9 +2937,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            const { error } = await supabase.from('reports').insert({
                               reporter_id: user?.id,
                               reported_user_id: currentOtherUserProfile?.id,
-                              content_type: 'chat',
-                              reason: reportReason,
-                              details: reportReason === 'Other' ? reportOtherText : reportReason
+                              reason: reportReason === 'Other' ? reportOtherText : reportReason
                            });
 
                            if (error) {
@@ -3004,17 +3003,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               await supabase.from('messages').insert({
                                  sender_id: user?.id,
                                  receiver_id: u.id,
-                                 message_text: `Shared contact: ${currentOtherUserProfile?.name}`,
-                                 message_type: 'forwarded_contact',
-                                 is_view_once: false,
-                                 payload: {
-                                    id: currentOtherUserProfile?.id,
-                                    name: currentOtherUserProfile?.name,
-                                    avatar: currentOtherUserProfile?.avatarUrl,
-                                    bio: currentOtherUserProfile?.bio
-                                 }
+                                 content: `$$PROFILE_SHARE$$${currentOtherUserProfile?.id}`,
+                                 status: 'sent'
                               });
-                              toast.success('Contact shared successfully', { id: toastId });
+                              toast.success('Profile forwarded to DM.', { id: toastId });
                            } catch (err) {
                               toast.error('Failed to share contact', { id: toastId });
                            }
@@ -3069,34 +3061,25 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                      <button
                         onClick={async () => {
                            if (!user || !currentOtherUserProfile) return;
-                           const toastId = toast.loading('Clearing history...');
-                           try {
-                              // We can update the hidden_for array for all messages in this chat
-                              const chatMessages = messages.map(m => m.id);
-                              if (chatMessages.length > 0) {
-                                  // Since Supabase `array_append` requires RPC, we fetch and update individually
-                                  // BUT we will do it using Promise.all in batches to be efficient.
-                                  const batchSize = 10;
-                                  for (let i = 0; i < chatMessages.length; i += batchSize) {
-                                      const batch = chatMessages.slice(i, i + batchSize);
-                                      await Promise.all(batch.map(async (msgId) => {
-                                          const msg = messages.find(m => m.id === msgId);
-                                          if (msg) {
-                                              const hiddenFor = msg.hiddenFor || [];
-                                              if (!hiddenFor.includes(user.id)) {
-                                                  await supabase.from('messages').update({ hidden_for: [...hiddenFor, user.id] }).eq('id', msgId);
-                                              }
-                                          }
-                                      }));
-                                  }
-                              }
+                           const targetId = currentOtherUserProfile.id; // Ensure you grab the correct ID of the person being chatted with
 
-                              setMessages([]);
-                              toast.success('Chat history cleared', { id: toastId });
-                              setIsClearChatConfirmOpen(false);
-                           } catch (err) {
-                              toast.error('Failed to clear history', { id: toastId });
+                           // 1. Permanently delete from Supabase
+                           const { error } = await supabase
+                             .from('messages')
+                             .delete()
+                             .or(`and(sender_id.eq.${user.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${user.id})`);
+
+                           if (error) {
+                             toast.error("Failed to erase database history.");
+                             return;
                            }
+
+                           // 2. Clear UI state
+                           setMessages([]);
+                           setIsClearChatConfirmOpen(false);
+                           setIsChatMenuOpen(false);
+                           toast.success("Chat history permanently erased.");
+                           if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 50, 30]);
                         }}
                         className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(225,29,72,0.4)]"
                      >
