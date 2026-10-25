@@ -11,29 +11,32 @@ export async function POST(req: Request) {
   let reqBody: any;
   try {
     reqBody = await req.json();
-    const { messages, sender_id, receiver_id } = reqBody;
+    const { messages, userId, botId } = reqBody;
 
     const result = await streamText({
-      model: openai('gpt-3.5-turbo'),
+      model: openai('gpt-4o'),
       messages,
       async onFinish({ text }) {
-        await supabase.from('messages').insert({
-          id: crypto.randomUUID(),
-          sender_id: receiver_id, // AI is sender
-          receiver_id: sender_id, // User is receiver
+        const adminSupabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        await adminSupabase.from('messages').insert({
+          sender_id: botId,
+          receiver_id: userId,
           content: text,
-          status: 'sent'
+          created_at: new Date().toISOString(),
         });
       },
     });
 
     return result.toTextStreamResponse();
   } catch (error) {
-    if (reqBody && reqBody.sender_id && reqBody.receiver_id) {
+    if (reqBody && reqBody.userId && reqBody.botId) {
         await supabase.from('messages').insert({
           id: crypto.randomUUID(),
-          sender_id: reqBody.receiver_id,
-          receiver_id: reqBody.sender_id,
+          sender_id: reqBody.botId,
+          receiver_id: reqBody.userId,
           content: "System: AI is currently offline or disconnected.",
           status: 'sent'
         });

@@ -682,7 +682,16 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
               // Strict isolation check to prevent data bleed from other bot chats
               // Only refresh if the message involves the current user and the current viewing profile (if not a group)
-              const isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id || msg.room_id;
+              let isRelevant = false;
+              if (currentOtherUserProfile && !(currentOtherUserProfile as any).isGroup) {
+                  isRelevant = (msg.sender_id === user.id && msg.receiver_id === currentOtherUserProfile.id) ||
+                               (msg.sender_id === currentOtherUserProfile.id && msg.receiver_id === user.id);
+              } else if (currentOtherUserProfile && (currentOtherUserProfile as any).isGroup) {
+                  isRelevant = msg.room_id === currentOtherUserProfile.id;
+              } else {
+                  // Fallback for general updates (e.g. ChatList) if no specific profile is focused
+                  isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id || msg.room_id;
+              }
 
               if (isRelevant) {
                   setRefreshChatsKey(prev => prev + 1);
@@ -863,13 +872,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       if (!currentOtherUserProfile || !user) return;
       setIsLoadingMessages(true);
       try {
-        let query = supabase.from('messages').select('*').order('created_at', { ascending: true });
+        let query = supabase.from('messages').select('*');
 
         if ((currentOtherUserProfile as any).isGroup) {
              query = query.eq('room_id', currentOtherUserProfile.id);
         } else {
              query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${currentOtherUserProfile.id}),and(sender_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${user.id})`);
         }
+
+        query = query.order('created_at', { ascending: true });
 
         const { data, error } = await query;
 

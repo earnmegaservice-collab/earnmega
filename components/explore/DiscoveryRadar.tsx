@@ -45,6 +45,7 @@ export default function DiscoveryRadar({ onMatchFound }: DiscoveryRadarProps) {
           .select('id, username, avatar_url, bio, age')
           .neq('id', user.id)
           .neq('ghost_mode', true)
+          .or('is_bot.is.null,is_bot.eq.false')
           .limit(10);
 
         if (error || !data || data.length === 0) {

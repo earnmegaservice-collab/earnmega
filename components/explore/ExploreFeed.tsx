@@ -61,6 +61,7 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
         .select('*')
         .neq('id', user?.id)
         .eq('is_verified', true)
+        .or('is_bot.is.null,is_bot.eq.false')
         .contains('interests', [categoryName])
         .limit(10);
 
@@ -73,6 +74,7 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
             .select('*')
             .neq('id', user?.id)
             .eq('is_verified', true)
+            .or('is_bot.is.null,is_bot.eq.false')
             .limit(10);
          data = fallbackQuery.data;
       }
