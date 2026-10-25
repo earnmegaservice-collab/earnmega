@@ -1394,15 +1394,45 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }));
           pastMessagesForAI.push({ role: 'user', content: finalContentToSave });
 
-          fetch('/api/chat', {
+          const res = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               messages: pastMessagesForAI,
-              sender_id: user.id,
-              receiver_id: currentOtherUserProfile.id
+              userId: user.id,
+              botId: currentOtherUserProfile.id,
+              botType: 'ai_friend'
             })
-          }).catch(err => console.error("AI trigger failed", err));
+          });
+          const data = await res.json();
+
+          if (data.reply) {
+            const aiMessageId = uuidv4();
+            const aiMessage: Message = {
+              id: aiMessageId,
+              text: data.reply,
+              sender: 'other',
+              timestamp: new Date(),
+              status: 'delivered',
+              reactions: []
+            };
+            setMessages(prev => [...prev, aiMessage]);
+
+            // Bump bot to top
+            setExploreUsers(prev => {
+               const updated = [...prev];
+               const idx = updated.findIndex(u => u.id === currentOtherUserProfile.id);
+               if (idx !== -1) {
+                  const userToMove = updated[idx];
+                  updated.splice(idx, 1);
+                  updated.unshift({
+                     ...userToMove,
+                     lastMessageTime: new Date().getTime()
+                  });
+               }
+               return updated;
+            });
+          }
         } catch (e) {
           console.error("Failed to call AI endpoint", e);
         }
