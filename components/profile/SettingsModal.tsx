@@ -199,18 +199,20 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed inset-0 z-[999] bg-[#020202] overflow-y-auto w-full h-full text-white font-sans"
+        className="fixed top-0 left-0 w-[100vw] h-[100vh] z-[99999] bg-[#050505] overflow-y-auto pb-24 text-white font-sans"
       >
         {/* THE STICKY LUXURY HEADER */}
-        <div className="sticky top-0 z-50 flex items-center justify-between px-6 py-4 bg-[#020202]/80 backdrop-blur-3xl border-b border-white/5">
+        <div className="sticky top-0 w-full z-[100000] px-6 py-4 flex items-center justify-between bg-[#050505]/90 backdrop-blur-2xl border-b border-white/5">
           <button
             onClick={onClose}
-            className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+            className="p-3 rounded-full bg-white/5 hover:bg-white/10 active:scale-95 transition-all text-white flex items-center justify-center"
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={24} />
           </button>
-          <h1 className="text-lg font-bold tracking-widest uppercase bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-500">Settings</h1>
-          <div className="w-9" /> {/* Spacer for centering */}
+          <h1 className="text-sm font-black tracking-[0.3em] uppercase bg-clip-text text-transparent bg-gradient-to-r from-gray-100 to-gray-500">
+            Settings
+          </h1>
+          <div className="w-[48px]" /> {/* Spacer to perfectly center the title */}
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-4 pt-4">
