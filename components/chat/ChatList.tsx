@@ -394,24 +394,14 @@ export default function ChatList({
             }
 
             return (
-              <div key={u.id} className="relative w-full overflow-hidden bg-rose-600/90 border-b border-white/5 flex items-center justify-end shadow-inner">
-                <div className="absolute right-6 z-0">
-                  <Trash2 className="text-white drop-shadow-md" size={24} />
-                </div>
               <motion.div
                 layout
-                drag="x"
-                dragConstraints={{ left: -100, right: 0 }}
-                onDragEnd={(e, info) => {
-                  if (info.offset.x < -70) {
-                    handlePermanentDelete(u.id);
-                  }
-                }}
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                key={u.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="w-full relative z-10 bg-[#050505]"
+                className="w-full relative"
               >
                 <div
                   className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative select-none ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] z-10 rounded-2xl my-1 shadow-inner' : ''}`}
@@ -540,7 +530,6 @@ export default function ChatList({
                   </div>
                 </div>
               </motion.div>
-              </div>
             );
           })}
         </AnimatePresence>
