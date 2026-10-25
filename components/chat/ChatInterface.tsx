@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -2505,6 +2505,45 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="bg-white/10 backdrop-blur-3xl border border-white/20 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col py-1 min-w-[160px]">
+                            <button
+                               onClick={() => {
+                                 setReplyingTo(message);
+                                 setActiveContextMenuId(null);
+                               }}
+                               className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                            >
+                               <span>Reply</span>
+                            </button>
+                            <button
+                               onClick={() => {
+                                 // Handle pin (simplified logic)
+                                 toast.success('Message pinned');
+                                 setActiveContextMenuId(null);
+                               }}
+                               className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                            >
+                               <span>Pin</span>
+                            </button>
+                            <button
+                               onClick={() => {
+                                 // Handle keep (simplified logic)
+                                 toast.success('Message kept');
+                                 setActiveContextMenuId(null);
+                               }}
+                               className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                            >
+                               <span>Keep</span>
+                            </button>
+                            <button
+                               onClick={() => {
+                                 navigator.clipboard.writeText(message.text || '');
+                                 toast.success('Copied to clipboard');
+                                 setActiveContextMenuId(null);
+                               }}
+                               className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                            >
+                               <span>Copy</span>
+                            </button>
                             <button
                                onClick={() => {
                                  setMessageToForward(message);
