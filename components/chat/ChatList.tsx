@@ -279,19 +279,27 @@ export default function ChatList({
               <AnimatePresence>
                 {showThreeDotMenu && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowThreeDotMenu(false)} />
+                    <div
+                      className="fixed inset-0 w-[100vw] h-[100vh] z-[90]"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowThreeDotMenu(false);
+                      }}
+                    />
                     <motion.div
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9 }}
-                      className="absolute top-14 right-0 w-56 origin-top-right bg-[#0a0a0a]/80 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.8)] py-2 z-50 overflow-hidden"
+                      className="absolute right-0 top-12 z-[100] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.9)] rounded-2xl p-2 min-w-[200px]"
                     >
-                      <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200">Select All</button>
-                      <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200">Clear Selection</button>
-                      <div className="h-px bg-white/10 my-1 mx-2" />
-                      <button onClick={handleBlockUser} className="w-full text-left px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors duration-200">Block User</button>
-                      <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200">Report Trust & Safety</button>
-                      <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="w-full text-left px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200">Forward Profile</button>
+                      <div className="flex flex-col">
+                        <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Select All</button>
+                        <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Clear Selection</button>
+                        <div className="h-px bg-white/10 my-1 mx-2" />
+                        <button onClick={() => { handleBlockUser(); setShowThreeDotMenu(false); }} className="px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors duration-200 text-left rounded-lg">Block User</button>
+                        <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Report Trust & Safety</button>
+                        <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Forward Profile</button>
+                      </div>
                     </motion.div>
                   </>
                 )}
@@ -553,7 +561,81 @@ export default function ChatList({
         )}
       </AnimatePresence>
 
-      {/* Delete / Report Modals remain the same... */}
+      <AnimatePresence>
+        {showReportModal && (
+          <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-[#111] border border-white/10 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-6"
+            >
+              <div className="flex flex-col items-center text-center">
+                <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
+                  <ShieldAlert size={32} className="text-rose-500" />
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Report User</h3>
+                <p className="text-sm text-white/60 mb-6">
+                  This report will be sent to the EarnMega Trust & Safety team.
+                </p>
+              </div>
+
+              <div className="space-y-3 mb-6">
+                {['Spam or scam', 'Inappropriate content', 'Harassment', 'Other'].map(reason => (
+                  <button
+                    key={reason}
+                    onClick={() => setReportCategory(reason)}
+                    className={`w-full py-3 px-4 rounded-xl text-sm font-medium transition-all text-left ${reportCategory === reason ? 'bg-rose-500 text-white border border-rose-400/50' : 'bg-white/5 text-white/70 border border-white/10 hover:bg-white/10'}`}
+                  >
+                    {reason}
+                  </button>
+                ))}
+                <AnimatePresence>
+                  {reportCategory === 'Other' && (
+                    <motion.textarea
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: '120px', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      value={reportDescription}
+                      onChange={(e) => setReportDescription(e.target.value)}
+                      className="w-full mt-4 p-4 rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-fuchsia-500 resize-none transition-all"
+                      placeholder="Type your exact reason here..."
+                    />
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowReportModal(false); setReportCategory(''); setReportDescription(''); }}
+                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold transition-all text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={reportCategory === "" || (reportCategory === 'Other' && reportDescription.trim() === "")}
+                  onClick={async () => {
+                    if (reportCategory === "" || (reportCategory === 'Other' && reportDescription.trim() === "")) {
+                      toast.error('Please provide a reason');
+                      return;
+                    }
+                    // Add submission logic here, using handleReportUserSubmit if needed, or directly.
+                    // Oh wait, there is handleReportUserSubmit. Let's use it.
+                    handleReportUserSubmit();
+                  }}
+                  className={`flex-1 py-3 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(244,63,94,0.4)] ${
+                    (reportCategory === "" || (reportCategory === 'Other' && reportDescription.trim() === ""))
+                      ? 'bg-rose-600/50 cursor-not-allowed text-white/50'
+                      : 'bg-rose-600 hover:bg-rose-500'
+                  }`}
+                >
+                  {isSubmittingReport ? 'Reporting...' : 'Submit Report'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
