@@ -20,6 +20,8 @@ import { useAuth } from '../../context/AuthContext';
 import NotificationDrawer from '../notifications/NotificationDrawer';
 import { supabase } from '../../utils/supabase';
 import { ProfileCompletionModal } from '../profile/ProfileCompletionModal';
+import HelpBotModal from '../chat/HelpBotModal';
+import { Bot } from 'lucide-react';
 
 
 interface AppShellProps {
@@ -43,6 +45,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [bellShake, setBellShake] = useState(false);
+  const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
 
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [profileImages, setProfileImages] = useState<string[]>([]);
@@ -392,6 +395,22 @@ export const AppShell: React.FC<AppShellProps> = ({
           }
         }}
       />
+
+
+      {/* THE EMERALD CORE WIDGET (HELP BOT) */}
+      <button
+        onClick={() => setIsHelpBotOpen(true)}
+        className="fixed bottom-24 left-4 z-[99999] w-14 h-14 rounded-full bg-[#020202]/90 backdrop-blur-2xl border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.4)] flex items-center justify-center hover:scale-110 transition-all cursor-pointer group"
+      >
+        <motion.div
+          animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
+          transition={{ repeat: Infinity, duration: 2 }}
+        >
+          <Bot className="text-green-500 w-6 h-6" />
+        </motion.div>
+      </button>
+
+      <HelpBotModal isOpen={isHelpBotOpen} onClose={() => setIsHelpBotOpen(false)} />
 
     </div>
   );

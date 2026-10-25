@@ -124,6 +124,7 @@ export default function ChatList({
   };
 
   const filteredUsers = exploreUsers.filter(u => {
+    if (u.is_bot === true || (u.name || "").toLowerCase().includes("support")) return false;
     if (!u.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
 
     if (activeFilter === 'All') return true;

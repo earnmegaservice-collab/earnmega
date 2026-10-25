@@ -80,7 +80,8 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
       }
 
       if (error) throw error;
-      setProfiles(data || []);
+      const humanUsers = (data || []).filter(u => u.is_bot !== true && !(u.name || "").toLowerCase().includes("support"));
+      setProfiles(humanUsers);
       setCurrentProfileIndex(0);
       setCurrentPhotoIndex(0); // Reset photo index on new load
     } catch (e) {
