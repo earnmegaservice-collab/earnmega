@@ -7,12 +7,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, ArrowLeft } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 import VerifiedTick from '../ui/VerifiedTick';
-import { MoreVertical, Pin, PinOff, Trash2, Bell, Check, X, Users, ShieldAlert } from 'lucide-react';
+import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, ShieldAlert } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import MessageForwardModal from './MessageForwardModal';
 
 interface ChatListProps {
+  setChats?: React.Dispatch<React.SetStateAction<any[]>>;
+  chats?: any[];
   exploreUsers: UserProfileDetails[];
   getStatusRingClass: (userId: string) => string;
   currentUserProfile: UserProfileDetails | null;
@@ -35,6 +37,8 @@ export default function ChatList({
   fetchError,
   onStatusClick,
   activeStatusUsers,
+  setChats,
+  chats,
   userStatusMap
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,25 +108,19 @@ export default function ChatList({
   };
 
   // For long press
-  const touchTimer = React.useRef<NodeJS.Timeout | null>(null);
-  const handleTouchStart = (userId: string) => {
-    touchTimer.current = setTimeout(() => {
+  const pressTimer = React.useRef<NodeJS.Timeout | null>(null);
+  const handleTouchStart = (chatId: string) => {
+    pressTimer.current = setTimeout(() => {
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
       setIsMultiSelectMode(true);
-      toggleSelection(userId);
+      toggleSelection(chatId);
     }, 600);
   };
   const handleTouchMove = () => {
-    if (touchTimer.current) {
-      clearTimeout(touchTimer.current);
-      touchTimer.current = null;
-    }
+    if (pressTimer.current) clearTimeout(pressTimer.current);
   };
   const handleTouchEnd = () => {
-    if (touchTimer.current) {
-      clearTimeout(touchTimer.current);
-      touchTimer.current = null;
-    }
+    if (pressTimer.current) clearTimeout(pressTimer.current);
   };
 
   const filteredUsers = exploreUsers.filter(u => {
@@ -172,78 +170,66 @@ export default function ChatList({
     setRenderTrigger(prev => prev + 1);
   };
 
-  const handleBulkDelete = async () => {
-    const toastId = toast.loading('Purging selected chats...');
-    try {
-      if (!currentUserProfile) return;
-      const ids = Array.from(selectedChats);
-
-      for (const id of ids) {
-        await supabase
-          .from('messages')
-          .delete()
-          .or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${currentUserProfile.id})`);
-      }
-      toast.success('Chats securely deleted.', { id: toastId });
-      setShowDeleteConfirm(false);
-      setIsMultiSelectMode(false);
-      setSelectedChats(new Set());
-      setRenderTrigger(prev => prev + 1);
-    } catch (e: any) {
-      toast.error('Failed to delete chats.', { id: toastId });
+  const handleDeleteSelected = async () => {
+    // 1. Delete from backend
+    const idsArray = Array.from(selectedChats);
+    await supabase.from('messages').delete().in('chat_id', idsArray);
+    // 2. Clear from UI immediately
+    if (setChats) {
+      setChats(prev => prev.filter((c: any) => !idsArray.includes(c.id)));
     }
+    setSelectedChats(new Set());
+    setShowDeleteConfirm(false);
+    setIsMultiSelectMode(false);
+    toast.success("Chats deleted");
   };
 
-  const handleBlockUser = async () => {
-    const toastId = toast.loading('Blocking user...');
-    try {
-      if (!currentUserProfile) return;
-      const ids = Array.from(selectedChats);
-      for (const id of ids) {
-        await supabase.from('blocked_users').insert({
-          blocker_id: currentUserProfile.id,
-          blocked_id: id
-        });
-      }
-      toast.success('User strictly blocked.', { id: toastId });
-      setShowThreeDotMenu(false);
-      setIsMultiSelectMode(false);
-      setSelectedChats(new Set());
-      setRenderTrigger(prev => prev + 1);
-    } catch (e: any) {
-      toast.error('Failed to block user.', { id: toastId });
+  const handleSelectAll = () => {
+    setSelectedChats(new Set(exploreUsers.map(chat => chat.id)));
+    setShowThreeDotMenu(false);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedChats(new Set());
+    setShowThreeDotMenu(false);
+  };
+
+  const handleForwardProfile = async (profileId: string) => {
+    const profileLink = `${window.location.origin}/profile/${profileId}`;
+    await navigator.clipboard.writeText(profileLink);
+    toast.success("Profile link copied to clipboard!");
+    setShowThreeDotMenu(false);
+  };
+
+  const handleBlockUser = async (userIdToBlock: string) => {
+    if (!currentUserProfile) return;
+    await supabase.from('blocked_users').insert({ blocker_id: currentUserProfile.id, blocked_id: userIdToBlock });
+    setShowThreeDotMenu(false);
+    setSelectedChats(new Set());
+    if (setChats) {
+      setChats(prev => prev.filter((c: any) => c.id !== userIdToBlock));
     }
+    toast.success("User blocked");
   };
 
   const handleReportUserSubmit = async () => {
-    setIsSubmittingReport(true);
-    const toastId = toast.loading('Securing report payload...');
-    try {
-      if (!currentUserProfile) return;
+    if (!reportCategory || !currentUserProfile) return;
+    const finalReason = reportCategory === 'Other' ? reportDescription : reportCategory;
 
-      const reportedId = Array.from(selectedChats)[0];
-      const { error } = await supabase.from('reports').insert({
-        reporter_id: currentUserProfile.id,
-        reported_user_id: reportedId,
-        content_type: 'chat',
-        reason: reportCategory,
-        details: reportDescription
-      });
-      if (error) throw error;
+    const reportedId = Array.from(selectedChats)[0];
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([50, 50, 50]);
-      toast.success('Report secured. Trust & Safety notified.', { id: toastId, icon: '🛡️' });
+    const { error } = await supabase.from('reports').insert({
+      reporter_id: currentUserProfile.id,
+      reported_user_id: reportedId,
+      reason: finalReason,
+      created_at: new Date().toISOString()
+    });
 
-      setShowReportModal(false);
-      setIsMultiSelectMode(false);
-      setSelectedChats(new Set());
-      setReportCategory('');
-      setReportDescription('');
-    } catch (e: any) {
-      toast.error('Failed to report user.', { id: toastId });
-    } finally {
-      setIsSubmittingReport(false);
-    }
+    if (error) { toast.error("Failed to report user."); return; }
+
+    toast.success("Report submitted successfully.");
+    setShowReportModal(false);
+    setShowThreeDotMenu(false);
   };
 
   // --- DYNAMIC ISLAND TOP BAR ---
@@ -272,38 +258,30 @@ export default function ChatList({
               <button onClick={() => { handleBulkPin(); if (navigator.vibrate) navigator.vibrate(15); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90">
                 {Array.from(selectedChats).every(id => pinnedChats.has(id)) ? <PinOff size={20} /> : <Pin size={20} />}
               </button>
-              <button onClick={() => { setShowDeleteConfirm(true); if (navigator.vibrate) navigator.vibrate(20); }} className="text-rose-500 hover:bg-rose-500/20 p-2.5 rounded-full transition-colors active:scale-90"><Trash2 size={20} /></button>
-              <button onClick={() => { handleBulkMute(); if (navigator.vibrate) navigator.vibrate(15); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><Bell size={20} /></button>
+              <button onClick={() => { handleDeleteSelected(); if (navigator.vibrate) navigator.vibrate(20); }} className="text-rose-500 hover:bg-rose-500/20 p-2.5 rounded-full transition-colors active:scale-90"><Trash2 size={20} /></button>
+              <button onClick={() => { handleBulkMute(); if (navigator.vibrate) navigator.vibrate(15); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90">
+                {Array.from(selectedChats).every(id => mutedChats.has(id)) ? <BellOff size={20} /> : <Bell size={20} />}
+              </button>
               <button onClick={() => { setShowThreeDotMenu(!showThreeDotMenu); if (navigator.vibrate) navigator.vibrate(10); }} className="text-white hover:bg-white/10 p-2.5 rounded-full transition-colors active:scale-90"><MoreVertical size={20} /></button>
 
-              <AnimatePresence>
-                {showThreeDotMenu && (
-                  <>
-                    <div
-                      className="fixed inset-0 w-[100vw] h-[100vh] z-[90]"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowThreeDotMenu(false);
-                      }}
-                    />
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      className="absolute right-0 top-12 z-[100] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.9)] rounded-2xl p-2 min-w-[200px]"
-                    >
-                      <div className="flex flex-col">
-                        <button onClick={() => { setSelectedChats(new Set(exploreUsers.map(u => u.id))); setShowThreeDotMenu(false); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Select All</button>
-                        <button onClick={() => { setSelectedChats(new Set()); setShowThreeDotMenu(false); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Clear Selection</button>
-                        <div className="h-px bg-white/10 my-1 mx-2" />
-                        <button onClick={() => { handleBlockUser(); setShowThreeDotMenu(false); }} className="px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors duration-200 text-left rounded-lg">Block User</button>
-                        <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Report Trust & Safety</button>
-                        <button onClick={() => { setShowThreeDotMenu(false); setShowForwardModal(true); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Forward Profile</button>
-                      </div>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
+              {showThreeDotMenu && (
+                <div className="fixed inset-0 z-[9999] w-[100vw] h-[100vh]">
+                  <div
+                    className="absolute inset-0 w-full h-full cursor-default"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowThreeDotMenu(false); }}
+                  />
+                  <div className="absolute right-4 top-16 z-[10000] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-2xl p-2 min-w-[200px]">
+                    <div className="flex flex-col">
+                      <button onClick={handleSelectAll} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Select All</button>
+                      <button onClick={handleClearSelection} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Clear Selection</button>
+                      <div className="h-px bg-white/10 my-1 mx-2" />
+                      <button onClick={() => handleBlockUser(Array.from(selectedChats)[0])} className="px-5 py-3 text-sm font-black text-rose-500 hover:bg-rose-500/10 transition-colors duration-200 text-left rounded-lg">Block User</button>
+                      <button onClick={() => { setShowThreeDotMenu(false); setShowReportModal(true); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Report Trust & Safety</button>
+                      <button onClick={() => handleForwardProfile(Array.from(selectedChats)[0])} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 transition-colors duration-200 text-left rounded-lg">Forward Profile</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

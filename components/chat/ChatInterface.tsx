@@ -1757,6 +1757,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               <div className="h-full relative">
                 <ChatList
                   exploreUsers={exploreUsers}
+                  chats={exploreUsers}
+                  setChats={setExploreUsers}
                   getStatusRingClass={getStatusRingClass}
                   currentUserProfile={currentUserProfile}
                   setShowVerificationGateModal={setShowVerificationGateModal}
