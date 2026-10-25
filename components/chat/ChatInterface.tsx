@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, ShieldCheck, Trash2, Ban, Bookmark } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -2722,25 +2722,34 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       </main>
 
       {/* Input Area */}
-      <footer className={`bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] ${isBlockedByMe || isBlockedByThem ? 'p-0' : 'p-4 pb-safe'} shrink-0 w-full flex flex-col`}>
-        {(isBlockedByMe || isBlockedByThem) ? (
-          isBlockedByMe ? (
-            <div className="w-full p-4 bg-[#050505]/95 backdrop-blur-xl border-t border-white/5 flex justify-center items-center">
-              <button onClick={toggleBlock} className="px-6 py-3 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-white/70 text-xs font-bold tracking-widest uppercase flex items-center gap-2">
-                <Lock size={16} className="text-red-500" />
-                You blocked this contact. Tap to unblock.
-              </button>
-            </div>
+      {(isBlockedByMe || isBlockedByThem) ? (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#050505]/95 backdrop-blur-xl border-t border-red-900/50 p-4 flex justify-center pb-safe">
+          {isBlockedByMe ? (
+            <button
+              onClick={async () => {
+                if (!user || !currentOtherUserProfile) return;
+                const { error } = await supabase.from('blocked_users').delete().eq('blocker_id', user.id).eq('blocked_id', currentOtherUserProfile.id);
+                if (error) {
+                   toast.error(`Unblock Failed: ${error.message}`);
+                   return;
+                }
+                setIsBlockedByMe(false);
+                toast.success("Contact restored.");
+              }}
+              className="px-6 py-3 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 text-white/70 text-xs font-bold uppercase tracking-widest flex items-center gap-2"
+            >
+              <Lock size={16} className="text-emerald-500" />
+              Tap to Unblock & Resume
+            </button>
           ) : (
-            <div className="w-full p-4 bg-red-950/40 backdrop-blur-xl border-t border-red-900/50 flex flex-col items-center justify-center cursor-not-allowed">
-              <Lock className="text-red-500 mb-2" size={24} />
+            <div className="flex flex-col items-center justify-center cursor-not-allowed">
+              <Lock className="text-red-500 mb-1" size={20} />
               <p className="text-red-400 font-bold tracking-widest text-xs uppercase">User Blocked</p>
-              <p className="text-red-500/60 text-[10px] mt-1">You cannot send or receive messages.</p>
             </div>
-          )
-        ) : (
-          <>
-
+          )}
+        </div>
+      ) : (
+        <footer className="bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] p-4 pb-safe shrink-0 w-full flex flex-col">
         <AnimatePresence>
           {replyingTo && (
             <motion.div
@@ -2842,9 +2851,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <p className="text-center text-[10px] text-gray-600 mt-2 font-medium tracking-wide">
           Double-tap a message to react
         </p>
-        </>
-        )}
       </footer>
+      )}
 
       <AnimatePresence>
          {isGroupModalOpen && (
@@ -3022,9 +3030,17 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               return;
                            }
 
+                           const reportedId = currentOtherUserProfile?.id;
+                           const targetId = typeof reportedId === 'string' ? reportedId : (reportedId as any)?.id;
+
+                           if (!targetId || !user?.id) {
+                              toast.error("Invalid target user ID.");
+                              return;
+                           }
+
                            const { error } = await supabase.from('reports').insert({
-                              reporter_id: user?.id,
-                              reported_user_id: currentOtherUserProfile?.id,
+                              reporter_id: user.id,
+                              reported_user_id: targetId,
                               reason: reportReason === 'Other' ? reportOtherText : reportReason
                            });
 
@@ -3037,14 +3053,37 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
                               navigator.vibrate([50, 50, 50]);
                            }
-                           toast.success('Report secured.', { icon: '🛡️', position: 'top-center' });
+
+                           toast.custom((t) => (
+                              <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-[#111] shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-white/10`}>
+                                <div className="flex-1 w-0 p-4">
+                                  <div className="flex items-start">
+                                    <div className="flex-shrink-0 pt-0.5">
+                                      <ShieldCheck className="text-emerald-500" size={24} />
+                                    </div>
+                                    <div className="ml-3 flex-1">
+                                      <p className="text-sm font-medium text-white">Report secured.</p>
+                                      <p className="mt-1 text-sm text-gray-400">Trust & Safety notified.</p>
+
+                                      {!isBlockedByMe && (
+                                        <button
+                                          onClick={() => {
+                                            toast.dismiss(t.id);
+                                            toggleBlock();
+                                          }}
+                                          className="mt-3 px-4 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-400 text-xs font-bold rounded-lg transition-all"
+                                        >
+                                          Block User Now
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ), { duration: 5000 });
 
                            setIsReportModalOpen(false);
                            setReportReason('');
-                           // Option to block immediately
-                           if (!isBlockedByMe) {
-                              toggleBlock();
-                           }
                         }}
                         className="flex-1 py-3 bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-400 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_30px_rgba(225,29,72,0.5)]"
                      >

@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, ArrowLeft } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 import VerifiedTick from '../ui/VerifiedTick';
-import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, ShieldAlert, Eye, MessageCircle, User, Ban } from 'lucide-react';
+import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, ShieldAlert, ShieldCheck, Eye, MessageCircle, User, Ban } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import MessageForwardModal from './MessageForwardModal';
@@ -41,7 +41,7 @@ export default function ChatList({
   setChats,
   chats,
   userStatusMap,
-  blockedUserIds
+  blockedUserIds: parentBlockedUserIds
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [navigationError, setNavigationError] = useState<string | null>(null);
@@ -61,6 +61,10 @@ export default function ChatList({
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [showThreeDotMenu, setShowThreeDotMenu] = useState(false);
 
+  // Deletion state
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // HD Viewer State
   const [hdViewerUser, setHdViewerUser] = useState<UserProfileDetails | null>(null);
 
@@ -73,8 +77,42 @@ export default function ChatList({
   // Filter State
   const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'Unread' | 'Groups'>('All');
 
+  // Blocked State
+  const [localBlockedUserIds, setLocalBlockedUserIds] = useState<Set<string>>(new Set(parentBlockedUserIds || []));
+
   // Ref to trigger re-renders
   const [renderTrigger, setRenderTrigger] = useState(0);
+
+  React.useEffect(() => {
+    const fetchBlockedUsers = async () => {
+      if (!currentUserProfile) return;
+
+      const { data } = await supabase
+        .from('blocked_users')
+        .select('blocked_id')
+        .eq('blocker_id', currentUserProfile.id);
+
+      if (data) {
+        const blocks = new Set<string>();
+        data.forEach(b => blocks.add(b.blocked_id));
+        setLocalBlockedUserIds(blocks);
+      }
+    };
+
+    fetchBlockedUsers();
+
+    if (!currentUserProfile) return;
+
+    const channel = supabase.channel(`chatlist_blocked_users_${currentUserProfile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'blocked_users' }, () => {
+        fetchBlockedUsers();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUserProfile?.id]);
 
   // Load pinned/muted from local storage
   React.useEffect(() => {
@@ -173,21 +211,29 @@ export default function ChatList({
     setRenderTrigger(prev => prev + 1);
   };
 
-  const handlePermanentDelete = async (targetId: string) => {
-    if (!currentUserProfile) return;
+  const confirmPermanentDelete = async () => {
+    if (!currentUserProfile || !chatToDelete) return;
+    setIsDeleting(true);
+
     const { error } = await supabase
       .from('messages')
       .delete()
-      .or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUserProfile.id})`);
+      .or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${chatToDelete}),and(sender_id.eq.${chatToDelete},receiver_id.eq.${currentUserProfile.id})`);
 
     if (error) {
       toast.error(`Database Error: ${error.message}`);
       console.error(error);
+      setIsDeleting(false);
       return;
     }
 
     if (setChats) {
-      setChats(prev => prev.filter((c: any) => c.id !== targetId));
+      setChats(prev => prev.filter((c: any) => c.id !== chatToDelete));
+    }
+    setChatToDelete(null);
+    setIsDeleting(false);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate([50, 100, 50]);
     }
     toast.success("Chat permanently erased.");
   };
@@ -252,10 +298,16 @@ export default function ChatList({
     const finalReason = reportCategory === 'Other' ? reportDescription : reportCategory;
 
     const reportedId = Array.from(selectedChats)[0];
+    const targetId = typeof reportedId === 'string' ? reportedId : (reportedId as any)?.id;
+
+    if (!targetId) {
+      toast.error("Invalid target user ID.");
+      return;
+    }
 
     const { error } = await supabase.from('reports').insert({
       reporter_id: currentUserProfile.id,
-      reported_user_id: reportedId,
+      reported_user_id: targetId,
       reason: finalReason
     });
 
@@ -265,7 +317,22 @@ export default function ChatList({
       return;
     }
 
-    toast.success("Report secured.");
+    toast.custom((t) => (
+      <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-[#111] shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-white/10`}>
+        <div className="flex-1 w-0 p-4">
+          <div className="flex items-start">
+            <div className="flex-shrink-0 pt-0.5">
+              <ShieldCheck className="text-emerald-500" size={24} />
+            </div>
+            <div className="ml-3 flex-1">
+              <p className="text-sm font-medium text-white">Report secured.</p>
+              <p className="mt-1 text-sm text-gray-400">Trust & Safety notified.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    ));
+
     setShowReportModal(false);
     setShowThreeDotMenu(false);
   };
@@ -394,24 +461,46 @@ export default function ChatList({
             }
 
             return (
-              <div key={u.id} className="relative w-full overflow-hidden bg-rose-600/90 border-b border-white/5 flex items-center justify-end shadow-inner">
-                <div className="absolute right-6 z-0">
-                  <Trash2 className="text-white drop-shadow-md" size={24} />
+              <div key={u.id} className="relative w-full overflow-hidden border-b border-white/5 shadow-inner bg-[#050505]">
+                {/* Background actions layer */}
+                <div className="absolute inset-0 flex z-0">
+                   {/* Left side: Mute/Unmute (Yellow) */}
+                   <div className="w-1/2 h-full bg-amber-500/20 flex items-center justify-start px-6">
+                     {mutedChats.has(u.id) ? <Bell size={24} className="text-amber-500 drop-shadow-md" /> : <BellOff size={24} className="text-amber-500 drop-shadow-md" />}
+                   </div>
+                   {/* Right side: Delete (Red) */}
+                   <div className="w-1/2 h-full bg-rose-600/90 flex items-center justify-end px-6">
+                     <Trash2 size={24} className="text-white drop-shadow-md" />
+                   </div>
                 </div>
+
               <motion.div
                 layout
                 drag="x"
-                dragConstraints={{ left: -100, right: 0 }}
+                dragConstraints={{ left: -100, right: 100 }}
                 onDragEnd={(e, info) => {
                   if (info.offset.x < -70) {
-                    handlePermanentDelete(u.id);
+                    setChatToDelete(u.id);
+                  } else if (info.offset.x > 70) {
+                    const newMuted = new Set(mutedChats);
+                    if (newMuted.has(u.id)) {
+                      newMuted.delete(u.id);
+                      toast.success("Chat unmuted.");
+                    } else {
+                      newMuted.add(u.id);
+                      toast.success("Chat muted.");
+                    }
+                    saveMutedChats(newMuted);
+                    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10);
                   }
                 }}
+                whileDrag={{ scale: 0.98 }}
+                dragSnapToOrigin={true}
                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="w-full relative z-10 bg-[#050505]"
+                className={`w-full relative z-10 bg-[#050505] ${localBlockedUserIds.has(u.id) ? 'opacity-50 grayscale transition-all' : ''}`}
               >
                 <div
                   className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative select-none ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] z-10 rounded-2xl my-1 shadow-inner' : ''}`}
@@ -510,8 +599,8 @@ export default function ChatList({
                           VIP
                         </span>
                       ) : null}
-                      {blockedUserIds?.has(u.id) && (
-                        <span className="ml-2 px-2 py-0.5 rounded-md bg-red-500/10 border border-red-500/30 text-[10px] text-red-500 font-bold uppercase tracking-wider flex-shrink-0">Blocked</span>
+                      {localBlockedUserIds.has(u.id) && (
+                        <span className="ml-2 px-2 py-0.5 rounded-md bg-red-500/10 border border-red-500/30 text-[9px] text-red-500 font-bold uppercase tracking-widest flex-shrink-0">Restricted</span>
                       )}
                     </div>
                     <p className="text-[13px] text-white/50 truncate mt-1 font-medium">
@@ -588,6 +677,48 @@ export default function ChatList({
             </motion.div>
           </motion.div>,
           document.body
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {chatToDelete && (
+          <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-[#0a0a0a] border border-red-500/30 p-6 rounded-3xl w-full max-w-sm shadow-[0_0_40px_rgba(239,68,68,0.15)] flex flex-col items-center text-center"
+            >
+              <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(239,68,68,0.4)]">
+                <Trash2 size={32} className="text-red-500 drop-shadow-md" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Permanently Delete Chat?</h3>
+              <p className="text-sm text-white/60 mb-6">
+                This action cannot be undone. All message history will be permanently erased from the database.
+              </p>
+
+              <div className="flex w-full gap-3">
+                <button
+                  disabled={isDeleting}
+                  onClick={() => setChatToDelete(null)}
+                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold transition-all text-sm disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={isDeleting}
+                  onClick={confirmPermanentDelete}
+                  className="flex-1 py-3 bg-red-600 hover:bg-red-500 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(239,68,68,0.4)] disabled:opacity-50 flex items-center justify-center"
+                >
+                  {isDeleting ? (
+                    <div className="w-5 h-5 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
+                  ) : (
+                    "Yes, Erase"
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
