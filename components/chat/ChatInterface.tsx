@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -366,6 +366,9 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
 
 
 const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
+  const [isGroupMoreMenuOpen, setIsGroupMoreMenuOpen] = useState(false);
+  const [isExitGroupConfirmOpen, setIsExitGroupConfirmOpen] = useState(false);
+  const [reportOnExit, setReportOnExit] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [activeWallpaper, setActiveWallpaper] = useState<string>('bg-[#050505]');
   const [isBlockedByMe, setIsBlockedByMe] = useState(false);
@@ -3109,6 +3112,114 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            </div>
                         </div>
                      ))}
+                  </div>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
+      {/* WhatsApp Exit Group Confirmation Modal */}
+      <AnimatePresence>
+         {isExitGroupConfirmOpen && (
+            <motion.div
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[100000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+               <motion.div
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  className="bg-[#111820] border border-white/10 rounded-3xl w-full max-w-sm overflow-hidden p-6 shadow-2xl"
+               >
+                  <h3 className="text-xl font-bold text-white mb-2">Exit group: "{currentOtherUserProfile?.name}"?</h3>
+                  <p className="text-sm text-white/60 mb-4">Only admins are notified when you leave a group.</p>
+
+                  <div className="bg-white/5 p-3.5 rounded-2xl mb-6 flex items-start gap-3 cursor-pointer hover:bg-white/10 transition-colors" onClick={() => setReportOnExit(!reportOnExit)}>
+                     <div className={`w-5 h-5 rounded border mt-0.5 flex items-center justify-center transition-all ${reportOnExit ? 'bg-emerald-500 border-emerald-500' : 'border-white/30'}`}>
+                        {reportOnExit && <Check size={14} className="text-black font-bold" />}
+                     </div>
+                     <div className="flex-1">
+                        <span className="text-white text-sm font-bold block">Report group</span>
+                        <span className="text-[11px] text-white/50 leading-tight block mt-1">The last 5 messages in this group will be sent to EarnMega Trust & Safety. No one in this group will know about this report.</span>
+                     </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                     <button
+                        onClick={async () => {
+                           if (!user || !currentOtherUserProfile) return;
+                           const targetId = currentOtherUserProfile.id;
+
+                           if (reportOnExit) {
+                               await supabase.from('reports').insert({
+                                  reporter_id: user.id,
+                                  reported_user_id: targetId,
+                                  content_type: 'group',
+                                  reason: 'Reported on exit'
+                               });
+                           }
+
+                           await supabase.from('group_members').delete().match({ group_id: targetId, user_id: user.id });
+                           await supabase.from('messages').insert({
+                               id: uuidv4(),
+                               sender_id: user.id,
+                               room_id: targetId,
+                               content: `~ ${user.user_metadata?.username || user.email} left`,
+                               message_type: 'system'
+                           });
+
+                           setIsExitGroupConfirmOpen(false);
+                           setAppTab('chats');
+                        }}
+                        className="w-full py-3.5 bg-white/5 hover:bg-emerald-500/10 rounded-xl text-emerald-400 font-bold transition-all text-sm"
+                     >
+                        Exit group
+                     </button>
+                     <button
+                        onClick={async () => {
+                           if (!user || !currentOtherUserProfile) return;
+                           const targetId = currentOtherUserProfile.id;
+
+                           if (reportOnExit) {
+                               await supabase.from('reports').insert({
+                                  reporter_id: user.id,
+                                  reported_user_id: targetId,
+                                  content_type: 'group',
+                                  reason: 'Reported on exit'
+                               });
+                           }
+
+                           await supabase.from('group_members').delete().match({ group_id: targetId, user_id: user.id });
+                           await supabase.from('messages').insert({
+                               id: uuidv4(),
+                               sender_id: user.id,
+                               room_id: targetId,
+                               content: `~ ${user.user_metadata?.username || user.email} left`,
+                               message_type: 'system'
+                           });
+
+                           let deletedList = [];
+                           try {
+                               deletedList = JSON.parse(localStorage.getItem(`earnmega_deleted_chats_${user.id}`) || '[]');
+                           } catch(e){}
+                           deletedList.push({ id: targetId, timestamp: new Date().toISOString() });
+                           localStorage.setItem(`earnmega_deleted_chats_${user.id}`, JSON.stringify(deletedList));
+
+                           setIsExitGroupConfirmOpen(false);
+                           setAppTab('chats');
+                        }}
+                        className="w-full py-3.5 bg-white/5 hover:bg-rose-500/10 rounded-xl text-rose-500 font-bold transition-all text-sm"
+                     >
+                        Exit and delete for me
+                     </button>
+                     <button
+                        onClick={() => setIsExitGroupConfirmOpen(false)}
+                        className="w-full py-3.5 bg-transparent hover:bg-white/5 rounded-xl text-white/60 font-bold transition-all text-sm mt-1"
+                     >
+                        Cancel
+                     </button>
                   </div>
                </motion.div>
             </motion.div>
