@@ -25,6 +25,7 @@ interface ChatListProps {
   onStatusClick: (statusGroupId: string, statuses: any[], creatorProfile: any) => void;
   activeStatusUsers: Set<string>;
   userStatusMap: Map<string, string[]>;
+  blockedUserIds?: Set<string>;
 }
 
 export default function ChatList({
@@ -39,7 +40,8 @@ export default function ChatList({
   activeStatusUsers,
   setChats,
   chats,
-  userStatusMap
+  userStatusMap,
+  blockedUserIds
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [navigationError, setNavigationError] = useState<string | null>(null);
@@ -171,9 +173,14 @@ export default function ChatList({
   };
 
   const handleDeleteSelected = async () => {
+    if (!currentUserProfile) return;
+
     // 1. Delete from backend
     const idsArray = Array.from(selectedChats);
-    await supabase.from('messages').delete().in('chat_id', idsArray);
+    for (const targetUserId of idsArray) {
+      await supabase.from('messages').delete().or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${targetUserId}),and(sender_id.eq.${targetUserId},receiver_id.eq.${currentUserProfile.id})`);
+    }
+
     // 2. Clear from UI immediately
     if (setChats) {
       setChats(prev => prev.filter((c: any) => !idsArray.includes(c.id)));
@@ -181,7 +188,8 @@ export default function ChatList({
     setSelectedChats(new Set());
     setShowDeleteConfirm(false);
     setIsMultiSelectMode(false);
-    toast.success("Chats deleted");
+    setShowThreeDotMenu(false);
+    toast.success("Chat history permanently erased.");
   };
 
   const handleSelectAll = () => {
@@ -206,10 +214,7 @@ export default function ChatList({
     await supabase.from('blocked_users').insert({ blocker_id: currentUserProfile.id, blocked_id: userIdToBlock });
     setShowThreeDotMenu(false);
     setSelectedChats(new Set());
-    if (setChats) {
-      setChats(prev => prev.filter((c: any) => c.id !== userIdToBlock));
-    }
-    toast.success("User blocked");
+    toast.success("User frozen.");
   };
 
   const handleReportUserSubmit = async () => {
@@ -221,8 +226,7 @@ export default function ChatList({
     const { error } = await supabase.from('reports').insert({
       reporter_id: currentUserProfile.id,
       reported_user_id: reportedId,
-      reason: finalReason,
-      created_at: new Date().toISOString()
+      reason: finalReason
     });
 
     if (error) { toast.error("Failed to report user."); return; }
@@ -462,6 +466,9 @@ export default function ChatList({
                           VIP
                         </span>
                       ) : null}
+                      {blockedUserIds?.has(u.id) && (
+                        <span className="ml-2 px-2 py-0.5 rounded-md bg-red-500/10 border border-red-500/30 text-[10px] text-red-500 font-bold uppercase tracking-wider flex-shrink-0">Blocked</span>
+                      )}
                     </div>
                     <p className="text-[13px] text-white/50 truncate mt-1 font-medium">
                       Tap to chat with {displayName}
