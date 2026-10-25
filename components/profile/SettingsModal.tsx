@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { createPortal } from 'react-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { X, ExternalLink, LogOut, Trash2, ArrowLeft, Mail, MessageCircle } from 'lucide-react';
@@ -27,6 +28,16 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
   const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
   const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    // Lock background scrolling while Settings is open
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, []);
 
   useEffect(() => {
     if (userProfile) {
@@ -190,17 +201,21 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
   };
 
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed top-0 left-0 w-[100vw] h-[100vh] z-[99999] bg-[#050505] overflow-y-auto pb-24 text-white font-sans"
-      >
+  return createPortal(
+    <div
+      className="fixed inset-0 w-[100vw] h-[100vh] bg-[#050505] z-[999999] overflow-y-auto m-0 p-0"
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999999 }}
+    >
+      <AnimatePresence>
+        <motion.div
+          initial={{ y: '100%' }}
+          animate={{ y: 0 }}
+          exit={{ y: '100%' }}
+          transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+          className="w-full min-h-full pb-24 text-white font-sans relative"
+        >
         {/* THE STICKY LUXURY HEADER */}
         <div className="sticky top-0 w-full z-[100000] px-6 py-4 flex items-center justify-between bg-[#050505]/90 backdrop-blur-2xl border-b border-white/5">
           <button
@@ -585,5 +600,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
 
       </motion.div>
     </AnimatePresence>
+    </div>,
+    document.body
   );
 }
