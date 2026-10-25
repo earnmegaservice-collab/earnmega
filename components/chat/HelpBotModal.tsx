@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Bot } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 
 interface HelpBotModalProps {
@@ -10,9 +11,12 @@ interface HelpBotModalProps {
 
 export default function HelpBotModal({ isOpen, onClose }: HelpBotModalProps) {
   const { user } = useAuth();
-  const [messages, setMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([{role: 'assistant', content: 'Hello! I am your 24/7 AI Concierge. How can I help you today?'}]);
+  const [messages, setMessages] = useState<{ id: string; role: 'user' | 'assistant'; content: string }[]>([
+    { id: 'welcome', role: 'assistant', content: 'Hello! I am your 24/7 AI Concierge. How can I help you today?' }
+  ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -23,67 +27,28 @@ export default function HelpBotModal({ isOpen, onClose }: HelpBotModalProps) {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    const userMessage = { role: 'user' as const, content: input };
-    setMessages(prev => [...prev, userMessage]);
+  const handleSendHelpMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+    const userMsg = { id: Date.now().toString(), role: 'user' as const, content: input.trim() };
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInput('');
     setIsLoading(true);
-
     try {
-      // In a real app, this should call an API, we mock it or call the actual chat route if ready.
-      // We will try calling the actual route, but pass a flag or something.
-      // For HelpBot we just need a simple response for now or call the route.
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [...messages, userMessage],
-          userId: user?.id,
-          botId: 'help-bot-id', // Use a pseudo ID
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: updatedMessages, botType: 'help' })
       });
-
-      if (!res.ok) {
-          throw new Error('Network response was not ok');
+      const data = await res.json();
+      if (data.reply) {
+        setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: data.reply }]);
+      } else {
+        toast.error(data.error || 'AI Concierge could not respond');
       }
-
-      // Handle streaming response
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let done = false;
-      let assistantMessage = '';
-
-      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-
-      if (reader) {
-          while (!done) {
-            const { value, done: doneReading } = await reader.read();
-            done = doneReading;
-            const chunkValue = decoder.decode(value, { stream: true });
-
-            // Basic parsing of Vercel AI SDK stream (0:"text"\n)
-            const lines = chunkValue.split('\n');
-            for (const line of lines) {
-                if (line.startsWith('0:')) {
-                    try {
-                       const text = JSON.parse(line.slice(2));
-                       assistantMessage += text;
-                       setMessages(prev => {
-                          const newMessages = [...prev];
-                          newMessages[newMessages.length - 1].content = assistantMessage;
-                          return newMessages;
-                       });
-                    } catch (e) {}
-                }
-            }
-          }
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I am having trouble connecting right now.' }]);
+    } catch (err) {
+      toast.error('Network error contacting AI');
     } finally {
       setIsLoading(false);
     }
@@ -139,23 +104,22 @@ export default function HelpBotModal({ isOpen, onClose }: HelpBotModalProps) {
 
           {/* Input */}
           <div className="p-4 bg-black/50 border-t border-white/5 pb-safe">
-            <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-6 pr-2 py-2">
+            <form onSubmit={handleSendHelpMessage} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-6 pr-2 py-2">
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                 placeholder="Ask me anything..."
                 className="flex-1 bg-transparent text-white placeholder-white/40 outline-none text-[15px] font-medium"
               />
               <button
-                onClick={handleSend}
+                type="submit"
                 disabled={!input.trim() || isLoading}
                 className="w-10 h-10 rounded-full bg-green-500 text-black flex items-center justify-center disabled:opacity-50 disabled:bg-white/10 disabled:text-white/40 hover:bg-green-400 active:scale-95 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)]"
               >
                 <Send size={18} className="mr-0.5 mt-0.5" />
               </button>
-            </div>
+            </form>
           </div>
         </motion.div>
       )}
