@@ -2261,7 +2261,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       <main
         ref={scrollContainerRef}
         className={`flex-1 overflow-y-auto p-4 space-y-6 relative z-10 w-full ${
-          currentOtherUserProfile.is_bot ? 'bg-[linear-gradient(45deg,#020617,#312e81,#4c1d95,#000000)] bg-[length:400%_400%] animate-[gradient_8s_ease_infinite]' :
+          currentOtherUserProfile.is_bot ? 'bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-fuchsia-900/20 via-[#020202] to-[#020202]' :
           activeWallpaper.startsWith('bg-') ? activeWallpaper : 'bg-cover bg-center'
         }`}
         style={currentOtherUserProfile.is_bot ? {} : activeWallpaper.startsWith('url') ? { backgroundImage: activeWallpaper } : {}}
@@ -2446,7 +2446,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       isUser
                         ? 'bg-white/10 hover:bg-white/20 backdrop-blur-xl border border-amber-500/20 text-white rounded-2xl rounded-tr-sm shadow-[0_8px_32px_rgba(0,0,0,0.37)]'
                         : currentOtherUserProfile.is_bot
-                        ? 'bg-white/10 backdrop-blur-2xl border border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.05)] rounded-2xl rounded-tl-sm text-gray-100'
+                        ? 'bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_0_20px_rgba(192,38,211,0.05)] text-white rounded-2xl rounded-tl-sm'
                         : 'bg-white/5 hover:bg-white/10 backdrop-blur-2xl text-gray-100 border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.3)] rounded-2xl rounded-tl-sm'
                     } ${(message.imageUrl || message.audioUrl) && !message.text ? '!p-1.5' : ''}`}
                   >
