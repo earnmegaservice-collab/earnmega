@@ -621,46 +621,70 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
   };
 
   const handleSendGift = async (gift: any, combo: number) => {
-      if (!liveStreamData || !activeChannelRef.current) return;
+      if (!liveStreamData || !activeChannelRef.current || !user) return;
 
       const totalValue = gift.cost * combo;
 
-      // Would normally handle actual balance deduct here
+      try {
+          const { data: balanceData, error: balanceError } = await supabase
+              .from('profiles')
+              .select('coin_balance')
+              .eq('id', user.id)
+              .single();
 
-      const giftPayload = {
-          id: Math.random().toString(),
-          senderId: user?.id,
-          senderUsername: (user as any)?.username,
-          senderAvatar: (user as any)?.avatar_url,
-          giftId: gift.id,
-          giftName: gift.name,
-          giftIcon: gift.icon,
-          coinValue: gift.cost,
-          comboCount: combo
-      };
+          if (balanceError) throw balanceError;
+          if ((balanceData?.coin_balance || 0) < totalValue) {
+              toast.error('Insufficient coins!');
+              return;
+          }
 
-      activeChannelRef.current.send({
-          type: 'broadcast',
-          event: 'live-gift',
-          payload: giftPayload
-      });
+          const { data: giftRes, error: giftError } = await supabase.rpc('process_live_gift', {
+              p_sender_id: user.id,
+              p_stream_id: liveStreamData.id,
+              p_host_id: liveStreamData.host_id,
+              p_gift_id: gift.id,
+              p_gift_name: gift.name,
+              p_gift_icon: gift.icon,
+              p_coin_value: gift.cost,
+              p_combo: combo,
+              p_total_value: totalValue
+          });
 
-      const newComment = {
-          id: Math.random().toString(),
-          type: 'system',
-          text: `🎁 ${(user as any)?.username} sent ${gift.name} x${combo}!`
-      };
+          if (giftError) throw giftError;
 
-      activeChannelRef.current.send({
-          type: 'broadcast',
-          event: 'comment',
-          payload: newComment
-      });
+          const giftPayload = {
+              id: Math.random().toString(),
+              senderId: user.id,
+              senderUsername: (user as any)?.username,
+              senderAvatar: (user as any)?.avatar_url,
+              giftId: gift.id,
+              giftName: gift.name,
+              giftIcon: gift.icon,
+              coinValue: gift.cost,
+              comboCount: combo,
+              totalValue
+          };
 
-      setComments(prev => [...prev, newComment]);
+          activeChannelRef.current.send({
+              type: 'broadcast',
+              event: 'live-gift',
+              payload: giftPayload
+          });
 
-      // Simulate receiving it locally
-      handleReceiveGift(giftPayload);
+          handleReceiveGift(giftPayload);
+
+          const systemMsg = {
+              id: Math.random().toString(),
+              type: 'system',
+              isEntry: true,
+              text: `🎁 @${(user as any)?.username} sent ${gift.name} x${combo}!`
+          };
+          activeChannelRef.current.send({ type: 'broadcast', event: 'comment', payload: systemMsg });
+          setComments(prev => [...prev, systemMsg]);
+
+      } catch (err: any) {
+          toast.error(err.message || 'Failed to send gift');
+      }
   };
 
   const [activeGiftAnim, setActiveGiftAnim] = useState<any>(null);
@@ -676,6 +700,19 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
       if (activeChannelRef.current) {
           const sub = activeChannelRef.current.on('broadcast', { event: 'live-gift' }, (payload: any) => {
               handleReceiveGift(payload.payload);
+          });
+
+          activeChannelRef.current.on('broadcast', { event: 'cohost-request' }, (payload: any) => {
+              setGuestRequests(prev => [...prev, payload.payload]);
+          });
+
+          activeChannelRef.current.on('broadcast', { event: 'cohost-accepted' }, async (payload: any) => {
+              if (payload.payload.user.id === user?.id) {
+                  toast.success("Host accepted your request!");
+                  setActiveGuest(user);
+              } else {
+                  setActiveGuest(payload.payload.user);
+              }
           });
           return () => { sub.unsubscribe(); };
       }
@@ -903,6 +940,36 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   </div>
               </div>
 
+
+              {/* Co-Host Stage Pod */}
+              <AnimatePresence>
+                  {activeGuest && (
+                      <motion.div
+                          initial={{ opacity: 0, scale: 0.8, x: 20 }}
+                          animate={{ opacity: 1, scale: 1, x: 0 }}
+                          exit={{ opacity: 0, scale: 0.8, x: 20 }}
+                          className="absolute bottom-[280px] right-4 w-[120px] h-[160px] rounded-2xl overflow-hidden border-2 border-white/20 shadow-[0_10px_30px_rgba(0,0,0,0.5)] z-40 bg-zinc-900"
+                      >
+                          <img src={activeGuest.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeGuest.username}`} className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+
+                          <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-emerald-500/80 backdrop-blur-sm flex items-center gap-1">
+                              <Mic className="w-2 h-2 text-white" />
+                              <span className="text-[8px] font-bold text-white uppercase">Co-Host</span>
+                          </div>
+
+                          <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-white truncate drop-shadow-md">@{activeGuest.username}</span>
+                              {isHost && (
+                                  <button onClick={() => setActiveGuest(null)} className="w-5 h-5 rounded-full bg-red-500/80 text-white flex items-center justify-center hover:bg-red-500">
+                                      <X className="w-3 h-3" />
+                                  </button>
+                              )}
+                          </div>
+                      </motion.div>
+                  )}
+              </AnimatePresence>
+
               <div className="w-[78%] max-w-[340px] h-[230px] flex flex-col z-20 pb-2 relative pointer-events-none mt-auto px-4">
                   <AnimatePresence>
                       {pinnedComment && (
@@ -957,9 +1024,11 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
 
                   {isHost ? (
                       <>
-                          <button className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg relative">
+                          <button onClick={() => setIsGuestDrawerOpen(true)} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg relative hover:bg-white/20 transition-colors">
                               <Users className="w-5 h-5 text-white"/>
-                              <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 flex items-center justify-center text-[9px] font-bold border border-black">0</div>
+                              {guestRequests.length > 0 && (
+                                  <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 flex items-center justify-center text-[9px] font-bold border border-black">{guestRequests.length}</div>
+                              )}
                           </button>
                           <button onClick={() => setCameraFacingMode(p => p === 'user' ? 'environment' : 'user')} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg">
                               <RefreshCw className="w-5 h-5 text-white"/>
@@ -981,7 +1050,15 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                       </>
                   ) : (
                       <>
-                          <button className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-cyan-500/50 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.3)] relative">
+                          <button onClick={() => {
+        if (!activeChannelRef.current || !user) return;
+        activeChannelRef.current.send({
+            type: 'broadcast',
+            event: 'cohost-request',
+            payload: { user }
+        });
+        toast.success("Request sent to host!");
+    }} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-cyan-500/50 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.3)] relative hover:bg-white/10 transition-colors">
                               <UserPlus className="w-5 h-5 text-cyan-400"/>
                           </button>
                           <button onClick={() => setIsGiftDrawerOpen(true)} className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center shadow-[0_0_15px_rgba(251,191,36,0.5)] border border-white/20 hover:scale-105 transition-transform">
@@ -1133,7 +1210,20 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   )}
               </AnimatePresence>
 
-              <GuestRequestDrawer isOpen={isGuestDrawerOpen} onClose={() => setIsGuestDrawerOpen(false)} requests={guestRequests} onAccept={() => {}} />
+              <GuestRequestDrawer
+      isOpen={isGuestDrawerOpen}
+      onClose={() => setIsGuestDrawerOpen(false)}
+      requests={guestRequests}
+      onAccept={(req) => {
+          setActiveGuest(req.user);
+          setGuestRequests(prev => prev.filter(r => r.user.id !== req.user.id));
+          activeChannelRef.current?.send({
+              type: 'broadcast',
+              event: 'cohost-accepted',
+              payload: { user: req.user }
+          });
+      }}
+  />
           </div>
       )}
     </div>,
