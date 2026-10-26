@@ -13,7 +13,8 @@ import {
   Coins,
   X,
   Heart,
-  Store
+  Store,
+  Flame
 } from 'lucide-react';
 import GiftOverlay from '../chat/GiftOverlay';
 import { useAuth } from '../../context/AuthContext';
@@ -26,8 +27,8 @@ import { Bot } from 'lucide-react';
 
 interface AppShellProps {
   children: React.ReactNode;
-  activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile';
-  setActiveTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile') => void;
+  activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live';
+  setActiveTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live') => void;
   coinBalance: number;
   unreadCount?: number;
   onOpenStore?: () => void;
@@ -290,6 +291,23 @@ export const AppShell: React.FC<AppShellProps> = ({
             <Store className="w-5 h-5 text-black fill-black/10 pointer-events-none" />
           </div>
           <span className="text-[10px] font-bold tracking-tight text-amber-400 pointer-events-none">Store</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("live")}
+          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+        >
+          {activeTab === "live" && (
+            <motion.div
+              layoutId="activeTabIndicator"
+              className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-red-500 to-rose-500 rounded-full shadow-[0_0_10px_rgba(244,63,94,0.8)]"
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+            />
+          )}
+          <div className={`relative ${activeTab === "live" ? "animate-pulse" : ""}`}>
+            <Flame className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === "live" ? "text-red-500 drop-shadow-[0_0_8px_rgba(244,63,94,0.8)]" : "text-white/40"}`} />
+          </div>
+          <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === "live" ? "text-red-500 font-bold" : "text-white/40"}`}>Live</span>
         </button>
 
         <button
