@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
 import { useCall } from "../../context/CallContext";
+import LiveArena from "../live/LiveArena";
 import { useAuth } from "../../context/AuthContext";
 import { UserProfileDetails } from "../../components/profile/UserProfileModal";
 import { supabase } from "../../utils/supabase";
@@ -315,7 +316,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
 
 import { AppShell } from '../layout/AppShell';
 
-export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile', setAppTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile') => void }) {
+export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live', setAppTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live') => void }) {
   const { subscriptionTier, balance, setBalance } = useWallet();
   const { initiateCall, joinCall } = useCall();
   useEffect(() => {
@@ -1833,6 +1834,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             {activeTab === 'status' && (
               <StatusTab onStatusClick={handleStatusClick} currentUserProfile={currentUserProfile} />
             )}
+
+            <AnimatePresence>
+              {activeTab === 'live' && (
+                <LiveArena onClose={() => setAppTab('explore')} />
+              )}
+            </AnimatePresence>
 
             {activeTab === 'profile' && currentUserProfile && (
               <MyProfileView

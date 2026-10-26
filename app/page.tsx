@@ -18,7 +18,7 @@ type Step = 'login' | 'register' | 'verify-otp';
 function HomeContent() {
   const { user, isLoading } = useAuth();
   const { balance } = useWallet();
-  const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile'>('chats');
+  const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live'>('chats');
 
   const [session, setSession] = useState<any>(null);
   const [profileState, setProfileState] = useState<any>(null);
