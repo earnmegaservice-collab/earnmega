@@ -12,8 +12,7 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, ShieldCheck, Trash2, Ban, Bookmark, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus } from 'lucide-react';
-
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus, ShieldCheck , AtSign, BarChart2, CalendarPlus} from "lucide-react";
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -476,6 +475,49 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
+  const [groupDetails, setGroupDetails] = useState<any>(null);
+  const [groupMembers, setGroupMembers] = useState<any[]>([]);
+  const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.group_id || groupDetails !== null);
+
+  useEffect(() => {
+    if (!otherUserProfile) return;
+
+    if (isGroupChat || otherUserProfile.isGroup || otherUserProfile.bio === 'Group Chat') {
+      const fetchGroup = async () => {
+        let { data: group } = await supabase.from('chat_groups').select('*').eq('id', otherUserProfile.id).maybeSingle();
+        if (!group) {
+          const { data: fallback } = await supabase.from('chat_groups').select('*').eq('name', otherUserProfile.name).limit(1).maybeSingle();
+          group = fallback;
+        }
+
+        if (group) {
+          setGroupDetails(group);
+          const { data: members } = await supabase.from('group_members').select('*, profiles(id, username, full_name, avatar_url)').eq('group_id', group.id);
+          if (members) setGroupMembers(members);
+        }
+      };
+
+      fetchGroup();
+
+      const groupSub = supabase.channel(`group_updates_${otherUserProfile.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_groups', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
+           setGroupDetails(payload.new);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members', filter: `group_id=eq.${otherUserProfile.id}` }, async () => {
+           const { data: members } = await supabase.from('group_members').select('*, profiles(id, username, full_name, avatar_url)').eq('group_id', otherUserProfile.id);
+           if (members) setGroupMembers(members);
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(groupSub);
+      };
+    } else {
+       setGroupDetails(null);
+       setGroupMembers([]);
+    }
+  }, [otherUserProfile?.id, isGroupChat]);
+
  
 
   const blockedUserIdsRef = useRef<Set<string>>(new Set());
@@ -889,8 +931,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       try {
         let query = supabase.from('messages').select('*');
 
-        if ((currentOtherUserProfile as any).isGroup) {
-             query = query.eq('room_id', currentOtherUserProfile.id);
+        if (isGroupChat) {
+             query = query.or(`group_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${currentOtherUserProfile.id}`);
         } else {
              query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${currentOtherUserProfile.id}),and(sender_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${user.id})`);
         }
@@ -1609,16 +1651,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       setMessages((prev) => [...prev, newMessage]);
 
       if (user && currentOtherUserProfile) {
-        await supabase.from('messages').insert({
+        const msgPayload: any = {
            id: newMessage.id,
            sender_id: user.id,
-           receiver_id: currentOtherUserProfile.id,
            content: '',
            image_url: type === 'image' ? publicUrl : null,
            audio_url: type === 'audio' ? publicUrl : null,
            status: 'sent',
            is_view_once: type === 'image' ? isViewOnceMode : false,
-        });
+        };
+        if (isGroupChat) {
+           msgPayload.group_id = currentOtherUserProfile.id;
+        } else {
+           msgPayload.receiver_id = currentOtherUserProfile.id;
+        }
+        await supabase.from('messages').insert(msgPayload);
 
         channelRef.current?.send({
            type: 'broadcast',
@@ -2195,7 +2242,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
              )}
            </div>
         </div>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { if ((currentOtherUserProfile as any).isGroup) setIsGroupInfoDrawerOpen(true); else openProfile(currentOtherUserProfile); }}>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { if (isGroupChat) setIsGroupInfoDrawerOpen(true); else openProfile(currentOtherUserProfile); }}>
           <div className="flex items-center">
             <h1 className={`text-base leading-tight truncate drop-shadow-sm mr-2 ${
               currentOtherUserProfile.is_bot ? 'bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 drop-shadow-[0_0_10px_rgba(232,121,249,0.8)] font-extrabold' :
@@ -2225,91 +2272,142 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                </motion.span>
             )}
           </div>
-          {!currentOtherUserProfile.ghost_mode && currentOtherUserProfile.isOnline ? (
-            <div className="flex items-center space-x-1.5">
-               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
-               <p className="text-[11px] text-white/60 font-medium">Active now</p>
-            </div>
+          <p className="text-xs text-white/50 truncate font-medium flex items-center">
+              {isGroupChat ? (
+                groupMembers.length > 0 ? (
+                  <span className="truncate">~You, {groupMembers.map(m => '~' + (m.profiles?.username || m.profiles?.full_name || m.username || 'User')).join(', ')}</span>
+                ) : (
+                  <span>Tap here for group info</span>
+                )
+              ) : (
+                <>
+                  <Clock size={10} className="mr-1 opacity-70" />
+                  {currentOtherUserProfile.isOnline ? (
+                    <span className="text-emerald-400">Online now</span>
+                  ) : (
+                    <span>Last seen {currentOtherUserProfile.last_seen && !currentOtherUserProfile.ghost_mode ? new Date(currentOtherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</span>
+                  )}
+                </>
+              )}
+            </p>
+        </div>
+
+        {/* Header Icons */}
+        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0 ml-auto mr-2">
+          {isGroupChat ? (
+            <>
+              <button className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center">
+                <Search size={20} className="sm:w-[22px] sm:h-[22px]" />
+              </button>
+              <div className="relative">
+                <button
+                   onClick={() => setIsChatMenuOpen(!isChatMenuOpen)}
+                   className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center"
+                >
+                   <MoreVertical size={20} className="sm:w-[22px] sm:h-[22px]" />
+                </button>
+                <AnimatePresence>
+                   {isChatMenuOpen && (
+                      <>
+                         <div
+                            className="fixed inset-0 w-[100vw] h-[100vh] z-[90]"
+                            onClick={(e) => {
+                               e.stopPropagation();
+                               setIsChatMenuOpen(false);
+                            }}
+                         />
+                         <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                            className="absolute right-0 top-12 z-[100] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.9)] rounded-2xl p-2 min-w-[200px]"
+                         >
+                            <div className="flex flex-col">
+                               <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                  <Camera size={16} className="text-white/50" /> Theme & Wallpaper
+                               </button>
+                               <div className="h-px w-full bg-white/10 my-1"></div>
+                               <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                  <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
+                               </button>
+                            </div>
+                         </motion.div>
+                      </>
+                   )}
+                </AnimatePresence>
+              </div>
+            </>
           ) : (
-            <div className="flex items-center space-x-1.5">
-               <span className="w-2 h-2 rounded-full bg-white/30" />
-               <p className="text-[11px] text-white/50 font-medium">Last seen {currentOtherUserProfile.last_seen && !currentOtherUserProfile.ghost_mode ? new Date(currentOtherUserProfile.last_seen).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'recently'}</p>
-            </div>
+            <>
+              <button onClick={() => { if (currentOtherUserProfile) initiateCall(currentOtherUserProfile.id, currentOtherUserProfile.name, currentOtherUserProfile.avatarUrl, 'audio', (currentOtherUserProfile as any).isGroup); }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10">
+                 <Phone size={20} className="sm:w-[22px] sm:h-[22px]" />
+              </button>
+              <button onClick={() => { if (currentOtherUserProfile) initiateCall(currentOtherUserProfile.id, currentOtherUserProfile.name, currentOtherUserProfile.avatarUrl, 'video', (currentOtherUserProfile as any).isGroup); }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10">
+                 <Video size={20} className="sm:w-[22px] sm:h-[22px]" />
+              </button>
+              <button
+                onClick={() => {
+                  setStoreTab('BUY_COINS');
+                  setIsStoreOpen(true);
+                }}
+                className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400/20 to-amber-600/20 hover:from-amber-400/40 hover:to-amber-600/40 border border-amber-400/30 flex items-center justify-center transition-all ml-2 shrink-0"
+              >
+                <Store size={14} className="text-amber-400" />
+              </button>
+
+              <div className="relative ml-2">
+                  <button
+                     onClick={() => setIsChatMenuOpen(!isChatMenuOpen)}
+                     className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-all"
+                  >
+                     <MoreVertical size={20} />
+                  </button>
+                  <AnimatePresence>
+                     {isChatMenuOpen && (
+                        <>
+                           <div
+                              className="fixed inset-0 w-[100vw] h-[100vh] z-[90]"
+                              onClick={(e) => {
+                                 e.stopPropagation();
+                                 setIsChatMenuOpen(false);
+                              }}
+                           />
+                           <motion.div
+                              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                              className="absolute right-0 top-12 z-[100] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.9)] rounded-2xl p-2 min-w-[200px]"
+                           >
+                              <div className="flex flex-col">
+                                 <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                    <Camera size={16} className="text-white/50" /> Theme & Wallpaper
+                                 </button>
+                                 <button onClick={() => { setIsChatMenuOpen(false); setIsForwardContactModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                    <Share size={16} className="text-white/50" /> Forward Account
+                                 </button>
+                                 <button onClick={() => { setIsChatMenuOpen(false); toggleBlock(); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                    <Ban size={16} className="text-white/50" /> {isBlockedByMe ? 'Unblock' : 'Block'} User
+                                 </button>
+                                 <button onClick={() => { setIsChatMenuOpen(false); setIsReportModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                    <ShieldAlert size={16} className="text-rose-400/50" /> Report
+                                 </button>
+                                 <button onClick={() => { setIsChatMenuOpen(false); toast('Search coming soon!', { icon: '🔍' }); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                    <Search size={16} className="text-white/50" /> Search Chat
+                                 </button>
+                                 <div className="h-px w-full bg-white/10 my-1"></div>
+                                 <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                    <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
+                                 </button>
+                              </div>
+                           </motion.div>
+                        </>
+                     )}
+                  </AnimatePresence>
+              </div>
+            </>
           )}
         </div>
-
-        {/* Phase 3 Call Actions */}
-        <div className="flex items-center space-x-3 mr-4">
-            <button onClick={() => { if (currentOtherUserProfile) initiateCall(currentOtherUserProfile.id, currentOtherUserProfile.name, currentOtherUserProfile.avatarUrl, 'audio', (currentOtherUserProfile as any).isGroup); }} className="text-amber-500 hover:text-amber-400 cursor-pointer transition-all hover:scale-110 drop-shadow-md">
-               <Phone size={20} />
-            </button>
-            <button onClick={() => { if (currentOtherUserProfile) initiateCall(currentOtherUserProfile.id, currentOtherUserProfile.name, currentOtherUserProfile.avatarUrl, 'video', (currentOtherUserProfile as any).isGroup); }} className="text-amber-500 hover:text-amber-400 cursor-pointer transition-all hover:scale-110 drop-shadow-md">
-               <Video size={22} />
-            </button>
-        </div>
-
-        {/* Top-up Store Icon */}
-        <button
-          onClick={() => {
-            setStoreTab('BUY_COINS');
-            setIsStoreOpen(true);
-          }}
-          className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400/20 to-amber-600/20 hover:from-amber-400/40 hover:to-amber-600/40 border border-amber-400/30 flex items-center justify-center transition-all ml-2 shrink-0"
-        >
-          <Store size={14} className="text-amber-400" />
-        </button>
-
-        {/* Phase 4: Chat Options Menu */}
-        <div className="relative ml-2">
-            <button
-               onClick={() => setIsChatMenuOpen(!isChatMenuOpen)}
-               className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-all"
-            >
-               <MoreVertical size={20} />
-            </button>
-            <AnimatePresence>
-               {isChatMenuOpen && (
-                  <>
-                     <div
-                        className="fixed inset-0 w-[100vw] h-[100vh] z-[90]"
-                        onClick={(e) => {
-                           e.stopPropagation();
-                           setIsChatMenuOpen(false);
-                        }}
-                     />
-                     <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                        className="absolute right-0 top-12 z-[100] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.9)] rounded-2xl p-2 min-w-[200px]"
-                     >
-                        <div className="flex flex-col">
-                           <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                              <Camera size={16} className="text-white/50" /> Theme & Wallpaper
-                           </button>
-                           <button onClick={() => { setIsChatMenuOpen(false); setIsForwardContactModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                              <Share size={16} className="text-white/50" /> Forward Account
-                           </button>
-                           <button onClick={() => { setIsChatMenuOpen(false); toggleBlock(); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                              <Ban size={16} className="text-white/50" /> {isBlockedByMe ? 'Unblock' : 'Block'} User
-                           </button>
-                           <button onClick={() => { setIsChatMenuOpen(false); setIsReportModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                              <ShieldAlert size={16} className="text-rose-400/50" /> Report
-                           </button>
-                           <button onClick={() => { setIsChatMenuOpen(false); toast('Search coming soon!', { icon: '🔍' }); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                              <Search size={16} className="text-white/50" /> Search Chat
-                           </button>
-                           <div className="h-px w-full bg-white/10 my-1"></div>
-                           <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                              <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
-                           </button>
-                        </div>
-                     </motion.div>
-                  </>
-               )}
-            </AnimatePresence>
-        </div>
-      </header>
+</header>
 
       {/* Messages Area */}
       <main
@@ -2324,11 +2422,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
         {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
 
-          if (message.isSystemMessage) {
+          if (message.isSystemMessage || (message.text && message.text.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
+              const text = message.text?.startsWith('$$SYSTEM$$') ? message.text.substring(10) : message.text;
               return (
                   <div key={message.id} className="w-full flex justify-center my-4">
-                      <div className="px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/5 text-[11px] font-bold text-white/70 shadow-sm text-center max-w-[80%] break-words">
-                          {message.text}
+                      <div className="px-4 py-1.5 rounded-full bg-[#111820] backdrop-blur-md border border-white/10 text-xs font-bold text-white/80 shadow-sm text-center max-w-[80%] break-words mx-auto">
+                          {text}
                       </div>
                   </div>
               );
@@ -2350,6 +2449,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                  className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
                >
                  <div className="flex items-end space-x-2 max-w-[85%] relative">
+                   {!isUser && isGroupChat && (
+                      <img src={(message as any).senderAvatar || '/placeholder.svg'} className="w-8 h-8 rounded-full self-end object-cover shrink-0 mb-1" />
+                   )}
+
                    <div className={`px-4 py-2.5 rounded-2xl border border-white/10 italic text-white/50 text-sm ${isUser ? 'bg-white/5 rounded-tr-sm' : 'bg-white/5 rounded-tl-sm'}`}>
                      🚫 This message was deleted.
                    </div>
@@ -2703,6 +2806,24 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     )}
 
                     {/* Render message text natively with our new function */}
+
+                  {(message as any).messageType === 'poll' && (
+                     <div className="mb-2 p-3 bg-black/40 rounded-xl border border-purple-500/30 flex flex-col shrink-0 min-w-[200px]">
+                        <span className="text-sm font-bold text-white mb-2">📊 {(message as any).text}</span>
+                        <div className="space-y-2">
+                           <button className="w-full text-left bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg text-sm transition-colors border border-white/10">Option 1</button>
+                           <button className="w-full text-left bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg text-sm transition-colors border border-white/10">Option 2</button>
+                        </div>
+                     </div>
+                  )}
+                  {(message as any).messageType === 'event' && (
+                     <div className="mb-2 p-3 bg-black/40 rounded-xl border border-amber-500/30 flex flex-col shrink-0 min-w-[200px]">
+                        <span className="text-sm font-bold text-white mb-1">🗓️ {(message as any).text}</span>
+                        <span className="text-xs text-white/60 mb-2">Group Event</span>
+                        <button className="w-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-bold px-3 py-1.5 rounded-lg text-sm transition-colors">Going</button>
+                     </div>
+                  )}
+
                     {message.text && message.messageType !== 'gift' && renderMessageContent(message, user?.id || '')}
 
                     {/* Meta Row (Time & Status) */}
@@ -2781,6 +2902,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             </motion.div>
           )}
         </AnimatePresence>
+
+      {isGroupChat && groupMembers.find(m => m.profiles?.id === user?.id)?.has_accepted_invite === false && (
+        <div className="bg-[#1c1c1e]/90 backdrop-blur-xl border-t border-white/5 p-4 flex flex-col items-center justify-center space-y-3 shrink-0 relative z-20 w-full mb-2 rounded-2xl">
+           <p className="text-white/70 text-sm">You were added to this group</p>
+           <div className="flex w-full space-x-3 max-w-sm">
+             <button className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/90 text-sm font-semibold transition-colors">Exit group</button>
+             <button className="flex-1 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-sm font-semibold transition-colors border border-emerald-500/30">Stay</button>
+           </div>
+        </div>
+      )}
+{isGroupChat && groupDetails?.only_admins_message && !groupMembers.some(m => m.profiles?.id === user?.id && m.role === 'admin') ? (
+        <div className="w-full py-4 bg-black/60 backdrop-blur-xl rounded-3xl border border-white/10 relative z-20 text-center text-white/50 text-sm">
+          🔒 Only admins can send messages to this group.
+        </div>
+      ) : (
         <form
           onSubmit={handleSendMessage}
           className="flex items-end bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-white/20 transition-shadow shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative z-10"
@@ -2794,7 +2930,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 handleSendMessage(e);
               }
             }}
-            placeholder="Type a message... (use **bold** or *italic*)"
+            placeholder={isGroupChat ? "Type a group message..." : "Type a message... (use **bold** or *italic*)"}
             rows={1}
             className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-white/50 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32"
           />
@@ -2806,7 +2942,34 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             className="hidden"
           />
           <div className="flex items-center space-x-1.5 ml-2 mb-0.5 self-end">
-            <motion.button
+            {isGroupChat && (
+              <>
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  type="button"
+                  onClick={() => {}}
+                  className="w-10 h-10 shrink-0 text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
+                >
+                  <AtSign size={20} />
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  type="button"
+                  onClick={() => {}}
+                  className="w-10 h-10 shrink-0 text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
+                >
+                  <BarChart2 size={20} />
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  type="button"
+                  onClick={() => {}}
+                  className="w-10 h-10 shrink-0 text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
+                >
+                  <CalendarPlus size={20} />
+                </motion.button>
+              </>
+            )}<motion.button
               whileTap={{ scale: 0.9 }}
               type="button"
               onClick={handleCameraClick}
@@ -2859,6 +3022,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             </motion.button>
           </div>
         </form>
+      )}
         <p className="text-center text-[10px] text-gray-600 mt-2 font-medium tracking-wide">
           Double-tap a message to react
         </p>
