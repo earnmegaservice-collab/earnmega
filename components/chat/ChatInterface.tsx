@@ -12,8 +12,7 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus } from 'lucide-react';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, ShieldCheck, Trash2, Ban, Bookmark } from 'lucide-react';
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, ShieldCheck, Trash2, Ban, Bookmark, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
