@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Coins } from 'lucide-react';
+import { useWallet } from '../../context/WalletContext';
+
 export const GIFTS = [
   { id: '1', name: 'Rose', cost: 1, icon: '🌹', anim: 'float-up' },
   { id: '2', name: 'Heart', cost: 5, icon: '💖', anim: 'pulse' },
@@ -20,6 +22,7 @@ interface LiveGiftDrawerProps {
 }
 
 export default function LiveGiftDrawer({ isOpen, onClose, onSendGift }: LiveGiftDrawerProps) {
+    const { balance } = useWallet();
     const [selectedGift, setSelectedGift] = useState<any | null>(null);
     const [comboCount, setComboCount] = useState(0);
     const [comboTimer, setComboTimer] = useState<NodeJS.Timeout | null>(null);
@@ -43,7 +46,7 @@ export default function LiveGiftDrawer({ isOpen, onClose, onSendGift }: LiveGift
             clearTimeout(comboTimer);
         }
 
-        // Set a new timer to finalize the combo after 2 seconds of inactivity
+        // Set a new timer to finalize the combo after 1.5 seconds of inactivity
         const timer = setTimeout(() => {
             // Finalize send
             onSendGift(selectedGift, comboCount + 1);
@@ -83,7 +86,7 @@ export default function LiveGiftDrawer({ isOpen, onClose, onSendGift }: LiveGift
                             <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-1.5 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
                                     <Coins className="w-4 h-4 text-amber-400" />
-                                    <span className="text-sm font-bold text-amber-400">9,999</span>
+                                    <span className="text-sm font-bold text-amber-400">{balance.toLocaleString()}</span>
                                 </div>
                                 <button onClick={onClose} className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors">
                                     <X className="w-5 h-5 text-white/70" />
