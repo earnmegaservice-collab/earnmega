@@ -475,6 +475,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'chats') {
+      setOtherUserProfile(null);
+    }
+  }, [activeTab]);
+
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.group_id || groupDetails !== null);

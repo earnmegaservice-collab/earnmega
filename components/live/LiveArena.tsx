@@ -732,21 +732,23 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                <button onClick={onClose} className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md border border-white/15 flex items-center justify-center text-white">
                   <ArrowLeft className="w-5 h-5"/>
                </button>
-               <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-500 to-amber-500 drop-shadow-[0_0_10px_rgba(244,63,94,0.6)]">🔴 LIVE NOW</h1>
-               <button onClick={() => setMode('GREEN_ROOM')} className="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/10 px-4 py-2 rounded-full font-bold text-sm flex items-center gap-1 shadow-lg transition-colors">
+               <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-500 via-fuchsia-500 to-amber-400 drop-shadow-[0_0_12px_rgba(244,63,94,0.7)] tracking-wider">🔴 LIVE ARENA</h1>
+               <button onClick={() => setMode('GREEN_ROOM')} className="bg-gradient-to-r from-rose-600 to-fuchsia-600 hover:from-rose-500 hover:to-fuchsia-500 text-white font-bold text-sm px-4 py-2 rounded-full shadow-[0_0_20px_rgba(225,29,72,0.4)] flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95">
                   <Video className="w-4 h-4"/> Go Live
                </button>
            </div>
 
-           <div className="mx-4 mb-4 mt-2 bg-gradient-to-r from-zinc-900 to-black border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-xl">
+           <div className="mx-4 mb-4 mt-2 bg-gradient-to-r from-zinc-900 via-zinc-900/90 to-black border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-2xl backdrop-blur-xl">
                <div className="flex items-center gap-3">
-                   <img src={(user as any)?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${(user as any)?.username}`} className="w-12 h-12 rounded-full border border-zinc-700" />
+                   <div className="relative w-12 h-12 rounded-full p-[2px] bg-gradient-to-tr from-rose-500 to-amber-400">
+                       <img src={(user as any)?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${(user as any)?.username}`} className="w-full h-full rounded-full object-cover bg-neutral-900" />
+                   </div>
                    <div className="flex flex-col">
-                       <span className="font-bold text-sm text-white">Ready to broadcast?</span>
-                       <span className="text-xs text-zinc-400">Share your moment to EarnMega</span>
+                       <span className="font-bold text-sm text-white tracking-tight">Ready to broadcast?</span>
+                       <span className="text-xs text-zinc-400">Share your moment on Live Arena</span>
                    </div>
                </div>
-               <button onClick={() => setMode('GREEN_ROOM')} className="bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-full shadow-[0_0_15px_rgba(225,29,72,0.5)]">
+               <button onClick={() => setMode('GREEN_ROOM')} className="bg-gradient-to-r from-rose-600 to-fuchsia-600 hover:from-rose-500 hover:to-fuchsia-500 text-white font-bold text-xs px-5 py-2.5 rounded-full shadow-[0_0_20px_rgba(225,29,72,0.5)] transition-all hover:scale-105 active:scale-95">
                    Start Live
                </button>
            </div>
