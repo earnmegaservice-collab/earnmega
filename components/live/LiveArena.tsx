@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, RefreshCw, Sparkles, Mic, MicOff, Settings, X, Video, Users, Gift, Flame, Play, Heart, MessageCircle, Send, UserPlus, Coins, ArrowLeft, Share2, Shield, Pin, Ban } from 'lucide-react';
+import { Camera, RefreshCw, Sparkles, Mic, MicOff, Settings, X, Video, Users, Gift, Flame, Play, Heart, MessageCircle, Send, UserPlus, Coins, ArrowLeft, Share2, Shield, Pin, Ban, Search, Filter } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-hot-toast';
@@ -23,7 +23,7 @@ interface LiveStream {
   host: {
     username: string;
     avatar_url: string;
-    first_name: string;
+    first_name?: string;
   };
 }
 
@@ -34,12 +34,14 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
   // Discovery State
   const [activeStreams, setActiveStreams] = useState<LiveStream[]>([]);
   const [viewingStream, setViewingStream] = useState<LiveStream | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
 
   // Green Room State
   const [streamTitle, setStreamTitle] = useState('');
   const [category, setCategory] = useState('Just Chatting');
   const [giftGoal, setGiftGoal] = useState(500);
-  const [allowCohost, setAllowCohost] = useState(false);
+  const [allowCohost, setAllowCohost] = useState(true);
   const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('user');
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isLightingOn, setIsLightingOn] = useState(false);
@@ -55,7 +57,6 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
   const [totalCoinsEarned, setTotalCoinsEarned] = useState(0);
 
   // HUD Data
-  const [topGifters, setTopGifters] = useState<any[]>([]);
   const [comments, setComments] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState('');
   const commentsEndRef = useRef<HTMLDivElement>(null);
@@ -87,45 +88,48 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
       scrollToBottom();
   }, [comments]);
 
-
   // Dual-Sync Discovery Engine
   useEffect(() => {
     if (mode === 'DISCOVERY') {
       const fetchStreams = async () => {
-        const { data } = await supabase
-          .from('live_streams')
-          .select('*, host:host_id(username, avatar_url, first_name)')
-          .eq('is_live', true)
-          .order('viewer_count', { ascending: false });
+        try {
+          const { data } = await supabase
+            .from('live_streams')
+            .select('*, host:host_id(username, avatar_url, first_name)')
+            .eq('is_live', true)
+            .order('viewer_count', { ascending: false });
 
-        let dbStreams: any[] = data || [];
+          let dbStreams: any[] = data || [];
 
-        const lobbyChannel = supabase.channel('earnmega_global_live_lobby');
-        const state = lobbyChannel.presenceState();
-        const presenceStreams: any[] = [];
-        for (const key in state) {
-            state[key].forEach((s: any) => {
-                if (s.is_hosting) {
-                    presenceStreams.push({
-                        id: s.stream_id,
-                        host_id: s.host_id,
-                        title: s.title,
-                        category: s.category,
-                        viewer_count: s.viewer_count || 1,
-                        is_live: true,
-                        host: { username: s.host_username, avatar_url: s.host_avatar }
-                    });
-                }
-            });
+          const lobbyChannel = supabase.channel('earnmega_global_live_lobby');
+          const state = lobbyChannel.presenceState();
+          const presenceStreams: any[] = [];
+          for (const key in state) {
+              state[key].forEach((s: any) => {
+                  if (s.is_hosting) {
+                      presenceStreams.push({
+                          id: s.stream_id,
+                          host_id: s.host_id,
+                          title: s.title,
+                          category: s.category,
+                          viewer_count: s.viewer_count || 1,
+                          is_live: true,
+                          host: { username: s.host_username, avatar_url: s.host_avatar }
+                      });
+                  }
+              });
+          }
+
+          const mergedMap = new Map();
+          [...dbStreams, ...presenceStreams].forEach(s => mergedMap.set(s.host_id, s));
+          setActiveStreams(Array.from(mergedMap.values()));
+        } catch (e) {
+          console.error("Fetch streams error:", e);
         }
-
-        const mergedMap = new Map();
-        [...dbStreams, ...presenceStreams].forEach(s => mergedMap.set(s.host_id, s));
-        setActiveStreams(Array.from(mergedMap.values()));
       };
 
       fetchStreams();
-      const interval = setInterval(fetchStreams, 3000);
+      const interval = setInterval(fetchStreams, 4000);
 
       const channel = supabase.channel('public:live_streams')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'live_streams', filter: 'is_live=eq.true' }, () => fetchStreams())
@@ -143,14 +147,16 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
     }
   }, [mode]);
 
-  // Handle Green Room setup
+  // Handle Green Room camera setup
   useEffect(() => {
     if (mode === 'GREEN_ROOM') {
       startLocalCamera();
-    } else {
+    } else if (mode === 'DISCOVERY') {
       stopLocalCamera();
     }
-    return () => stopLocalCamera();
+    return () => {
+      if (mode === 'DISCOVERY') stopLocalCamera();
+    };
   }, [mode, cameraFacingMode]);
 
   // Viewer Connection Logic
@@ -162,7 +168,6 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
           setMode('LIVE_BROADCAST');
           setLiveStreamData(viewingStream);
           setComments([]);
-          setTopGifters([]); // Would fetch top gifters here based on `live_gifts`
 
           const pc = new RTCPeerConnection({
               iceServers: [
@@ -218,7 +223,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
           channel.on('broadcast', { event: 'viewer-muted' }, (payload: any) => {
               if (payload.payload.userId === user?.id) {
                   const newMutes = new Set(mutedUserIds);
-                  newMutes.add(user.id);
+                  newMutes.add(user?.id || '');
                   setMutedUserIds(newMutes);
                   toast.error("You were muted by the host");
               }
@@ -265,7 +270,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                      id: Math.random().toString(),
                      type: 'system',
                      isEntry: true,
-                     text: `👋 @${(user as any)?.username} joined the LIVE`
+                     text: `👋 @${(user as any)?.username || 'Someone'} joined the LIVE`
                   };
                   channel.send({
                       type: 'broadcast',
@@ -342,13 +347,15 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   localStreamRef.current.getTracks().forEach(track => {
                       const sender = pc.addTrack(track, localStreamRef.current!);
                       if (track.kind === 'video') {
-                          const parameters = sender.getParameters();
-                          if (!parameters.encodings) parameters.encodings = [{}];
-                          parameters.encodings[0].maxBitrate = 4500000;
-                          parameters.encodings[0].maxFramerate = 60;
-                          parameters.encodings[0].scaleResolutionDownBy = 1.0;
-                          parameters.degradationPreference = 'maintain-resolution';
-                          sender.setParameters(parameters).catch(() => {});
+                          try {
+                              const parameters = sender.getParameters();
+                              if (!parameters.encodings) parameters.encodings = [{}];
+                              parameters.encodings[0].maxBitrate = 4500000;
+                              parameters.encodings[0].maxFramerate = 60;
+                              parameters.encodings[0].scaleResolutionDownBy = 1.0;
+                              parameters.degradationPreference = 'maintain-resolution';
+                              sender.setParameters(parameters).catch(() => {});
+                          } catch (e) {}
                       }
                   });
               }
@@ -409,7 +416,6 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
       }
   }, [mode, liveStreamData]);
 
-
   const startLocalCamera = async () => {
     try {
       let isReplacing = false;
@@ -426,12 +432,12 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 48000, channelCount: 2 }
       });
       const newVideoTrack = stream.getVideoTracks()[0];
-      if (newVideoTrack) newVideoTrack.contentHint = 'motion';
+      if (newVideoTrack) (newVideoTrack as any).contentHint = 'motion';
 
       if (isReplacing && localStreamRef.current && newVideoTrack) {
           if (oldVideoTrack) localStreamRef.current.removeTrack(oldVideoTrack);
           localStreamRef.current.addTrack(newVideoTrack);
-          Object.values(hostPeerConnectionsRef.current).forEach(pc => {
+          Object.values(hostPeerConnectionsRef.current).forEach((pc: RTCPeerConnection) => {
              const sender = pc.getSenders().find(s => s.track?.kind === 'video');
              if (sender) sender.replaceTrack(newVideoTrack).catch(e => console.warn("Failed replace", e));
           });
@@ -442,7 +448,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
       if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
     } catch (error) {
       console.error("Camera access error:", error);
-      toast.error("Camera/Mic access required");
+      toast.error("Camera and microphone access is required to broadcast.");
     }
   };
 
@@ -458,7 +464,8 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
           localStreamRef.current.getAudioTracks().forEach(track => {
               track.enabled = !track.enabled;
           });
-          setIsMicMuted(!localStreamRef.current.getAudioTracks()[0].enabled);
+          const activeTrack = localStreamRef.current.getAudioTracks()[0];
+          setIsMicMuted(activeTrack ? !activeTrack.enabled : true);
       }
   };
 
@@ -505,7 +512,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
       if (countdown !== null && countdown > 0) {
-          navigator.vibrate?.(70);
+          try { navigator.vibrate?.(70); } catch(e){}
           const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
           return () => clearTimeout(timer);
       } else if (countdown === 0) {
@@ -573,7 +580,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
           activeChannelRef.current.send({ type: 'broadcast', event: 'like' });
           const now = Date.now();
           if (now - lastLikeNoticeRef.current > 8000) {
-              const likeMsg = { id: Math.random().toString(), type: 'system', text: `❤️ @${(user as any)?.username} liked the LIVE` };
+              const likeMsg = { id: Math.random().toString(), type: 'system', text: `❤️ @${(user as any)?.username || 'Someone'} liked the LIVE` };
               activeChannelRef.current.send({ type: 'broadcast', event: 'comment', payload: likeMsg });
               setComments(prev => [...prev, likeMsg]);
               lastLikeNoticeRef.current = now;
@@ -587,7 +594,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
       const icons = ['❤️', '💖', '🔥', '✨'];
       const newHeart = {
           id: Math.random().toString(),
-          x: Math.random() * 40 - 20, // -20 to 20 px offset
+          x: Math.random() * 40 - 20,
           icon: icons[Math.floor(Math.random() * icons.length)]
       };
       setFloatingHearts(prev => [...prev, newHeart]);
@@ -628,12 +635,12 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
       try {
           const { data: balanceData, error: balanceError } = await supabase
               .from('profiles')
-              .select('coin_balance')
+              .select('coins')
               .eq('id', user.id)
               .single();
 
           if (balanceError) throw balanceError;
-          if ((balanceData?.coin_balance || 0) < totalValue) {
+          if ((balanceData?.coins || 0) < totalValue) {
               toast.error('Insufficient coins!');
               return;
           }
@@ -688,7 +695,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
   };
 
   const [activeGiftAnim, setActiveGiftAnim] = useState<any>(null);
-  const activeGiftTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const activeGiftTimeoutRef = useRef<any>(null);
 
   const handleReceiveGift = (payload: any) => {
       setActiveGiftAnim(payload);
@@ -718,18 +725,25 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
       }
   }, [activeChannelRef.current]);
 
-
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
   const isHost = liveStreamData?.host_id === user?.id;
 
+  const filteredStreams = activeStreams.filter(stream => {
+      const matchesSearch = stream.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            stream.host?.username.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = selectedCategory === 'All' || stream.category.toLowerCase().includes(selectedCategory.toLowerCase());
+      return matchesSearch && matchesCategory;
+  });
+
   return createPortal(
     <div className="fixed inset-0 z-[999999] bg-black text-white h-[100dvh] w-[100vw] overflow-hidden flex flex-col font-sans select-none">
       {mode === 'DISCOVERY' && (
         <div className="relative h-full w-full bg-[#050505] flex flex-col pt-10">
-           <div className="flex items-center justify-between px-4 pb-4 z-50">
-               <button onClick={onClose} className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md border border-white/15 flex items-center justify-center text-white">
+           {/* Top Navigation */}
+           <div className="flex items-center justify-between px-4 pb-3 z-50">
+               <button onClick={onClose} className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md border border-white/15 flex items-center justify-center text-white hover:bg-white/10 transition-colors">
                   <ArrowLeft className="w-5 h-5"/>
                </button>
                <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-500 via-fuchsia-500 to-amber-400 drop-shadow-[0_0_12px_rgba(244,63,94,0.7)] tracking-wider">🔴 LIVE ARENA</h1>
@@ -738,10 +752,37 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                </button>
            </div>
 
-           <div className="mx-4 mb-4 mt-2 bg-gradient-to-r from-zinc-900 via-zinc-900/90 to-black border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-2xl backdrop-blur-xl">
+           {/* Search & Category Filter Bar */}
+           <div className="px-4 mb-3 z-40 flex flex-col gap-2.5">
+               <div className="relative">
+                   <Search className="w-4 h-4 text-white/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                   <input
+                       type="text"
+                       placeholder="Search live streams or hosts..."
+                       value={searchQuery}
+                       onChange={(e) => setSearchQuery(e.target.value)}
+                       className="w-full bg-white/5 border border-white/10 rounded-full pl-10 pr-4 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-rose-500/50 transition-colors"
+                   />
+               </div>
+
+               <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                   {['All', 'Just Chatting', 'Talk', 'Music', 'Gaming'].map(cat => (
+                       <button
+                           key={cat}
+                           onClick={() => setSelectedCategory(cat)}
+                           className={`whitespace-nowrap px-3.5 py-1.5 rounded-full border text-xs font-semibold transition-all ${selectedCategory === cat ? 'bg-gradient-to-r from-rose-600 to-fuchsia-600 text-white border-transparent shadow-[0_0_12px_rgba(225,29,72,0.4)]' : 'bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10'}`}
+                       >
+                           {cat}
+                       </button>
+                   ))}
+               </div>
+           </div>
+
+           {/* Quick Go Live CTA Card */}
+           <div className="mx-4 mb-4 bg-gradient-to-r from-zinc-900 via-zinc-900/90 to-black border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-2xl backdrop-blur-xl">
                <div className="flex items-center gap-3">
                    <div className="relative w-12 h-12 rounded-full p-[2px] bg-gradient-to-tr from-rose-500 to-amber-400">
-                       <img src={(user as any)?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${(user as any)?.username}`} className="w-full h-full rounded-full object-cover bg-neutral-900" />
+                       <img src={(user as any)?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${(user as any)?.username || 'Me'}`} className="w-full h-full rounded-full object-cover bg-neutral-900" />
                    </div>
                    <div className="flex flex-col">
                        <span className="font-bold text-sm text-white tracking-tight">Ready to broadcast?</span>
@@ -753,24 +794,27 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                </button>
            </div>
 
-           {activeStreams.length === 0 ? (
+           {filteredStreams.length === 0 ? (
              <div className="flex-1 flex flex-col items-center justify-center relative overflow-hidden">
                 <div className="z-10 flex flex-col items-center p-8 text-center max-w-sm">
                     <div className="w-24 h-24 mb-6 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center animate-pulse">
                         <Video className="w-10 h-10 text-rose-500" />
                     </div>
                     <h2 className="text-3xl font-bold mb-3 text-white tracking-tight">No Active Streams</h2>
-                    <p className="text-zinc-400 mb-10">Be the first to go live and share your moment with the world.</p>
+                    <p className="text-zinc-400 mb-8 text-sm">Be the first to go live and share your moment with the world.</p>
+                    <button onClick={() => setMode('GREEN_ROOM')} className="bg-gradient-to-r from-rose-600 to-fuchsia-600 hover:from-rose-500 hover:to-fuchsia-500 text-white font-bold text-sm px-6 py-3 rounded-full shadow-[0_0_25px_rgba(225,29,72,0.5)] transition-all hover:scale-105 active:scale-95">
+                        Start Broadcasting Now
+                    </button>
                 </div>
              </div>
            ) : (
              <div className="h-full w-full snap-y snap-mandatory overflow-y-scroll hide-scrollbar relative">
-                 {activeStreams.map((stream) => (
+                 {filteredStreams.map((stream) => (
                      <div key={stream.id} className="h-[100dvh] w-full snap-start relative bg-neutral-900 flex items-center justify-center">
                          <div className="absolute inset-0 bg-zinc-800 animate-pulse" />
                          <div className="absolute inset-0 z-10 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none"></div>
                          <div className="absolute top-12 left-4 z-20 flex items-center gap-3">
-                             <img src={stream.host?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${stream.host?.username}`} className="w-10 h-10 rounded-full border border-white/20" />
+                             <img src={stream.host?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${stream.host?.username}`} className="w-10 h-10 rounded-full border border-white/20 object-cover bg-neutral-900" />
                              <div>
                                  <h3 className="font-bold text-white shadow-black drop-shadow-md">@{stream.host?.username}</h3>
                                  <div className="flex items-center gap-2">
@@ -802,18 +846,18 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
           />
           <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px] z-10"></div>
 
-          <button onClick={onClose} className="absolute top-12 left-4 z-50 p-2 bg-black/40 backdrop-blur-md rounded-full border border-white/10">
-              <X className="w-6 h-6"/>
+          <button onClick={() => setMode('DISCOVERY')} className="absolute top-12 left-4 z-50 p-2.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 hover:bg-white/20 transition-colors">
+              <X className="w-6 h-6 text-white"/>
           </button>
 
           <div className="absolute top-12 right-4 z-50 flex flex-col gap-4">
-              <button onClick={() => setCameraFacingMode(p => p === 'user' ? 'environment' : 'user')} className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 hover:bg-white/20 transition">
-                  <RefreshCw className="w-6 h-6"/>
+              <button onClick={() => setCameraFacingMode(p => p === 'user' ? 'environment' : 'user')} className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 hover:bg-white/20 transition-colors">
+                  <RefreshCw className="w-6 h-6 text-white"/>
               </button>
-              <button onClick={toggleMic} className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 hover:bg-white/20 transition">
-                  {isMicMuted ? <MicOff className="w-6 h-6 text-red-400"/> : <Mic className="w-6 h-6"/>}
+              <button onClick={toggleMic} className="p-3 bg-black/40 backdrop-blur-md rounded-full border border-white/10 hover:bg-white/20 transition-colors">
+                  {isMicMuted ? <MicOff className="w-6 h-6 text-red-400"/> : <Mic className="w-6 h-6 text-white"/>}
               </button>
-              <button onClick={() => setIsLightingOn(!isLightingOn)} className={`p-3 backdrop-blur-md rounded-full border transition ${isLightingOn ? 'bg-amber-500/30 border-amber-500/50 text-amber-300' : 'bg-black/40 border-white/10 hover:bg-white/20'}`}>
+              <button onClick={() => setIsLightingOn(!isLightingOn)} className={`p-3 backdrop-blur-md rounded-full border transition-colors ${isLightingOn ? 'bg-amber-500/30 border-amber-500/50 text-amber-300' : 'bg-black/40 border-white/10 hover:bg-white/20 text-white'}`}>
                   <Sparkles className="w-6 h-6"/>
               </button>
           </div>
@@ -832,7 +876,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                       <button
                          key={cat}
                          onClick={() => setCategory(cat)}
-                         className={`whitespace-nowrap px-4 py-2 rounded-full border text-sm font-medium transition-colors ${category === cat ? 'bg-white text-black border-white' : 'bg-black/40 border-white/20 text-white/80'}`}
+                         className={`whitespace-nowrap px-4 py-2 rounded-full border text-sm font-medium transition-colors ${category === cat ? 'bg-white text-black border-white font-bold' : 'bg-black/40 border-white/20 text-white/80'}`}
                       >
                           {cat}
                       </button>
@@ -845,7 +889,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                       <select
                          value={giftGoal}
                          onChange={(e) => setGiftGoal(Number(e.target.value))}
-                         className="w-full bg-transparent text-white font-bold outline-none appearance-none"
+                         className="w-full bg-transparent text-white font-bold outline-none appearance-none cursor-pointer"
                       >
                           <option value="500" className="bg-zinc-900">500 Coins</option>
                           <option value="1000" className="bg-zinc-900">1000 Coins</option>
@@ -863,10 +907,11 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   </div>
               </div>
 
-              <button onClick={handleGoLive} className="w-full py-4 rounded-2xl bg-gradient-to-r from-rose-600 to-fuchsia-600 text-white font-bold text-xl shadow-[0_0_30px_rgba(225,29,72,0.4)] hover:scale-[1.02] transition-transform flex items-center justify-center gap-2">
-                 <Video className="w-6 h-6"/> GO LIVE (FULL HD)
+              <button onClick={handleGoLive} className="w-full py-4 rounded-2xl bg-gradient-to-r from-rose-600 to-fuchsia-600 text-white font-bold text-xl shadow-[0_0_30px_rgba(225,29,72,0.4)] hover:scale-[1.02] active:scale-98 transition-all flex items-center justify-center gap-2">
+                 <Video className="w-6 h-6"/> GO LIVE
               </button>
           </div>
+
           <AnimatePresence>
               {countdown !== null && countdown > 0 && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[99999] bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -902,46 +947,35 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   <div className="flex justify-between items-start mb-2">
                       <div className="bg-black/40 backdrop-blur-md rounded-full p-1 pr-3 flex items-center gap-2 border border-white/15 shadow-lg max-w-[50%]">
                           <div className="relative">
-                              <img src={liveStreamData.host.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${liveStreamData.host.username}`} className="w-8 h-8 rounded-full z-10 relative" />
+                              <img src={liveStreamData.host?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${liveStreamData.host?.username}`} className="w-8 h-8 rounded-full z-10 relative object-cover bg-neutral-900" />
                               <div className="absolute inset-0 rounded-full border-2 border-rose-500 animate-pulse z-0 scale-110"></div>
                           </div>
                           <div className="flex flex-col overflow-hidden">
-                              <p className="text-[11px] font-bold truncate">{liveStreamData.host.username}</p>
+                              <p className="text-[11px] font-bold truncate">@{liveStreamData.host?.username}</p>
                               {isHost ? (
-                                 <span className="text-[9px] text-zinc-300 font-bold tracking-wider">LIVE | ⏱️ 00:00</span>
+                                 <span className="text-[9px] text-zinc-300 font-bold tracking-wider">LIVE Broadcast</span>
                               ) : (
                                  <span className="text-[9px] text-rose-400 font-bold tracking-wider">❤️ {likesCount.toLocaleString()}</span>
                               )}
                           </div>
-                          {!isHost && (
-                              <button className="ml-1 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center text-lg leading-none font-bold pb-0.5 shadow-[0_0_10px_rgba(244,63,94,0.6)]">
-                                  +
-                              </button>
-                          )}
                       </div>
 
                       <div className="flex items-center gap-2">
-                          <div className="flex -space-x-2">
-                              <div className="w-7 h-7 rounded-full bg-zinc-800 border-2 border-[#FFD700] z-30 shadow-[0_0_8px_rgba(255,215,0,0.6)]"></div>
-                              <div className="w-7 h-7 rounded-full bg-zinc-800 border-2 border-[#C0C0C0] z-20"></div>
-                              <div className="w-7 h-7 rounded-full bg-zinc-800 border-2 border-[#CD7F32] z-10"></div>
-                          </div>
-                          <button onClick={() => { if(isHost) setIsViewerListOpen(true); }} className="bg-black/40 backdrop-blur-md rounded-full px-2 py-1 flex items-center gap-1 border border-white/15 text-[10px] font-bold shadow-lg cursor-pointer hover:bg-white/20">
+                          <button onClick={() => { if(isHost) setIsViewerListOpen(true); }} className="bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 flex items-center gap-1 border border-white/15 text-xs font-bold shadow-lg cursor-pointer hover:bg-white/20 transition-colors">
                               👁️ {viewerCount}
                           </button>
                           {isHost ? (
-                              <button onClick={endLiveStream} className="bg-red-600 hover:bg-red-700 text-white font-bold px-3.5 py-1.5 rounded-full shadow-[0_0_20px_rgba(220,38,38,0.6)] flex items-center gap-1 text-xs">
-                                  <X className="w-3 h-3"/> End
+                              <button onClick={endLiveStream} className="bg-red-600 hover:bg-red-700 text-white font-bold px-3.5 py-1.5 rounded-full shadow-[0_0_20px_rgba(220,38,38,0.6)] flex items-center gap-1 text-xs transition-colors">
+                                  <X className="w-3.5 h-3.5"/> End
                               </button>
                           ) : (
-                              <button onClick={endLiveStream} className="p-1.5 ml-1 bg-black/40 backdrop-blur-md rounded-full border border-white/15 text-white/80 hover:text-white hover:bg-white/20">
+                              <button onClick={endLiveStream} className="p-1.5 ml-1 bg-black/40 backdrop-blur-md rounded-full border border-white/15 text-white/80 hover:text-white hover:bg-white/20 transition-colors">
                                   <X className="w-5 h-5"/>
                               </button>
                           )}
                       </div>
                   </div>
               </div>
-
 
               {/* Co-Host Stage Pod */}
               <AnimatePresence>
@@ -963,7 +997,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                           <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
                               <span className="text-[10px] font-bold text-white truncate drop-shadow-md">@{activeGuest.username}</span>
                               {isHost && (
-                                  <button onClick={() => setActiveGuest(null)} className="w-5 h-5 rounded-full bg-red-500/80 text-white flex items-center justify-center hover:bg-red-500">
+                                  <button onClick={() => setActiveGuest(null)} className="w-5 h-5 rounded-full bg-red-500/80 text-white flex items-center justify-center hover:bg-red-500 transition-colors">
                                       <X className="w-3 h-3" />
                                   </button>
                               )}
@@ -972,6 +1006,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   )}
               </AnimatePresence>
 
+              {/* Comment Stream */}
               <div className="w-[78%] max-w-[340px] h-[230px] flex flex-col z-20 pb-2 relative pointer-events-none mt-auto px-4">
                   <AnimatePresence>
                       {pinnedComment && (
@@ -979,7 +1014,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                               <div className="bg-gradient-to-r from-amber-500/80 to-amber-600/50 backdrop-blur-md rounded-xl p-2 border border-amber-300/50 shadow-[0_0_15px_rgba(245,158,11,0.3)] flex items-start gap-2">
                                   <Pin className="w-3 h-3 text-amber-200 mt-0.5 shrink-0"/>
                                   <div className="flex flex-col text-[10px] leading-tight text-white shadow-black drop-shadow-md">
-                                      <span className="font-bold">{pinnedComment.sender?.username}</span>
+                                      <span className="font-bold">@{pinnedComment.sender?.username}</span>
                                       <span className="opacity-90">{pinnedComment.text}</span>
                                   </div>
                                   {isHost && (
@@ -997,7 +1032,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                                       <span className={`${comment.isEntry ? 'text-white font-bold drop-shadow-md' : 'text-white/90 italic font-medium'}`}>{comment.text}</span>
                                   ) : (
                                       <>
-                                          <span className="font-bold text-cyan-300 mr-2 drop-shadow-md">{comment.sender?.username}</span>
+                                          <span className="font-bold text-cyan-300 mr-2 drop-shadow-md">@{comment.sender?.username}</span>
                                           <span className="text-white/95 leading-relaxed">{comment.text}</span>
                                       </>
                                   )}
@@ -1008,6 +1043,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   </div>
               </div>
 
+              {/* Bottom Interactive HUD */}
               <div className="px-4 pb-6 pt-2 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex items-center gap-2.5 z-30">
                   <div className="flex-1 relative">
                       <input
@@ -1032,10 +1068,10 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                                   <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 flex items-center justify-center text-[9px] font-bold border border-black">{guestRequests.length}</div>
                               )}
                           </button>
-                          <button onClick={() => setCameraFacingMode(p => p === 'user' ? 'environment' : 'user')} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg">
+                          <button onClick={() => setCameraFacingMode(p => p === 'user' ? 'environment' : 'user')} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg hover:bg-white/20 transition-colors">
                               <RefreshCw className="w-5 h-5 text-white"/>
                           </button>
-                          <button onClick={toggleMic} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg relative">
+                          <button onClick={toggleMic} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg relative hover:bg-white/20 transition-colors">
                               {isMicMuted ? (
                                   <>
                                       <MicOff className="w-5 h-5 text-red-400"/>
@@ -1043,31 +1079,25 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                                   </>
                               ) : <Mic className="w-5 h-5 text-white"/>}
                           </button>
-                          <button onClick={() => setIsLightingOn(!isLightingOn)} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg">
+                          <button onClick={() => setIsLightingOn(!isLightingOn)} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg hover:bg-white/20 transition-colors">
                               <Sparkles className={`w-5 h-5 ${isLightingOn ? 'text-amber-400' : 'text-white'}`}/>
-                          </button>
-                          <button onClick={() => setIsViewerListOpen(true)} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg">
-                              <Shield className="w-5 h-5 text-white"/>
                           </button>
                       </>
                   ) : (
                       <>
                           <button onClick={() => {
-        if (!activeChannelRef.current || !user) return;
-        activeChannelRef.current.send({
-            type: 'broadcast',
-            event: 'cohost-request',
-            payload: { user }
-        });
-        toast.success("Request sent to host!");
-    }} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-cyan-500/50 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.3)] relative hover:bg-white/10 transition-colors">
+                              if (!activeChannelRef.current || !user) return;
+                              activeChannelRef.current.send({
+                                  type: 'broadcast',
+                                  event: 'cohost-request',
+                                  payload: { user }
+                              });
+                              toast.success("Request sent to host!");
+                          }} className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-cyan-500/50 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.3)] relative hover:bg-white/10 transition-colors">
                               <UserPlus className="w-5 h-5 text-cyan-400"/>
                           </button>
                           <button onClick={() => setIsGiftDrawerOpen(true)} className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center shadow-[0_0_15px_rgba(251,191,36,0.5)] border border-white/20 hover:scale-105 transition-transform">
                               <Gift className="w-5 h-5 text-white fill-white/20"/>
-                          </button>
-                          <button className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center shadow-lg">
-                              <Share2 className="w-5 h-5 text-white"/>
                           </button>
                           <button onClick={handleLike} className="w-10 h-10 rounded-full bg-rose-500/20 backdrop-blur-md border border-rose-500/50 flex items-center justify-center shadow-[0_0_10px_rgba(244,63,94,0.3)] hover:bg-rose-500/40 transition-colors">
                               <Heart className="w-5 h-5 text-rose-500 fill-rose-500"/>
@@ -1076,6 +1106,7 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   )}
               </div>
 
+              {/* Floating Hearts Overlay */}
               <div className="absolute bottom-20 right-4 w-12 h-64 pointer-events-none z-40 overflow-visible">
                   <AnimatePresence>
                       {floatingHearts.map(heart => (
@@ -1086,12 +1117,13 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   </AnimatePresence>
               </div>
 
+              {/* Animated Live Gift Banner Overlay */}
               <AnimatePresence>
                   {activeGiftAnim && (
                       <motion.div initial={{ x: -100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -100, opacity: 0 }} className="absolute top-[45%] left-4 z-30 bg-gradient-to-r from-amber-500/30 via-rose-600/30 to-black/60 backdrop-blur-xl border border-amber-400/50 rounded-full p-1.5 pr-6 flex items-center gap-3 shadow-[0_0_30px_rgba(245,158,11,0.35)]">
-                          <img src={activeGiftAnim.senderAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeGiftAnim.senderUsername}`} className="w-10 h-10 rounded-full border border-amber-400" />
+                          <img src={activeGiftAnim.senderAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeGiftAnim.senderUsername}`} className="w-10 h-10 rounded-full border border-amber-400 object-cover bg-neutral-900" />
                           <div className="flex flex-col">
-                              <span className="text-xs font-bold text-white shadow-black drop-shadow-md">{activeGiftAnim.senderUsername}</span>
+                              <span className="text-xs font-bold text-white shadow-black drop-shadow-md">@{activeGiftAnim.senderUsername}</span>
                               <span className="text-[10px] text-amber-300 font-medium">Sent {activeGiftAnim.giftName}</span>
                           </div>
                           <div className="text-4xl ml-2">{activeGiftAnim.giftIcon}</div>
@@ -1102,24 +1134,26 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   )}
               </AnimatePresence>
 
+              {/* Hype Meter */}
               <div className="absolute top-[100px] left-4 right-4 z-20 pointer-events-none flex flex-col items-end">
                   <div className="flex items-center gap-2 mb-1">
                       <Flame className="w-3 h-3 text-rose-500 animate-pulse"/>
                       <span className="text-[9px] font-bold text-rose-400 uppercase tracking-wider">Hype Meter</span>
                   </div>
                   <div className="w-32 h-1.5 bg-white/10 rounded-full overflow-hidden backdrop-blur-md">
-                      <motion.div className="h-full bg-gradient-to-r from-rose-500 to-amber-500" initial={{ width: 0 }} animate={{ width: `${Math.min(100, (likesCount / 1000) * 100)}%` }} />
+                      <motion.div className="h-full bg-gradient-to-r from-rose-500 to-amber-500" initial={{ width: 0 }} animate={{ width: `${Math.min(100, (likesCount / 100) * 100)}%` }} />
                   </div>
               </div>
 
+              {/* End Stream Confirmation Modal */}
               {showEndConfirm && (
                   <div className="absolute inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
                       <div className="bg-[#111] border border-white/10 rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl">
-                          <h3 className="text-xl font-bold text-white mb-2">End LIVE video now?</h3>
+                          <h3 className="text-xl font-bold text-white mb-2">End LIVE broadcast now?</h3>
                           <p className="text-sm text-zinc-400 mb-6">Your stream will immediately disconnect for all viewers.</p>
                           <div className="flex flex-col gap-3">
                               <button onClick={confirmEndStream} className="w-full py-3.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition-colors">
-                                  End LIVE
+                                  End LIVE Broadcast
                               </button>
                               <button onClick={() => setShowEndConfirm(false)} className="w-full py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold transition-colors">
                                   Cancel
@@ -1129,14 +1163,15 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                   </div>
               )}
 
+              {/* End Summary Overlay */}
               {showEndSummary && (
                   <div className="absolute inset-0 z-[1000] bg-[#080b10] flex flex-col items-center justify-center p-6">
                       <div className="w-24 h-24 mb-6 relative">
-                          <img src={liveStreamData.host.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${liveStreamData.host.username}`} className="w-full h-full rounded-full border border-white/20 relative z-10" />
+                          <img src={liveStreamData.host?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${liveStreamData.host?.username}`} className="w-full h-full rounded-full border border-white/20 relative z-10 object-cover bg-neutral-900" />
                           <div className="absolute inset-[-4px] rounded-full border-2 border-zinc-700/50 z-0"></div>
                       </div>
 
-                      <h2 className="text-xl text-white/60 mb-1">@{liveStreamData.host.username}</h2>
+                      <h2 className="text-xl text-white/60 mb-1">@{liveStreamData.host?.username}</h2>
                       <h1 className="text-4xl font-black text-white tracking-tight mb-8">LIVE has ended</h1>
 
                       <div className="text-center mb-10">
@@ -1176,12 +1211,13 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
 
               <LiveGiftDrawer isOpen={isGiftDrawerOpen} onClose={() => setIsGiftDrawerOpen(false)} onSendGift={handleSendGift} />
 
+              {/* Target Viewer Moderation Modal */}
               <AnimatePresence>
                   {targetViewer && (
                       <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="absolute bottom-0 left-0 right-0 bg-[#111] border-t border-white/10 rounded-t-3xl p-6 z-[100] shadow-[0_-10px_40px_rgba(0,0,0,0.8)]">
                           <div className="flex items-center justify-between mb-6">
                               <div className="flex items-center gap-3">
-                                  <img src={targetViewer.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetViewer.username}`} className="w-12 h-12 rounded-full border border-white/20"/>
+                                  <img src={targetViewer.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetViewer.username}`} className="w-12 h-12 rounded-full border border-white/20 object-cover bg-neutral-900"/>
                                   <div>
                                       <h3 className="font-bold text-lg text-white">@{targetViewer.username}</h3>
                                       <span className="text-xs text-zinc-400">Viewer</span>
@@ -1191,14 +1227,6 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
                           </div>
 
                           <div className="flex flex-col gap-2">
-                              <button className="w-full bg-white/5 hover:bg-white/10 p-4 rounded-xl flex items-center gap-3 text-left transition-colors">
-                                  <Mic className="w-5 h-5 text-cyan-400"/>
-                                  <span className="font-semibold text-white">Invite to Talk (Co-Host)</span>
-                              </button>
-                              <button onClick={() => handlePinComment({ sender: targetViewer, text: "Selected comment text..." })} className="w-full bg-white/5 hover:bg-white/10 p-4 rounded-xl flex items-center gap-3 text-left transition-colors">
-                                  <Pin className="w-5 h-5 text-amber-400"/>
-                                  <span className="font-semibold text-white">Pin Comment</span>
-                              </button>
                               <button onClick={handleMuteViewer} className="w-full bg-white/5 hover:bg-white/10 p-4 rounded-xl flex items-center gap-3 text-left transition-colors">
                                   <MicOff className="w-5 h-5 text-rose-400"/>
                                   <span className="font-semibold text-white">{mutedUserIds.has(targetViewer.id) ? 'Unmute Viewer' : 'Mute Viewer'}</span>
@@ -1213,19 +1241,22 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
               </AnimatePresence>
 
               <GuestRequestDrawer
-      isOpen={isGuestDrawerOpen}
-      onClose={() => setIsGuestDrawerOpen(false)}
-      requests={guestRequests}
-      onAccept={(req) => {
-          setActiveGuest(req.user);
-          setGuestRequests(prev => prev.filter(r => r.user.id !== req.user.id));
-          activeChannelRef.current?.send({
-              type: 'broadcast',
-              event: 'cohost-accepted',
-              payload: { user: req.user }
-          });
-      }}
-  />
+                  isOpen={isGuestDrawerOpen}
+                  onClose={() => setIsGuestDrawerOpen(false)}
+                  requests={guestRequests}
+                  onDecline={(req) => {
+                      setGuestRequests(prev => prev.filter(r => (r.user?.id || r.id) !== (req.user?.id || req.id)));
+                  }}
+                  onAccept={(req) => {
+                      setActiveGuest(req.user);
+                      setGuestRequests(prev => prev.filter(r => (r.user?.id || r.id) !== (req.user?.id || req.id)));
+                      activeChannelRef.current?.send({
+                          type: 'broadcast',
+                          event: 'cohost-accepted',
+                          payload: { user: req.user }
+                      });
+                  }}
+              />
           </div>
       )}
     </div>,
