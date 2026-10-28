@@ -1401,7 +1401,7 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
           video={role === 'host'}
           audio={role === 'host'}
           token={livekitToken}
-          serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_URL}
+          serverUrl="wss://earnmega-mbwh7c26.livekit.cloud"
           connect={true}
           className="h-full w-full"
         >
