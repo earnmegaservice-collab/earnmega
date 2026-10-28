@@ -38,6 +38,7 @@ import {
   Coins,
   Zap,
 } from 'lucide-react';
+import LiveGiftOverlay from './LiveGiftOverlay';
 import { supabase } from '../../utils/supabase';
 
 // ============================================================================
@@ -1050,7 +1051,7 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
     });
 
     return (
-      <div className="min-h-[100dvh] w-full bg-[#060608] text-white flex flex-col select-none">
+      <div className="fixed inset-0 z-[99999] h-[100dvh] w-full bg-[#060608] text-white flex flex-col select-none overflow-hidden">
         <div className="sticky top-0 z-30 bg-[#060608]/90 backdrop-blur-xl px-4 pt-4 pb-3 border-b border-white/5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -1219,7 +1220,7 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
   // ==========================================================================
   if (stage === 'setup' || stage === 'countdown') {
     return (
-      <div className="relative h-[100dvh] w-screen overflow-hidden bg-black select-none">
+      <div className="fixed inset-0 z-[99999] h-[100dvh] w-screen overflow-hidden bg-black select-none">
         <video
           ref={previewVideoRef}
           autoPlay
@@ -1393,7 +1394,7 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
   return (
     <div
       onDoubleClick={role === 'viewer' ? spawnFloatingHeart : undefined}
-      className="relative h-[100dvh] w-screen overflow-hidden bg-black select-none"
+      className="fixed inset-0 z-[99999] h-[100dvh] w-screen overflow-hidden bg-black select-none"
     >
       {/* 1. LIVEKIT CLOUD HD VIDEO STREAM */}
       {livekitToken ? (
@@ -1424,7 +1425,7 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
 
       {/* 2. MASTER TIER GPU GIFT OVERLAY */}
       {currentStream && (
-        <MasterLiveGiftOverlay
+        <LiveGiftOverlay
           streamId={currentStream.id}
           localIncomingGift={localIncomingGift}
         />
