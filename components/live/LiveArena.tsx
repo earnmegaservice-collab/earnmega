@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import LiveGiftDrawer from './LiveGiftDrawer';
 import GuestRequestDrawer from './GuestRequestDrawer';
+import LiveGiftOverlay from './LiveGiftOverlay';
 
 export interface LiveStream {
   id: string;
@@ -722,6 +723,14 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
 
       if (giftError) throw giftError;
 
+      // Dispatch global coin balance pop event for immediate spender feedback
+      const newBal = (balanceData?.coins || 0) - totalValue;
+      window.dispatchEvent(
+        new CustomEvent('coin_balance_pop', {
+          detail: { newBalance: newBal }
+        })
+      );
+
       const giftPayload = {
         id: Math.random().toString(),
         senderId: user.id,
@@ -1381,41 +1390,8 @@ export default function LiveArena({ onClose }: { onClose: () => void }) {
             </AnimatePresence>
           </div>
 
-          {/* Animated Live Gift Banner Overlay */}
-          <AnimatePresence>
-            {activeGiftAnim && (
-              <motion.div
-                initial={{ x: -100, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -100, opacity: 0 }}
-                className="absolute top-[45%] left-4 z-30 bg-gradient-to-r from-amber-500/30 via-rose-600/30 to-black/60 backdrop-blur-xl border border-amber-400/50 rounded-full p-1.5 pr-6 flex items-center gap-3 shadow-[0_0_30px_rgba(245,158,11,0.35)]"
-              >
-                <img
-                  src={
-                    activeGiftAnim.senderAvatar ||
-                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeGiftAnim.senderUsername}`
-                  }
-                  className="w-10 h-10 rounded-full border border-amber-400 object-cover bg-neutral-900"
-                />
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-white shadow-black drop-shadow-md">
-                    @{activeGiftAnim.senderUsername}
-                  </span>
-                  <span className="text-[10px] text-amber-300 font-medium">Sent {activeGiftAnim.giftName}</span>
-                </div>
-                <div className="text-4xl ml-2">{activeGiftAnim.giftIcon}</div>
-                <motion.span
-                  key={activeGiftAnim.comboCount}
-                  initial={{ scale: 2.5, y: 10, rotate: -15, opacity: 0 }}
-                  animate={{ scale: 1, y: 0, rotate: 0, opacity: 1 }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 12 }}
-                  className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-br from-amber-300 to-amber-500 drop-shadow-[0_4px_10px_rgba(245,158,11,0.8)] italic"
-                >
-                  x{activeGiftAnim.comboCount}
-                </motion.span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* Live Gift Overlay Engine */}
+          <LiveGiftOverlay incomingGift={activeGiftAnim} />
 
           {/* Hype Meter */}
           <div className="absolute top-[100px] left-4 right-4 z-20 pointer-events-none flex flex-col items-end">

@@ -59,6 +59,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     refreshWallet();
   }, [user]);
 
+  useEffect(() => {
+    const handlePopEvent = (e: CustomEvent<{ newBalance?: number }>) => {
+      if (e.detail?.newBalance !== undefined) {
+        setBalance(e.detail.newBalance);
+      } else {
+        refreshWallet();
+      }
+    };
+    window.addEventListener('coin_balance_pop' as any, handlePopEvent as EventListener);
+    return () => {
+      window.removeEventListener('coin_balance_pop' as any, handlePopEvent as EventListener);
+    };
+  }, [user]);
+
   return (
     <WalletContext.Provider value={{ balance, subscriptionTier, currency, setBalance, setSubscriptionTier, setCurrency, refreshWallet }}>
       {children}
