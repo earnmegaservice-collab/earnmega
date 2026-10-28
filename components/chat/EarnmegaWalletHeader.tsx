@@ -18,6 +18,18 @@ export default function EarnmegaWalletHeader() {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [isPopping, setIsPopping] = useState(false);
+
+  useEffect(() => {
+    const handlePopEvent = () => {
+      setIsPopping(true);
+      setTimeout(() => setIsPopping(false), 800);
+    };
+    window.addEventListener('coin_balance_pop' as any, handlePopEvent);
+    return () => {
+      window.removeEventListener('coin_balance_pop' as any, handlePopEvent);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -85,12 +97,20 @@ export default function EarnmegaWalletHeader() {
            </div>
 
            <div className="flex flex-col items-start">
-             <div className="flex items-center space-x-1.5">
+             <motion.div
+               animate={
+                 isPopping
+                   ? { scale: [1, 1.4, 1], color: ['#FFD700', '#FFD700', '#F59E0B'] }
+                   : { scale: 1 }
+               }
+               transition={{ duration: 0.5, ease: 'easeOut' }}
+               className="flex items-center space-x-1.5 transform-gpu origin-left"
+             >
                <Coins className="text-yellow-400 drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]" size={16} />
                <span className="text-sm font-extrabold tracking-[0.05em] bg-clip-text text-transparent bg-gradient-to-r from-yellow-300 via-yellow-400 to-amber-500">
                  {balance.toLocaleString()}
                </span>
-             </div>
+             </motion.div>
              <span className="text-[10px] text-gray-400 font-medium">Balance</span>
            </div>
         </div>
