@@ -16,7 +16,10 @@ export const GIFTS = [
 interface LiveGiftDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  streamId?: string;
+  userBalance?: number;
   onSendGift: (gift: any, comboCount: number) => void;
+  onGiftSuccess?: (newBalance: number) => void;
 }
 
 export default function LiveGiftDrawer({ isOpen, onClose, onSendGift }: LiveGiftDrawerProps) {

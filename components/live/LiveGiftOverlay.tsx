@@ -27,7 +27,8 @@ export const LIVE_GIFT_TIERS = {
 };
 
 interface LiveGiftOverlayProps {
-  incomingGift?: LiveGiftPayload | null;
+  streamId?: string;
+  incomingGift?: LiveGiftPayload | any | null;
   onTakeoverChange?: (isTakeoverActive: boolean) => void;
 }
 
