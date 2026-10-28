@@ -154,6 +154,7 @@ interface LiveArenaProps {
     avatar_url: string;
     coin_balance: number;
   };
+  onClose?: () => void;
   onBack?: () => void;
 }
 
