@@ -741,6 +741,7 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
   // 3. HOST START STREAM WORKFLOW (3-2-1 COUNTDOWN -> LIVE STAGE)
   // --------------------------------------------------------------------------
   const handleStartCountdown = () => {
+    stopPreviewCamera();
     setRole('host');
     setCountdown(3);
     setStage('countdown');
