@@ -14,6 +14,7 @@ import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
 import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus, ShieldCheck , AtSign, BarChart2, CalendarPlus} from "lucide-react";
 import { toast } from 'react-hot-toast';
+import { deleteConversationPermanently, clearChatPermanently } from '../../utils/deleteUtils';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
@@ -791,8 +792,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
           if (groupsError) throw groupsError;
 
+          let localDeletedRooms: string[] = [];
+          try {
+             localDeletedRooms = JSON.parse(localStorage.getItem(`earnmega_deleted_rooms_${user.id}`) || '[]');
+          } catch(e) {}
+
           let rawGroups = (groupsData || [])
-            .filter(gm => gm.is_deleted !== true && gm.rooms != null)
+            .filter(gm => gm.is_deleted !== true && gm.rooms != null && !localDeletedRooms.includes(gm.room_id))
             .map((gm: any) => ({
                id: gm.rooms.id,
                name: gm.rooms.name,
@@ -826,7 +832,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               const user2Obj = Array.isArray(chat.user2) ? chat.user2[0] : chat.user2;
 
               const otherUser = chat.user1_id === user.id ? user2Obj : user1Obj;
-              if (otherUser) {
+              if (otherUser && !localDeletedRooms.includes(otherUser.id)) {
                   const time = chat.updated_at ? new Date(chat.updated_at).getTime() : 0;
                   statsMap.set(otherUser.id, {
                       unreadCount: chat.unread_count || 0,
@@ -958,8 +964,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           return;
         }
 
+        let currentClearedAt: Date | null = null;
+        if (isGroupChat && user) {
+            const member = groupMembers.find(m => m.user_id === user.id);
+            if (member && member.cleared_at) {
+                currentClearedAt = new Date(member.cleared_at);
+            }
+        }
+
         if (data && data.length > 0) {
-          const formattedMessages: Message[] = data.map(msg => {
+          const formattedMessages: Message[] = data.filter(msg => {
+             if (currentClearedAt) {
+                 const msgTime = new Date(msg.created_at);
+                 if (msgTime < currentClearedAt) return false;
+             }
+             return true;
+          }).map(msg => {
             let text = msg.content || '';
             let replyToId, replyToSender, replyToText;
 
@@ -3383,7 +3403,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                                });
                            }
 
-                           await supabase.from('group_members').delete().match({ group_id: targetId, user_id: user.id });
+                           // Insert system message about user leaving FIRST so it doesn't fail foreign keys
                            await supabase.from('messages').insert({
                                id: uuidv4(),
                                sender_id: user.id,
@@ -3391,6 +3411,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                                content: `~ ${user.user_metadata?.username || user.email} left`,
                                message_type: 'system'
                            });
+
+                           // Use unified permanently delete utils for exits/deletes
+                           await deleteConversationPermanently(user.id, targetId, true, false);
 
                            setIsExitGroupConfirmOpen(false);
                            setAppTab('chats');
@@ -3398,43 +3421,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                         className="w-full py-3.5 bg-white/5 hover:bg-emerald-500/10 rounded-xl text-emerald-400 font-bold transition-all text-sm"
                      >
                         Exit group
-                     </button>
-                     <button
-                        onClick={async () => {
-                           if (!user || !currentOtherUserProfile) return;
-                           const targetId = currentOtherUserProfile.id;
-
-                           if (reportOnExit) {
-                               await supabase.from('reports').insert({
-                                  reporter_id: user.id,
-                                  reported_user_id: targetId,
-                                  content_type: 'group',
-                                  reason: 'Reported on exit'
-                               });
-                           }
-
-                           await supabase.from('group_members').delete().match({ group_id: targetId, user_id: user.id });
-                           await supabase.from('messages').insert({
-                               id: uuidv4(),
-                               sender_id: user.id,
-                               room_id: targetId,
-                               content: `~ ${user.user_metadata?.username || user.email} left`,
-                               message_type: 'system'
-                           });
-
-                           let deletedList = [];
-                           try {
-                               deletedList = JSON.parse(localStorage.getItem(`earnmega_deleted_chats_${user.id}`) || '[]');
-                           } catch(e){}
-                           deletedList.push({ id: targetId, timestamp: new Date().toISOString() });
-                           localStorage.setItem(`earnmega_deleted_chats_${user.id}`, JSON.stringify(deletedList));
-
-                           setIsExitGroupConfirmOpen(false);
-                           setAppTab('chats');
-                        }}
-                        className="w-full py-3.5 bg-white/5 hover:bg-rose-500/10 rounded-xl text-rose-500 font-bold transition-all text-sm"
-                     >
-                        Exit and delete for me
                      </button>
                      <button
                         onClick={() => setIsExitGroupConfirmOpen(false)}
@@ -3483,26 +3469,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                      <button
                         onClick={async () => {
                            if (!user || !currentOtherUserProfile) return;
-                           const targetId = currentOtherUserProfile.id; // Ensure you grab the correct ID of the person being chatted with
+                           const targetId = currentOtherUserProfile.id;
 
-                           // 1. Permanently delete from Supabase
-                           const { error } = await supabase
-                             .from('messages')
-                             .delete()
-                             .or(`and(sender_id.eq.${user.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${user.id})`);
+                           try {
+                               const isAdmin = groupMembers.some(m => m.user_id === user.id && m.role === 'admin');
+                               await clearChatPermanently(user.id, targetId, isGroupChat, isAdmin);
 
-                           if (error) {
-                             toast.error(`Database Error: ${error.message}`);
-                             console.error(error);
-                             return;
+                               // 2. Clear UI state
+                               setMessages([]);
+                               setIsClearChatConfirmOpen(false);
+                               setIsChatMenuOpen(false);
+                               toast.success("Chat history permanently erased.");
+                               if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 50, 30]);
+                           } catch (error: any) {
+                               toast.error(`Database Error: ${error.message}`);
+                               console.error(error);
                            }
-
-                           // 2. Clear UI state
-                           setMessages([]);
-                           setIsClearChatConfirmOpen(false);
-                           setIsChatMenuOpen(false);
-                           toast.success("Chat history permanently erased.");
-                           if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 50, 30]);
                         }}
                         className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(225,29,72,0.4)]"
                      >
