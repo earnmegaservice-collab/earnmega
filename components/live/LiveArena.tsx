@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   LiveKitRoom,
   VideoTrack,
@@ -599,7 +600,12 @@ function LiveKitVideoStage({
 // ============================================================================
 // MAIN LIVE ARENA COMPONENT
 // ============================================================================
-export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
+export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaProps) {
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const [user, setUser] = useState(
     currentUser || {
       id: 'default-user-id',
@@ -1040,6 +1046,8 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
   // ==========================================================================
   // STAGE 1: THE LUXURY LIVE ARENA LOBBY
   // ==========================================================================
+  if (!isMounted) return null;
+
   if (stage === 'lobby') {
     const filteredStreams = activeStreams.filter((s) => {
       const matchesCategory =
@@ -1050,19 +1058,24 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
       return matchesCategory && matchesSearch;
     });
 
-    return (
-      <div className="fixed inset-0 z-[99999] h-[100dvh] w-full bg-[#060608] text-white flex flex-col select-none overflow-hidden">
+    const handleLobbyClose = () => {
+      if (onClose) onClose();
+      else if (onBack) onBack();
+      else window.location.href = '/';
+    };
+
+    return createPortal(
+      <div className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white flex flex-col select-none overflow-hidden">
         <div className="sticky top-0 z-30 bg-[#060608]/90 backdrop-blur-xl px-4 pt-4 pb-3 border-b border-white/5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {onBack && (
-                <button
-                  onClick={onBack}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 border border-white/10 active:scale-95 transition"
-                >
-                  <X className="h-5 w-5 text-white/80" />
-                </button>
-              )}
+              <button
+                onClick={handleLobbyClose}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 border border-white/10 active:scale-90 transition cursor-pointer"
+                aria-label="Back"
+              >
+                <X className="h-5 w-5 text-white/80" />
+              </button>
               <div className="flex items-center gap-2">
                 <span className="relative flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-500 opacity-75" />
@@ -1211,7 +1224,8 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
             </div>
           )}
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
@@ -1219,8 +1233,8 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
   // STAGE 2 & 3: HOST CAMERA SETUP & 3-2-1 COUNTDOWN
   // ==========================================================================
   if (stage === 'setup' || stage === 'countdown') {
-    return (
-      <div className="fixed inset-0 z-[99999] h-[100dvh] w-screen overflow-hidden bg-black select-none">
+    return createPortal(
+      <div className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white overflow-hidden flex flex-col select-none">
         <video
           ref={previewVideoRef}
           autoPlay
@@ -1274,7 +1288,7 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
               </div>
             </div>
 
-            <div className="absolute bottom-6 left-4 right-4 z-20 flex flex-col gap-3.5">
+            <div className="absolute pb-8 bottom-0 z-50 left-4 right-4 flex flex-col gap-3.5">
               <div className="rounded-2xl bg-black/60 backdrop-blur-2xl border border-white/15 p-3.5 shadow-2xl">
                 <input
                   type="text"
@@ -1373,7 +1387,8 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+      </div>,
+      document.body
     );
   }
 
@@ -1391,10 +1406,10 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
       )
     : 0;
 
-  return (
+  return createPortal(
     <div
       onDoubleClick={role === 'viewer' ? spawnFloatingHeart : undefined}
-      className="fixed inset-0 z-[99999] h-[100dvh] w-screen overflow-hidden bg-black select-none"
+      className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white flex flex-col select-none overflow-hidden"
     >
       {/* 1. LIVEKIT CLOUD HD VIDEO STREAM */}
       {livekitToken ? (
@@ -1809,6 +1824,7 @@ export default function LiveArena({ currentUser, onBack }: LiveArenaProps) {
           </>
         )}
       </AnimatePresence>
-    </div>
+    </div>,
+    document.body
   );
 }
