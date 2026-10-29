@@ -52,7 +52,23 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
 
       if (partError) throw partError;
 
-      // 3. Initiate navigation
+      // 3. Insert dual notifications
+      await supabase.from('notifications').insert([
+        {
+          user_id: authUser.id,
+          sender_id: discoveredUser.id,
+          type: 'match',
+          content: `You got a new match with ${discoveredUser.username}!`
+        },
+        {
+          user_id: discoveredUser.id,
+          sender_id: authUser.id,
+          type: 'match',
+          content: `You got a new match with ${authUser.user_metadata?.username || authUser.email || 'Someone'}!`
+        }
+      ]);
+
+      // 4. Initiate navigation
       onStartChat({
         id: discoveredUser.id,
         name: discoveredUser.username,

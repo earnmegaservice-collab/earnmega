@@ -131,9 +131,20 @@ export default function StatusViewer({
           status_id: status.id,
           user_id: user.id
         });
+
         // 23505 is unique violation, meaning already viewed, which is expected
-        if (error && error.code !== '23505') {
-           throw error;
+        if (error) {
+           if (error.code !== '23505') {
+             throw error;
+           }
+        } else {
+           // Insert silent background notification for the status owner
+           await supabase.from('notifications').insert({
+             user_id: status.userId,
+             sender_id: user.id,
+             type: 'status_view',
+             content: `${user.user_metadata?.username || user.email || 'Someone'} viewed your status`
+           });
         }
       } catch (error) {
         console.error('Silent view track failed', error);

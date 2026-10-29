@@ -835,6 +835,28 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const activeRecord = (insertedStream as LiveStreamRecord) || fallbackStream;
     setCurrentStream(activeRecord);
 
+    // Background notification for followers/all users
+    try {
+      const { data: usersData } = await supabase
+        .from('profiles')
+        .select('id')
+        .neq('id', user.id)
+        .limit(100);
+
+      if (usersData && usersData.length > 0) {
+        const notifications = usersData.map(p => ({
+          user_id: p.id,
+          sender_id: user.id,
+          type: 'live_stream',
+          content: `${user.username} is now live! Join the arena.`,
+          reference_id: roomId
+        }));
+        await supabase.from('notifications').insert(notifications);
+      }
+    } catch (e) {
+      console.error('Failed to send live stream notifications', e);
+    }
+
     try {
       const res = await fetch(
         `/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(user.username)}`
