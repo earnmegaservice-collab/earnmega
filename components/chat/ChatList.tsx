@@ -11,6 +11,7 @@ import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, Shie
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import MessageForwardModal from './MessageForwardModal';
+import { deleteConversationPermanently } from '../../utils/deleteUtils';
 
 interface ChatListProps {
   setChats?: React.Dispatch<React.SetStateAction<any[]>>;
@@ -215,27 +216,30 @@ export default function ChatList({
     if (!currentUserProfile || !chatToDelete) return;
     setIsDeleting(true);
 
-    const { error } = await supabase
-      .from('messages')
-      .delete()
-      .or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${chatToDelete}),and(sender_id.eq.${chatToDelete},receiver_id.eq.${currentUserProfile.id})`);
+    try {
+        const chatObj = exploreUsers.find(u => u.id === chatToDelete);
+        const isGroup = chatObj?.isGroup === true;
+        // In ChatList, we don't necessarily know if they are an admin here without a query,
+        // but ChatInterface handles full admin group deletion. Here we default to false (which performs exit for groups).
+        await deleteConversationPermanently(currentUserProfile.id, chatToDelete, isGroup, false);
 
-    if (error) {
-      toast.error(`Database Error: ${error.message}`);
-      console.error(error);
-      setIsDeleting(false);
-      return;
-    }
+        if (setChats) {
+          setChats(prev => prev.filter((c: any) => c.id !== chatToDelete));
+        }
 
-    if (setChats) {
-      setChats(prev => prev.filter((c: any) => c.id !== chatToDelete));
+        // Optimistically remove from exploreUsers view by mutating or relying on re-render
+        // The parent component should refetch or we can rely on local blacklist filtering.
+        setChatToDelete(null);
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([50, 100, 50]);
+        }
+        toast.success("Chat permanently erased.");
+    } catch (error: any) {
+        toast.error(`Database Error: ${error.message}`);
+        console.error(error);
+    } finally {
+        setIsDeleting(false);
     }
-    setChatToDelete(null);
-    setIsDeleting(false);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate([50, 100, 50]);
-    }
-    toast.success("Chat permanently erased.");
   };
 
   const handleDeleteSelected = async () => {
@@ -244,12 +248,15 @@ export default function ChatList({
     // 1. Delete from backend
     const idsArray = Array.from(selectedChats);
     for (const targetUserId of idsArray) {
-      const { error } = await supabase.from('messages').delete().or(`and(sender_id.eq.${currentUserProfile.id},receiver_id.eq.${targetUserId}),and(sender_id.eq.${targetUserId},receiver_id.eq.${currentUserProfile.id})`);
-      if (error) {
-        toast.error(`Database Error: ${error.message}`);
-        console.error(error);
-        return;
-      }
+        const chatObj = exploreUsers.find(u => u.id === targetUserId);
+        const isGroup = chatObj?.isGroup === true;
+        try {
+            await deleteConversationPermanently(currentUserProfile.id, targetUserId, isGroup, false);
+        } catch (error: any) {
+            toast.error(`Database Error: ${error.message}`);
+            console.error(error);
+            return;
+        }
     }
 
     // 2. Clear from UI
