@@ -192,154 +192,151 @@ export const AppShell: React.FC<AppShellProps> = ({
       <GiftOverlay />
 
       {/* 1. FIXED TOP HEADER */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-black/60 backdrop-blur-2xl border-b border-white/[0.08] z-50 px-4 flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.4)]">
-            <span className="text-black font-black text-sm tracking-tighter">EM</span>
-          </div>
-          <span className="text-lg font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-white/60">
-            EARNMEGA
-          </span>
-        </div>
-
-        <div className="flex items-center space-x-3">
-                    {/* Realtime Coin Counter */}
-          <button onClick={onOpenStore} type="button" className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-amber-400/30 shadow-[0_0_12px_rgba(251,191,36,0.15)] touch-manipulation cursor-pointer hover:bg-white/[0.1] transition-colors">
-            <Coins className="w-4 h-4 text-amber-400 fill-amber-400 animate-pulse pointer-events-none" />
-            <span className="text-xs font-bold text-amber-300 font-mono tracking-tight pointer-events-none">
-              {coinBalance.toLocaleString()}
+      {activeTab !== 'live' && (
+        <header className="fixed top-0 left-0 right-0 h-16 bg-black/60 backdrop-blur-2xl border-b border-white/[0.08] z-50 px-4 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.4)]">
+              <span className="text-black font-black text-sm tracking-tighter">EM</span>
+            </div>
+            <span className="text-lg font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-white/60">
+              EARNMEGA
             </span>
-          </button>
+          </div>
 
-          {/* Notification Bell */}
-          <motion.button
-            onClick={handleOpenNotifications}
-            animate={bellShake ? { rotate: [-10, 10, -10, 10, 0], scale: [1, 1.2, 1] } : {}}
-            transition={{ duration: 0.4 }}
-            className="relative p-2 rounded-full bg-white/[0.05] border border-white/10 hover:border-white/20 active:scale-95 transition"
-          >
-            <Bell className="w-4 h-4 text-white/90" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg border border-black">
-                {unreadCount > 99 ? "99+" : unreadCount}
+          <div className="flex items-center space-x-3">
+                      {/* Realtime Coin Counter */}
+            <button onClick={onOpenStore} type="button" className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-amber-400/30 shadow-[0_0_12px_rgba(251,191,36,0.15)] touch-manipulation cursor-pointer hover:bg-white/[0.1] transition-colors">
+              <Coins className="w-4 h-4 text-amber-400 fill-amber-400 animate-pulse pointer-events-none" />
+              <span className="text-xs font-bold text-amber-300 font-mono tracking-tight pointer-events-none">
+                {coinBalance.toLocaleString()}
               </span>
-            )}
-          </motion.button>
-        </div>
-      </header>
+            </button>
+
+            {/* Notification Bell */}
+            <motion.button
+              onClick={handleOpenNotifications}
+              animate={bellShake ? { rotate: [-10, 10, -10, 10, 0], scale: [1, 1.2, 1] } : {}}
+              transition={{ duration: 0.4 }}
+              className="relative p-2 rounded-full bg-white/[0.05] border border-white/10 hover:border-white/20 active:scale-95 transition"
+            >
+              <Bell className="w-4 h-4 text-white/90" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg border border-black">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </motion.button>
+          </div>
+        </header>
+      )}
 
       {/* 2. MAIN SCROLLABLE CONTENT BODY */}
-      <main className="pt-16 pb-24 min-h-screen w-full max-w-md mx-auto relative px-3">
+      <main className={`${activeTab === 'live' ? 'p-0 pt-0 pb-0 max-w-none' : 'pt-16 pb-24 max-w-md px-3'} min-h-screen w-full mx-auto relative`}>
         {children}
       </main>
 
       {/* 3. FIXED BOTTOM NAVIGATION */}
-      <nav className="fixed bottom-0 left-0 right-0 h-20 bg-black/80 backdrop-blur-3xl border-t border-white/[0.08] z-50 px-6 flex flex-row overflow-x-auto whitespace-nowrap scrollbar-hide snap-x pb-4 items-center justify-start gap-6">
-        <button
-          onClick={() => setActiveTab('explore')}
-          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
-        >
-          {activeTab === 'explore' && (
-            <motion.div
-              layoutId="activeTabIndicator"
-              className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
-              transition={{ type: "spring", stiffness: 380, damping: 30 }}
-            />
-          )}
-          <Compass className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'explore' ? 'text-white' : 'text-white/40'}`} />
-          <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'explore' ? 'text-white font-bold' : 'text-white/40'}`}>Explore</span>
-        </button>
+      {activeTab !== 'live' && (
+        <nav className="fixed bottom-0 left-0 right-0 h-20 bg-black/80 backdrop-blur-3xl border-t border-white/[0.08] z-50 px-6 flex flex-row overflow-x-auto whitespace-nowrap scrollbar-hide snap-x pb-4 items-center justify-start gap-6">
+          <button
+            onClick={() => setActiveTab('explore')}
+            className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+          >
+            {activeTab === 'explore' && (
+              <motion.div
+                layoutId="activeTabIndicator"
+                className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <Compass className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'explore' ? 'text-white' : 'text-white/40'}`} />
+            <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'explore' ? 'text-white font-bold' : 'text-white/40'}`}>Explore</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('find')}
-          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
-        >
-          {activeTab === 'find' && (
-            <motion.div
-              layoutId="activeTabIndicator"
-              className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
-              transition={{ type: "spring", stiffness: 380, damping: 30 }}
-            />
-          )}
-          <Radar className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'find' ? 'text-white' : 'text-white/40'}`} />
-          <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'find' ? 'text-white font-bold' : 'text-white/40'}`}>Find</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('find')}
+            className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+          >
+            {activeTab === 'find' && (
+              <motion.div
+                layoutId="activeTabIndicator"
+                className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <Radar className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'find' ? 'text-white' : 'text-white/40'}`} />
+            <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'find' ? 'text-white font-bold' : 'text-white/40'}`}>Find</span>
+          </button>
 
 
-        <button
-          onClick={() => setActiveTab('chats')}
-          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
-        >
-          {activeTab === 'chats' && (
-            <motion.div
-              layoutId="activeTabIndicator"
-              className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
-              transition={{ type: "spring", stiffness: 380, damping: 30 }}
-            />
-          )}
-          <MessageCircle className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'chats' ? 'text-white' : 'text-white/40'}`} />
-          <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'chats' ? 'text-white font-bold' : 'text-white/40'}`}>Chats</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('chats')}
+            className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+          >
+            {activeTab === 'chats' && (
+              <motion.div
+                layoutId="activeTabIndicator"
+                className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <MessageCircle className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'chats' ? 'text-white' : 'text-white/40'}`} />
+            <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'chats' ? 'text-white font-bold' : 'text-white/40'}`}>Chats</span>
+          </button>
 
-                {/* The Store Button (Center) */}
-        <button
-          onClick={onOpenStore}
-          type="button"
-          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group touch-manipulation cursor-pointer"
-        >
-          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center shadow-[0_0_15px_rgba(251,191,36,0.6)] border-2 border-yellow-300/50 mb-1 group-hover:scale-105 transition-transform duration-200 pointer-events-none">
-            <Store className="w-5 h-5 text-black fill-black/10 pointer-events-none" />
-          </div>
-          <span className="text-[10px] font-bold tracking-tight text-amber-400 pointer-events-none">Store</span>
-        </button>
+                  {/* The Store Button (Center) */}
+          <button
+            onClick={onOpenStore}
+            type="button"
+            className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group touch-manipulation cursor-pointer"
+          >
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center shadow-[0_0_15px_rgba(251,191,36,0.6)] border-2 border-yellow-300/50 mb-1 group-hover:scale-105 transition-transform duration-200 pointer-events-none">
+              <Store className="w-5 h-5 text-black fill-black/10 pointer-events-none" />
+            </div>
+            <span className="text-[10px] font-bold tracking-tight text-amber-400 pointer-events-none">Store</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab("live")}
-          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
-        >
-          {activeTab === "live" && (
-            <motion.div
-              layoutId="activeTabIndicator"
-              className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-red-500 to-rose-500 rounded-full shadow-[0_0_10px_rgba(244,63,94,0.8)]"
-              transition={{ type: "spring", stiffness: 380, damping: 30 }}
-            />
-          )}
-          <div className={`relative ${activeTab === "live" ? "animate-pulse" : ""}`}>
-            <Flame className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === "live" ? "text-red-500 drop-shadow-[0_0_8px_rgba(244,63,94,0.8)]" : "text-white/40"}`} />
-          </div>
-          <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === "live" ? "text-red-500 font-bold" : "text-white/40"}`}>Live</span>
-        </button>
+          <button
+            onClick={() => setActiveTab("live")}
+            className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+          >
+            <div className="relative">
+              <Flame className="w-5 h-5 transition-transform duration-200 group-hover:scale-110 text-white/40" />
+            </div>
+            <span className="text-[10px] mt-1 font-medium tracking-tight text-white/40">Live</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('status')}
-          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
-        >
-          {activeTab === 'status' && (
-            <motion.div
-              layoutId="activeTabIndicator"
-              className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
-              transition={{ type: "spring", stiffness: 380, damping: 30 }}
-            />
-          )}
-          <Radio className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'status' ? 'text-white' : 'text-white/40'}`} />
-          <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'status' ? 'text-white font-bold' : 'text-white/40'}`}>Status</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('status')}
+            className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+          >
+            {activeTab === 'status' && (
+              <motion.div
+                layoutId="activeTabIndicator"
+                className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <Radio className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'status' ? 'text-white' : 'text-white/40'}`} />
+            <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'status' ? 'text-white font-bold' : 'text-white/40'}`}>Status</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('profile')}
-          className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
-        >
-          {activeTab === 'profile' && (
-            <motion.div
-              layoutId="activeTabIndicator"
-              className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
-              transition={{ type: "spring", stiffness: 380, damping: 30 }}
-            />
-          )}
-          <User className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'profile' ? 'text-white' : 'text-white/40'}`} />
-          <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'profile' ? 'text-white font-bold' : 'text-white/40'}`}>Profile</span>
-        </button>
-      </nav>
+          <button
+            onClick={() => setActiveTab('profile')}
+            className="relative flex flex-col items-center justify-center min-w-[56px] snap-center py-1 text-xs group"
+          >
+            {activeTab === 'profile' && (
+              <motion.div
+                layoutId="activeTabIndicator"
+                className="absolute -top-2 w-8 h-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.8)]"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <User className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${activeTab === 'profile' ? 'text-white' : 'text-white/40'}`} />
+            <span className={`text-[10px] mt-1 font-medium tracking-tight ${activeTab === 'profile' ? 'text-white font-bold' : 'text-white/40'}`}>Profile</span>
+          </button>
+        </nav>
+      )}
 
       {/* 4. NOTIFICATION CENTER DRAWER */}
       <AnimatePresence>
@@ -416,17 +413,19 @@ export const AppShell: React.FC<AppShellProps> = ({
 
 
       {/* THE EMERALD CORE WIDGET (HELP BOT) */}
-      <button
-        onClick={() => setIsHelpBotOpen(true)}
-        className="fixed bottom-24 left-4 z-[99999] w-14 h-14 rounded-full bg-[#020202]/90 backdrop-blur-2xl border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.4)] flex items-center justify-center hover:scale-110 transition-all cursor-pointer group"
-      >
-        <motion.div
-          animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
-          transition={{ repeat: Infinity, duration: 2 }}
+      {activeTab !== 'live' && (
+        <button
+          onClick={() => setIsHelpBotOpen(true)}
+          className="fixed bottom-24 left-4 z-[99999] w-14 h-14 rounded-full bg-[#020202]/90 backdrop-blur-2xl border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.4)] flex items-center justify-center hover:scale-110 transition-all cursor-pointer group"
         >
-          <Bot className="text-green-500 w-6 h-6" />
-        </motion.div>
-      </button>
+          <motion.div
+            animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
+            transition={{ repeat: Infinity, duration: 2 }}
+          >
+            <Bot className="text-green-500 w-6 h-6" />
+          </motion.div>
+        </button>
+      )}
 
       <HelpBotModal isOpen={isHelpBotOpen} onClose={() => setIsHelpBotOpen(false)} />
 
