@@ -132,6 +132,7 @@ interface LiveStreamRecord {
   viewer_count: number;
   allow_cohost: boolean;
   status: 'active' | 'ended';
+  room_id?: string;
 }
 
 interface LiveComment {
@@ -636,6 +637,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
   // Active Broadcast State
   const [currentStream, setCurrentStream] = useState<LiveStreamRecord | null>(null);
+  const [currentStreamDbId, setCurrentStreamDbId] = useState<string | null>(null);
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
   const [isCamOff, setIsCamOff] = useState<boolean>(false);
   const [isFollowing, setIsFollowing] = useState<boolean>(false);
@@ -656,20 +658,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
   // --------------------------------------------------------------------------
-  // 1. FETCH ACTIVE STREAMS IN LOBBY & AUTH USER
+  // 1. LOBBY REALTIME SUBSCRIPTION & USER AUTH
   // --------------------------------------------------------------------------
-  const fetchActiveStreams = useCallback(async () => {
-    const { data } = await supabase
-      .from('live_streams')
-      .select('*')
-      .eq('status', 'active')
-      .order('viewer_count', { ascending: false });
-
-    if (data) setActiveStreams(data as LiveStreamRecord[]);
-  }, []);
-
   useEffect(() => {
-    async function initUserAndStreams() {
+    async function initUser() {
       const { data: authData } = await supabase.auth.getUser();
       if (authData?.user && !currentUser) {
         const { data: profile } = await supabase
@@ -694,24 +686,65 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           });
         }
       }
-      fetchActiveStreams();
     }
 
-    initUserAndStreams();
+    initUser();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (stage !== 'lobby') return;
+
+    const fetchLobbyStreams = async () => {
+      const { data } = await supabase
+        .from('live_streams')
+        .select('*')
+        .eq('status', 'active')
+        .order('viewer_count', { ascending: false });
+
+      if (data) {
+        setActiveStreams(data as LiveStreamRecord[]);
+      }
+    };
+
+    fetchLobbyStreams();
 
     const lobbyChannel = supabase
       .channel('public:live_streams_lobby')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_streams' },
-        () => fetchActiveStreams()
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_streams',
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const stream = payload.new as LiveStreamRecord;
+            if (stream.status === 'active') {
+              setActiveStreams((prev) => {
+                const exists = prev.some((s) => s.id === stream.id);
+                if (exists) {
+                  return prev.map((s) => (s.id === stream.id ? { ...s, ...stream } : s));
+                }
+                return [stream, ...prev];
+              });
+            } else if (stream.status === 'ended') {
+              setActiveStreams((prev) => prev.filter((s) => s.id !== stream.id));
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = (payload.old as { id?: string })?.id;
+            if (deletedId) {
+              setActiveStreams((prev) => prev.filter((s) => s.id !== deletedId));
+            }
+          }
+        }
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(lobbyChannel);
     };
-  }, [currentUser, fetchActiveStreams]);
+  }, [stage]);
 
   // --------------------------------------------------------------------------
   // 2. CAMERA PREVIEW MANAGEMENT (SETUP STAGE ONLY)
@@ -758,21 +791,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const roomId = `stream_${user.id}_${Date.now()}`;
     const finalTitle = streamTitle.trim() || `${user.username}'s VIP Live`;
 
-    const fallbackStream: LiveStreamRecord = {
-      id: roomId,
-      host_id: user.id,
-      host_username: user.username,
-      host_avatar: user.avatar_url,
-      title: finalTitle,
-      category: setupCategory,
-      gift_goal_target: giftGoal,
-      gift_goal_current: 0,
-      total_coins_earned: 0,
-      viewer_count: 1,
-      allow_cohost: allowCohost,
-      status: 'active',
-    };
-
     const { data: insertedStream } = await supabase
       .from('live_streams')
       .insert([
@@ -780,6 +798,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           host_id: user.id,
           host_username: user.username,
           host_avatar: user.avatar_url,
+          room_id: roomId,
           title: finalTitle,
           category: setupCategory,
           gift_goal_target: giftGoal,
@@ -793,12 +812,32 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       .select()
       .single();
 
+    if (insertedStream?.id) {
+      setCurrentStreamDbId(insertedStream.id);
+    }
+
+    const fallbackStream: LiveStreamRecord = {
+      id: insertedStream?.id || roomId,
+      host_id: user.id,
+      host_username: user.username,
+      host_avatar: user.avatar_url,
+      room_id: roomId,
+      title: finalTitle,
+      category: setupCategory,
+      gift_goal_target: giftGoal,
+      gift_goal_current: 0,
+      total_coins_earned: 0,
+      viewer_count: 1,
+      allow_cohost: allowCohost,
+      status: 'active',
+    };
+
     const activeRecord = (insertedStream as LiveStreamRecord) || fallbackStream;
     setCurrentStream(activeRecord);
 
     try {
       const res = await fetch(
-        `/api/livekit?room=${encodeURIComponent(activeRecord.id)}&username=${encodeURIComponent(user.username)}`
+        `/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(user.username)}`
       );
       const data = await res.json();
       if (data.token) {
@@ -1031,16 +1070,19 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   };
 
   const handleEndOrLeaveStream = async () => {
-    if (role === 'host' && currentStream) {
-      await supabase
-        .from('live_streams')
-        .update({ status: 'ended' })
-        .eq('id', currentStream.id);
+    if (role === 'host') {
+      const streamIdToUpdate = currentStreamDbId || currentStream?.id;
+      if (streamIdToUpdate) {
+        await supabase
+          .from('live_streams')
+          .update({ status: 'ended' })
+          .eq('id', streamIdToUpdate);
+      }
     }
     setLivekitToken('');
     setCurrentStream(null);
+    setCurrentStreamDbId(null);
     setStage('lobby');
-    fetchActiveStreams();
   };
 
   // ==========================================================================
