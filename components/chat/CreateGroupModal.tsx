@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, X, Check } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
@@ -16,6 +17,7 @@ interface CreateGroupModalProps {
 
 export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreated }: CreateGroupModalProps) {
   const [groupName, setGroupName] = useState('');
+  const [groupDescription, setGroupDescription] = useState('');
   const [selectedGroupUsers, setSelectedGroupUsers] = useState<Set<string>>(new Set());
   const [isFetchingModalUsers, setIsFetchingModalUsers] = useState(false);
   const [modalUsers, setModalUsers] = useState<UserProfileDetails[]>([]);
@@ -56,6 +58,7 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
         fetchUsers();
     } else {
         setGroupName('');
+        setGroupDescription('');
         setSelectedGroupUsers(new Set());
     }
   }, [isOpen, userId]);
@@ -67,7 +70,8 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
           const { data: room, error: roomError } = await supabase
               .from('rooms')
               .insert({
-                  name: groupName,
+                  name: groupName.trim(),
+                  description: groupDescription.trim() || 'Tap here for group info',
                   created_by: userId,
                   type: 'group'
               })
@@ -78,8 +82,8 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
 
           const memberIds = Array.from(selectedGroupUsers);
           const participants = [
-              { room_id: room.id, user_id: userId },
-              ...memberIds.map(id => ({ room_id: room.id, user_id: id }))
+              { room_id: room.id, user_id: userId, role: 'admin' },
+              ...memberIds.map(id => ({ room_id: room.id, user_id: id, role: 'member' }))
           ];
 
           const { error: partError } = await supabase
@@ -87,6 +91,29 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
               .insert(participants);
 
           if (partError) throw partError;
+
+          // Fetch the creator's username
+          const { data: creatorProfile } = await supabase
+              .from('profiles')
+              .select('username, name')
+              .eq('id', userId)
+              .single();
+
+          const creatorName = creatorProfile?.username || creatorProfile?.name || 'User';
+
+          // Insert WhatsApp Genesis System Message
+          const { error: msgError } = await supabase
+              .from('messages')
+              .insert({
+                  room_id: room.id,
+                  sender_id: userId,
+                  content: `${creatorName} created group "${groupName.trim()}"`,
+                  message_type: 'system',
+                  system_event_type: 'group_created'
+              });
+
+          if (msgError) console.error("Failed to insert genesis system message", msgError);
+
           return room;
       };
 
@@ -106,10 +133,10 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
       }
   };
 
-  // removed early return to allow AnimatePresence exit animation
+  if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-md p-0 sm:p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[99999] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-md p-0 sm:p-4">
        <motion.div
          initial={{ y: "100%", opacity: 0 }}
          animate={{ y: 0, opacity: 1 }}
@@ -133,6 +160,14 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
                  value={groupName}
                  onChange={(e) => setGroupName(e.target.value)}
                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-white/40 focus:outline-none focus:border-fuchsia-500/50 focus:bg-white/10 transition-all font-medium text-lg"
+              />
+
+              <input
+                 type="text"
+                 placeholder="Group Description / Bio (Optional)"
+                 value={groupDescription}
+                 onChange={(e) => setGroupDescription(e.target.value)}
+                 className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder-white/40 focus:outline-none focus:border-fuchsia-500/50 focus:bg-white/10 transition-all font-medium text-sm"
               />
 
               <div className="text-xs font-bold text-white/50 uppercase tracking-widest pl-2">Select Members ({selectedGroupUsers.size})</div>
@@ -191,6 +226,7 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
               </button>
           </div>
        </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 }

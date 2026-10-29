@@ -786,12 +786,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           // 1. Fetch Groups the user is part of
           const { data: groupsData, error: groupsError } = await supabase
               .from('room_participants')
-              .select('room_id, rooms ( id, name, created_at )')
+              .select('room_id, is_deleted, rooms ( id, name, created_at )')
               .eq('user_id', user.id);
 
           if (groupsError) throw groupsError;
 
-          const groupsFormatted = (groupsData && !groupsError) ? groupsData.map((gm: any) => ({
+          let rawGroups = (groupsData || [])
+            .filter(gm => gm.is_deleted !== true && gm.rooms != null)
+            .map((gm: any) => ({
                id: gm.rooms.id,
                name: gm.rooms.name,
                avatarInitials: (gm.rooms.name?.[0] || 'G').toUpperCase() + (gm.rooms.name?.[1] || 'R').toUpperCase(),
@@ -804,7 +806,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                isGroup: true,
                unreadCount: 0,
                lastMessageTime: 0
-          })) : [];
+            }));
+
+          const groupsFormatted = Array.from(new Map(rawGroups.map(r => [r.id, r])).values());
 
           // 2. Fetch Direct Messages (chats)
           const { data: chatsData, error: chatsError } = await supabase
@@ -1882,7 +1886,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 />
                 <button
                    onClick={() => setIsGroupModalOpen(true)}
-                   className="absolute bottom-6 right-6 w-14 h-14 bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] rounded-full flex items-center justify-center transition-all z-50"
+                   className="absolute bottom-6 right-6 w-14 h-14 bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] rounded-full flex items-center justify-center transition-all z-[999] touch-manipulation cursor-pointer pointer-events-auto"
                 >
                    <Users size={24} />
                 </button>
