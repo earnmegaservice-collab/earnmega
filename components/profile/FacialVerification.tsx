@@ -8,12 +8,15 @@ import { Camera, CameraOff, CheckCircle, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import { verifyFace } from '../../lib/biometrics';
 
 interface FacialVerificationProps {
   onComplete: () => void;
+  onCancel?: () => void;
+  onStartProcessing?: (promise: Promise<boolean>) => void;
 }
 
-export default function FacialVerification({ onComplete }: FacialVerificationProps) {
+export default function FacialVerification({ onComplete, onCancel, onStartProcessing }: FacialVerificationProps) {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -107,6 +110,12 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
       setStream(null);
     }
 
+    if (typeof onStartProcessing === 'function') {
+        const verifyPromise = verifyFace(canvas, user.id);
+        onStartProcessing(verifyPromise);
+        return;
+    }
+
     // Cinematic Processing Delay (Neon Laser Animation time)
     await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -120,6 +129,8 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
                 console.error("Failed to upload biometric scan:", uploadError);
             }
         }
+
+        await verifyFace(canvas, user.id);
 
         const { error: updateError } = await supabase
             .from('profiles')
@@ -157,6 +168,10 @@ export default function FacialVerification({ onComplete }: FacialVerificationPro
   };
 
   const handleSkip = async () => {
+    if (typeof onCancel === 'function') {
+        onCancel();
+        return;
+    }
     toast.success("Securing your connection...");
     await handleExit(false);
   };
