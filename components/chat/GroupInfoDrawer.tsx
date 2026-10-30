@@ -6,6 +6,7 @@ import { Users, X, MoreVertical, Edit2, UserPlus, Image as ImageIcon, ShieldAler
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { UserProfileDetails } from '../profile/UserProfileModal';
+import AddMemberModal from './AddMemberModal';
 import { v4 as uuidv4 } from "uuid";
 
 interface GroupInfoDrawerProps {
@@ -30,6 +31,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
   const [isRequestsLoading, setIsRequestsLoading] = useState(false);
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
 
   useEffect(() => {
     setNewGroupName(groupName);
@@ -368,7 +370,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
              {/* Admin Controls */}
              {currentUserRole === 'admin' && (
                 <div className="px-6 mb-8 flex gap-3">
-                   <button className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
+                   <button onClick={() => setIsAddMemberModalOpen(true)} className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
                       <UserPlus size={24} className="text-fuchsia-400 mb-2" />
                       <span className="text-xs font-bold text-white tracking-wide">Add Members</span>
                    </button>
@@ -517,6 +519,15 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
           </div>
         </motion.div>
       )}
+
+      <AddMemberModal
+        isOpen={isAddMemberModalOpen}
+        onClose={() => setIsAddMemberModalOpen(false)}
+        groupId={groupId}
+        currentUserId={currentUserId}
+        onMembersAdded={fetchParticipants}
+        existingParticipantIds={participants.map(p => p.id)}
+      />
     </AnimatePresence>
   );
 }
