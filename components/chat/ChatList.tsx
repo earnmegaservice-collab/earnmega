@@ -8,6 +8,7 @@ import { Search, ArrowLeft } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 import VerifiedTick from '../ui/VerifiedTick';
 import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, ShieldAlert, ShieldCheck, Eye, MessageCircle, User, Ban } from 'lucide-react';
+import { submitUserReport } from '../../app/actions/submitUserReport';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import MessageForwardModal from './MessageForwardModal';
@@ -312,17 +313,18 @@ export default function ChatList({
       return;
     }
 
-    const { error } = await supabase.from('reports').insert({
-      reporter_id: currentUserProfile.id,
-      reported_user_id: targetId,
-      reason: finalReason
+    const result = await submitUserReport({
+      reportedUserId: targetId,
+      reason: finalReason,
+      contentType: 'user'
     });
 
-    if (error) {
-      toast.error(`Report Failed: ${error.message}`);
-      console.error(error);
+    if (!result.success) {
+      toast.error(`Report Failed: ${result.error}`);
+      console.error(result.error);
       return;
     }
+    toast.success('Report submitted securely');
 
     toast.custom((t) => (
       <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-[#111] shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-white/10`}>

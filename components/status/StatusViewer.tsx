@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Heart, Send, Eye, Trash, BarChart, MoreVertical, Volume2, VolumeX, Sparkles } from 'lucide-react';
 import ForwardModal from './ForwardModal';
+import { submitUserReport } from '../../app/actions/submitUserReport';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 
@@ -192,14 +193,14 @@ export default function StatusViewer({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { error } = await supabase.from('reports').insert({
-        reporter_id: user.id,
-        reported_user_id: status.userId,
-        content_type: 'status',
+      const result = await submitUserReport({
+        reportedUserId: status.userId,
+        contentType: 'status',
         reason: 'Inappropriate Content',
         details: `Reported status ${status.id}`
       });
-      if (error) throw error;
+      if (!result.success) throw new Error(result.error);
+      toast.success('Report submitted securely');
 
       toast.success('Report secured. Team notified.', { id: toastId });
       if (onHideUser) onHideUser(status.userId);
