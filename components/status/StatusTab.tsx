@@ -14,8 +14,10 @@ import {
   ArrowLeft,
   Check,
   RefreshCw,
-  Layers
+  Layers,
+  ShieldCheck
 } from 'lucide-react';
+import FacialVerification from '../profile/FacialVerification';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
@@ -41,6 +43,8 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
   const [myAvatarUrl, setMyAvatarUrl] = useState<string>('');
   const [myUsername, setMyUsername] = useState<string>('');
   const [isHdAvatarOpen, setIsHdAvatarOpen] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   const statusFileInputRef = useRef<HTMLInputElement>(null);
   const ppFileInputRef = useRef<HTMLInputElement>(null);
@@ -81,12 +85,15 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
 
       if (cachedAvatar || propAvatar) setMyAvatarUrl(cachedAvatar || propAvatar);
       if (propName) setMyUsername(propName);
+      if (currentUserProfile?.is_verified !== undefined) {
+          setIsVerified(currentUserProfile.is_verified);
+      }
 
       // 2. Fetch fresh row directly from Supabase profiles table
       try {
         const { data } = await supabase
           .from('profiles')
-          .select('username, avatar_url')
+          .select('username, avatar_url, is_verified')
           .eq('id', user.id)
           .single();
 
@@ -104,6 +111,7 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
           if (data.username) {
             setMyUsername(data.username);
           }
+          setIsVerified(data.is_verified || false);
         }
       } catch {
         // Fallback silently to prop/cache
@@ -574,9 +582,17 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                 <h2 className="text-lg sm:text-xl font-black text-white tracking-tight truncate">
                   {myUsername || 'VIP Member'}
                 </h2>
-                <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded-full bg-fuchsia-500/15 text-fuchsia-400 border border-fuchsia-500/30">
-                  4K HD
-                </span>
+                {isVerified && (
+                  <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 flex items-center gap-1">
+                    <ShieldCheck size={10} />
+                    VERIFIED
+                  </span>
+                )}
+                {!isVerified && (
+                    <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded-full bg-fuchsia-500/15 text-fuchsia-400 border border-fuchsia-500/30">
+                      4K HD
+                    </span>
+                )}
               </div>
 
               <p className="text-xs text-white/50 font-medium mt-0.5 truncate">
@@ -610,12 +626,50 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                   </button>
                 )}
               </div>
+
+              {!isVerified && (
+                  <div className="mt-4 flex w-full">
+                      <button
+                          onClick={() => setShowVerificationModal(true)}
+                          className="w-full bg-gradient-to-r from-zinc-900 via-black to-zinc-900 border border-amber-500/30 hover:border-amber-400/60 shadow-[0_0_20px_rgba(245,158,11,0.15)] text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-100 to-amber-300 font-semibold tracking-wider text-sm py-3.5 px-6 rounded-2xl transition-all duration-300 transform active:scale-[0.98] flex items-center justify-center gap-2"
+                      >
+                          <ShieldCheck size={18} className="text-amber-300" />
+                          Verify Identity
+                      </button>
+                  </div>
+              )}
             </div>
           </div>
         </div>
       </motion.div>
 
-      {/* =========================================================
+
+      {showVerificationModal && (
+          <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/90 backdrop-blur-sm">
+              <FacialVerification
+                  onCancel={() => setShowVerificationModal(false)}
+                  onComplete={() => {
+                      setShowVerificationModal(false);
+                      setIsVerified(true);
+                          window.dispatchEvent(new Event('verification_complete'));
+                      window.dispatchEvent(new Event('verification_complete'));
+                  }}
+                  onStartProcessing={(promise) => {
+                      setShowVerificationModal(false);
+                      const toastId = toast.loading('Analyzing Biometric Matrix... Your verification is processing in the background. You will receive your Blue Badge once confirmed.', { duration: 5000 });
+                      promise.then(() => {
+                          toast.success('Identity Verified', { id: toastId });
+                          setIsVerified(true);
+                          window.dispatchEvent(new Event('verification_complete'));
+                      }).catch((err) => {
+                          toast.error(err.message || 'Verification failed. Please ensure good lighting and a clear view of your face.', { id: toastId, duration: 4000 });
+                      });
+                  }}
+              />
+          </div>
+      )}
+
+            {/* =========================================================
           PHASE 2: FEED NAVIGATION & PRIVACY FILTER BAR
          ========================================================= */}
       <div className="flex items-center justify-between px-1">
