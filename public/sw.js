@@ -1,4 +1,4 @@
-// public/service-worker.js
+// public/sw.js
 
 self.addEventListener('push', function(event) {
   if (!event.data) return;
@@ -25,8 +25,41 @@ self.addEventListener('push', function(event) {
       };
 
       event.waitUntil(
-        self.registration.showNotification(`Incoming ${data.callType} Call`, options)
+        self.registration.showNotification(`Incoming ${data.callType} Call`, options).then(() => {
+           return clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
+             clientList.forEach(client => {
+               client.postMessage({
+                 type: 'PLAY_AUDIO',
+                 payload: 'incoming_call'
+               });
+             });
+           });
+        })
       );
+    } else {
+       // Other types of push notifications (e.g. stream start)
+       const options = {
+           body: data.body || 'New notification',
+           icon: data.icon || '/icon.svg',
+           badge: '/icon.svg',
+           vibrate: [200, 100, 200],
+           data: {
+               url: data.url || '/'
+           }
+       };
+
+       event.waitUntil(
+           self.registration.showNotification(data.title || 'EarnMega', options).then(() => {
+               return clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
+                   clientList.forEach(client => {
+                       client.postMessage({
+                           type: 'PLAY_AUDIO',
+                           payload: 'default'
+                       });
+                   });
+               });
+           })
+       );
     }
   } catch (e) {
     console.error('Error parsing push data', e);

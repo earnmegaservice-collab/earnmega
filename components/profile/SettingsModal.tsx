@@ -7,6 +7,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { X, ExternalLink, LogOut, Trash2, ArrowLeft, Mail, MessageCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { subscribeToPush } from '../../lib/push';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -111,6 +112,20 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(15);
     }
+
+    if (!pushNotifications && 'Notification' in window) {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        toast.error('Push permission denied by OS.');
+        return;
+      }
+      const isSubscribed = await subscribeToPush();
+      if (!isSubscribed) {
+         toast.error('Failed to subscribe to Push notifications.');
+         return;
+      }
+    }
+
     const newValue = !pushNotifications;
     setPushNotifications(newValue);
     setIsUpdating(true);

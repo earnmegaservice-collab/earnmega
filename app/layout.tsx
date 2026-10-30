@@ -7,6 +7,7 @@ import { Toaster } from "react-hot-toast";
 import { Metadata, Viewport } from "next";
 import { SmartInstallBanner } from "../components/SmartInstallBanner";
 import { PwaInstallPrompt } from "../components/PwaInstallPrompt";
+import { ServiceWorkerRegister } from "../components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
   title: "EarnMega",
@@ -44,6 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Toaster position="top-right" />
               <SmartInstallBanner />
               <PwaInstallPrompt />
+              <ServiceWorkerRegister />
             </CallProvider>
             </WalletProvider>
           </NotificationProvider>
