@@ -31,7 +31,7 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
 
       // 1. Create a group chat instantly in public.rooms (mocking 1-on-1 for this UI)
       const { data: room, error: roomError } = await supabase
-        .from('rooms')
+        .from('groups')
         .insert({
           name: `Chat with ${discoveredUser.username}`,
           created_by: authUser.id,
@@ -44,10 +44,10 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
 
       // 2. Add both participants
       const { error: partError } = await supabase
-        .from('room_participants')
+        .from('group_members')
         .insert([
-          { room_id: room.id, user_id: authUser.id, role: 'admin' },
-          { room_id: room.id, user_id: discoveredUser.id, role: 'member' }
+          { group_id: room.id, user_id: authUser.id, role: 'admin' },
+          { group_id: room.id, user_id: discoveredUser.id, role: 'member' }
         ]);
 
       if (partError) throw partError;

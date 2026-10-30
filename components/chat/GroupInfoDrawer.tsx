@@ -40,9 +40,9 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
     setIsLoading(true);
     try {
       const { data: participantData, error: participantError } = await supabase
-        .from('room_participants')
+        .from('group_members')
         .select('user_id, role, profiles(*)')
-        .eq('room_id', groupId);
+        .eq('group_id', groupId);
 
       if (participantError) throw participantError;
 
@@ -129,8 +129,8 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
           if (error) throw error;
 
           if (action === 'approved') {
-              await supabase.from('room_participants').insert({
-                  room_id: groupId,
+              await supabase.from('group_members').insert({
+                  group_id: groupId,
                   user_id: userId,
                   role: 'member'
               });
@@ -157,7 +157,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
         await supabase.from('messages').insert({
             id: uuidv4(),
             sender_id: currentUserId,
-            room_id: groupId,
+            group_id: groupId,
             content,
             is_system_message: true,
             system_event_type: type
@@ -174,7 +174,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
     }
 
     const updatePromise = async () => {
-        const { error } = await supabase.from('rooms').update({ name: newGroupName.trim() }).eq('id', groupId);
+        const { error } = await supabase.from('groups').update({ name: newGroupName.trim() }).eq('id', groupId);
         if (error) throw error;
         await fireSystemMessage(`Group name changed to "${newGroupName.trim()}"`, 'group_name_changed');
     };
@@ -216,7 +216,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
         .getPublicUrl(fileName);
 
       const { error: dbError } = await supabase
-        .from('rooms')
+        .from('groups')
         .update({ avatar_url: publicUrlData.publicUrl })
         .eq('id', groupId);
 
@@ -239,7 +239,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
   const handleRemoveUser = async (userId: string, userName: string) => {
       const removePromise = async () => {
-          const { error } = await supabase.from('room_participants').delete().match({ room_id: groupId, user_id: userId });
+          const { error } = await supabase.from('group_members').delete().match({ group_id: groupId, user_id: userId });
           if (error) throw error;
           await fireSystemMessage(`${userName} was removed from the group`, 'user_removed');
       };
@@ -260,7 +260,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
   const handleMakeAdmin = async (userId: string, userName: string) => {
       const adminPromise = async () => {
-          const { error } = await supabase.from('room_participants').update({ role: 'admin' }).match({ room_id: groupId, user_id: userId });
+          const { error } = await supabase.from('group_members').update({ role: 'admin' }).match({ group_id: groupId, user_id: userId });
           if (error) throw error;
           await fireSystemMessage(`${userName} is now an admin`, 'admin_promoted');
       };
