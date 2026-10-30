@@ -8,6 +8,7 @@ import {
   RoomAudioRenderer,
   useTracks,
   useLocalParticipant,
+  useConnectionState,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -42,6 +43,18 @@ import {
 } from 'lucide-react';
 import LiveGiftOverlay from './LiveGiftOverlay';
 import { supabase } from '../../utils/supabase';
+
+// ============================================================================
+// ROOM STATE TRACKER
+// ============================================================================
+function LiveKitRoomTracker({ onStateChange }: { onStateChange: (state: string) => void }) {
+  const roomState = useConnectionState();
+  useEffect(() => {
+    console.log("[LIVEKIT] Room State Changed:", roomState);
+    onStateChange(roomState);
+  }, [roomState, onStateChange]);
+  return null;
+}
 
 // ============================================================================
 // TYPES & FIXED LUXURY GIFT CATALOG
@@ -540,24 +553,12 @@ function MasterLiveGiftOverlay({
 // ============================================================================
 function LiveKitVideoStage({
   role,
-  isMicMuted,
-  isCamOff,
   beautyMode,
 }: {
   role: UserRole;
-  isMicMuted: boolean;
-  isCamOff: boolean;
   beautyMode: boolean;
 }) {
-  const { localParticipant } = useLocalParticipant();
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
-
-  useEffect(() => {
-    if (role === 'host' && localParticipant) {
-      localParticipant.setMicrophoneEnabled(!isMicMuted).catch(() => {});
-      localParticipant.setCameraEnabled(!isCamOff).catch(() => {});
-    }
-  }, [role, isMicMuted, isCamOff, localParticipant]);
 
   return (
     <div className="relative h-full w-full bg-[#070709] overflow-hidden">
@@ -693,9 +694,26 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [coinPopTrigger, setCoinPopTrigger] = useState<boolean>(false);
   const [localIncomingGift, setLocalIncomingGift] = useState<LiveGiftEvent | null>(null);
 
+  // Connection Tracker State
+  const [connectionStatus, setConnectionStatus] = useState<string>('disconnected');
+  const [timeoutReached, setTimeoutReached] = useState<boolean>(false);
+
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewStreamRef = useRef<MediaStream | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    if (stage === 'live' && livekitToken && connectionStatus !== 'connected') {
+      timeout = setTimeout(() => {
+        setTimeoutReached(true);
+      }, 10000); // 10 seconds timeout
+    }
+    if (connectionStatus === 'connected') {
+      setTimeoutReached(false);
+    }
+    return () => clearTimeout(timeout);
+  }, [stage, livekitToken, connectionStatus]);
 
   // --------------------------------------------------------------------------
   // 1. LOBBY REALTIME SUBSCRIPTION & USER AUTH
@@ -1531,19 +1549,48 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white flex flex-col select-none overflow-hidden"
     >
       {/* 1. LIVEKIT CLOUD HD VIDEO STREAM */}
+      {timeoutReached && connectionStatus !== 'connected' ? (
+        <div className="absolute inset-0 z-[9999] flex flex-col items-center justify-center bg-black/90 backdrop-blur-md">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/20 border border-red-500/40 mb-4">
+            <X className="h-8 w-8 text-red-500" />
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">LiveKit Connection Failed</h2>
+          <p className="text-sm text-white/60 mb-6 text-center max-w-xs">
+            The stream couldn't be established. This might be due to a network issue or missing media permissions.
+          </p>
+          <div className="flex gap-4">
+            <button
+              onClick={() => {
+                setTimeoutReached(false);
+                setConnectionStatus('disconnected');
+              }}
+              className="px-6 py-2.5 bg-white/10 hover:bg-white/20 rounded-full font-bold text-white transition"
+            >
+              Retry
+            </button>
+            <button
+              onClick={handleEndOrLeaveStream}
+              className="px-6 py-2.5 bg-red-600 hover:bg-red-700 rounded-full font-bold text-white shadow-[0_0_15px_rgba(220,38,38,0.5)] transition"
+            >
+              Exit Arena
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {livekitToken ? (
         <LiveKitRoom
-          video={role === 'host'}
-          audio={role === 'host'}
+          video={role === 'host' && !isCamOff}
+          audio={role === 'host' && !isMicMuted}
           token={livekitToken}
           serverUrl="wss://earnmega-mbwh7c26.livekit.cloud"
           connect={true}
           className="h-full w-full"
+          onError={(error) => console.error("[LIVEKIT] Track Publishing Error:", error)}
         >
+          <LiveKitRoomTracker onStateChange={setConnectionStatus} />
           <LiveKitVideoStage
             role={role}
-            isMicMuted={isMicMuted}
-            isCamOff={isCamOff}
             beautyMode={beautyMode}
           />
           <RoomAudioRenderer />
