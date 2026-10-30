@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, ArrowLeft } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
-import VerifiedTick from '../ui/VerifiedTick';
+import VerifiedBadge from '../ui/VerifiedBadge';
 import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, ShieldAlert, ShieldCheck, Eye, MessageCircle, User, Ban } from 'lucide-react';
 import { submitUserReport } from '../../app/actions/submitUserReport';
 import { supabase } from '../../utils/supabase';
@@ -595,12 +595,12 @@ export default function ChatList({
 
                   <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center pointer-events-none">
                     <div className="flex items-center space-x-2">
-                      <h3 className={`text-[15px] truncate flex items-center ${
+                      <h3 className={`text-[15px] truncate flex items-center gap-1 ${
                         u.is_bot ? 'bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 drop-shadow-[0_0_10px_rgba(232,121,249,0.8)] font-extrabold' :
                         isPremiumUser ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent font-black drop-shadow-md' : 'text-white font-bold'
                       }`}>
                         {displayName}
-                        {u.isVerified && <VerifiedTick />}
+                        {u.isVerified ? <VerifiedBadge /> : null}
                       </h3>
                       {/* NUKE FAKE PREMIUM TAGS: strictly check isPremiumUser boolean */}
                       {isPremiumUser ? (
