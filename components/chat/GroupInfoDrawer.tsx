@@ -42,9 +42,9 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
     setIsLoading(true);
     try {
       const { data: participantData, error: participantError } = await supabase
-        .from('group_members')
+        .from('room_participants')
         .select('user_id, role, profiles(*)')
-        .eq('group_id', groupId);
+        .eq('room_id', groupId);
 
       if (participantError) throw participantError;
 
@@ -85,7 +85,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
           const { data, error } = await supabase
               .from('group_join_requests')
               .select('id, user_id, status, created_at, profiles(id, full_name, avatar_url, username)')
-              .eq('group_id', groupId)
+              .eq('room_id', groupId)
               .eq('status', 'pending');
           if (error) throw error;
           setJoinRequests(data || []);
@@ -106,7 +106,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
       try {
           const code = uuidv4().substring(0, 8);
           const { error } = await supabase.from('group_invites').insert({
-              group_id: groupId,
+              room_id: groupId,
               created_by: currentUserId,
               code: code,
               expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days
@@ -131,8 +131,8 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
           if (error) throw error;
 
           if (action === 'approved') {
-              await supabase.from('group_members').insert({
-                  group_id: groupId,
+              await supabase.from('room_participants').insert({
+                  room_id: groupId,
                   user_id: userId,
                   role: 'member'
               });
@@ -159,7 +159,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
         await supabase.from('messages').insert({
             id: uuidv4(),
             sender_id: currentUserId,
-            group_id: groupId,
+            room_id: groupId,
             content,
             is_system_message: true,
             system_event_type: type
@@ -176,7 +176,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
     }
 
     const updatePromise = async () => {
-        const { error } = await supabase.from('groups').update({ name: newGroupName.trim() }).eq('id', groupId);
+        const { error } = await supabase.from('rooms').update({ name: newGroupName.trim() }).eq('id', groupId);
         if (error) throw error;
         await fireSystemMessage(`Group name changed to "${newGroupName.trim()}"`, 'group_name_changed');
     };
@@ -218,7 +218,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
         .getPublicUrl(fileName);
 
       const { error: dbError } = await supabase
-        .from('groups')
+        .from('rooms')
         .update({ avatar_url: publicUrlData.publicUrl })
         .eq('id', groupId);
 
@@ -250,7 +250,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
           // Optimistically remove from state FIRST
           setParticipants(prev => prev.filter(p => p.id !== userId));
 
-          const { error } = await supabase.rpc('remove_participant', { group_id_param: groupId, target_user_id: userId });
+          const { error } = await supabase.rpc('remove_participant', { room_id_param: groupId, target_user_id: userId });
           if (error) {
               console.warn("[SECURITY] Unauthorized Mutation Attempt Blocked", error);
               throw error;
@@ -303,7 +303,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
   const handleMakeAdmin = async (userId: string, userName: string) => {
       const adminPromise = async () => {
-          const { error } = await supabase.from('group_members').update({ role: 'admin' }).match({ group_id: groupId, user_id: userId });
+          const { error } = await supabase.from('room_participants').update({ role: 'admin' }).match({ room_id: groupId, user_id: userId });
           if (error) throw error;
           await fireSystemMessage(`${userName} is now an admin`, 'admin_promoted');
       };
