@@ -1905,8 +1905,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   blockedUserIds={blockedUserIdsRef.current}
                 />
                 <button
-                   onClick={() => setIsGroupModalOpen(true)}
-                   className="absolute bottom-6 right-6 w-14 h-14 bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] rounded-full flex items-center justify-center transition-all z-[999] touch-manipulation cursor-pointer pointer-events-auto"
+                   onClick={() => {
+                     console.log('Create Group Button Tapped - State Updated');
+                     setIsGroupModalOpen(true);
+                   }}
+                   className="absolute bottom-6 right-6 w-14 h-14 bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] rounded-full flex items-center justify-center transition-all z-[9999] touch-manipulation cursor-pointer pointer-events-auto"
                 >
                    <Users size={24} />
                 </button>
@@ -2705,7 +2708,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                             >
                                <span>Delete for me</span>
                             </button>
-                            <button onClick={() => setIsGroupModalOpen(true)} className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full">
+                            <button onClick={() => {
+                              console.log('Create Group Button Tapped - State Updated');
+                              setIsGroupModalOpen(true);
+                            }} className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full">
                                <span>Create Group with User</span>
                             </button>
                             {isUser && (
