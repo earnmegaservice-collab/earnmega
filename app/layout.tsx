@@ -2,6 +2,7 @@ import "./globals.css";
 import { WalletProvider } from "../context/WalletContext";
 import { CallProvider } from "../context/CallContext";
 import { AuthProvider } from "../context/AuthContext";
+import { NotificationProvider } from "../context/NotificationContext";
 import { Toaster } from "react-hot-toast";
 import { Metadata, Viewport } from "next";
 import { SmartInstallBanner } from "../components/SmartInstallBanner";
@@ -36,14 +37,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="cinematic-bg" />
         <AuthProvider>
-          <WalletProvider>
-            <CallProvider>
-            {children}
-            <Toaster position="top-right" />
-            <SmartInstallBanner />
-            <PwaInstallPrompt />
-          </CallProvider>
-          </WalletProvider>
+          <NotificationProvider>
+            <WalletProvider>
+              <CallProvider>
+              {children}
+              <Toaster position="top-right" />
+              <SmartInstallBanner />
+              <PwaInstallPrompt />
+            </CallProvider>
+            </WalletProvider>
+          </NotificationProvider>
         </AuthProvider>
       </body>
     </html>
