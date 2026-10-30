@@ -14,6 +14,7 @@ import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
 import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, Settings, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus, ShieldCheck , AtSign, BarChart2, CalendarPlus} from "lucide-react";
 import { toast } from 'react-hot-toast';
+import { submitUserReport } from '../../app/actions/submitUserReport';
 import { deleteConversationPermanently, clearChatPermanently } from '../../utils/deleteUtils';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -3308,17 +3309,18 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               return;
                            }
 
-                           const { error } = await supabase.from('reports').insert({
-                              reporter_id: user.id,
-                              reported_user_id: targetId,
-                              reason: reportReason === 'Other' ? reportOtherText : reportReason
+                           const result = await submitUserReport({
+                              reportedUserId: targetId,
+                              reason: reportReason === 'Other' ? reportOtherText : reportReason,
+                              contentType: 'user'
                            });
 
-                           if (error) {
-                              toast.error(`Report Failed: ${error.message}`);
-                              console.error(error);
+                           if (!result.success) {
+                              toast.error(`Report Failed: ${result.error}`);
+                              console.error(result.error);
                               return;
                            }
+                           toast.success('Report submitted securely');
 
                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
                               navigator.vibrate([50, 50, 50]);
@@ -3459,12 +3461,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            const targetId = currentOtherUserProfile.id;
 
                            if (reportOnExit) {
-                               await supabase.from('reports').insert({
-                                  reporter_id: user.id,
-                                  reported_user_id: targetId,
-                                  content_type: 'group',
+                               const result = await submitUserReport({
+                                  reportedUserId: targetId,
+                                  contentType: 'group',
                                   reason: 'Reported on exit'
                                });
+                               if (result.success) {
+                                   toast.success('Report submitted securely');
+                               }
                            }
 
                            // Insert system message about user leaving FIRST so it doesn't fail foreign keys
