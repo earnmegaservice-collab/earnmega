@@ -2457,9 +2457,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
 
           if (message.isSystemMessage || (message.text && message.text.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
-              const text = message.text?.startsWith('$$SYSTEM$$') ? message.text.substring(10) : message.text;
+              const text = message.text?.startsWith('$$SYSTEM$$') ? message.text.substring(10).trim() : message.text;
               return (
-                  <div key={message.id} className="w-full flex justify-center my-4">
+                  <div key={message.id} className="w-full flex justify-center my-4 relative z-10">
                       <div className="px-4 py-1.5 rounded-full bg-[#111820] backdrop-blur-md border border-white/10 text-xs font-bold text-white/80 shadow-sm text-center max-w-[80%] break-words mx-auto">
                           {text}
                       </div>
