@@ -12,7 +12,7 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus, ShieldCheck , AtSign, BarChart2, CalendarPlus} from "lucide-react";
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, Settings, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus, ShieldCheck , AtSign, BarChart2, CalendarPlus} from "lucide-react";
 import { toast } from 'react-hot-toast';
 import { deleteConversationPermanently, clearChatPermanently } from '../../utils/deleteUtils';
 
@@ -216,7 +216,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
           </div>
 
           <button
-             onClick={() => window.dispatchEvent(new CustomEvent('join_call', { detail: { roomId: message.room_id || message.sender_id, type: 'video' } }))}
+             onClick={() => window.dispatchEvent(new CustomEvent('join_call', { detail: { roomId: message.group_id || message.sender_id, type: 'video' } }))}
              className="w-full py-3.5 bg-emerald-500/20 hover:bg-emerald-500/40 rounded-2xl text-sm font-black text-emerald-300 transition-all active:scale-95 border border-emerald-500/30 uppercase tracking-widest shadow-lg flex items-center justify-center gap-2"
           >
              <Phone size={16} /> Join Call
@@ -752,14 +752,35 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   isRelevant = (msg.sender_id === user.id && msg.receiver_id === currentOtherUserProfile.id) ||
                                (msg.sender_id === currentOtherUserProfile.id && msg.receiver_id === user.id);
               } else if (currentOtherUserProfile && (currentOtherUserProfile as any).isGroup) {
-                  isRelevant = msg.room_id === currentOtherUserProfile.id;
+                  isRelevant = msg.group_id === currentOtherUserProfile.id;
               } else {
                   // Fallback for general updates (e.g. ChatList) if no specific profile is focused
-                  isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id || msg.room_id;
+                  isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id || msg.group_id;
               }
 
               if (isRelevant) {
-                  setRefreshChatsKey(prev => prev + 1);
+                  // Real-Time Message Hydration (Optimistic update for incoming messages)
+                  if (msg.sender_id !== user.id) {
+                     setMessages(prev => {
+                         // Check if already in list
+                         if (prev.some(m => m.id === msg.id)) return prev;
+                         const newMessage: Message = {
+                            id: msg.id,
+                            text: msg.content || '',
+                            sender: 'other',
+                            timestamp: new Date(msg.created_at || Date.now()),
+                            status: msg.status || 'delivered',
+                            reactions: [],
+                            imageUrl: msg.image_url,
+                            audioUrl: msg.audio_url,
+                            isViewOnce: msg.is_view_once,
+                            replyToId: msg.reply_to_id,
+                         };
+                         return [...prev, newMessage];
+                     });
+                  } else {
+                     setRefreshChatsKey(prev => prev + 1);
+                  }
               }
           }
       })
@@ -786,8 +807,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         try {
           // 1. Fetch Groups the user is part of
           const { data: groupsData, error: groupsError } = await supabase
-              .from('room_participants')
-              .select('room_id, is_deleted, rooms ( id, name, created_at )')
+              .from('group_members')
+              .select('group_id, is_deleted, groups ( id, name, created_at )')
               .eq('user_id', user.id);
 
           if (groupsError) throw groupsError;
@@ -798,13 +819,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           } catch(e) {}
 
           let rawGroups = (groupsData || [])
-            .filter(gm => gm.is_deleted !== true && gm.rooms != null && !localDeletedRooms.includes(gm.room_id))
+            .filter(gm => gm.is_deleted !== true && gm.groups != null && !localDeletedRooms.includes(gm.group_id))
             .map((gm: any) => ({
-               id: gm.rooms.id,
-               name: gm.rooms.name,
-               avatarInitials: (gm.rooms.name?.[0] || 'G').toUpperCase() + (gm.rooms.name?.[1] || 'R').toUpperCase(),
+               id: gm.groups.id,
+               name: gm.groups.name,
+               avatarInitials: (gm.groups.name?.[0] || 'G').toUpperCase() + (gm.groups.name?.[1] || 'R').toUpperCase(),
                bio: 'Group Chat',
-               joinDate: new Date(gm.rooms.created_at).toLocaleDateString(),
+               joinDate: new Date(gm.groups.created_at).toLocaleDateString(),
                tier: 'FREE' as const,
                isOnline: true,
                coinsGifted: 0,
@@ -861,14 +882,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               const groupIds = groupsFormatted.map(g => g.id);
               const { data: messagesData, error: msgError } = await supabase
                 .from('messages')
-                .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
-                .in('room_id', groupIds)
+                .select('id, sender_id, receiver_id, group_id, created_at, status, is_read')
+                .in('group_id', groupIds)
                 .order('created_at', { ascending: false })
                 .limit(500);
 
               if (!msgError && messagesData) {
                 messagesData.forEach(msg => {
-                  const targetId = msg.room_id;
+                  const targetId = msg.group_id;
                   if (!targetId) return;
 
                   const time = new Date(msg.created_at).getTime();
@@ -1449,7 +1470,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       };
 
       if ((currentOtherUserProfile as any).isGroup) {
-          insertData.room_id = currentOtherUserProfile.id;
+          insertData.group_id = currentOtherUserProfile.id;
           insertData.receiver_id = null;
       }
 
@@ -2073,6 +2094,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   }
 
 
+  const isAdmin = isGroupChat && groupMembers.some(m => m.user_id === user?.id && m.role === 'admin');
+
+  useEffect(() => {
+    if (isGroupChat) {
+        console.info("[RBAC] User Authority Evaluated:", { isAdmin });
+    }
+  }, [isGroupChat, isAdmin]);
+
   return (
     <div className="flex flex-col h-[100dvh] w-full overflow-hidden font-sans text-gray-100 selection:bg-purple-500/30 relative bg-neutral-950">
       {/* Verification Gate Modal */}
@@ -2486,9 +2515,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
 
           if (message.isSystemMessage || (message.text && message.text.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
-              const text = message.text?.startsWith('$$SYSTEM$$') ? message.text.substring(10) : message.text;
+              const text = message.text?.startsWith('$$SYSTEM$$') ? message.text.substring(10).trim() : message.text;
               return (
-                  <div key={message.id} className="w-full flex justify-center my-4">
+                  <div key={message.id} className="w-full flex justify-center my-4 relative z-10">
                       <div className="px-4 py-1.5 rounded-full bg-[#111820] backdrop-blur-md border border-white/10 text-xs font-bold text-white/80 shadow-sm text-center max-w-[80%] break-words mx-auto">
                           {text}
                       </div>
@@ -3442,7 +3471,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            await supabase.from('messages').insert({
                                id: uuidv4(),
                                sender_id: user.id,
-                               room_id: targetId,
+                               group_id: targetId,
                                content: `~ ${user.user_metadata?.username || user.email} left`,
                                message_type: 'system'
                            });

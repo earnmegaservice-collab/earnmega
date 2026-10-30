@@ -561,7 +561,7 @@ function LiveKitVideoStage({
 
   return (
     <div className="relative h-full w-full bg-[#070709] overflow-hidden">
-      {tracks.length === 0 ? (
+      {!tracks || tracks.length === 0 ? (
         <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-[#12091d] via-[#09090d] to-black">
           <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/30">
             <div className="absolute inset-0 rounded-full border-2 border-pink-500 animate-ping opacity-30" />
@@ -571,7 +571,7 @@ function LiveKitVideoStage({
             Connecting High-Definition Stream...
           </p>
         </div>
-      ) : tracks.length === 1 ? (
+      ) : tracks.length === 1 && tracks[0] ? (
         <VideoTrack
           trackRef={tracks[0]}
           className={`h-full w-full object-cover transition-all duration-500 ${
@@ -580,7 +580,7 @@ function LiveKitVideoStage({
         />
       ) : (
         <div className="grid h-full w-full grid-cols-2 gap-1 pt-24 pb-36 bg-black">
-          {tracks.slice(0, 4).map((trackRef, idx) => (
+          {tracks.slice(0, 4).map((trackRef, idx) => trackRef ? (
             <div
               key={idx}
               className="relative h-full w-full overflow-hidden rounded-xl border border-white/10"
@@ -590,10 +590,10 @@ function LiveKitVideoStage({
                 className="h-full w-full object-cover"
               />
               <div className="absolute bottom-2 left-2 rounded-md bg-black/60 backdrop-blur-md px-2 py-0.5 text-[11px] font-semibold text-white">
-                @{trackRef.participant.identity}
+                @{trackRef?.participant?.identity || 'User'}
               </div>
             </div>
-          ))}
+          ) : null)}
         </div>
       )}
     </div>
@@ -897,14 +897,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       const res = await fetch(
         `/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(user.username)}`
       );
+      if (!res.ok) {
+        throw new Error(`Failed to fetch LiveKit token: ${res.statusText}`);
+      }
       const data = await res.json();
       if (data.token) {
         setLivekitToken(data.token);
         tokenReceived = true;
       }
     } catch (err) {
-      console.error('LiveKit token fetch error:', err);
-      toast.error("Failed to connect to LiveKit.");
+      console.error("[STREAM ERROR] Network handoff failed:", err);
+      toast.error("Connection Failed");
+      setStage('lobby');
+      isInitializingRef.current = false;
+      return;
     }
 
     if (tokenReceived) {
@@ -916,7 +922,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           is_system: true,
         },
       ]);
-      setStage('live');
+      // Note: setStage('live') is already called in the countdown effect now
     }
 
     isInitializingRef.current = false;
@@ -930,12 +936,19 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       return () => clearTimeout(timer);
     } else {
       const launchTimer = setTimeout(() => {
+        console.info("[LIFECYCLE] Countdown finished, unmounting overlay");
         stopPreviewCamera();
-        initializeHostBroadcast();
+        setStage('live');
       }, 900);
       return () => clearTimeout(launchTimer);
     }
-  }, [stage, countdown, stopPreviewCamera, initializeHostBroadcast]);
+  }, [stage, countdown, stopPreviewCamera]);
+
+  useEffect(() => {
+    if (stage === 'live' && role === 'host' && !isInitializingRef.current && !livekitToken) {
+      initializeHostBroadcast();
+    }
+  }, [stage, role, livekitToken, initializeHostBroadcast]);
 
   // --------------------------------------------------------------------------
   // 4. VIEWER JOIN STREAM WORKFLOW

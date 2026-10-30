@@ -6,6 +6,7 @@ import { Users, X, MoreVertical, Edit2, UserPlus, Image as ImageIcon, ShieldAler
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { UserProfileDetails } from '../profile/UserProfileModal';
+import AddMemberModal from './AddMemberModal';
 import { v4 as uuidv4 } from "uuid";
 
 interface GroupInfoDrawerProps {
@@ -30,6 +31,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
   const [isRequestsLoading, setIsRequestsLoading] = useState(false);
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
 
   useEffect(() => {
     setNewGroupName(groupName);
@@ -40,9 +42,9 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
     setIsLoading(true);
     try {
       const { data: participantData, error: participantError } = await supabase
-        .from('room_participants')
+        .from('group_members')
         .select('user_id, role, profiles(*)')
-        .eq('room_id', groupId);
+        .eq('group_id', groupId);
 
       if (participantError) throw participantError;
 
@@ -129,8 +131,8 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
           if (error) throw error;
 
           if (action === 'approved') {
-              await supabase.from('room_participants').insert({
-                  room_id: groupId,
+              await supabase.from('group_members').insert({
+                  group_id: groupId,
                   user_id: userId,
                   role: 'member'
               });
@@ -157,7 +159,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
         await supabase.from('messages').insert({
             id: uuidv4(),
             sender_id: currentUserId,
-            room_id: groupId,
+            group_id: groupId,
             content,
             is_system_message: true,
             system_event_type: type
@@ -174,7 +176,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
     }
 
     const updatePromise = async () => {
-        const { error } = await supabase.from('rooms').update({ name: newGroupName.trim() }).eq('id', groupId);
+        const { error } = await supabase.from('groups').update({ name: newGroupName.trim() }).eq('id', groupId);
         if (error) throw error;
         await fireSystemMessage(`Group name changed to "${newGroupName.trim()}"`, 'group_name_changed');
     };
@@ -216,7 +218,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
         .getPublicUrl(fileName);
 
       const { error: dbError } = await supabase
-        .from('rooms')
+        .from('groups')
         .update({ avatar_url: publicUrlData.publicUrl })
         .eq('id', groupId);
 
@@ -238,6 +240,12 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   };
 
   const handleRemoveUser = async (userId: string, userName: string) => {
+      if (currentUserRole !== 'admin') {
+         console.info("[RBAC] User Authority Evaluated:", { isAdmin: false });
+         toast.error("Unauthorized action.");
+         return;
+      }
+      console.info("[RBAC] User Authority Evaluated:", { isAdmin: true });
       const removePromise = async () => {
           // Optimistically remove from state FIRST
           setParticipants(prev => prev.filter(p => p.id !== userId));
@@ -295,7 +303,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
   const handleMakeAdmin = async (userId: string, userName: string) => {
       const adminPromise = async () => {
-          const { error } = await supabase.from('room_participants').update({ role: 'admin' }).match({ room_id: groupId, user_id: userId });
+          const { error } = await supabase.from('group_members').update({ role: 'admin' }).match({ group_id: groupId, user_id: userId });
           if (error) throw error;
           await fireSystemMessage(`${userName} is now an admin`, 'admin_promoted');
       };
@@ -397,7 +405,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
              {/* Admin Controls */}
              {currentUserRole === 'admin' && (
                 <div className="px-6 mb-8 flex gap-3">
-                   <button className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
+                   <button onClick={() => setIsAddMemberModalOpen(true)} className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
                       <UserPlus size={24} className="text-fuchsia-400 mb-2" />
                       <span className="text-xs font-bold text-white tracking-wide">Add Members</span>
                    </button>
@@ -555,6 +563,15 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
           </div>
         </motion.div>
       )}
+
+      <AddMemberModal
+        isOpen={isAddMemberModalOpen}
+        onClose={() => setIsAddMemberModalOpen(false)}
+        groupId={groupId}
+        currentUserId={currentUserId}
+        onMembersAdded={fetchParticipants}
+        existingParticipantIds={participants.map(p => p.id)}
+      />
     </AnimatePresence>
   );
 }
