@@ -411,6 +411,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
 
+
   useEffect(() => {
     const handleVerificationComplete = () => {
       fetchCurrentUserProfile();
@@ -495,6 +496,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.room_id || groupDetails !== null);
+
+  const isAdmin = isGroupChat && groupMembers.some(m => m.user_id === user?.id && m.role === 'admin');
+
+  useEffect(() => {
+    if (isGroupChat) {
+        console.info("[RBAC] User Authority Evaluated:", { isAdmin });
+    }
+  }, [isGroupChat, isAdmin]);
 
   useEffect(() => {
     if (!otherUserProfile) return;
@@ -2104,13 +2113,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   }
 
 
-  const isAdmin = isGroupChat && groupMembers.some(m => m.user_id === user?.id && m.role === 'admin');
 
-  useEffect(() => {
-    if (isGroupChat) {
-        console.info("[RBAC] User Authority Evaluated:", { isAdmin });
-    }
-  }, [isGroupChat, isAdmin]);
 
   return (
     <div className="flex flex-col h-[100dvh] w-full overflow-hidden font-sans text-gray-100 selection:bg-purple-500/30 relative bg-neutral-950">

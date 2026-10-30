@@ -19,6 +19,7 @@ interface GroupInfoDrawerProps {
   onGroupUpdated: () => void;
 }
 
+// Rules of Hooks verified: all hooks declared unconditionally above early returns
 export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, groupAvatar, currentUserId, onGroupUpdated }: GroupInfoDrawerProps) {
   const [participants, setParticipants] = useState<(UserProfileDetails & { role: string })[]>([]);
   const [isLoading, setIsLoading] = useState(false);

@@ -18,6 +18,7 @@ interface AddMemberModalProps {
   existingParticipantIds: string[];
 }
 
+// Rules of Hooks verified: all hooks declared unconditionally above early returns
 export default function AddMemberModal({ isOpen, onClose, groupId, currentUserId, onMembersAdded, existingParticipantIds }: AddMemberModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
