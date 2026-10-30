@@ -1336,6 +1336,30 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     }
   };
 
+  const handleDeleteGroup = async () => {
+    if (!user || !currentOtherUserProfile) return;
+    const targetId = currentOtherUserProfile.id;
+
+    try {
+      const { error } = await supabase.rpc('delete_group', { group_id_param: targetId });
+
+      if (error) {
+        console.warn("[SECURITY] Unauthorized Mutation Attempt Blocked", error);
+        toast.error("Failed to delete group. You may not have permission.");
+        return;
+      }
+
+      console.info("[DB] Mutation Successful - Group deleted");
+      toast.success("Group deleted successfully");
+      setIsChatMenuOpen(false);
+      setAppTab('chats');
+    } catch (err) {
+      console.warn("[SECURITY] Unauthorized Mutation Attempt Blocked", err);
+      toast.error("An error occurred while deleting the group.");
+    }
+  };
+
+
   const handleForwardMessage = async (receiverIds: string[]) => {
     if (!messageToForward || !user) return;
 
@@ -2364,6 +2388,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                                <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
                                   <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
                                </button>
+                               {groupMembers.some(m => m.profiles?.id === user?.id && m.role === 'admin') && (
+                                  <button onClick={handleDeleteGroup} className="px-4 py-2.5 text-sm text-left text-red-500 hover:bg-red-500/10 transition-colors duration-200 flex items-center gap-3 rounded-lg font-bold">
+                                     <Trash2 size={16} className="text-red-500" /> Delete Group
+                                  </button>
+                               )}
                             </div>
                          </motion.div>
                       </>

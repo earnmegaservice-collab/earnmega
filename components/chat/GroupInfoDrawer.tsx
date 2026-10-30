@@ -239,8 +239,16 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
   const handleRemoveUser = async (userId: string, userName: string) => {
       const removePromise = async () => {
-          const { error } = await supabase.from('room_participants').delete().match({ room_id: groupId, user_id: userId });
-          if (error) throw error;
+          // Optimistically remove from state FIRST
+          setParticipants(prev => prev.filter(p => p.id !== userId));
+
+          const { error } = await supabase.rpc('remove_participant', { group_id_param: groupId, target_user_id: userId });
+          if (error) {
+              console.warn("[SECURITY] Unauthorized Mutation Attempt Blocked", error);
+              throw error;
+          }
+          console.info("[DB] Mutation Successful - Participant removed");
+
           await fireSystemMessage(`${userName} was removed from the group`, 'user_removed');
       };
 
@@ -253,9 +261,36 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
       try {
           await p;
-          fetchParticipants();
           setActiveMenuId(null);
-      } catch (e) {}
+      } catch (err) {
+          // Re-fetch if optimistic update failed
+          fetchParticipants();
+      }
+  };
+
+  const handleLeaveGroup = async () => {
+      const leavePromise = async () => {
+          const { error } = await supabase.from('room_participants').delete().match({ room_id: groupId, user_id: currentUserId });
+          if (error) {
+              console.warn("[SECURITY] Unauthorized Mutation Attempt Blocked", error);
+              throw error;
+          }
+          console.info("[DB] Mutation Successful - User left group");
+          await fireSystemMessage(`User left the group`, 'user_left');
+      };
+
+      const p = leavePromise();
+      toast.promise(p, {
+          loading: 'Leaving group...',
+          success: 'Left group',
+          error: 'Failed to leave group'
+      });
+
+      try {
+          await p;
+          onClose();
+          onGroupUpdated();
+      } catch (err) {}
   };
 
   const handleMakeAdmin = async (userId: string, userName: string) => {
@@ -507,6 +542,15 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                         ))}
                      </div>
                  )}
+                 <div className="mt-8">
+                     <button
+                         onClick={handleLeaveGroup}
+                         className="w-full py-4 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-2xl text-red-500 font-bold flex items-center justify-center gap-2 transition-all"
+                     >
+                         <UserMinus size={18} />
+                         Leave Group
+                     </button>
+                 </div>
              </div>
           </div>
         </motion.div>
