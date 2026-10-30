@@ -63,6 +63,13 @@ function HomeContent() {
   useEffect(() => {
     let isMounted = true;
     const initializeApp = async () => {
+      if (process.env.NEXT_PUBLIC_MOCK_AUTH === 'true') {
+        const mockUser = { id: 'mock-1', email: 'test@example.com' };
+        setSession({ user: mockUser });
+        setProfileState({ gender: 'male' });
+        setIsGateLoading(false);
+        return;
+      }
       try {
         await new Promise(resolve => setTimeout(resolve, 0));
         if (!isMounted) return;
