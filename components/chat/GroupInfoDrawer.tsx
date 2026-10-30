@@ -238,6 +238,12 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   };
 
   const handleRemoveUser = async (userId: string, userName: string) => {
+      if (currentUserRole !== 'admin') {
+         console.info("[RBAC] User Authority Evaluated:", { isAdmin: false });
+         toast.error("Unauthorized action.");
+         return;
+      }
+      console.info("[RBAC] User Authority Evaluated:", { isAdmin: true });
       const removePromise = async () => {
           const { error } = await supabase.from('room_participants').delete().match({ room_id: groupId, user_id: userId });
           if (error) throw error;
