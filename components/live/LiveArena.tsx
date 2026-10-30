@@ -8,8 +8,9 @@ import {
   RoomAudioRenderer,
   useTracks,
   useLocalParticipant,
+  useConnectionState,
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { Track, ConnectionState } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
@@ -543,14 +544,17 @@ function LiveKitVideoStage({
   isMicMuted,
   isCamOff,
   beautyMode,
+  onTimeout,
 }: {
   role: UserRole;
   isMicMuted: boolean;
   isCamOff: boolean;
   beautyMode: boolean;
+  onTimeout: () => void;
 }) {
   const { localParticipant } = useLocalParticipant();
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
+  const connectionState = useConnectionState();
 
   useEffect(() => {
     if (role === 'host' && localParticipant) {
@@ -558,6 +562,15 @@ function LiveKitVideoStage({
       localParticipant.setCameraEnabled(!isCamOff).catch(() => {});
     }
   }, [role, isMicMuted, isCamOff, localParticipant]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (connectionState !== ConnectionState.Connected) {
+        onTimeout();
+      }
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [connectionState, onTimeout]);
 
   return (
     <div className="relative h-full w-full bg-[#070709] overflow-hidden">
@@ -634,6 +647,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [countdown, setCountdown] = useState<number>(3);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [beautyMode, setBeautyMode] = useState<boolean>(true);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Active Broadcast State
   const [currentStream, setCurrentStream] = useState<LiveStreamRecord | null>(null);
@@ -906,9 +920,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         tokenReceived = true;
       }
     } catch (err) {
-      console.error("[STREAM ERROR] Network handoff failed:", err);
-      toast.error("Connection Failed");
-      setStage('lobby');
+      console.error("[LIVEKIT PIPELINE] Token/Connection Error:", err);
+      setConnectionError("Token Generation Failed. Check Server API Keys.");
+      toast.error("Token Generation Failed. Check Server API Keys.");
       isInitializingRef.current = false;
       return;
     }
@@ -961,12 +975,21 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       const res = await fetch(
         `/api/livekit?room=${encodeURIComponent(stream.id)}&username=${encodeURIComponent(user.username)}`
       );
+      if (!res.ok) {
+        throw new Error(`Failed to fetch LiveKit token: ${res.statusText}`);
+      }
       const data = await res.json();
       if (data.token) {
         setLivekitToken(data.token);
+      } else {
+        throw new Error('No token returned from server.');
       }
     } catch (err) {
-      console.error('Viewer token error:', err);
+      console.error("[LIVEKIT PIPELINE] Token/Connection Error:", err);
+      setConnectionError("Token Generation Failed. Check Server API Keys.");
+      toast.error("Token Generation Failed. Check Server API Keys.");
+      setCurrentStream(null);
+      return;
     }
 
     setComments([
@@ -1531,23 +1554,52 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white flex flex-col select-none overflow-hidden"
     >
       {/* 1. LIVEKIT CLOUD HD VIDEO STREAM */}
-      {livekitToken ? (
-        <LiveKitRoom
-          video={role === 'host'}
-          audio={role === 'host'}
-          token={livekitToken}
-          serverUrl="wss://earnmega-mbwh7c26.livekit.cloud"
-          connect={true}
-          className="h-full w-full"
-        >
-          <LiveKitVideoStage
-            role={role}
-            isMicMuted={isMicMuted}
-            isCamOff={isCamOff}
-            beautyMode={beautyMode}
-          />
-          <RoomAudioRenderer />
-        </LiveKitRoom>
+      {connectionError ? (
+        <div className="flex h-full w-full items-center justify-center bg-[#09090d]">
+          <div className="flex flex-col items-center p-6 bg-red-900/20 border border-red-500/50 rounded-2xl backdrop-blur-xl">
+            <X className="h-12 w-12 text-red-500 mb-4" />
+            <h2 className="text-xl font-bold text-red-400 mb-2">Connection Error</h2>
+            <p className="text-sm font-medium text-red-200 text-center">{connectionError}</p>
+            <button
+              onClick={() => {
+                setConnectionError(null);
+                setStage('lobby');
+              }}
+              className="mt-6 px-6 py-2 bg-red-600 hover:bg-red-500 text-white rounded-full font-bold transition"
+            >
+              Return to Lobby
+            </button>
+          </div>
+        </div>
+      ) : livekitToken ? (
+        <>
+          {console.log("[LIVEKIT FORCED URL]: wss://earnmega-mbwh7c26.livekit.cloud")}
+          <LiveKitRoom
+            video={true}
+            audio={true}
+            token={livekitToken}
+            serverUrl="wss://earnmega-mbwh7c26.livekit.cloud"
+            connect={true}
+            className="h-full w-full"
+            onDisconnected={() => {
+              setLivekitToken('');
+              setStage('lobby');
+            }}
+          >
+            <LiveKitVideoStage
+              role={role}
+              isMicMuted={isMicMuted}
+              isCamOff={isCamOff}
+              beautyMode={beautyMode}
+              onTimeout={useCallback(() => {
+                setConnectionError("Connection Timed Out.");
+                toast.error("Connection Timed Out.");
+                setLivekitToken('');
+              }, [])}
+            />
+            <RoomAudioRenderer />
+          </LiveKitRoom>
+        </>
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-[#09090d]">
           <div className="h-12 w-12 rounded-full border-4 border-pink-500 border-t-transparent animate-spin" />
