@@ -1,0 +1,28 @@
+--- ./components/live/LiveArena.tsx
++++ ./components/live/LiveArena.tsx
+@@ -536,6 +536,25 @@
+   );
+ }
+
++// ============================================================================
++// INNER LIVEKIT PUBLISHER FOR HOST
++// ============================================================================
++function HostLiveKitPublisher({ localStream }: { localStream: MediaStream | null }) {
++  const { localParticipant } = useLocalParticipant();
++
++  useEffect(() => {
++    if (localParticipant && localStream) {
++      localStream.getTracks().forEach((track) => {
++        localParticipant.publishTrack(track).catch((err) => {
++          console.warn("Failed to publish track to LiveKit:", err);
++        });
++      });
++    }
++  }, [localParticipant, localStream]);
++
++  return null;
++}
++
+ // ============================================================================
+ // INNER LIVEKIT VIDEO & HARDWARE CONTROLLER
+ // ============================================================================

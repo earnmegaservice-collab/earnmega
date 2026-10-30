@@ -1,0 +1,11 @@
+--- ./components/live/LiveArena.tsx
++++ ./components/live/LiveArena.tsx
+@@ -1639,7 +1639,7 @@
+             </LiveKitRoom>
+           )}
+         </>
+-      )
++      )}
+
+       <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/70 via-black/25 to-transparent z-10" />
+       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-80 bg-gradient-to-t from-black/85 via-black/40 to-transparent z-10" />

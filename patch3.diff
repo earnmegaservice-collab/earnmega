@@ -1,0 +1,18 @@
+--- ./components/live/LiveArena.tsx
++++ ./components/live/LiveArena.tsx
+@@ -836,7 +836,6 @@
+   // 3. HOST START STREAM WORKFLOW (3-2-1 COUNTDOWN -> LIVE STAGE)
+   // --------------------------------------------------------------------------
+   const handleStartCountdown = () => {
+-    stopPreviewCamera();
+     setRole('host');
+     setCountdown(3);
+     setStage('countdown');
+@@ -976,7 +975,6 @@
+     } else {
+       const launchTimer = setTimeout(() => {
+         console.info("[LIFECYCLE] Countdown finished, unmounting overlay");
+-        stopPreviewCamera();
+         setStage('live');
+       }, 900);
+       return () => clearTimeout(launchTimer);
