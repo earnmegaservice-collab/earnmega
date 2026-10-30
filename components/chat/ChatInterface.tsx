@@ -1357,6 +1357,30 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     }
   };
 
+  const handleDeleteGroup = async () => {
+    if (!user || !currentOtherUserProfile) return;
+    const targetId = currentOtherUserProfile.id;
+
+    try {
+      const { error } = await supabase.rpc('delete_group', { group_id_param: targetId });
+
+      if (error) {
+        console.warn("[SECURITY] Unauthorized Mutation Attempt Blocked", error);
+        toast.error("Failed to delete group. You may not have permission.");
+        return;
+      }
+
+      console.info("[DB] Mutation Successful - Group deleted");
+      toast.success("Group deleted successfully");
+      setIsChatMenuOpen(false);
+      setAppTab('chats');
+    } catch (err) {
+      console.warn("[SECURITY] Unauthorized Mutation Attempt Blocked", err);
+      toast.error("An error occurred while deleting the group.");
+    }
+  };
+
+
   const handleForwardMessage = async (receiverIds: string[]) => {
     if (!messageToForward || !user) return;
 
@@ -2362,51 +2386,48 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               <button className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center">
                 <Search size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
-              {isAdmin && (
-                <div className="relative">
-                  <button
-                     onClick={() => setIsChatMenuOpen(!isChatMenuOpen)}
-                     className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center"
-                  >
-                     <MoreVertical size={20} className="sm:w-[22px] sm:h-[22px]" />
-                  </button>
-                  <AnimatePresence>
-                     {isChatMenuOpen && (
-                        <>
-                           <div
-                              className="fixed inset-0 w-[100vw] h-[100vh] z-[90]"
-                              onClick={(e) => {
-                                 e.stopPropagation();
-                                 setIsChatMenuOpen(false);
-                              }}
-                           />
-                           <motion.div
-                              initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                              animate={{ opacity: 1, scale: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                              className="absolute right-0 top-12 z-[100] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.9)] rounded-2xl p-2 min-w-[200px]"
-                           >
-                              <div className="flex flex-col">
-                                 <button onClick={() => { setIsChatMenuOpen(false); setIsGroupInfoDrawerOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                                    <Settings size={16} className="text-white/50" /> Group Settings
-                                 </button>
-                                 <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                                    <Camera size={16} className="text-white/50" /> Theme & Wallpaper
-                                 </button>
-                                 <div className="h-px w-full bg-white/10 my-1"></div>
-                                 <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                                    <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
-                                 </button>
-                                 <button onClick={() => { setIsChatMenuOpen(false); setIsExitGroupConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                                    <Trash2 size={16} className="text-rose-400/50" /> Delete Group
-                                 </button>
-                              </div>
-                           </motion.div>
-                        </>
-                     )}
-                  </AnimatePresence>
-                </div>
-              )}
+              <div className="relative">
+                <button
+                   onClick={() => setIsChatMenuOpen(!isChatMenuOpen)}
+                   className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center"
+                >
+                   <MoreVertical size={20} className="sm:w-[22px] sm:h-[22px]" />
+                </button>
+                <AnimatePresence>
+                   {isChatMenuOpen && (
+                      <>
+                         <div
+                            className="fixed inset-0 w-[100vw] h-[100vh] z-[90]"
+                            onClick={(e) => {
+                               e.stopPropagation();
+                               setIsChatMenuOpen(false);
+                            }}
+                         />
+                         <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                            className="absolute right-0 top-12 z-[100] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.9)] rounded-2xl p-2 min-w-[200px]"
+                         >
+                            <div className="flex flex-col">
+                               <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                  <Camera size={16} className="text-white/50" /> Theme & Wallpaper
+                               </button>
+                               <div className="h-px w-full bg-white/10 my-1"></div>
+                               <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
+                                  <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
+                               </button>
+                               {groupMembers.some(m => m.profiles?.id === user?.id && m.role === 'admin') && (
+                                  <button onClick={handleDeleteGroup} className="px-4 py-2.5 text-sm text-left text-red-500 hover:bg-red-500/10 transition-colors duration-200 flex items-center gap-3 rounded-lg font-bold">
+                                     <Trash2 size={16} className="text-red-500" /> Delete Group
+                                  </button>
+                               )}
+                            </div>
+                         </motion.div>
+                      </>
+                   )}
+                </AnimatePresence>
+              </div>
             </>
           ) : (
             <>
