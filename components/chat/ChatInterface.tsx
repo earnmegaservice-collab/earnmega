@@ -880,7 +880,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       coinsGifted: otherUser.coins_gifted || 0,
                       isSelf: false,
                       unreadCount: chat.unread_count || 0,
-                      lastMessageTime: time
+                      lastMessageTime: time,
+                      isVerified: otherUser.is_verified || false
                   });
               }
             });
@@ -940,7 +941,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       coinsGifted: u.coins_gifted || 0,
                       isSelf: false,
                       unreadCount: 0,
-                      lastMessageTime: 0
+                      lastMessageTime: 0,
+                      isVerified: u.is_verified || false
                   }));
               }
           }
