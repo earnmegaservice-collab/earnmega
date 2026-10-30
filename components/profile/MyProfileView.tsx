@@ -20,10 +20,12 @@ import {
   Compass,
   Star,
   Quote,
-  Check
+  Check,
+  ShieldCheck
 } from 'lucide-react';
 import SettingsModal from './SettingsModal';
 import VerifiedTick from '../ui/VerifiedTick';
+import FacialVerification from './FacialVerification';
 
 interface UserProfile {
   name: string;
@@ -80,6 +82,7 @@ export default function MyProfileView({
   const [isUploading, setIsUploading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   // 1. FORCE DIRECT DATABASE FETCH ON MOUNT
   useEffect(() => {
@@ -391,6 +394,18 @@ export default function MyProfileView({
           </button>
         </div>
       </div>
+
+      {!mappedProfile.isVerified && (
+          <div className="mx-5 -mt-2 mb-4 z-40 relative">
+              <button
+                  onClick={() => setShowVerificationModal(true)}
+                  className="w-full bg-gradient-to-r from-zinc-900 via-black to-zinc-900 border border-amber-500/30 hover:border-amber-400/60 shadow-[0_0_20px_rgba(245,158,11,0.15)] text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-100 to-amber-300 font-semibold tracking-wider text-sm py-3.5 px-6 rounded-2xl transition-all duration-300 transform active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                  <ShieldCheck size={18} className="text-amber-300" />
+                  Verify Identity
+              </button>
+          </div>
+      )}
 
       {/* 2. THE 6-IMAGE CINEMATIC VAULT */}
       <div className="mx-5 p-[1.5px] rounded-[28px] bg-gradient-to-br from-fuchsia-500/60 via-amber-500/25 to-cyan-500/60 shadow-[0_20px_60px_rgba(0,0,0,0.85)]">
@@ -754,6 +769,30 @@ export default function MyProfileView({
         onClose={() => setIsSettingsOpen(false)}
         userProfile={liveProfile}
       />
+
+      {showVerificationModal && (
+          <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/90 backdrop-blur-sm">
+              <FacialVerification
+                  onCancel={() => setShowVerificationModal(false)}
+                  onComplete={() => {
+                      setShowVerificationModal(false);
+                      setLiveProfile({ ...liveProfile, isVerified: true, is_verified: true });
+                      window.dispatchEvent(new Event('verification_complete'));
+                  }}
+                  onStartProcessing={(promise) => {
+                      setShowVerificationModal(false);
+                      const toastId = toast.loading('Analyzing Biometric Matrix... Your verification is processing in the background. You will receive your Blue Badge once confirmed.', { duration: 5000 });
+                      promise.then(() => {
+                          toast.success('Identity Verified', { id: toastId });
+                          setLiveProfile({ ...liveProfile, isVerified: true, is_verified: true });
+                          window.dispatchEvent(new Event('verification_complete'));
+                      }).catch((err) => {
+                          toast.error(err.message || 'Verification failed. Please ensure good lighting and a clear view of your face.', { id: toastId, duration: 4000 });
+                      });
+                  }}
+              />
+          </div>
+      )}
     </div>
   );
 }

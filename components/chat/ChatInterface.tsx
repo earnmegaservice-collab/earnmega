@@ -411,6 +411,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
 
+  useEffect(() => {
+    const handleVerificationComplete = () => {
+      fetchCurrentUserProfile();
+    };
+    window.addEventListener('verification_complete', handleVerificationComplete);
+    return () => window.removeEventListener('verification_complete', handleVerificationComplete);
+  }, []);
+
   const fetchCurrentUserProfile = async () => {
     if (!user) return;
     const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
