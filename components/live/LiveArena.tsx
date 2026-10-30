@@ -134,6 +134,7 @@ interface LiveStreamRecord {
   allow_cohost: boolean;
   status: 'active' | 'ended';
   room_id?: string;
+  is_live?: boolean;
 }
 
 interface LiveComment {
@@ -604,6 +605,7 @@ function LiveKitVideoStage({
 // ============================================================================
 export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaProps) {
   const [isMounted, setIsMounted] = useState(false);
+  const isInitializingRef = useRef<boolean>(false);
 
   const [user, setUser] = useState(
     currentUser || {
@@ -637,18 +639,45 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [currentStream, setCurrentStream] = useState<LiveStreamRecord | null>(null);
   const [currentStreamDbId, setCurrentStreamDbId] = useState<string | null>(null);
 
+  const currentStreamDbIdRef = useRef<string | null>(null);
+  const roleRef = useRef<UserRole>(role);
+
+  useEffect(() => {
+    currentStreamDbIdRef.current = currentStreamDbId;
+  }, [currentStreamDbId]);
+
+  useEffect(() => {
+    roleRef.current = role;
+  }, [role]);
+
   useEffect(() => {
     setIsMounted(true);
-    return () => {
-      if (currentStreamDbId && role === 'host') {
+
+    const cleanupStream = () => {
+      const streamId = currentStreamDbIdRef.current;
+      const currentRole = roleRef.current;
+      if (streamId && currentRole === 'host') {
+        // Send a fire-and-forget beacon or synchronous-ish call if possible
+        // Note: fetch with keepalive is generally better for unload events
+        // but using Supabase client on best-effort basis here.
         supabase
           .from('live_streams')
-          .update({ status: 'ended' })
-          .eq('id', currentStreamDbId)
-          .then(() => console.log('Stream ended on unmount.'));
+          .update({ status: 'ended', is_live: false })
+          .eq('id', streamId)
+          .then((res) => {
+            if (res.error) console.error('Failed to teardown stream:', res.error);
+            else console.log('Stream ended via teardown.');
+          });
       }
     };
-  }, [currentStreamDbId, role]);
+
+    window.addEventListener('beforeunload', cleanupStream);
+
+    return () => {
+      window.removeEventListener('beforeunload', cleanupStream);
+      cleanupStream();
+    };
+  }, []);
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
   const [isCamOff, setIsCamOff] = useState<boolean>(false);
   const [isFollowing, setIsFollowing] = useState<boolean>(false);
@@ -774,40 +803,52 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   };
 
   const initializeHostBroadcast = useCallback(async () => {
+    if (isInitializingRef.current) return;
+    isInitializingRef.current = true;
+
     const roomId = `stream_${user.id}_${Date.now()}`;
     const finalTitle = streamTitle.trim() || `${user.username}'s VIP Live`;
 
     let insertedStreamDbId = null;
 
     try {
+      const insertPayload = {
+        host_id: user.id,
+        host_username: user.username || 'Creator',
+        host_avatar: user.avatar_url,
+        room_id: roomId,
+        title: finalTitle,
+        category: setupCategory,
+        gift_goal_target: giftGoal,
+        gift_goal_current: 0,
+        total_coins_earned: 0,
+        viewer_count: 1,
+        allow_cohost: allowCohost,
+        status: 'active',
+        is_live: true
+      };
+
       const { data, error } = await supabase
         .from('live_streams')
-        .insert({
-          host_id: user.id,
-          host_username: user.username || 'Creator',
-          host_avatar: user.avatar_url,
-          room_id: roomId,
-          title: finalTitle,
-          category: setupCategory,
-          gift_goal_target: giftGoal,
-          gift_goal_current: 0,
-          total_coins_earned: 0,
-          viewer_count: 1,
-          allow_cohost: allowCohost,
-          status: 'active'
-        })
+        .upsert(insertPayload, { onConflict: 'room_id' })
         .select()
         .single();
 
       if (error) {
         console.error("Supabase Insert Error:", error);
-        toast.error("Failed to sync stream: " + error.message);
+        toast.error("Database Sync Failed: " + error.message);
+        isInitializingRef.current = false;
+        return;
       } else if (data) {
+        console.info("Successfully synced stream to database:", data);
         setCurrentStreamDbId(data.id);
         insertedStreamDbId = data.id;
       }
     } catch (err) {
       console.error("Stream initialization error:", err);
+      toast.error("Database Sync Failed: Unexpected error.");
+      isInitializingRef.current = false;
+      return;
     }
 
     const fallbackStream: LiveStreamRecord = {
@@ -824,6 +865,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       viewer_count: 1,
       allow_cohost: allowCohost,
       status: 'active',
+      is_live: true,
     };
 
     setCurrentStream(fallbackStream);
@@ -850,6 +892,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       console.error('Failed to send live stream notifications', e);
     }
 
+    let tokenReceived = false;
     try {
       const res = await fetch(
         `/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(user.username)}`
@@ -857,20 +900,26 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       const data = await res.json();
       if (data.token) {
         setLivekitToken(data.token);
+        tokenReceived = true;
       }
     } catch (err) {
       console.error('LiveKit token fetch error:', err);
+      toast.error("Failed to connect to LiveKit.");
     }
 
-    setComments([
-      {
-        id: 'welcome-sys',
-        username: 'EarnMega AI',
-        content: 'Welcome to EarnMega Live Arena! Send gifts to climb the VIP Leaderboard.',
-        is_system: true,
-      },
-    ]);
-    setStage('live');
+    if (tokenReceived) {
+      setComments([
+        {
+          id: 'welcome-sys',
+          username: 'EarnMega AI',
+          content: 'Welcome to EarnMega Live Arena! Send gifts to climb the VIP Leaderboard.',
+          is_system: true,
+        },
+      ]);
+      setStage('live');
+    }
+
+    isInitializingRef.current = false;
   }, [user, streamTitle, setupCategory, giftGoal, allowCohost]);
 
   useEffect(() => {
@@ -1090,7 +1139,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       if (streamIdToUpdate) {
         await supabase
           .from('live_streams')
-          .update({ status: 'ended' })
+          .update({ status: 'ended', is_live: false })
           .eq('id', streamIdToUpdate);
       }
     }
