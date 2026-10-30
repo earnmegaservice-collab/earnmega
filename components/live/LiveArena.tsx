@@ -11,6 +11,7 @@ import {
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 import {
   Video,
   Mic,
@@ -603,9 +604,6 @@ function LiveKitVideoStage({
 // ============================================================================
 export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaProps) {
   const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   const [user, setUser] = useState(
     currentUser || {
@@ -622,7 +620,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [livekitToken, setLivekitToken] = useState<string>('');
 
   // Lobby State
-  const [activeStreams, setActiveStreams] = useState<LiveStreamRecord[]>([]);
+  const [activeStreams, setActiveStreams] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -638,6 +636,19 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // Active Broadcast State
   const [currentStream, setCurrentStream] = useState<LiveStreamRecord | null>(null);
   const [currentStreamDbId, setCurrentStreamDbId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsMounted(true);
+    return () => {
+      if (currentStreamDbId && role === 'host') {
+        supabase
+          .from('live_streams')
+          .update({ status: 'ended' })
+          .eq('id', currentStreamDbId)
+          .then(() => console.log('Stream ended on unmount.'));
+      }
+    };
+  }, [currentStreamDbId, role]);
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
   const [isCamOff, setIsCamOff] = useState<boolean>(false);
   const [isFollowing, setIsFollowing] = useState<boolean>(false);
@@ -692,59 +703,34 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   }, [currentUser]);
 
   useEffect(() => {
-    if (stage !== 'lobby') return;
-
-    const fetchLobbyStreams = async () => {
+    const fetchStreams = async () => {
       const { data } = await supabase
         .from('live_streams')
         .select('*')
-        .eq('status', 'active')
-        .order('viewer_count', { ascending: false });
+        .eq('status', 'active');
 
       if (data) {
-        setActiveStreams(data as LiveStreamRecord[]);
+        setActiveStreams(data);
       }
     };
 
-    fetchLobbyStreams();
+    fetchStreams();
 
-    const lobbyChannel = supabase
-      .channel('public:live_streams_lobby')
+    const channel = supabase
+      .channel('live-arena-sync')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'live_streams',
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const stream = payload.new as LiveStreamRecord;
-            if (stream.status === 'active') {
-              setActiveStreams((prev) => {
-                const exists = prev.some((s) => s.id === stream.id);
-                if (exists) {
-                  return prev.map((s) => (s.id === stream.id ? { ...s, ...stream } : s));
-                }
-                return [stream, ...prev];
-              });
-            } else if (stream.status === 'ended') {
-              setActiveStreams((prev) => prev.filter((s) => s.id !== stream.id));
-            }
-          } else if (payload.eventType === 'DELETE') {
-            const deletedId = (payload.old as { id?: string })?.id;
-            if (deletedId) {
-              setActiveStreams((prev) => prev.filter((s) => s.id !== deletedId));
-            }
-          }
+        { event: '*', schema: 'public', table: 'live_streams' },
+        () => {
+          fetchStreams();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(lobbyChannel);
+      supabase.removeChannel(channel);
     };
-  }, [stage]);
+  }, []);
 
   // --------------------------------------------------------------------------
   // 2. CAMERA PREVIEW MANAGEMENT (SETUP STAGE ONLY)
@@ -791,12 +777,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const roomId = `stream_${user.id}_${Date.now()}`;
     const finalTitle = streamTitle.trim() || `${user.username}'s VIP Live`;
 
-    const { data: insertedStream } = await supabase
-      .from('live_streams')
-      .insert([
-        {
+    let insertedStreamDbId = null;
+
+    try {
+      const { data, error } = await supabase
+        .from('live_streams')
+        .insert({
           host_id: user.id,
-          host_username: user.username,
+          host_username: user.username || 'Creator',
           host_avatar: user.avatar_url,
           room_id: roomId,
           title: finalTitle,
@@ -806,18 +794,24 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           total_coins_earned: 0,
           viewer_count: 1,
           allow_cohost: allowCohost,
-          status: 'active',
-        },
-      ])
-      .select()
-      .single();
+          status: 'active'
+        })
+        .select()
+        .single();
 
-    if (insertedStream?.id) {
-      setCurrentStreamDbId(insertedStream.id);
+      if (error) {
+        console.error("Supabase Insert Error:", error);
+        toast.error("Failed to sync stream: " + error.message);
+      } else if (data) {
+        setCurrentStreamDbId(data.id);
+        insertedStreamDbId = data.id;
+      }
+    } catch (err) {
+      console.error("Stream initialization error:", err);
     }
 
     const fallbackStream: LiveStreamRecord = {
-      id: insertedStream?.id || roomId,
+      id: insertedStreamDbId || roomId,
       host_id: user.id,
       host_username: user.username,
       host_avatar: user.avatar_url,
@@ -832,8 +826,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       status: 'active',
     };
 
-    const activeRecord = (insertedStream as LiveStreamRecord) || fallbackStream;
-    setCurrentStream(activeRecord);
+    setCurrentStream(fallbackStream);
 
     // Background notification for followers/all users
     try {
@@ -1223,7 +1216,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         </div>
 
         <div className="flex-1 px-4 py-5">
-          {filteredStreams.length === 0 ? (
+          {activeStreams.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="flex h-20 w-20 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/20 mb-4">
                 <Video className="h-9 w-9 text-pink-500" />
@@ -1241,7 +1234,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              {filteredStreams.map((stream) => (
+              {activeStreams.map((stream) => (
                 <div
                   key={stream.id}
                   onClick={() => handleJoinStreamAsViewer(stream)}
@@ -1249,7 +1242,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 >
                   <img
                     src={stream.host_avatar}
-                    alt={stream.host_username}
+                    alt={stream?.host_username || 'Host'}
                     className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/40" />
@@ -1279,7 +1272,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                         className="h-4 w-4 rounded-full object-cover ring-1 ring-pink-500"
                       />
                       <span className="truncate text-xs font-medium text-white/80">
-                        @{stream.host_username}
+                        @{stream?.host_username || 'Creator'}
                       </span>
                     </div>
                   </div>
