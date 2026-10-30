@@ -537,6 +537,33 @@ function MasterLiveGiftOverlay({
 }
 
 // ============================================================================
+// INNER LIVEKIT PUBLISHER FOR HOST
+// ============================================================================
+function HostLiveKitPublisher({ localStream }: { localStream: MediaStream | null }) {
+  const { localParticipant } = useLocalParticipant();
+
+  useEffect(() => {
+    if (localParticipant && localStream) {
+      let publishedTrackRefs: any[] = [];
+      localStream.getTracks().forEach((track) => {
+        localParticipant.publishTrack(track).then((publishedTrack) => {
+          publishedTrackRefs.push(publishedTrack);
+        }).catch((err) => {
+          console.warn("Failed to publish track to LiveKit:", err);
+        });
+      });
+      return () => {
+        publishedTrackRefs.forEach((trackRef) => {
+          localParticipant.unpublishTrack(trackRef);
+        });
+      };
+    }
+  }, [localParticipant, localStream]);
+
+  return null;
+}
+
+// ============================================================================
 // INNER LIVEKIT VIDEO & HARDWARE CONTROLLER
 // ============================================================================
 function LiveKitVideoStage({
@@ -708,7 +735,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [localIncomingGift, setLocalIncomingGift] = useState<LiveGiftEvent | null>(null);
 
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
-  const previewStreamRef = useRef<MediaStream | null>(null);
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
   // --------------------------------------------------------------------------
@@ -779,38 +807,44 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // 2. CAMERA PREVIEW MANAGEMENT (SETUP STAGE ONLY)
   // --------------------------------------------------------------------------
   const stopPreviewCamera = useCallback(() => {
-    if (previewStreamRef.current) {
-      previewStreamRef.current.getTracks().forEach((track) => track.stop());
-      previewStreamRef.current = null;
-    }
+    setLocalStream((prev) => {
+      if (prev) {
+        prev.getTracks().forEach((track) => track.stop());
+      }
+      return null;
+    });
   }, []);
 
   useEffect(() => {
-    if (stage === 'setup') {
-      navigator.mediaDevices
-        .getUserMedia({
-          video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
-        })
-        .then((stream) => {
-          previewStreamRef.current = stream;
-          if (previewVideoRef.current) {
-            previewVideoRef.current.srcObject = stream;
-          }
-        })
-        .catch((err) => console.warn('Camera preview warning:', err));
+    if (stage === 'setup' || stage === 'countdown' || (stage === 'live' && role === 'host')) {
+      setLocalStream((currentStream) => {
+        if (currentStream && currentStream.active && currentStream.getVideoTracks().some(t => t.readyState === 'live')) {
+          return currentStream;
+        }
+        navigator.mediaDevices
+          .getUserMedia({
+            video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: true, // Audio directly active
+          })
+          .then((stream) => {
+            setLocalStream(stream);
+            if (previewVideoRef.current) {
+              previewVideoRef.current.srcObject = stream;
+            }
+          })
+          .catch((err) => console.warn('Camera preview warning:', err));
+        return currentStream;
+      });
     } else {
       stopPreviewCamera();
     }
 
-    return () => stopPreviewCamera();
-  }, [stage, facingMode, stopPreviewCamera]);
+  }, [stage, facingMode, role, stopPreviewCamera]);
 
   // --------------------------------------------------------------------------
   // 3. HOST START STREAM WORKFLOW (3-2-1 COUNTDOWN -> LIVE STAGE)
   // --------------------------------------------------------------------------
   const handleStartCountdown = () => {
-    stopPreviewCamera();
     setRole('host');
     setCountdown(3);
     setStage('countdown');
@@ -951,7 +985,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     } else {
       const launchTimer = setTimeout(() => {
         console.info("[LIFECYCLE] Countdown finished, unmounting overlay");
-        stopPreviewCamera();
         setStage('live');
       }, 900);
       return () => clearTimeout(launchTimer);
@@ -1571,39 +1604,55 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             </button>
           </div>
         </div>
-      ) : livekitToken ? (
-        <>
-          {console.log("[LIVEKIT FORCED URL]: wss://earnmega-mbwh7c26.livekit.cloud")}
-          <LiveKitRoom
-            video={true}
-            audio={true}
-            token={livekitToken}
-            serverUrl="wss://earnmega-mbwh7c26.livekit.cloud"
-            connect={true}
-            className="h-full w-full"
-            onDisconnected={() => {
-              setLivekitToken('');
-              setStage('lobby');
-            }}
-          >
-            <LiveKitVideoStage
-              role={role}
-              isMicMuted={isMicMuted}
-              isCamOff={isCamOff}
-              beautyMode={beautyMode}
-              onTimeout={useCallback(() => {
-                setConnectionError("Connection Timed Out.");
-                toast.error("Connection Timed Out.");
-                setLivekitToken('');
-              }, [])}
-            />
-            <RoomAudioRenderer />
-          </LiveKitRoom>
-        </>
       ) : (
-        <div className="flex h-full w-full items-center justify-center bg-[#09090d]">
-          <div className="h-12 w-12 rounded-full border-4 border-pink-500 border-t-transparent animate-spin" />
-        </div>
+        <>
+          {role === 'host' && (
+            <video
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover z-0"
+              ref={(el) => {
+                liveVideoRef.current = el;
+                if (el && localStream && el.srcObject !== localStream) {
+                  el.srcObject = localStream;
+                  el.play().catch(() => {});
+                }
+              }}
+            />
+          )}
+          {livekitToken && (
+            <LiveKitRoom
+              video={role === 'viewer'}
+              audio={role === 'viewer'}
+              token={livekitToken}
+              serverUrl="wss://earnmega-mbwh7c26.livekit.cloud"
+              connect={true}
+              className="h-full w-full"
+              onDisconnected={() => {
+                setLivekitToken('');
+                setStage('lobby');
+              }}
+            >
+              {role === 'host' ? (
+                <HostLiveKitPublisher localStream={localStream} />
+              ) : (
+                <LiveKitVideoStage
+                  role={role}
+                  isMicMuted={isMicMuted}
+                  isCamOff={isCamOff}
+                  beautyMode={beautyMode}
+                  onTimeout={useCallback(() => {
+                    setConnectionError("Connection Timed Out.");
+                    toast.error("Connection Timed Out.");
+                    setLivekitToken('');
+                  }, [])}
+                />
+              )}
+              <RoomAudioRenderer />
+            </LiveKitRoom>
+          )}
+        </>
       )}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/70 via-black/25 to-transparent z-10" />
@@ -1867,7 +1916,17 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           </form>
 
           <button
-            onClick={() => setIsMicMuted((prev) => !prev)}
+            onClick={() => {
+              setIsMicMuted((prev) => {
+                const nextState = !prev;
+                if (localStream) {
+                  localStream.getAudioTracks().forEach(track => {
+                    track.enabled = !nextState;
+                  });
+                }
+                return nextState;
+              });
+            }}
             className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
               isMicMuted
                 ? 'bg-red-600/90 border-red-400 text-white'
@@ -1878,7 +1937,17 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           </button>
 
           <button
-            onClick={() => setIsCamOff((prev) => !prev)}
+            onClick={() => {
+              setIsCamOff((prev) => {
+                const nextState = !prev;
+                if (localStream) {
+                  localStream.getVideoTracks().forEach(track => {
+                    track.enabled = !nextState;
+                  });
+                }
+                return nextState;
+              });
+            }}
             className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
               isCamOff
                 ? 'bg-red-600/90 border-red-400 text-white'
@@ -1888,6 +1957,16 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             {isCamOff ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
           </button>
 
+          <button
+            onClick={() => {
+              setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
+              stopPreviewCamera(); // will trigger the effect to re-acquire
+            }}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-white transition hover:bg-white/10"
+            title="Flip Camera"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
           <button
             onClick={() => setBeautyMode((prev) => !prev)}
             className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
