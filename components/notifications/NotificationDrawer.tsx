@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, BellOff, X, Eye, Radio, Flame, Heart } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useGlobalNotifications } from '../../context/NotificationContext';
 import { toast } from 'react-hot-toast';
 
-type Notification = {
+export type LegacyNotification = {
   id: string;
   user_id: string;
   type: string;
@@ -60,8 +61,8 @@ const getNotificationUI = (type: string) => {
 
 export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boolean, onClose?: () => void }) {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { notifications, unreadCount, markAllAsRead, markAsRead } = useGlobalNotifications();
+
   const [isMuted, setIsMuted] = useState(false);
   const isMutedRef = useRef(false);
 
@@ -73,96 +74,24 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
     await supabase.from('profiles').update({ notifications_muted: newMuted }).eq('id', user.id);
   };
 
-  const markAllAsRead = async () => {
-    if (!user || unreadCount === 0) return;
-    const { error } = await supabase.rpc('mark_all_notifications_read', { p_user_id: user.id });
-
-    if (!error) {
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      setUnreadCount(0);
-      toast.success("All caught up!");
-    } else {
-      toast.error("Failed to mark as read");
-    }
-  };
-
   useEffect(() => {
     if (!user) return;
 
-    const fetchNotifications = async () => {
-      // Fetch both notifications and profile mute preference in parallel
-      const [notifRes, profileRes] = await Promise.all([
-        supabase
-          .from('notifications')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(20),
-        supabase
-          .from('profiles')
-          .select('notifications_muted')
-          .eq('id', user.id)
-          .single()
-      ]);
-
-      if (!notifRes.error && notifRes.data) {
-        setNotifications(notifRes.data);
-        setUnreadCount(notifRes.data.filter(n => !n.is_read).length);
-      }
-
-      if (!profileRes.error && profileRes.data) {
-        const muted = !!profileRes.data.notifications_muted;
+    const fetchMutePreference = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('notifications_muted')
+        .eq('id', user.id)
+        .single();
+      if (!error && data) {
+        const muted = !!data.notifications_muted;
         setIsMuted(muted);
         isMutedRef.current = muted;
       }
     };
+    fetchMutePreference();
 
-    fetchNotifications();
 
-    const uniqueChannel = `public-notifications-${Date.now()}`;
-    const channel = supabase.channel(uniqueChannel)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${user.id}`
-      }, (payload) => {
-        const newNotif = payload.new as Notification;
-        setNotifications(prev => [newNotif, ...prev]);
-        setUnreadCount(prev => prev + 1);
-
-        if (!isMutedRef.current) {
-          const audio = new Audio('/sounds/notification.mp3');
-          audio.play().catch(e => console.log('Audio autoplay blocked'));
-
-          toast.custom((t) => (
-            <motion.div
-              initial={{ opacity: 0, y: -50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -50 }}
-              className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-neutral-900/90 backdrop-blur-xl shadow-lg rounded-2xl pointer-events-auto flex ring-1 ring-amber-500/20`}
-            >
-              <div className="flex-1 w-0 p-4">
-                <div className="flex items-start">
-                  <div className="ml-3 flex-1">
-                    <p className="text-sm font-medium text-white">
-                      New Notification
-                    </p>
-                    <p className="mt-1 text-sm text-amber-400">
-                      {newNotif.content}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          ));
-        }
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [user]);
 
   return (
@@ -193,10 +122,16 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                  )}
                </div>
                <div className="flex flex-row items-center gap-3">
-                  <button onClick={toggleMute} className="text-white/60 hover:text-white transition-colors" title={isMuted ? "Unmute Notifications" : "Mute Notifications"}>
-                    {isMuted ? <BellOff size={16} /> : <Bell size={16} />}
-                  </button>
-                  <button onClick={markAllAsRead} className="text-[11px] uppercase tracking-widest text-indigo-400 font-bold hover:text-indigo-300 transition-colors">Mark Read</button>
+                  <div className="flex items-center gap-2 mr-2">
+                    <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Mute Alerts</span>
+                    <button
+                      onClick={toggleMute}
+                      className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${isMuted ? 'bg-amber-500' : 'bg-zinc-700'}`}
+                    >
+                      <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isMuted ? 'translate-x-4' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                  <button onClick={markAllAsRead} className="text-[11px] uppercase tracking-widest text-indigo-400 font-bold hover:text-indigo-300 transition-colors">MARK READ</button>
                   <button onClick={() => onClose?.()} className="text-white/60 hover:text-white"><X size={16}/></button>
                </div>
              </div>
@@ -223,14 +158,16 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                           hidden: { opacity: 0, x: 20 },
                           show: { opacity: 1, x: 0 }
                         }}
-                        className={`relative flex items-start gap-4 p-4 rounded-2xl transition-all ${notif.is_read ? 'hover:bg-white/5' : `${ui.bgClass} ${ui.borderClass} ${ui.shadowClass}`}`}
+                        className={`relative flex items-start gap-4 p-4 rounded-2xl transition-all bg-zinc-950/80 backdrop-blur-xl border-b border-white/5 overflow-hidden ${!notif.is_read ? 'before:absolute before:left-0 before:w-1 before:h-full before:bg-gradient-to-b before:from-amber-400 before:to-amber-600' : 'hover:bg-white/5'}`}
                       >
-                        {!notif.is_read && <div className={`absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${ui.pulseClass} animate-pulse`} />}
-                        <div className={`p-2 rounded-full ${ui.bgClass} flex items-center justify-center`}>
+                        <div className={`p-2 rounded-full ${ui.bgClass} flex items-center justify-center z-10`}>
                           {ui.icon}
                         </div>
-                        <div className="flex flex-col flex-1">
-                          <span className="text-xs text-white/70">{notif.content}</span>
+                        <div className="flex flex-col flex-1 z-10">
+                          <span className="text-sm text-zinc-400">
+                            {notif.actor_id && <span className="text-amber-100 font-semibold tracking-wide mr-1">@{notif.actor_id}</span>}
+                            {notif.message}
+                          </span>
                           <span className="text-[10px] text-white/30 font-semibold uppercase tracking-wider mt-2">{new Date(notif.created_at).toLocaleString()}</span>
                         </div>
                       </motion.div>

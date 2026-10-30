@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import GiftOverlay from '../chat/GiftOverlay';
 import { useAuth } from '../../context/AuthContext';
+import { useGlobalNotifications } from '../../context/NotificationContext';
 import NotificationDrawer from '../notifications/NotificationDrawer';
 import { supabase } from '../../utils/supabase';
 import { ProfileCompletionModal } from '../profile/ProfileCompletionModal';
@@ -44,7 +45,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { user } = useAuth();
-  const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
+  const { unreadCount } = useGlobalNotifications();
   const [bellShake, setBellShake] = useState(false);
   const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
 
@@ -86,7 +87,6 @@ export const AppShell: React.FC<AppShellProps> = ({
         .eq('is_read', false);
 
       if (!error && data) {
-        setUnreadCount(count || 0);
 
         // App-Open Supernova: Check for unread gift notifications in the queue
         const unreadGifts = (data || []).filter(n => n.type === 'GIFT');
@@ -133,7 +133,6 @@ export const AppShell: React.FC<AppShellProps> = ({
         const newNotif = payload.new;
 
         // Update the active bell badge
-        setUnreadCount(prev => prev + 1);
 
         // Trigger Framer Motion shake animation
         setBellShake(true);
@@ -180,12 +179,6 @@ export const AppShell: React.FC<AppShellProps> = ({
     };
   }, [user]);
 
-  // Handle clearing badge instantly when opening notifications
-  const handleOpenNotifications = () => {
-     setShowNotifications(true);
-     setUnreadCount(0); // Optimistic clear
-  };
-
 
   return (
     <div className="relative min-h-screen w-full bg-[#070709] text-white selection:bg-purple-500/30 overflow-x-hidden font-sans">
@@ -214,7 +207,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
             {/* Notification Bell */}
             <motion.button
-              onClick={handleOpenNotifications}
+              onClick={() => setShowNotifications(true)}
               animate={bellShake ? { rotate: [-10, 10, -10, 10, 0], scale: [1, 1.2, 1] } : {}}
               transition={{ duration: 0.4 }}
               className="relative p-2 rounded-full bg-white/[0.05] border border-white/10 hover:border-white/20 active:scale-95 transition"
@@ -338,66 +331,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         </nav>
       )}
 
-      {/* 4. NOTIFICATION CENTER DRAWER */}
-      <AnimatePresence>
-        {showNotifications && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowNotifications(false)}
-              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[80]"
-            />
-            <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 bottom-0 w-full max-w-xs bg-[#0b0c10] border-l border-white/10 z-[90] p-5 flex flex-col shadow-2xl"
-            >
-              <div className="flex items-center justify-between pb-4 border-b border-white/10">
-                <div className="flex items-center space-x-2">
-                  <Bell className="w-5 h-5 text-purple-400" />
-                  <h3 className="font-bold text-sm tracking-wide">Live Activity</h3>
-                </div>
-                <button
-                  onClick={() => setShowNotifications(false)}
-                  className="p-1 rounded-full bg-white/5 border border-white/10"
-                >
-                  <X className="w-4 h-4 text-white/70" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto py-4 space-y-3">
-                <div className="p-3 rounded-2xl bg-white/[0.03] border border-purple-500/20 flex items-start space-x-3">
-                  <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400">
-                    <Coins className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-white">Status Unlocked</p>
-                    <p className="text-[11px] text-white/60 mt-0.5">@sarah paid 10 coins to view your latest status.</p>
-                    <span className="text-[9px] text-purple-400/80 font-mono mt-1 block">2m ago</span>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-white/[0.03] border border-rose-500/20 flex items-start space-x-3">
-                  <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400">
-                    <Heart className="w-4 h-4 fill-rose-500" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-white">Status Reaction</p>
-                    <p className="text-[11px] text-white/60 mt-0.5">@david liked your status update.</p>
-                    <span className="text-[9px] text-white/40 font-mono mt-1 block">15m ago</span>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      <NotificationDrawer isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
+            <NotificationDrawer isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
       <SpatialRadarModal />
       <ProfileCompletionModal
         isOpen={isCompletionModalOpen}
