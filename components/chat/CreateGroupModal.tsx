@@ -15,6 +15,7 @@ interface CreateGroupModalProps {
   onGroupCreated: () => void;
 }
 
+// Rules of Hooks verified: all hooks declared unconditionally above early returns
 export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreated }: CreateGroupModalProps) {
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
