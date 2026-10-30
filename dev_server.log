@@ -2,12 +2,10 @@
 > dev
 > next dev
 
-▲ Next.js 16.4.0 (Turbopack)
+▲ Next.js 16.4.3 (Turbopack)
 - Local:         http://localhost:3000
 - Network:       http://192.168.0.2:3000
-✓ Ready in 637ms
-✓ Running next.config.mjs took 29ms
+- Environments: .env.local
+✓ Ready in 673ms
+✓ Running next.config.mjs took 27ms
 
-○ Compiling / ...
- GET / 200 in 1466ms (next.js: 553ms, application-code: 913ms)
- GET / 200 in 70ms (next.js: 3ms, application-code: 67ms)
