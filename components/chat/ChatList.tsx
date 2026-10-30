@@ -459,7 +459,7 @@ export default function ChatList({
             const isPremiumUser = u.tier?.toLowerCase() === 'premium' || u.tier?.toLowerCase() === 'pro';
 
             // UNIFIED BOT IDENTITY
-            let displayName = u.name;
+            let displayName = u?.name || (u as any)?.username || (u as any)?.participants?.[0]?.username || "Unknown User";
             if (u.is_bot) {
                 const storedBotName = typeof window !== 'undefined' ? localStorage.getItem(`bot_name_${u.id}`) : null;
                 if (storedBotName) {

@@ -68,7 +68,7 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
 
       const createPromise = async () => {
           const { data: room, error: roomError } = await supabase
-              .from('groups')
+              .from('rooms')
               .insert({
                   name: groupName.trim(),
                   description: groupDescription.trim() || 'Tap here for group info',
@@ -82,12 +82,12 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
 
           const memberIds = Array.from(selectedGroupUsers);
           const participants = [
-              { group_id: room.id, user_id: userId, role: 'admin' },
-              ...memberIds.map(id => ({ group_id: room.id, user_id: id, role: 'member' }))
+              { room_id: room.id, user_id: userId, role: 'admin' },
+              ...memberIds.map(id => ({ room_id: room.id, user_id: id, role: 'member' }))
           ];
 
           const { error: partError } = await supabase
-              .from('group_members')
+              .from('room_participants')
               .insert(participants);
 
           if (partError) throw partError;
@@ -105,7 +105,7 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
           const { error: msgError } = await supabase
               .from('messages')
               .insert({
-                  group_id: room.id,
+                  room_id: room.id,
                   sender_id: userId,
                   content: `${creatorName} created group "${groupName.trim()}"`,
                   message_type: 'system',

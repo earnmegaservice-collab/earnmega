@@ -216,7 +216,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
           </div>
 
           <button
-             onClick={() => window.dispatchEvent(new CustomEvent('join_call', { detail: { roomId: message.group_id || message.sender_id, type: 'video' } }))}
+             onClick={() => window.dispatchEvent(new CustomEvent('join_call', { detail: { roomId: message.room_id || message.sender_id, type: 'video' } }))}
              className="w-full py-3.5 bg-emerald-500/20 hover:bg-emerald-500/40 rounded-2xl text-sm font-black text-emerald-300 transition-all active:scale-95 border border-emerald-500/30 uppercase tracking-widest shadow-lg flex items-center justify-center gap-2"
           >
              <Phone size={16} /> Join Call
@@ -485,22 +485,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
-  const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.group_id || groupDetails !== null);
+  const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.room_id || groupDetails !== null);
 
   useEffect(() => {
     if (!otherUserProfile) return;
 
     if (isGroupChat || otherUserProfile.isGroup || otherUserProfile.bio === 'Group Chat') {
       const fetchGroup = async () => {
-        let { data: group } = await supabase.from('chat_groups').select('*').eq('id', otherUserProfile.id).maybeSingle();
+        let { data: group } = await supabase.from('rooms').select('*').eq('id', otherUserProfile.id).maybeSingle();
         if (!group) {
-          const { data: fallback } = await supabase.from('chat_groups').select('*').eq('name', otherUserProfile.name).limit(1).maybeSingle();
+          const { data: fallback } = await supabase.from('rooms').select('*').eq('name', otherUserProfile.name).limit(1).maybeSingle();
           group = fallback;
         }
 
         if (group) {
           setGroupDetails(group);
-          const { data: members } = await supabase.from('group_members').select('*, profiles(id, username, full_name, avatar_url)').eq('group_id', group.id);
+          const { data: members } = await supabase.from('room_participants').select('*, profiles(id, username, full_name, avatar_url)').eq('room_id', group.id);
           if (members) setGroupMembers(members);
         }
       };
@@ -508,11 +508,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       fetchGroup();
 
       const groupSub = supabase.channel(`group_updates_${otherUserProfile.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_groups', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
            setGroupDetails(payload.new);
         })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members', filter: `group_id=eq.${otherUserProfile.id}` }, async () => {
-           const { data: members } = await supabase.from('group_members').select('*, profiles(id, username, full_name, avatar_url)').eq('group_id', otherUserProfile.id);
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'room_participants', filter: `room_id=eq.${otherUserProfile.id}` }, async () => {
+           const { data: members } = await supabase.from('room_participants').select('*, profiles(id, username, full_name, avatar_url)').eq('room_id', otherUserProfile.id);
            if (members) setGroupMembers(members);
         })
         .subscribe();
@@ -752,10 +752,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   isRelevant = (msg.sender_id === user.id && msg.receiver_id === currentOtherUserProfile.id) ||
                                (msg.sender_id === currentOtherUserProfile.id && msg.receiver_id === user.id);
               } else if (currentOtherUserProfile && (currentOtherUserProfile as any).isGroup) {
-                  isRelevant = msg.group_id === currentOtherUserProfile.id;
+                  isRelevant = msg.room_id === currentOtherUserProfile.id;
               } else {
                   // Fallback for general updates (e.g. ChatList) if no specific profile is focused
-                  isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id || msg.group_id;
+                  isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id || msg.room_id;
               }
 
               if (isRelevant) {
@@ -806,26 +806,26 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         setChatsFetchError(null);
         try {
           // 1. Fetch Groups the user is part of
-          const { data: groupsData, error: groupsError } = await supabase
-              .from('group_members')
-              .select('group_id, is_deleted, groups ( id, name, created_at )')
+          const { data: roomsData, error: roomsError } = await supabase
+              .from('room_participants')
+              .select('room_id, is_deleted, rooms ( id, name, created_at )')
               .eq('user_id', user.id);
 
-          if (groupsError) throw groupsError;
+          if (roomsError) throw roomsError;
 
           let localDeletedRooms: string[] = [];
           try {
              localDeletedRooms = JSON.parse(localStorage.getItem(`earnmega_deleted_rooms_${user.id}`) || '[]');
           } catch(e) {}
 
-          let rawGroups = (groupsData || [])
-            .filter(gm => gm.is_deleted !== true && gm.groups != null && !localDeletedRooms.includes(gm.group_id))
+          let rawGroups = (roomsData || [])
+            .filter(gm => gm.is_deleted !== true && gm.rooms != null && !localDeletedRooms.includes(gm.room_id))
             .map((gm: any) => ({
-               id: gm.groups.id,
-               name: gm.groups.name,
-               avatarInitials: (gm.groups.name?.[0] || 'G').toUpperCase() + (gm.groups.name?.[1] || 'R').toUpperCase(),
+               id: gm.rooms?.id,
+               name: gm.rooms?.name || "Unknown Group",
+               avatarInitials: (gm.rooms?.name?.[0] || "G").toUpperCase() + (gm.rooms?.name?.[1] || "R").toUpperCase(),
                bio: 'Group Chat',
-               joinDate: new Date(gm.groups.created_at).toLocaleDateString(),
+               joinDate: new Date(gm.rooms?.created_at || Date.now()).toLocaleDateString(),
                tier: 'FREE' as const,
                isOnline: true,
                coinsGifted: 0,
@@ -835,7 +835,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                lastMessageTime: 0
             }));
 
-          const groupsFormatted = Array.from(new Map(rawGroups.map(r => [r.id, r])).values());
+          const roomsFormatted = Array.from(new Map(rawGroups.map(r => [r.id, r])).values());
 
           // 2. Fetch Direct Messages (chats)
           const { data: chatsData, error: chatsError } = await supabase
@@ -878,18 +878,18 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }
 
           // 3. Fetch Unread Counters and Latest Message Time for Groups correctly
-          if (groupsFormatted.length > 0) {
-              const groupIds = groupsFormatted.map(g => g.id);
+          if (roomsFormatted.length > 0) {
+              const groupIds = roomsFormatted.map(g => g.id);
               const { data: messagesData, error: msgError } = await supabase
                 .from('messages')
-                .select('id, sender_id, receiver_id, group_id, created_at, status, is_read')
-                .in('group_id', groupIds)
+                .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
+                .in('room_id', groupIds)
                 .order('created_at', { ascending: false })
                 .limit(500);
 
               if (!msgError && messagesData) {
                 messagesData.forEach(msg => {
-                  const targetId = msg.group_id;
+                  const targetId = msg.room_id;
                   if (!targetId) return;
 
                   const time = new Date(msg.created_at).getTime();
@@ -937,7 +937,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }
 
           // 5. Unify and Sort WhatsApp Style (newest activity at the absolute top)
-          let allUsers = [...groupsFormatted, ...formattedProfiles];
+          let allUsers = [...roomsFormatted, ...formattedProfiles];
 
           allUsers = allUsers.map(u => {
              const stats = statsMap.get(u.id);
@@ -950,9 +950,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           // Sort strictly by lastMessageTime DESCENDING
           allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
 
+          console.info("[CHAT LIST] Hydrated Chats:", allUsers);
           setExploreUsers(allUsers);
         } catch (error) {
-          console.error("Failed to fetch chats:", error);
+          console.error("[CHAT LIST ERROR] Failed to fetch conversations:", error);
           setChatsFetchError(error);
         } finally {
           setIsChatsLoading(false);
@@ -970,7 +971,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         let query = supabase.from('messages').select('*');
 
         if (isGroupChat) {
-             query = query.or(`group_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${currentOtherUserProfile.id}`);
+             query = query.or(`room_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${currentOtherUserProfile.id}`);
         } else {
              query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${currentOtherUserProfile.id}),and(sender_id.eq.${currentOtherUserProfile.id},receiver_id.eq.${user.id})`);
         }
@@ -1362,7 +1363,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     const targetId = currentOtherUserProfile.id;
 
     try {
-      const { error } = await supabase.rpc('delete_group', { group_id_param: targetId });
+      const { error } = await supabase.rpc('delete_group', { room_id_param: targetId });
 
       if (error) {
         console.warn("[SECURITY] Unauthorized Mutation Attempt Blocked", error);
@@ -1470,7 +1471,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       };
 
       if ((currentOtherUserProfile as any).isGroup) {
-          insertData.group_id = currentOtherUserProfile.id;
+          insertData.room_id = currentOtherUserProfile.id;
           insertData.receiver_id = null;
       }
 
@@ -1737,7 +1738,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            is_view_once: type === 'image' ? isViewOnceMode : false,
         };
         if (isGroupChat) {
-           msgPayload.group_id = currentOtherUserProfile.id;
+           msgPayload.room_id = currentOtherUserProfile.id;
         } else {
            msgPayload.receiver_id = currentOtherUserProfile.id;
         }
@@ -3471,7 +3472,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            await supabase.from('messages').insert({
                                id: uuidv4(),
                                sender_id: user.id,
-                               group_id: targetId,
+                               room_id: targetId,
                                content: `~ ${user.user_metadata?.username || user.email} left`,
                                message_type: 'system'
                            });
