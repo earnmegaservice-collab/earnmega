@@ -9,6 +9,7 @@ import {
   useTracks,
   useLocalParticipant,
   useConnectionState,
+  useParticipants,
 } from '@livekit/components-react';
 import { Track, ConnectionState } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -138,6 +139,7 @@ interface LiveStreamRecord {
   livekit_room_name?: string;
   is_live?: boolean;
   started_at?: string;
+  created_at?: string;
 }
 
 interface LiveComment {
@@ -643,6 +645,21 @@ function LiveKitVideoStage({
 }
 
 // ============================================================================
+// INNER LIVEKIT TRACKER FOR VIEWER COUNT
+// ============================================================================
+function LiveKitTracker({ hostId, hostUsername, onViewerCountChange }: { hostId?: string, hostUsername?: string, onViewerCountChange: (count: number) => void }) {
+  const participants = useParticipants();
+
+  useEffect(() => {
+    // Filter out the host to get true remote viewer count
+    const viewers = participants.filter(p => p.identity !== hostId && p.identity !== hostUsername);
+    onViewerCountChange(viewers.length);
+  }, [participants, hostId, hostUsername, onViewerCountChange]);
+
+  return null;
+}
+
+// ============================================================================
 // MAIN LIVE ARENA COMPONENT
 // ============================================================================
 export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaProps) {
@@ -663,6 +680,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [role, setRole] = useState<UserRole>('viewer');
   const [livekitToken, setLivekitToken] = useState<string>('');
   const [liveDuration, setLiveDuration] = useState<string>('00:00');
+  const [streamStartMs, setStreamStartMs] = useState<number | null>(null);
+  const [viewerCount, setViewerCount] = useState<number>(0);
+  const [peakViewers, setPeakViewers] = useState<number>(0);
+
+  const handleViewerCountChange = useCallback((count: number) => {
+    setViewerCount(count);
+    setPeakViewers((prev) => Math.max(prev, count));
+  }, []);
 
   // Lobby State
   const [activeStreams, setActiveStreams] = useState<any[]>([]);
@@ -780,31 +805,38 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const fetchStreams = async () => {
       const { data } = await supabase
         .from('live_streams')
-        .select('*')
-        .eq('status', 'live');
+        .select('*');
 
       if (data) {
-        setActiveStreams(data);
+        const liveData = data.filter(s => !s.status || s.status === 'live');
+        setActiveStreams(liveData);
       }
     };
 
     fetchStreams();
 
+    // Polling as a fallback for missing Table Realtime
+    const interval = setInterval(() => {
+      if (stage === 'lobby') {
+        fetchStreams();
+      }
+    }, 3000);
+
     const channel = supabase
-      .channel('live-arena-sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_streams', filter: 'status=eq.live' },
-        () => {
-          fetchStreams();
-        }
-      )
+      .channel('global-live-arena')
+      .on('broadcast', { event: 'stream-started' }, () => {
+        fetchStreams();
+      })
+      .on('broadcast', { event: 'stream-ended' }, () => {
+        fetchStreams();
+      })
       .subscribe();
 
     return () => {
+      clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [stage]);
 
   // --------------------------------------------------------------------------
   // 2. CAMERA PREVIEW MANAGEMENT (SETUP STAGE ONLY)
@@ -857,12 +889,15 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     if (isInitializingRef.current) return;
     isInitializingRef.current = true;
 
-    const roomId = `stream_${user.id}_${Date.now()}`;
+    const roomId = `live_${user.id}`;
     const finalTitle = streamTitle.trim() || `${user.username}'s VIP Live`;
 
     let insertedStreamDbId = null;
 
     try {
+      // 1. Delete stale rows
+      await supabase.from('live_streams').delete().eq('host_id', user.id);
+
       const insertPayload = {
         host_id: user.id,
         host_username: user.username || 'Creator',
@@ -883,26 +918,50 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
       const { data, error } = await supabase
         .from('live_streams')
-        .upsert(insertPayload, { onConflict: 'room_id' })
+        .insert([insertPayload])
         .select()
         .single();
 
       if (error) {
-        console.error("🚨 STREAM INSERT FAILED:", error.message);
-        console.error("Supabase Insert Error:", error);
-        toast.error("Database Sync Failed: " + error.message);
-        isInitializingRef.current = false;
-        return;
+        console.warn("🚨 FULL STREAM INSERT FAILED. FALLING BACK TO BASE COLUMNS:", error.message);
+
+        // Fallback to minimal schema
+        const fallbackPayload = {
+          host_id: user.id,
+          host_username: user.username || 'Creator',
+          title: finalTitle,
+          category: setupCategory,
+        };
+
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('live_streams')
+          .insert([fallbackPayload])
+          .select()
+          .single();
+
+        if (fallbackError) {
+           console.error("🚨 FALLBACK STREAM INSERT FAILED:", fallbackError.message);
+           toast.error("Database Sync Failed: " + fallbackError.message);
+        } else if (fallbackData) {
+           console.info("Successfully synced minimal stream to database:", fallbackData);
+           setCurrentStreamDbId(fallbackData.id);
+           insertedStreamDbId = fallbackData.id;
+        }
       } else if (data) {
         console.info("Successfully synced stream to database:", data);
         setCurrentStreamDbId(data.id);
         insertedStreamDbId = data.id;
       }
+
+      supabase.channel('global-live-arena').send({
+        type: 'broadcast',
+        event: 'stream-started',
+        payload: { host_id: user.id }
+      });
+
     } catch (err) {
       console.error("Stream initialization error:", err);
       toast.error("Database Sync Failed: Unexpected error.");
-      isInitializingRef.current = false;
-      return;
     }
 
     const fallbackStream: LiveStreamRecord = {
@@ -992,6 +1051,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     } else {
       const launchTimer = setTimeout(() => {
         console.info("[LIFECYCLE] Countdown finished, unmounting overlay");
+        setStreamStartMs(Date.now());
         setStage('live');
       }, 900);
       return () => clearTimeout(launchTimer);
@@ -1011,9 +1071,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setRole('viewer');
     setCurrentStream(stream);
 
+    setStreamStartMs((stream.started_at || stream.created_at) ? new Date(stream.started_at || stream.created_at).getTime() : Date.now());
+
+    // Deterministic room name resolution
+    const actualRoomName = stream.livekit_room_name || stream.room_id || `live_${stream.host_id}`;
+
     try {
       const res = await fetch(
-        `/api/livekit?room=${encodeURIComponent(stream.id)}&username=${encodeURIComponent(user.username)}`
+        `/api/livekit?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(user.username)}`
       );
       if (!res.ok) {
         throw new Error(`Failed to fetch LiveKit token: ${res.statusText}`);
@@ -1105,18 +1170,17 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   }, [comments]);
 
   useEffect(() => {
-    if (stage !== 'live') return;
+    if (stage !== 'live' || !streamStartMs) return;
 
     const interval = setInterval(() => {
-      const start = currentStream?.started_at ? new Date(currentStream.started_at).getTime() : Date.now();
-      const diff = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const diff = Math.max(0, Math.floor((Date.now() - streamStartMs) / 1000));
       const minutes = Math.floor(diff / 60).toString().padStart(2, '0');
       const seconds = (diff % 60).toString().padStart(2, '0');
       setLiveDuration(`${minutes}:${seconds}`);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [stage, currentStream?.started_at]);
+  }, [stage, streamStartMs]);
 
   // --------------------------------------------------------------------------
   // 6. INTERACTIVE ACTIONS (CHAT, HEARTS, LUXURY GIFT DISPATCH, END STREAM)
@@ -1233,8 +1297,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       if (streamIdToUpdate) {
         await supabase
           .from('live_streams')
-          .update({ status: 'ended', is_live: false })
-          .eq('id', streamIdToUpdate);
+          .delete()
+          .eq('host_id', user.id);
+
+        supabase.channel('global-live-arena').send({
+          type: 'broadcast',
+          event: 'stream-ended',
+          payload: { host_id: user.id }
+        });
       }
     }
     setStage('ended');
@@ -1394,7 +1464,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                     </span>
                     <span className="flex items-center gap-1 rounded-md bg-black/60 backdrop-blur-md px-2 py-0.5 text-[10px] font-semibold text-white">
                       <Users className="h-3 w-3 text-pink-400" />
-                      {stream.viewer_count}
+                      {/* For lobby cards, fallback to stream record if needed, or 0 */}
+                      {stream.viewer_count || 0}
                     </span>
                   </div>
 
@@ -1656,6 +1727,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 setStage('ended');
               }}
             >
+              <LiveKitTracker
+                hostId={currentStream?.host_id || user.id}
+                hostUsername={currentStream?.host_username || user.username}
+                onViewerCountChange={handleViewerCountChange}
+              />
               {role === 'host' ? (
                 <HostLiveKitPublisher localStream={localStream} />
               ) : (
@@ -1757,7 +1833,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
             <div className="flex items-center gap-1 rounded-full bg-black/45 backdrop-blur-xl border border-white/10 px-2.5 py-1.5 text-xs font-bold text-white">
               <Users className="h-3.5 w-3.5 text-pink-400" />
-              <span>{currentStream?.viewer_count || 1}</span>
+              <span>{viewerCount}</span>
             </div>
 
             <button
