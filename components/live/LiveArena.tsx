@@ -178,7 +178,7 @@ function MasterLiveGiftOverlay({
 
   // Listen to Supabase Realtime 'live_gifts' table inserts
   useEffect(() => {
-    if (!streamId) return;
+    if (!streamId) return undefined;
     const channel = supabase.channel(`live_gifts_overlay_${streamId}`).on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
@@ -217,7 +217,7 @@ function MasterLiveGiftOverlay({
 
   // Process Track A (Up to 4 simultaneous standard/kinetic gifts on lower-left)
   useEffect(() => {
-    if (activeMega) return; // Pause Track A during Full-Screen Mega Takeover
+    if (activeMega) return undefined; // Pause Track A during Full-Screen Mega Takeover
     if (activeTrackA.length < 4 && trackAQueue.length > 0) {
       const nextGift = trackAQueue[0];
       setTrackAQueue(prev => prev.slice(1));
@@ -226,6 +226,7 @@ function MasterLiveGiftOverlay({
         setActiveTrackA(prev => prev.filter(item => item.id !== nextGift.id));
       }, 3000);
     }
+    return undefined;
   }, [activeTrackA, trackAQueue, activeMega]);
   const isRocket = activeMega && activeMega.coin_value >= 500 && activeMega.coin_value < 5000;
   const isUniverse = activeMega && activeMega.coin_value >= 5000;
@@ -697,6 +698,11 @@ export default function LiveArena({
       }
       return null;
     });
+  }, []);
+  const handleTimeout = useCallback(() => {
+    setConnectionError("Connection Timed Out.");
+    toast.error("Connection Timed Out.");
+    setLivekitToken('');
   }, []);
   const initializeHostBroadcast = useCallback(async () => {
     if (isInitializingRef.current) return;
@@ -1448,11 +1454,7 @@ export default function LiveArena({
         setStage('ended');
       }}>
               <LiveKitTracker hostId={currentStream?.host_id || user.id} hostUsername={currentStream?.host_username || user.username} onViewerCountChange={handleViewerCountChange} />
-              {role === 'host' ? <HostLiveKitPublisher localStream={localStream} /> : <LiveKitVideoStage role={role} isMicMuted={isMicMuted} isCamOff={isCamOff} beautyMode={beautyMode} onTimeout={useCallback(() => {
-          setConnectionError("Connection Timed Out.");
-          toast.error("Connection Timed Out.");
-          setLivekitToken('');
-        }, [])} />}
+              {role === 'host' ? <HostLiveKitPublisher localStream={localStream} /> : <LiveKitVideoStage role={role} isMicMuted={isMicMuted} isCamOff={isCamOff} beautyMode={beautyMode} onTimeout={handleTimeout} />}
               <RoomAudioRenderer />
             </LiveKitRoom>}
         </>}
