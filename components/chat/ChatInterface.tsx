@@ -495,7 +495,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
-  const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.room_id || groupDetails !== null);
+  const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.room_id);
 
   const isAdmin = isGroupChat && groupMembers.some(m => m.user_id === user?.id && m.role === 'admin');
 
