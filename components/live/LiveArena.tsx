@@ -886,6 +886,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         .single();
 
       if (error) {
+        console.error("🚨 STREAM INSERT FAILED:", error.message);
         console.error("Supabase Insert Error:", error);
         toast.error("Database Sync Failed: " + error.message);
         isInitializingRef.current = false;
