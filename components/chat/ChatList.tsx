@@ -314,12 +314,7 @@ export default function ChatList({
       return;
     }
 
-    const formData = new FormData();
-    formData.append('reportedUserId', targetId);
-    formData.append('reason', finalReason);
-    formData.append('contentType', 'user');
-
-    const result = await submitUserReport(formData);
+    const result = await submitUserReport(targetId, finalReason, 'user', '');
 
     if (!result.success) {
       toast.error(`Report Failed: ${result.error}`);

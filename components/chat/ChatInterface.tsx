@@ -3324,12 +3324,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               return;
                            }
 
-                           const formData = new FormData();
-                           formData.append('reportedUserId', targetId);
-                           formData.append('reason', reportReason === 'Other' ? reportOtherText : reportReason);
-                           formData.append('contentType', 'user');
-
-                           const result = await submitUserReport(formData);
+                           const result = await submitUserReport(targetId, reportReason === 'Other' ? reportOtherText : reportReason, 'user', '');
 
                            if (!result.success) {
                               toast.error(`Report Failed: ${result.error}`);
@@ -3478,12 +3473,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            const targetId = currentOtherUserProfile.id;
 
                            if (reportOnExit) {
-                               const formData = new FormData();
-                               formData.append('reportedUserId', targetId);
-                               formData.append('contentType', 'group');
-                               formData.append('reason', 'Reported on exit');
-
-                               const result = await submitUserReport(formData);
+                               const result = await submitUserReport(targetId, 'Reported on exit', 'group', '');
                                if (result.success) {
                                    toast.success('Report submitted securely');
                                }

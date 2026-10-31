@@ -194,13 +194,7 @@ export default function StatusViewer({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const formData = new FormData();
-      formData.append('reportedUserId', status.userId);
-      formData.append('contentType', 'status');
-      formData.append('reason', 'Inappropriate Content');
-      formData.append('details', `Reported status ${status.id}`);
-
-      const result = await submitUserReport(formData);
+      const result = await submitUserReport(status.userId, 'Inappropriate Content', 'status', `Reported status ${status.id}`);
       if (!result.success) throw new Error(result.error);
       toast.success('Report submitted securely');
 
