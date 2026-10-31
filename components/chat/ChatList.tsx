@@ -301,7 +301,8 @@ export default function ChatList({
     toast.success("User frozen.");
   };
 
-  const handleReportUserSubmit = async () => {
+  const handleReportUserSubmit = async (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
     if (!reportCategory || !currentUserProfile) return;
     const finalReason = reportCategory === 'Other' ? reportDescription : reportCategory;
 
@@ -313,11 +314,12 @@ export default function ChatList({
       return;
     }
 
-    const result = await submitUserReport({
-      reportedUserId: targetId,
-      reason: finalReason,
-      contentType: 'user'
-    });
+    const formData = new FormData();
+    formData.append('reportedUserId', targetId);
+    formData.append('reason', finalReason);
+    formData.append('contentType', 'user');
+
+    const result = await submitUserReport(formData);
 
     if (!result.success) {
       toast.error(`Report Failed: ${result.error}`);
@@ -784,14 +786,14 @@ export default function ChatList({
                 </button>
                 <button
                   disabled={reportCategory === "" || (reportCategory === 'Other' && reportDescription.trim() === "")}
-                  onClick={async () => {
+                  onClick={async (e) => {
                     if (reportCategory === "" || (reportCategory === 'Other' && reportDescription.trim() === "")) {
                       toast.error('Please provide a reason');
                       return;
                     }
                     // Add submission logic here, using handleReportUserSubmit if needed, or directly.
                     // Oh wait, there is handleReportUserSubmit. Let's use it.
-                    handleReportUserSubmit();
+                    handleReportUserSubmit(e);
                   }}
                   className={`flex-1 py-3 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(244,63,94,0.4)] ${
                     (reportCategory === "" || (reportCategory === 'Other' && reportDescription.trim() === ""))
