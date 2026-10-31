@@ -47,7 +47,7 @@ import { supabase } from '../../utils/supabase';
 // ============================================================================
 // TYPES & FIXED LUXURY GIFT CATALOG
 // ============================================================================
-type ArenaStage = 'lobby' | 'setup' | 'countdown' | 'live';
+type ArenaStage = 'lobby' | 'setup' | 'countdown' | 'live' | 'ended';
 type UserRole = 'host' | 'viewer';
 
 export interface GiftTierItem {
@@ -137,6 +137,7 @@ interface LiveStreamRecord {
   room_id?: string;
   livekit_room_name?: string;
   is_live?: boolean;
+  started_at?: string;
 }
 
 interface LiveComment {
@@ -661,6 +662,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [stage, setStage] = useState<ArenaStage>('lobby');
   const [role, setRole] = useState<UserRole>('viewer');
   const [livekitToken, setLivekitToken] = useState<string>('');
+  const [liveDuration, setLiveDuration] = useState<string>('00:00');
 
   // Lobby State
   const [activeStreams, setActiveStreams] = useState<any[]>([]);
@@ -1082,9 +1084,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           filter: `id=eq.${currentStream.id}`,
         },
         (payload) => {
+          const newData = payload.new as Partial<LiveStreamRecord>;
           setCurrentStream((prev) =>
-            prev ? { ...prev, ...(payload.new as Partial<LiveStreamRecord>) } : null
+            prev ? { ...prev, ...newData } : null
           );
+          if (newData.status === 'ended') {
+            setStage('ended');
+          }
         }
       )
       .subscribe();
@@ -1097,6 +1103,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [comments]);
+
+  useEffect(() => {
+    if (stage !== 'live') return;
+
+    const interval = setInterval(() => {
+      const start = currentStream?.started_at ? new Date(currentStream.started_at).getTime() : Date.now();
+      const diff = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const minutes = Math.floor(diff / 60).toString().padStart(2, '0');
+      const seconds = (diff % 60).toString().padStart(2, '0');
+      setLiveDuration(`${minutes}:${seconds}`);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [stage, currentStream?.started_at]);
 
   // --------------------------------------------------------------------------
   // 6. INTERACTIVE ACTIONS (CHAT, HEARTS, LUXURY GIFT DISPATCH, END STREAM)
@@ -1217,10 +1237,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           .eq('id', streamIdToUpdate);
       }
     }
-    setLivekitToken('');
-    setCurrentStream(null);
-    setCurrentStreamDbId(null);
-    setStage('lobby');
+    setStage('ended');
   };
 
   // ==========================================================================
@@ -1636,7 +1653,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               className="h-full w-full"
               onDisconnected={() => {
                 setLivekitToken('');
-                setStage('lobby');
+                setStage('ended');
               }}
             >
               {role === 'host' ? (
@@ -1671,8 +1688,18 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         />
       )}
 
+      {/* 2.5 LIVE TIMER PILL */}
+      {(stage === 'live' || stage === 'ended') && (
+        <div className="absolute top-4 left-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-xl">
+          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+          <span className="text-white/90 font-mono text-sm tracking-widest font-medium">
+            {liveDuration}
+          </span>
+        </div>
+      )}
+
       {/* 3. TOP HUD: HOST CAPSULE, RANKINGS, WALLET & VIEWER PILLS */}
-      <div className="absolute top-3 left-3 right-3 z-30 flex flex-col gap-2.5">
+      <div className="absolute top-14 left-3 right-3 z-30 flex flex-col gap-2.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 rounded-full bg-black/45 backdrop-blur-xl border border-white/15 p-1 pr-2.5 shadow-lg">
             <div className="relative h-9 w-9 rounded-full p-[1.5px] bg-gradient-to-tr from-pink-500 via-amber-400 to-purple-500">
@@ -2077,6 +2104,42 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               </button>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* 8. CINEMATIC STREAM END EXPERIENCE */}
+      <AnimatePresence>
+        {stage === 'ended' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
+            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#0A0A0A]/85 backdrop-blur-2xl"
+          >
+            <h2 className="text-3xl font-extrabold tracking-[0.2em] uppercase bg-clip-text text-transparent bg-gradient-to-b from-amber-200 to-amber-600 mb-2">
+              Broadcast Concluded
+            </h2>
+
+            <div className="mt-6 flex flex-col items-center px-8 py-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] shadow-[0_0_30px_rgba(217,119,6,0.1)]">
+              <span className="text-[10px] font-bold tracking-[0.2em] text-white/50 mb-2">TOTAL DURATION</span>
+              <span className="text-4xl font-mono font-light text-white tracking-wider">
+                {liveDuration}
+              </span>
+            </div>
+
+            <button
+              onClick={() => {
+                setLivekitToken('');
+                setCurrentStream(null);
+                setCurrentStreamDbId(null);
+                setStage('lobby');
+              }}
+              className="mt-10 px-8 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-semibold tracking-wide border border-white/10 transition-all duration-300 hover:scale-105 active:scale-95 shadow-lg"
+            >
+              Return to Arena
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>,
