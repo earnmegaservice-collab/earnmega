@@ -186,19 +186,21 @@ export default function StatusViewer({
     }
   };
 
-  const handleReportStatus = async () => {
+  const handleReportStatus = async (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
     setIsReportMenuOpen(false);
     const toastId = toast.loading('Securing report...');
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const result = await submitUserReport({
-        reportedUserId: status.userId,
-        contentType: 'status',
-        reason: 'Inappropriate Content',
-        details: `Reported status ${status.id}`
-      });
+      const formData = new FormData();
+      formData.append('reportedUserId', status.userId);
+      formData.append('contentType', 'status');
+      formData.append('reason', 'Inappropriate Content');
+      formData.append('details', `Reported status ${status.id}`);
+
+      const result = await submitUserReport(formData);
       if (!result.success) throw new Error(result.error);
       toast.success('Report submitted securely');
 
@@ -445,7 +447,7 @@ export default function StatusViewer({
                            className="absolute top-12 right-0 w-48 bg-[#111418]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] py-2 z-50 flex flex-col pointer-events-auto overflow-hidden"
                          >
                             <div onClick={(ev) => { ev.stopPropagation(); handleHideStatus(); }} className="px-5 py-3 text-sm font-bold text-white hover:bg-white/10 text-left border-b border-white/5 cursor-pointer transition-colors">Hide User's Updates</div>
-                            <div onClick={(ev) => { ev.stopPropagation(); handleReportStatus(); }} className="px-5 py-3 text-sm font-bold text-rose-500 hover:bg-white/10 text-left cursor-pointer transition-colors">Report Content</div>
+                            <div onClick={(ev) => { ev.stopPropagation(); handleReportStatus(ev); }} className="px-5 py-3 text-sm font-bold text-rose-500 hover:bg-white/10 text-left cursor-pointer transition-colors">Report Content</div>
                          </motion.div>
                       )}
                     </AnimatePresence>

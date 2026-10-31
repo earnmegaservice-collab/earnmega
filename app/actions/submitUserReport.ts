@@ -6,18 +6,13 @@ import { cookies } from 'next/headers';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-export async function submitUserReport({
-  reportedUserId,
-  reason,
-  details,
-  contentType,
-}: {
-  reportedUserId: string;
-  reason: string;
-  details?: string;
-  contentType: string;
-}) {
+export async function submitUserReport(formData: FormData) {
   try {
+    const reportedUserId = formData.get('reportedUserId') as string;
+    const reason = formData.get('reason') as string;
+    const details = formData.get('details') as string | undefined;
+    const contentType = formData.get('contentType') as string;
+
     const cookieStore = cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,

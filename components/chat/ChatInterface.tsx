@@ -3309,7 +3309,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                      </button>
                      <button
                         disabled={reportReason === "" || (reportReason === 'Other' && reportOtherText.trim() === "")}
-                        onClick={async () => {
+                        onClick={async (e) => {
+                           e.preventDefault();
                            if (reportReason === "" || (reportReason === 'Other' && reportOtherText.trim() === "")) {
                               toast.error('Please provide a reason');
                               return;
@@ -3323,11 +3324,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               return;
                            }
 
-                           const result = await submitUserReport({
-                              reportedUserId: targetId,
-                              reason: reportReason === 'Other' ? reportOtherText : reportReason,
-                              contentType: 'user'
-                           });
+                           const formData = new FormData();
+                           formData.append('reportedUserId', targetId);
+                           formData.append('reason', reportReason === 'Other' ? reportOtherText : reportReason);
+                           formData.append('contentType', 'user');
+
+                           const result = await submitUserReport(formData);
 
                            if (!result.success) {
                               toast.error(`Report Failed: ${result.error}`);
@@ -3470,16 +3472,18 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
                   <div className="flex flex-col gap-2">
                      <button
-                        onClick={async () => {
+                        onClick={async (e) => {
+                           e.preventDefault();
                            if (!user || !currentOtherUserProfile) return;
                            const targetId = currentOtherUserProfile.id;
 
                            if (reportOnExit) {
-                               const result = await submitUserReport({
-                                  reportedUserId: targetId,
-                                  contentType: 'group',
-                                  reason: 'Reported on exit'
-                               });
+                               const formData = new FormData();
+                               formData.append('reportedUserId', targetId);
+                               formData.append('contentType', 'group');
+                               formData.append('reason', 'Reported on exit');
+
+                               const result = await submitUserReport(formData);
                                if (result.success) {
                                    toast.success('Report submitted securely');
                                }
