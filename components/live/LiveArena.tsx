@@ -41,6 +41,7 @@ import {
   Radio,
   Coins,
   Zap,
+  Clock,
 } from 'lucide-react';
 import LiveGiftOverlay from './LiveGiftOverlay';
 import { supabase } from '../../utils/supabase';
@@ -680,6 +681,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [role, setRole] = useState<UserRole>('viewer');
   const [livekitToken, setLivekitToken] = useState<string>('');
   const [liveDuration, setLiveDuration] = useState<string>('00:00');
+  const [endedAtFormatted, setEndedAtFormatted] = useState<string>('');
   const [streamStartMs, setStreamStartMs] = useState<number | null>(null);
   const [viewerCount, setViewerCount] = useState<number>(0);
   const [peakViewers, setPeakViewers] = useState<number>(0);
@@ -1154,6 +1156,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             prev ? { ...prev, ...newData } : null
           );
           if (newData.status === 'ended') {
+            setEndedAtFormatted(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
             setStage('ended');
           }
         }
@@ -1307,7 +1310,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         });
       }
     }
-    setStage('ended');
+    setEndedAtFormatted(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            setStage('ended');
   };
 
   // ==========================================================================
@@ -1724,7 +1728,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               className="h-full w-full"
               onDisconnected={() => {
                 setLivekitToken('');
-                setStage('ended');
+                setEndedAtFormatted(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            setStage('ended');
               }}
             >
               <LiveKitTracker
@@ -2190,31 +2195,70 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.7, ease: "easeOut" }}
-            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#0A0A0A]/85 backdrop-blur-2xl"
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-black/85 backdrop-blur-2xl animate-in fade-in duration-500"
           >
-            <h2 className="text-3xl font-extrabold tracking-[0.2em] uppercase bg-clip-text text-transparent bg-gradient-to-b from-amber-200 to-amber-600 mb-2">
-              Broadcast Concluded
-            </h2>
+            <div className="relative w-full max-w-sm rounded-[28px] bg-gradient-to-b from-[#16161a] via-[#0d0d10] to-[#070709] border border-amber-500/25 p-7 shadow-[0_25px_80px_rgba(0,0,0,0.95),0_0_50px_rgba(245,158,11,0.12)] overflow-hidden">
+              <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-56 h-28 bg-amber-500/20 blur-3xl pointer-events-none" />
 
-            <div className="mt-6 flex flex-col items-center px-8 py-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] shadow-[0_0_30px_rgba(217,119,6,0.1)]">
-              <span className="text-[10px] font-bold tracking-[0.2em] text-white/50 mb-2">TOTAL DURATION</span>
-              <span className="text-4xl font-mono font-light text-white tracking-wider">
-                {liveDuration}
-              </span>
+              <div className="flex flex-col items-center">
+                <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/10 border border-amber-400/30 text-amber-300 text-[11px] font-bold tracking-[0.2em] uppercase mb-5">
+                  Broadcast Concluded
+                </div>
+
+                <img
+                  src={currentStream?.host_avatar || user.avatar_url}
+                  alt="Host"
+                  className="w-20 h-20 rounded-full object-cover ring-2 ring-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.35)]"
+                />
+
+                <h3 className="text-xl font-bold text-white mt-3">
+                  {currentStream?.host_username || user.username}
+                </h3>
+
+                <p className="text-xs text-zinc-400 mt-1">
+                  Ended at {endedAtFormatted}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 my-6">
+                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
+                  <Clock className="w-5 h-5 text-amber-500 mb-2" />
+                  <span className="text-xl font-mono text-white tracking-wider">{liveDuration}</span>
+                  <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">DURATION</span>
+                </div>
+
+                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
+                  <Users className="w-5 h-5 text-emerald-400 mb-2" />
+                  <span className="text-xl font-bold text-white">{peakViewers}</span>
+                  <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">PEAK VIEWERS</span>
+                </div>
+
+                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
+                  <Diamond className="w-5 h-5 text-amber-400 mb-2" />
+                  <span className="text-xl font-bold text-white">{currentStream?.total_coins_earned || 0}</span>
+                  <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">DIAMONDS</span>
+                </div>
+
+                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
+                  <Check className="w-5 h-5 text-purple-400 mb-2" />
+                  <span className="text-[13px] font-bold text-white">COMPLETED</span>
+                  <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">STATUS</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setLivekitToken('');
+                  setCurrentStream(null);
+                  setCurrentStreamDbId(null);
+                  setStage('lobby');
+                }}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-600 text-black font-extrabold text-sm tracking-wider uppercase shadow-[0_0_30px_rgba(245,158,11,0.4)] hover:brightness-110 active:scale-[0.98] transition-all"
+              >
+                Return to Live Arena
+              </button>
             </div>
-
-            <button
-              onClick={() => {
-                setLivekitToken('');
-                setCurrentStream(null);
-                setCurrentStreamDbId(null);
-                setStage('lobby');
-              }}
-              className="mt-10 px-8 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-semibold tracking-wide border border-white/10 transition-all duration-300 hover:scale-105 active:scale-95 shadow-lg"
-            >
-              Return to Arena
-            </button>
           </motion.div>
         )}
       </AnimatePresence>
