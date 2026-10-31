@@ -26,6 +26,8 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   const [currentUserRole, setCurrentUserRole] = useState('member');
   const [isEditingName, setIsEditingName] = useState(false);
   const [newGroupName, setNewGroupName] = useState(groupName);
+  const [groupBio, setGroupBio] = useState('');
+  const [newGroupBio, setNewGroupBio] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,6 +39,19 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   useEffect(() => {
     setNewGroupName(groupName);
   }, [groupName]);
+
+  const fetchRoomInfo = async () => {
+    if (!groupId) return;
+    try {
+      const { data, error } = await supabase.from('rooms').select('description').eq('id', groupId).single();
+      if (data && !error) {
+        setGroupBio(data.description || '');
+        setNewGroupBio(data.description || '');
+      }
+    } catch (err) {
+      console.error("Failed to fetch room info:", err);
+    }
+  };
 
   const fetchParticipants = async () => {
     if (!groupId) return;
@@ -151,6 +166,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
   useEffect(() => {
     if (isOpen) {
+      fetchRoomInfo();
       fetchParticipants();
     }
   }, [isOpen, groupId]);
@@ -171,26 +187,40 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   };
 
   const handleUpdateGroupName = async () => {
-    if (!newGroupName.trim() || newGroupName === groupName) {
+    const isNameChanged = newGroupName.trim() && newGroupName.trim() !== groupName;
+    const isBioChanged = newGroupBio.trim() !== groupBio;
+
+    if (!isNameChanged && !isBioChanged) {
         setIsEditingName(false);
         return;
     }
 
     const updatePromise = async () => {
-        const { error } = await supabase.from('rooms').update({ name: newGroupName.trim() }).eq('id', groupId);
+        const updates: any = {};
+        if (isNameChanged) updates.name = newGroupName.trim();
+        if (isBioChanged) updates.description = newGroupBio.trim();
+
+        const { error } = await supabase.from('rooms').update(updates).eq('id', groupId);
         if (error) throw error;
-        await fireSystemMessage(`Group name changed to "${newGroupName.trim()}"`, 'group_name_changed');
+
+        if (isNameChanged) {
+            await fireSystemMessage(`Group name changed to "${newGroupName.trim()}"`, 'group_name_changed');
+        }
+        if (isBioChanged) {
+            await fireSystemMessage(`Group bio updated`, 'group_bio_changed');
+        }
     };
 
     const p = updatePromise();
     toast.promise(p, {
-        loading: 'Updating name...',
-        success: 'Group name updated',
-        error: 'Failed to update name'
+        loading: 'Updating info...',
+        success: 'Group info updated',
+        error: 'Failed to update info'
     });
 
     try {
         await p;
+        setGroupBio(newGroupBio.trim());
         setIsEditingName(false);
         onGroupUpdated();
     } catch (e) {}
@@ -339,7 +369,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                 <X size={24} />
              </button>
              {currentUserRole === 'admin' && (
-                 <button className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-all">
+                 <button onClick={() => setIsEditingName(true)} className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-all">
                      <Edit2 size={20} />
                  </button>
              )}
@@ -378,29 +408,42 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
              <div className="px-6 pb-6 -mt-8 relative z-20">
                  {isEditingName ? (
-                     <div className="flex items-center space-x-2">
+                     <div className="space-y-3">
                          <input
                             type="text"
                             value={newGroupName}
                             onChange={(e) => setNewGroupName(e.target.value)}
-                            className="bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white font-black text-3xl focus:outline-none flex-1"
+                            className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white font-black text-3xl focus:outline-none"
+                            placeholder="Group Name"
                             autoFocus
                          />
-                         <button onClick={handleUpdateGroupName} className="p-3 bg-fuchsia-500 rounded-xl text-white">
-                             <Check size={24} />
-                         </button>
+                         <div className="flex items-center space-x-2">
+                             <input
+                                type="text"
+                                value={newGroupBio}
+                                onChange={(e) => setNewGroupBio(e.target.value)}
+                                className="bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-white/70 font-medium text-base focus:outline-none flex-1"
+                                placeholder="Group Bio"
+                             />
+                             <button onClick={handleUpdateGroupName} className="p-3 bg-fuchsia-500 rounded-xl text-white">
+                                 <Check size={24} />
+                             </button>
+                         </div>
                      </div>
                  ) : (
-                     <div className="flex items-center justify-between group">
-                         <h2 className="text-3xl font-black text-white">{groupName}</h2>
-                         {currentUserRole === 'admin' && (
-                             <button onClick={() => setIsEditingName(true)} className="text-white/40 hover:text-white transition-colors opacity-0 group-hover:opacity-100">
-                                 <Edit2 size={20} />
-                             </button>
-                         )}
+                     <div className="group">
+                         <div className="flex items-center justify-between">
+                             <h2 className="text-3xl font-black text-white">{groupName}</h2>
+                             {currentUserRole === 'admin' && (
+                                 <button onClick={() => setIsEditingName(true)} className="text-white/40 hover:text-white transition-colors opacity-0 group-hover:opacity-100">
+                                     <Edit2 size={20} />
+                                 </button>
+                             )}
+                         </div>
+                         {groupBio && <p className="text-white/80 font-medium mt-2">{groupBio}</p>}
                      </div>
                  )}
-                 <p className="text-white/50 font-medium mt-1">Group • {participants.length} participants</p>
+                 <p className="text-white/50 font-medium mt-2">Group • {participants.length} participants</p>
              </div>
 
              {/* Admin Controls */}
@@ -531,7 +574,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                                                                 className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white font-medium flex items-center gap-2"
                                                             >
                                                                 <ShieldAlert size={16} className="text-fuchsia-400" />
-                                                                Make Admin
+                                                                Promote to Admin
                                                             </button>
                                                         )}
                                                         <button
@@ -539,7 +582,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                                                             className="w-full text-left px-4 py-3 hover:bg-red-500/10 text-sm text-red-500 font-medium flex items-center gap-2"
                                                         >
                                                             <UserMinus size={16} />
-                                                            Remove User
+                                                            Remove Member
                                                         </button>
                                                     </motion.div>
                                                 </>
