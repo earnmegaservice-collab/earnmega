@@ -3324,10 +3324,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                               return;
                            }
 
+                           const { data: { session } } = await supabase.auth.getSession();
+
                            const formData = new FormData();
                            formData.append('reportedUserId', targetId);
                            formData.append('reason', reportReason === 'Other' ? reportOtherText : reportReason);
                            formData.append('contentType', 'user');
+                           if (session?.user?.id) formData.append('reporterId', session.user.id);
+                           if (session?.access_token) formData.append('accessToken', session.access_token);
 
                            const result = await submitUserReport(formData);
 
@@ -3478,10 +3482,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            const targetId = currentOtherUserProfile.id;
 
                            if (reportOnExit) {
+                               const { data: { session } } = await supabase.auth.getSession();
+
                                const formData = new FormData();
                                formData.append('reportedUserId', targetId);
                                formData.append('contentType', 'group');
                                formData.append('reason', 'Reported on exit');
+                               if (session?.user?.id) formData.append('reporterId', session.user.id);
+                               if (session?.access_token) formData.append('accessToken', session.access_token);
 
                                const result = await submitUserReport(formData);
                                if (result.success) {

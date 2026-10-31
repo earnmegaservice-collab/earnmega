@@ -314,10 +314,14 @@ export default function ChatList({
       return;
     }
 
+    const { data: { session } } = await supabase.auth.getSession();
+
     const formData = new FormData();
     formData.append('reportedUserId', targetId);
     formData.append('reason', finalReason);
     formData.append('contentType', 'user');
+    if (session?.user?.id) formData.append('reporterId', session.user.id);
+    if (session?.access_token) formData.append('accessToken', session.access_token);
 
     const result = await submitUserReport(formData);
 

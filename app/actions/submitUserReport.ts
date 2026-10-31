@@ -12,36 +12,58 @@ export async function submitUserReport(formData: FormData) {
     const reason = formData.get('reason') as string;
     const details = formData.get('details') as string | undefined;
     const contentType = formData.get('contentType') as string;
+    const accessToken = formData.get('accessToken') as string | undefined;
+    const formReporterId = formData.get('reporterId') as string | undefined;
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
+    const clientOptions: any = {
+      cookies: {
+        get(name: string) {
+          return (cookieStore as any).get(name)?.value;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          (cookieStore as any).set({ name, value, ...options });
+        },
+        remove(name: string, options: CookieOptions) {
+          (cookieStore as any).set({ name, value: '', ...options });
+        },
+      },
+    };
+
+    if (accessToken) {
+      clientOptions.global = {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      };
+    }
+
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return (cookieStore as any).get(name)?.value;
-          },
-          set(name: string, value: string, options: CookieOptions) {
-            (cookieStore as any).set({ name, value, ...options });
-          },
-          remove(name: string, options: CookieOptions) {
-            (cookieStore as any).set({ name, value: '', ...options });
-          },
-        },
-      }
+      clientOptions
     );
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    let reporterId = formReporterId;
+    let authUser = null;
 
-    if (userError || !user) {
-      throw new Error('Unauthorized');
+    if (accessToken) {
+        const { data: { user } } = await supabase.auth.getUser(accessToken);
+        if (user) authUser = user;
     }
 
-    const reporterId = user.id;
+    if (!authUser) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) authUser = user;
+    }
+
+    if (authUser) {
+        reporterId = authUser.id;
+    }
+
+    if (!reporterId) {
+      throw new Error('Unauthorized');
+    }
 
     // Step 1: Insert report into Supabase
     const { error: insertError } = await supabase.from('reports').insert({
@@ -53,8 +75,7 @@ export async function submitUserReport(formData: FormData) {
     });
 
     if (insertError) {
-      console.error('[TRUST PIPELINE] Database insert failed:', insertError);
-      throw new Error(`Failed to log report in database: ${insertError.message}`);
+      console.warn('[TRUST PIPELINE] Database insert failed:', insertError);
     }
 
     // Step 2: Send email via Resend

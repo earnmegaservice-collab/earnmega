@@ -191,7 +191,8 @@ export default function StatusViewer({
     setIsReportMenuOpen(false);
     const toastId = toast.loading('Securing report...');
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) throw new Error('Not authenticated');
 
       const formData = new FormData();
@@ -199,6 +200,8 @@ export default function StatusViewer({
       formData.append('contentType', 'status');
       formData.append('reason', 'Inappropriate Content');
       formData.append('details', `Reported status ${status.id}`);
+      if (session?.user?.id) formData.append('reporterId', session.user.id);
+      if (session?.access_token) formData.append('accessToken', session.access_token);
 
       const result = await submitUserReport(formData);
       if (!result.success) throw new Error(result.error);
