@@ -133,8 +133,9 @@ interface LiveStreamRecord {
   total_coins_earned: number;
   viewer_count: number;
   allow_cohost: boolean;
-  status: 'active' | 'ended';
+  status: 'active' | 'live' | 'ended';
   room_id?: string;
+  livekit_room_name?: string;
   is_live?: boolean;
 }
 
@@ -778,7 +779,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       const { data } = await supabase
         .from('live_streams')
         .select('*')
-        .eq('status', 'active');
+        .eq('status', 'live');
 
       if (data) {
         setActiveStreams(data);
@@ -791,7 +792,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       .channel('live-arena-sync')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_streams' },
+        { event: '*', schema: 'public', table: 'live_streams', filter: 'status=eq.live' },
         () => {
           fetchStreams();
         }
@@ -865,6 +866,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         host_username: user.username || 'Creator',
         host_avatar: user.avatar_url,
         room_id: roomId,
+        livekit_room_name: roomId,
         title: finalTitle,
         category: setupCategory,
         gift_goal_target: giftGoal,
@@ -872,8 +874,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         total_coins_earned: 0,
         viewer_count: 1,
         allow_cohost: allowCohost,
-        status: 'active',
-        is_live: true
+        status: 'live',
+        is_live: true,
+        started_at: new Date().toISOString()
       };
 
       const { data, error } = await supabase
@@ -905,6 +908,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       host_username: user.username,
       host_avatar: user.avatar_url,
       room_id: roomId,
+      livekit_room_name: roomId,
       title: finalTitle,
       category: setupCategory,
       gift_goal_target: giftGoal,
@@ -912,7 +916,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       total_coins_earned: 0,
       viewer_count: 1,
       allow_cohost: allowCohost,
-      status: 'active',
+      status: 'live',
       is_live: true,
     };
 
