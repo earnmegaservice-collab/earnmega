@@ -13,7 +13,7 @@ interface CreateGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
   userId: string;
-  onGroupCreated: () => void;
+  onGroupCreated: (room?: any, members?: any[]) => void;
 }
 
 // Rules of Hooks verified: all hooks declared unconditionally above early returns
@@ -174,8 +174,13 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
       });
 
       try {
-          await promise;
-          onGroupCreated();
+          const createdRoom = await promise;
+          const memberIds = Array.from(selectedGroupUsers);
+          const participants = [
+              { room_id: createdRoom.id, user_id: userId, role: 'admin' },
+              ...memberIds.map(id => ({ room_id: createdRoom.id, user_id: id, role: 'member' }))
+          ];
+          onGroupCreated(createdRoom, participants);
           onClose();
       } catch (err) {
           // Toast handles the error display
