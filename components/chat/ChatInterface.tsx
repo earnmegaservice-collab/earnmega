@@ -2206,7 +2206,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           </div>
         </div>
 
-      {isGroupChat && user?.id && (
+            {isGroupChat && user?.id && currentOtherUserProfile && (
          <GroupInfoDrawer
            isOpen={isGroupInfoDrawerOpen}
            onClose={() => setIsGroupInfoDrawerOpen(false)}
@@ -2214,7 +2214,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            groupName={currentOtherUserProfile.name}
            groupAvatar={currentOtherUserProfile.avatarUrl}
            currentUserId={user.id}
-           onGroupUpdated={() => {
+           onGroupUpdated={() => window.location.reload()}
+         />
+      )}
+
               // Optionally trigger a chat list refresh if needed, for now just close
            }}
          />
