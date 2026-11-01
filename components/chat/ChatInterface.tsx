@@ -2206,7 +2206,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           </div>
         </div>
 
-      {isGroupChat && user?.id && (
+      {isGroupChat && user?.id && currentOtherUserProfile && (
          <GroupInfoDrawer
            isOpen={isGroupInfoDrawerOpen}
            onClose={() => setIsGroupInfoDrawerOpen(false)}
@@ -2647,7 +2647,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               );
           }
 
-          const isUser = message.sender === 'user';
+          const isUser = message.sender === 'user' || (message as any).sender_id === user?.id || (message as any).senderId === user?.id;
 
           const isTrayOpen = activeReactionId === message.id;
 
@@ -2700,11 +2700,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
                 <span
                     onClick={(e) => {
-  e.stopPropagation();
-  if (!isUser && isGroupChat) {
-    handleAvatarProfileClick((message as any).sender_id || (message as any).senderId);
-  }
-}}
+                      e.stopPropagation();
+                      if (!isUser && isGroupChat) {
+                        handleAvatarProfileClick((message as any).sender_id || (message as any).senderId);
+                      }
+                    }}
                     className={`text-xs drop-shadow-sm font-bold ${!isUser && isGroupChat ? 'cursor-pointer hover:underline ' + getDeterministicColor((message as any).sender_id || (message as any).senderId) : ''} ${
                   (isUser && (subscriptionTier?.toLowerCase() === 'premium' || subscriptionTier?.toLowerCase() === 'pro')) || (!isUser && !isGroupChat && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro'))
                     ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent drop-shadow-md font-black'
@@ -2727,13 +2727,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 {!isUser && (
                   <div
                     onClick={(e) => {
-  e.stopPropagation();
-  if (isGroupChat) {
-    handleAvatarProfileClick((message as any).sender_id || (message as any).senderId);
-  } else {
-    openProfile(currentOtherUserProfile);
-  }
-}}
+                      e.stopPropagation();
+                      if (isGroupChat) {
+                        handleAvatarProfileClick((message as any).sender_id || (message as any).senderId);
+                      } else {
+                        openProfile(currentOtherUserProfile);
+                      }
+                    }}
                     className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
                       !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[1.5px]' :
                       !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
