@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { LiveKitRoom, VideoTrack, RoomAudioRenderer, useTracks, useLocalParticipant, useConnectionState, useParticipants } from '@livekit/components-react';
-import { Track, ConnectionState } from 'livekit-client';
+import { LiveKitRoom, VideoTrack, RoomAudioRenderer, useTracks, useLocalParticipant, useConnectionState, useParticipants, useRoomContext } from '@livekit/components-react';
+import { Track, ConnectionState, RoomEvent } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import { Video, Mic, MicOff, Camera, CameraOff, RefreshCw, Sparkles, X, Search, Flame, Music, MessageSquare, Gamepad2, Diamond, Heart, Gift, Share2, Send, Users, Crown, Trophy, Plus, Check, Radio, Coins, Zap, Clock } from 'lucide-react';
@@ -509,14 +509,24 @@ function MasterLiveGiftOverlay({
 // ============================================================================
 // INNER LIVEKIT PUBLISHER FOR HOST
 // ============================================================================
-function HostLiveKitPublisher({
-  localStream
-}: {
-  localStream: MediaStream | null;
-}) {
+export interface HostPublisherRef {
+  broadcastEnd: (duration: string, peakViewers: number) => Promise<void>;
+}
+
+const HostLiveKitPublisher = forwardRef<HostPublisherRef, { localStream: MediaStream | null }>(({ localStream }, ref) => {
   const {
     localParticipant
   } = useLocalParticipant();
+
+  useImperativeHandle(ref, () => ({
+    broadcastEnd: async (duration: string, peakViewers: number) => {
+      if (localParticipant) {
+        const payload = new TextEncoder().encode(JSON.stringify({ type: 'HOST_ENDED_LIVE', duration, peakViewers }));
+        await localParticipant.publishData(payload, { reliable: true });
+      }
+    }
+  }));
+
   useEffect(() => {
     if (localParticipant && localStream) {
       let publishedTrackRefs: any[] = [];
@@ -535,11 +545,44 @@ function HostLiveKitPublisher({
     }
   }, [localParticipant, localStream]);
   return null;
-}
+});
 
 // ============================================================================
 // INNER LIVEKIT VIDEO & HARDWARE CONTROLLER
 // ============================================================================
+
+function ViewerDataListener({ onHostEnded, hostId }: { onHostEnded: (duration?: string, peak?: number) => void, hostId?: string }) {
+  const room = useRoomContext();
+
+  useEffect(() => {
+    if (!room) return;
+
+    const handleData = (payload: Uint8Array, participant?: any) => {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(payload));
+        if (data.type === 'HOST_ENDED_LIVE') {
+          onHostEnded(data.duration, data.peakViewers);
+        }
+      } catch (e) {}
+    };
+
+    const handleParticipantDisconnected = (participant: any) => {
+      if (participant.identity === hostId) {
+        onHostEnded();
+      }
+    };
+
+    room.on(RoomEvent.DataReceived, handleData);
+    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+
+    return () => {
+      room.off(RoomEvent.DataReceived, handleData);
+      room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+    };
+  }, [room, onHostEnded, hostId]);
+  return null;
+}
+
 function LiveKitVideoStage({
   role,
   isMicMuted,
@@ -562,8 +605,12 @@ function LiveKitVideoStage({
   const connectionState = useConnectionState();
   useEffect(() => {
     if (role === 'host' && localParticipant) {
-      localParticipant.setMicrophoneEnabled(!isMicMuted).catch(() => {});
-      localParticipant.setCameraEnabled(!isCamOff).catch(() => {});
+      try {
+        localParticipant.setCameraEnabled(!isCamOff).catch(() => {});
+      } catch (err) {}
+      try {
+        localParticipant.setMicrophoneEnabled(!isMicMuted).catch(() => {});
+      } catch (err) {}
     }
   }, [role, isMicMuted, isCamOff, localParticipant]);
   useEffect(() => {
@@ -574,8 +621,14 @@ function LiveKitVideoStage({
     }, 8000);
     return () => clearTimeout(timer);
   }, [connectionState, onTimeout]);
+  const remoteTrack = tracks.find(t => !t.participant.isLocal && t.publication?.track);
+  const localTrack = tracks.find(t => t.participant.isLocal && t.publication?.track);
+
   return <div className="relative h-full w-full bg-[#070709] overflow-hidden">
-      {!tracks || tracks.length === 0 ? <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-[#12091d] via-[#09090d] to-black">
+      {role === 'host' ? (
+        localTrack ? <VideoTrack trackRef={localTrack} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} /> : <div className="w-full h-full bg-black"></div>
+      ) : (
+        !remoteTrack ? <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-[#12091d] via-[#09090d] to-black">
           <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/30">
             <div className="absolute inset-0 rounded-full border-2 border-pink-500 animate-ping opacity-30" />
             <Radio className="h-10 w-10 text-pink-500 animate-pulse" />
@@ -583,7 +636,8 @@ function LiveKitVideoStage({
           <p className="mt-4 text-sm font-medium text-white/70 tracking-wide">
             Connecting High-Definition Stream...
           </p>
-        </div> : tracks.length > 0 && tracks[0] ? <VideoTrack trackRef={tracks[0]} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} /> : null}
+        </div> : <VideoTrack trackRef={remoteTrack} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} />
+      )}
     </div>;
 }
 
@@ -672,6 +726,7 @@ export default function LiveArena({
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const hostPublisherRef = useRef<HostPublisherRef>(null);
 
   // --------------------------------------------------------------------------
   // 1. LOBBY REALTIME SUBSCRIPTION & USER AUTH
@@ -859,7 +914,7 @@ export default function LiveArena({
     setStreamStartMs(stream.started_at || stream.created_at ? new Date(stream.started_at || stream.created_at).getTime() : Date.now());
 
     // Deterministic room name resolution
-    const actualRoomName = stream.livekit_room_name || stream.room_id || `live_${stream.host_id}`;
+    const actualRoomName = `live_${stream.host_id || (stream as any).user_id}`;
     try {
       const res = await fetch(`/api/livekit?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(user.username)}&role=${role}`);
       if (!res.ok) {
@@ -1003,9 +1058,12 @@ export default function LiveArena({
   };
   const handleEndOrLeaveStream = async () => {
     if (role === 'host') {
+      if (hostPublisherRef.current) {
+        await hostPublisherRef.current.broadcastEnd(liveDuration, peakViewers).catch(() => {});
+      }
       const streamIdToUpdate = currentStreamDbId || currentStream?.id;
       if (streamIdToUpdate) {
-        await supabase.from('live_streams').delete().eq('host_id', user.id);
+        await supabase.from('live_streams').update({ status: 'ended', is_live: false }).eq('host_id', user.id);
         supabase.channel('global-live-arena').send({
           type: 'broadcast',
           event: 'stream-ended',
@@ -1014,12 +1072,17 @@ export default function LiveArena({
           }
         });
       }
+      setEndedAtFormatted(new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      }));
+      setStage('ended');
+    } else {
+      setLivekitToken('');
+      setCurrentStream(null);
+      setCurrentStreamDbId(null);
+      setStage('lobby');
     }
-    setEndedAtFormatted(new Date().toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit'
-    }));
-    setStage('ended');
   };
 
   // ==========================================================================
@@ -1030,6 +1093,52 @@ export default function LiveArena({
   // STAGE 4: ACTIVE BROADCAST & VIEWER ARENA
   // ==========================================================================
   const goalProgress = currentStream ? Math.min(100, Math.round((currentStream.gift_goal_current || 0) / (currentStream.gift_goal_target || 500) * 100)) : 0;
+  const handleHostEnded = useCallback((durationStr?: string, peak?: number) => {
+    if (roleRef.current === 'viewer') {
+      if (durationStr) setLiveDuration(durationStr);
+      if (peak !== undefined) setPeakViewers(peak);
+
+      setEndedAtFormatted(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      setStage('ended');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (stage !== 'live' || role !== 'viewer' || !currentStream) return;
+
+    const streamId = currentStream.id;
+
+    const channel = supabase.channel(`stream_status_${streamId}`).on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'live_streams',
+      filter: `id=eq.${streamId}`
+    }, payload => {
+      if (payload.new.status === 'ended' || payload.new.is_live === false) {
+        handleHostEnded();
+      }
+    }).on('postgres_changes', {
+      event: 'DELETE',
+      schema: 'public',
+      table: 'live_streams',
+      filter: `id=eq.${streamId}`
+    }, () => {
+      handleHostEnded();
+    }).subscribe();
+
+    const pollInterval = setInterval(async () => {
+      const { data, error } = await supabase.from('live_streams').select('id, status, is_live').eq('id', streamId).maybeSingle();
+      if (error || !data || data.status === 'ended' || data.is_live === false) {
+        handleHostEnded();
+      }
+    }, 4000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
+    };
+  }, [stage, role, currentStream, handleHostEnded]);
+
   useEffect(() => {
     currentStreamDbIdRef.current = currentStreamDbId;
   }, [currentStreamDbId]);
@@ -1149,6 +1258,7 @@ export default function LiveArena({
     } else {
       const launchTimer = setTimeout(() => {
         console.info("[LIFECYCLE] Countdown finished, unmounting overlay");
+        stopPreviewCamera();
         setStreamStartMs(Date.now());
         setStage('live');
       }, 900);
@@ -1450,8 +1560,8 @@ export default function LiveArena({
         }
       }} />}
           {livekitToken && <LiveKitRoom
-    video={role === 'host'}
-    audio={role === 'host'}
+    video={role === 'host' ? true : false}
+    audio={role === 'host' ? true : false}
     options={{
       adaptiveStream: true,
       dynacast: true,
@@ -1476,7 +1586,8 @@ export default function LiveArena({
         setStage('ended');
       }}>
               <LiveKitTracker hostId={currentStream?.host_id || user.id} hostUsername={currentStream?.host_username || user.username} onViewerCountChange={handleViewerCountChange} />
-              {role === 'host' ? <HostLiveKitPublisher localStream={localStream} /> : <LiveKitVideoStage role={role} isMicMuted={isMicMuted} isCamOff={isCamOff} beautyMode={beautyMode} onTimeout={handleTimeout} />}
+              {role === 'host' ? <HostLiveKitPublisher ref={hostPublisherRef} localStream={localStream} /> : <LiveKitVideoStage role={role} isMicMuted={isMicMuted} isCamOff={isCamOff} beautyMode={beautyMode} onTimeout={handleTimeout} />}
+              {role === 'viewer' && <ViewerDataListener onHostEnded={handleHostEnded} hostId={currentStream?.host_id || (currentStream as any)?.user_id} />}
               <RoomAudioRenderer />
             </LiveKitRoom>}
         </>}
@@ -1488,7 +1599,7 @@ export default function LiveArena({
       {currentStream && <LiveGiftOverlay streamId={currentStream.id} localIncomingGift={localIncomingGift} />}
 
       {/* 2.5 LIVE TIMER PILL */}
-      {(stage === 'live' || stage === 'ended') && <div className="absolute top-4 left-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-xl">
+      {role === 'host' && (stage === 'live' || stage === 'ended') && <div className="absolute top-4 left-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-xl">
           <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
           <span className="text-white/90 font-mono text-sm tracking-widest font-medium">
             {liveDuration}
