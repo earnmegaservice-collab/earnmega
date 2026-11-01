@@ -676,6 +676,13 @@ export default function LiveArena({
   // --------------------------------------------------------------------------
   // 1. LOBBY REALTIME SUBSCRIPTION & USER AUTH
   // --------------------------------------------------------------------------
+
+  const handleTimeout = useCallback(() => {
+    setConnectionError("Connection Timed Out.");
+    toast.error("Connection Timed Out.");
+    setLivekitToken('');
+  }, []);
+
   const handleViewerCountChange = useCallback((count: number) => {
     setViewerCount(count);
     setPeakViewers(prev => Math.max(prev, count));
@@ -1469,11 +1476,7 @@ export default function LiveArena({
         setStage('ended');
       }}>
               <LiveKitTracker hostId={currentStream?.host_id || user.id} hostUsername={currentStream?.host_username || user.username} onViewerCountChange={handleViewerCountChange} />
-              {role === 'host' ? <HostLiveKitPublisher localStream={localStream} /> : <LiveKitVideoStage role={role} isMicMuted={isMicMuted} isCamOff={isCamOff} beautyMode={beautyMode} onTimeout={useCallback(() => {
-          setConnectionError("Connection Timed Out.");
-          toast.error("Connection Timed Out.");
-          setLivekitToken('');
-        }, [])} />}
+              {role === 'host' ? <HostLiveKitPublisher localStream={localStream} /> : <LiveKitVideoStage role={role} isMicMuted={isMicMuted} isCamOff={isCamOff} beautyMode={beautyMode} onTimeout={handleTimeout} />}
               <RoomAudioRenderer />
             </LiveKitRoom>}
         </>}
