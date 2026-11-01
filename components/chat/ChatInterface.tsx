@@ -15,6 +15,7 @@ import VerifiedBadge from '../ui/VerifiedBadge';
 import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, Settings, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus, ShieldCheck , AtSign, BarChart2, CalendarPlus} from "lucide-react";
 import { toast } from 'react-hot-toast';
 import { submitUserReport } from '../../app/actions/submitUserReport';
+import { dispatchNotificationAction } from '../../app/actions/dispatchNotificationAction';
 import { deleteConversationPermanently, clearChatPermanently } from '../../utils/deleteUtils';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
@@ -2051,6 +2052,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     content: `[STATUS_LIKE]\n\nLiked your status`,
                     status: 'sent'
                  });
+
+                 dispatchNotificationAction({
+                    recipientId: viewingStatuses.groupId,
+                    actorId: user.id,
+                    type: 'STATUS_LIKED',
+                    title: 'Status Liked',
+                    body: `${user.user_metadata?.username || 'Someone'} liked your status`
+                 }).catch(console.error);
 
                  channelRef.current?.send({
                     type: 'broadcast',

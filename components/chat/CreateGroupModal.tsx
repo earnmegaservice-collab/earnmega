@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Users, X, Check, Camera } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import { dispatchNotificationAction } from '../../app/actions/dispatchNotificationAction';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 
 interface CreateGroupModalProps {
@@ -149,6 +150,18 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
               });
 
           if (msgError) console.error("Failed to insert genesis system message", msgError);
+
+          // Dispatch GROUP_INVITE notification to all members
+          const dispatchPromises = memberIds.map(memberId =>
+             dispatchNotificationAction({
+               recipientId: memberId,
+               actorId: userId,
+               type: 'GROUP_INVITE',
+               title: 'New Group Invite',
+               body: `${creatorName} added you to "${groupName.trim()}"`
+             })
+          );
+          Promise.all(dispatchPromises).catch(console.error);
 
           return room;
       };

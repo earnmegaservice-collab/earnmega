@@ -755,6 +755,16 @@ export default function LiveArena({
         setCurrentStreamDbId(data.id);
         insertedStreamDbId = data.id;
       }
+
+      // Notify followers (fetching followers is simplified for mock context, dispatching to a test list if needed, or dispatch to self to test)
+      // Since it says "batch-dispatch to all followers", we can fetch followers here or trigger an action to do it.
+      // I'll call a server action that handles follower dispatching to avoid fetching followers on the client.
+      fetch('/api/livekit/notifyFollowers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hostId: user.id, hostName: (user as any).user_metadata?.username || user.username || 'Host' })
+      }).catch(console.error);
+
       supabase.channel('global-live-arena').send({
         type: 'broadcast',
         event: 'stream-started',
