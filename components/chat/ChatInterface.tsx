@@ -2206,7 +2206,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           </div>
         </div>
 
-      {currentOtherUserProfile?.isGroup && user?.id && (
+      {isGroupChat && user?.id && (
          <GroupInfoDrawer
            isOpen={isGroupInfoDrawerOpen}
            onClose={() => setIsGroupInfoDrawerOpen(false)}
@@ -2666,9 +2666,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                    {!isUser && isGroupChat && (
                       <div className="w-6 h-6 rounded-full self-end shrink-0 mb-1 flex items-center justify-center bg-white/10 overflow-hidden">
                         {message.senderAvatar ? (
-                           <img src={message.senderAvatar} className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); if (message.senderId) handleAvatarProfileClick(message.senderId); }} />
+                           <img src={message.senderAvatar} className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); if ((message as any).sender_id || (message as any).senderId) handleAvatarProfileClick((message as any).sender_id || (message as any).senderId); }} />
                         ) : (
-                           <span className="text-[10px] font-bold text-white/50 cursor-pointer" onClick={(e) => { e.stopPropagation(); if (message.senderId) handleAvatarProfileClick(message.senderId); }}>{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
+                           <span className="text-[10px] font-bold text-white/50 cursor-pointer" onClick={(e) => { e.stopPropagation(); if ((message as any).sender_id || (message as any).senderId) handleAvatarProfileClick((message as any).sender_id || (message as any).senderId); }}>{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
                         )}
                       </div>
                    )}
@@ -2699,12 +2699,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 )}
 
                 <span
-                    onClick={() => {
-                       if (!isUser && isGroupChat) {
-                           // Try to find full profile info if possible, otherwise rely on ID event
-                           window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: (message as any).sender_id || (message as any).senderId || message.id } }));
-                       }
-                    }}
+                    onClick={(e) => {
+  e.stopPropagation();
+  if (!isUser && isGroupChat) {
+    handleAvatarProfileClick((message as any).sender_id || (message as any).senderId);
+  }
+}}
                     className={`text-xs drop-shadow-sm font-bold ${!isUser && isGroupChat ? 'cursor-pointer hover:underline ' + getDeterministicColor((message as any).sender_id || (message as any).senderId) : ''} ${
                   (isUser && (subscriptionTier?.toLowerCase() === 'premium' || subscriptionTier?.toLowerCase() === 'pro')) || (!isUser && !isGroupChat && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro'))
                     ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent drop-shadow-md font-black'
@@ -2726,13 +2726,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 {/* Avatar for other */}
                 {!isUser && (
                   <div
-                    onClick={() => {
-                        if (isGroupChat) {
-                            window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: (message as any).sender_id || (message as any).senderId || message.id } }));
-                        } else {
-                            openProfile(currentOtherUserProfile);
-                        }
-                    }}
+                    onClick={(e) => {
+  e.stopPropagation();
+  if (isGroupChat) {
+    handleAvatarProfileClick((message as any).sender_id || (message as any).senderId);
+  } else {
+    openProfile(currentOtherUserProfile);
+  }
+}}
                     className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
                       !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[1.5px]' :
                       !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
@@ -3186,7 +3187,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     initial={{ opacity: 0, y: 10, scale: 0.9 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                    className="fixed bottom-[80px] left-4 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[280px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-2"
+                    className="absolute bottom-[60px] left-2 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[280px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-2"
                   >
                     <div className="grid grid-cols-3 gap-2">
                        <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
