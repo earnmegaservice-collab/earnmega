@@ -557,7 +557,7 @@ function LiveKitVideoStage({
     localParticipant
   } = useLocalParticipant();
   const tracks = useTracks([Track.Source.Camera], {
-    onlySubscribed: false
+    onlySubscribed: true
   });
   const connectionState = useConnectionState();
   useEffect(() => {
@@ -583,14 +583,7 @@ function LiveKitVideoStage({
           <p className="mt-4 text-sm font-medium text-white/70 tracking-wide">
             Connecting High-Definition Stream...
           </p>
-        </div> : tracks.length === 1 && tracks[0] ? <VideoTrack trackRef={tracks[0]} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} /> : <div className="grid h-full w-full grid-cols-2 gap-1 pt-24 pb-36 bg-black">
-          {tracks.slice(0, 4).map((trackRef, idx) => trackRef ? <div key={idx} className="relative h-full w-full overflow-hidden rounded-xl border border-white/10">
-              <VideoTrack trackRef={trackRef} className="h-full w-full object-cover" />
-              <div className="absolute bottom-2 left-2 rounded-md bg-black/60 backdrop-blur-md px-2 py-0.5 text-[11px] font-semibold text-white">
-                @{trackRef?.participant?.identity || 'User'}
-              </div>
-            </div> : null)}
-        </div>}
+        </div> : tracks.length > 0 && tracks[0] ? <VideoTrack trackRef={tracks[0]} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} /> : null}
     </div>;
 }
 
@@ -805,7 +798,7 @@ export default function LiveArena({
     }
     let tokenReceived = false;
     try {
-      const res = await fetch(`/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(user.username)}`);
+      const res = await fetch(`/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(user.username)}&role=${role}`);
       if (!res.ok) {
         throw new Error(`Failed to fetch LiveKit token: ${res.statusText}`);
       }
@@ -851,7 +844,7 @@ export default function LiveArena({
     // Deterministic room name resolution
     const actualRoomName = stream.livekit_room_name || stream.room_id || `live_${stream.host_id}`;
     try {
-      const res = await fetch(`/api/livekit?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(user.username)}`);
+      const res = await fetch(`/api/livekit?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(user.username)}&role=${role}`);
       if (!res.ok) {
         throw new Error(`Failed to fetch LiveKit token: ${res.statusText}`);
       }
@@ -1439,7 +1432,25 @@ export default function LiveArena({
           el.play().catch(() => {});
         }
       }} />}
-          {livekitToken && <LiveKitRoom video={role === 'viewer'} audio={role === 'viewer'} token={livekitToken} serverUrl="wss://earnmega-mbwh7c26.livekit.cloud" connect={true} className="h-full w-full" onDisconnected={() => {
+          {livekitToken && <LiveKitRoom
+    video={role === 'host'}
+    audio={role === 'host'}
+    options={{
+      adaptiveStream: true,
+      dynacast: true,
+      audioCaptureDefaults: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 48000,
+        channelCount: 1,
+      },
+      publishDefaults: {
+        dtx: true,
+        red: true,
+        simulcast: true,
+      },
+    }} token={livekitToken} serverUrl="wss://earnmega-mbwh7c26.livekit.cloud" connect={true} className="h-full w-full" onDisconnected={() => {
         setLivekitToken('');
         setEndedAtFormatted(new Date().toLocaleTimeString([], {
           hour: '2-digit',
