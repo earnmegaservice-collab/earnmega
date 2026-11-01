@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, X, MoreVertical, Edit2, UserPlus, Image as ImageIcon, ShieldAlert, UserMinus, Camera, Check, Link as LinkIcon, Copy, Clock, CheckCircle } from 'lucide-react';
+import { Users, X, MoreVertical, Edit2, UserPlus, Image as ImageIcon, ShieldAlert, UserMinus, Camera, Check, Link as LinkIcon, Copy, Clock, CheckCircle, Phone, Video, Search, MessageCircle, User } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { UserProfileDetails } from '../profile/UserProfileModal';
@@ -446,19 +446,21 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                  <p className="text-white/50 font-medium mt-2">Group • {participants.length} participants</p>
              </div>
 
-             {/* Admin Controls */}
-             {currentUserRole === 'admin' && (
-                <div className="px-6 mb-8 flex gap-3">
-                   <button onClick={() => setIsAddMemberModalOpen(true)} className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
-                      <UserPlus size={24} className="text-fuchsia-400 mb-2" />
-                      <span className="text-xs font-bold text-white tracking-wide">Add Members</span>
-                   </button>
-                   <button className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
-                      <ImageIcon size={24} className="text-blue-400 mb-2" />
-                      <span className="text-xs font-bold text-white tracking-wide">Media</span>
-                   </button>
-                </div>
-             )}
+             {/* Action Bar */}
+             <div className="px-6 mb-8 flex gap-3">
+                <button className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
+                   <Phone size={24} className="text-green-400 mb-2" />
+                   <span className="text-xs font-bold text-white tracking-wide">Audio</span>
+                </button>
+                <button className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
+                   <Video size={24} className="text-blue-400 mb-2" />
+                   <span className="text-xs font-bold text-white tracking-wide">Video</span>
+                </button>
+                <button className="flex-1 bg-white/10 hover:bg-white/15 border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center transition-all">
+                   <Search size={24} className="text-fuchsia-400 mb-2" />
+                   <span className="text-xs font-bold text-white tracking-wide">Search</span>
+                </button>
+             </div>
 
              {/* Admin Section: Invites & Requests */}
         {currentUserRole === 'admin' && (
@@ -511,7 +513,15 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
 
         {/* Participants List */}
              <div className="px-6 pb-20">
-                 <h3 className="text-sm font-black text-white/50 uppercase tracking-widest mb-4">Participants</h3>
+                 <div className="flex items-center justify-between mb-4">
+                     <h3 className="text-sm font-black text-white/50 uppercase tracking-widest">Participants</h3>
+                     {currentUserRole === 'admin' && (
+                         <button onClick={() => setIsAddMemberModalOpen(true)} className="flex items-center gap-2 text-fuchsia-400 text-sm font-bold hover:text-fuchsia-300 transition-colors">
+                             <UserPlus size={16} />
+                             Add Members
+                         </button>
+                     )}
+                 </div>
                  <div className="mb-4">
                      <input
                          type="text"
@@ -549,7 +559,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                                     </div>
                                 </div>
 
-                                {currentUserRole === 'admin' && !p.isSelf && (
+                                {!p.isSelf && (
                                     <div className="relative">
                                         <button
                                             onClick={() => setActiveMenuId(activeMenuId === p.id ? null : p.id)}
@@ -568,7 +578,19 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                                                         exit={{ opacity: 0, scale: 0.95, y: -10 }}
                                                         className="absolute right-0 top-10 mt-2 w-48 bg-neutral-900 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden"
                                                     >
-                                                        {p.role !== 'admin' && (
+                                                        <button
+                                                            className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white font-medium flex items-center gap-2"
+                                                        >
+                                                            <MessageCircle size={16} />
+                                                            Message {p.name}
+                                                        </button>
+                                                        <button
+                                                            className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white font-medium flex items-center gap-2"
+                                                        >
+                                                            <User size={16} />
+                                                            View Profile
+                                                        </button>
+                                                        {currentUserRole === 'admin' && p.role !== 'admin' && (
                                                             <button
                                                                 onClick={() => handleMakeAdmin(p.id, p.name)}
                                                                 className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white font-medium flex items-center gap-2"
@@ -577,13 +599,15 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                                                                 Promote to Admin
                                                             </button>
                                                         )}
-                                                        <button
-                                                            onClick={() => handleRemoveUser(p.id, p.name)}
-                                                            className="w-full text-left px-4 py-3 hover:bg-red-500/10 text-sm text-red-500 font-medium flex items-center gap-2"
-                                                        >
-                                                            <UserMinus size={16} />
-                                                            Remove Member
-                                                        </button>
+                                                        {currentUserRole === 'admin' && (
+                                                            <button
+                                                                onClick={() => handleRemoveUser(p.id, p.name)}
+                                                                className="w-full text-left px-4 py-3 hover:bg-red-500/10 text-sm text-red-500 font-medium flex items-center gap-2"
+                                                            >
+                                                                <UserMinus size={16} />
+                                                                Remove Member
+                                                            </button>
+                                                        )}
                                                     </motion.div>
                                                 </>
                                             )}

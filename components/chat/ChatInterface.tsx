@@ -2326,7 +2326,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         </button>
 
         <div
-          onClick={() => openProfile(currentOtherUserProfile)}
+          onClick={() => { if (isGroupChat) setIsGroupInfoDrawerOpen(true); else openProfile(currentOtherUserProfile); }}
           className={`relative w-8 h-8 rounded-full flex items-center justify-center shadow-lg mr-3 shrink-0 cursor-pointer ${
             currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[2px]' :
             currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
@@ -2532,10 +2532,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           if (message.isSystemMessage || (message.text && message.text.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
               const text = message.text?.startsWith('$$SYSTEM$$') ? message.text.substring(10).trim() : message.text;
               return (
-                  <div key={message.id} className="w-full flex justify-center my-4 relative z-10">
-                      <div className="px-4 py-1.5 rounded-full bg-[#111820] backdrop-blur-md border border-white/10 text-xs font-bold text-white/80 shadow-sm text-center max-w-[80%] break-words mx-auto">
-                          {text}
-                      </div>
+                  <div key={message.id} className="mx-auto my-2 px-3 py-1 rounded-full bg-zinc-800 text-zinc-400 text-xs text-center w-fit">
+                      {text}
                   </div>
               );
           }
