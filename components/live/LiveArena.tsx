@@ -506,36 +506,7 @@ function MasterLiveGiftOverlay({
     </motion.div>;
 }
 
-// ============================================================================
-// INNER LIVEKIT PUBLISHER FOR HOST
-// ============================================================================
-function HostLiveKitPublisher({
-  localStream
-}: {
-  localStream: MediaStream | null;
-}) {
-  const {
-    localParticipant
-  } = useLocalParticipant();
-  useEffect(() => {
-    if (localParticipant && localStream) {
-      let publishedTrackRefs: any[] = [];
-      localStream.getTracks().forEach(track => {
-        localParticipant.publishTrack(track).then(publishedTrack => {
-          publishedTrackRefs.push(publishedTrack);
-        }).catch(err => {
-          console.warn("Failed to publish track to LiveKit:", err);
-        });
-      });
-      return () => {
-        publishedTrackRefs.forEach(trackRef => {
-          localParticipant.unpublishTrack(trackRef);
-        });
-      };
-    }
-  }, [localParticipant, localStream]);
-  return null;
-}
+
 
 // ============================================================================
 // INNER LIVEKIT VIDEO & HARDWARE CONTROLLER
@@ -545,13 +516,13 @@ function LiveKitVideoStage({
   isMicMuted,
   isCamOff,
   beautyMode,
-  onTimeout
+
 }: {
   role: UserRole;
   isMicMuted: boolean;
   isCamOff: boolean;
   beautyMode: boolean;
-  onTimeout: () => void;
+
 }) {
   const {
     localParticipant
@@ -566,14 +537,7 @@ function LiveKitVideoStage({
       localParticipant.setCameraEnabled(!isCamOff).catch(() => {});
     }
   }, [role, isMicMuted, isCamOff, localParticipant]);
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (connectionState !== ConnectionState.Connected) {
-        onTimeout();
-      }
-    }, 8000);
-    return () => clearTimeout(timer);
-  }, [connectionState, onTimeout]);
+
     return <div className="relative h-full w-full bg-[#070709] overflow-hidden">
       {tracks && tracks.length > 0 && tracks[0] ? (
         <VideoTrack trackRef={tracks[0] as any} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} />
@@ -681,11 +645,6 @@ export default function LiveArena({
   // 1. LOBBY REALTIME SUBSCRIPTION & USER AUTH
   // --------------------------------------------------------------------------
 
-  const handleTimeout = useCallback(() => {
-    setConnectionError("Connection Timed Out.");
-    toast.error("Connection Timed Out.");
-    setLivekitToken('');
-  }, []);
 
   const handleViewerCountChange = useCallback((count: number) => {
     setViewerCount(count);
@@ -863,9 +822,9 @@ export default function LiveArena({
     setStreamStartMs(stream.started_at || stream.created_at ? new Date(stream.started_at || stream.created_at).getTime() : Date.now());
 
     // Deterministic room name resolution
-    const actualRoomName = stream.livekit_room_name || stream.room_id || `live_${stream.host_id}`;
+    const actualRoomName = `live_${stream.host_id}`;
     try {
-      const res = await fetch(`/api/livekit?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(user.username)}&role=${role}`);
+      const res = await fetch(`/api/livekit?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(user.username)}&role=viewer`);
       if (!res.ok) {
         throw new Error(`Failed to fetch LiveKit token: ${res.statusText}`);
       }
@@ -1006,6 +965,13 @@ export default function LiveArena({
     handleDispatchGift(LUXURY_GIFT_CATALOG[0], 1);
   };
   const handleEndOrLeaveStream = async () => {
+    if (role === 'viewer') {
+      setLivekitToken('');
+      setCurrentStream(null);
+      setStage('lobby');
+      return;
+    }
+
     if (role === 'host') {
       const streamIdToUpdate = currentStreamDbId || currentStream?.id;
       if (streamIdToUpdate) {
@@ -1117,7 +1083,9 @@ export default function LiveArena({
     };
   }, [stage]);
   useEffect(() => {
-    if (stage === 'setup' || stage === 'countdown' || stage === 'live' && role === 'host') {
+    // Only capture local media during setup or countdown.
+    // In 'live' stage, LiveKitRoom exclusively handles the media devices to avoid hardware locks on mobile.
+    if (stage === 'setup' || stage === 'countdown') {
       setLocalStream(currentStream => {
         if (currentStream && currentStream.active && currentStream.getVideoTracks().some(t => t.readyState === 'live')) {
           return currentStream;
@@ -1480,7 +1448,7 @@ export default function LiveArena({
         setStage('ended');
       }}>
               <LiveKitTracker hostId={currentStream?.host_id || user.id} hostUsername={currentStream?.host_username || user.username} onViewerCountChange={handleViewerCountChange} />
-              {role === 'host' ? <HostLiveKitPublisher localStream={localStream} /> : <LiveKitVideoStage role={role} isMicMuted={isMicMuted} isCamOff={isCamOff} beautyMode={beautyMode} onTimeout={handleTimeout} />}
+              <LiveKitVideoStage role={role} isMicMuted={isMicMuted} isCamOff={isCamOff} beautyMode={beautyMode}  />
               <RoomAudioRenderer />
             </LiveKitRoom>}
         </>}
