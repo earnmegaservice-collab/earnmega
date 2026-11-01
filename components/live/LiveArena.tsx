@@ -556,7 +556,7 @@ function LiveKitVideoStage({
   const {
     localParticipant
   } = useLocalParticipant();
-  const tracks = useTracks([Track.Source.Camera], {
+  const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: false }], {
     onlySubscribed: true
   });
   const connectionState = useConnectionState();
@@ -574,8 +574,11 @@ function LiveKitVideoStage({
     }, 8000);
     return () => clearTimeout(timer);
   }, [connectionState, onTimeout]);
-  return <div className="relative h-full w-full bg-[#070709] overflow-hidden">
-      {!tracks || tracks.length === 0 ? <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-[#12091d] via-[#09090d] to-black">
+    return <div className="relative h-full w-full bg-[#070709] overflow-hidden">
+      {tracks && tracks.length > 0 && tracks[0] ? (
+        <VideoTrack trackRef={tracks[0] as any} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} />
+      ) : (
+        <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-[#12091d] via-[#09090d] to-black">
           <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/30">
             <div className="absolute inset-0 rounded-full border-2 border-pink-500 animate-ping opacity-30" />
             <Radio className="h-10 w-10 text-pink-500 animate-pulse" />
@@ -583,7 +586,8 @@ function LiveKitVideoStage({
           <p className="mt-4 text-sm font-medium text-white/70 tracking-wide">
             Connecting High-Definition Stream...
           </p>
-        </div> : tracks.length > 0 && tracks[0] ? <VideoTrack trackRef={tracks[0]} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} /> : null}
+        </div>
+      )}
     </div>;
 }
 
