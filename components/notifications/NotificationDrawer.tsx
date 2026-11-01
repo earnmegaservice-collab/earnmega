@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, BellOff, X, Eye, Radio, Flame, Heart } from 'lucide-react';
+import { Bell, BellOff, X, Eye, Radio, Flame, Heart, ShieldCheck, UserPlus, Users, AlertCircle } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGlobalNotifications } from '../../context/NotificationContext';
@@ -20,6 +20,8 @@ export type LegacyNotification = {
 const getNotificationUI = (type: string) => {
   switch (type) {
     case 'status_view':
+    case 'STATUS_VIEW':
+    case 'STATUS_POSTED':
       return {
         icon: <Eye size={18} className="text-pink-400" />,
         colorClass: 'pink',
@@ -28,15 +30,17 @@ const getNotificationUI = (type: string) => {
         shadowClass: 'shadow-[0_0_30px_rgba(244,114,182,0.1)]',
         pulseClass: 'bg-pink-500 shadow-[0_0_10px_rgba(244,114,182,0.8)]'
       };
+    case 'LIVE_STARTED':
     case 'live_stream':
       return {
-        icon: <Radio size={18} className="text-red-400" />,
-        colorClass: 'red',
-        bgClass: 'bg-red-500/10',
-        borderClass: 'border-red-500/20',
-        shadowClass: 'shadow-[0_0_30px_rgba(248,113,113,0.1)]',
-        pulseClass: 'bg-red-500 shadow-[0_0_10px_rgba(248,113,113,0.8)]'
+        icon: <Radio size={18} className="text-amber-400" />,
+        colorClass: 'amber',
+        bgClass: 'bg-amber-500/10',
+        borderClass: 'border-amber-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(251,191,36,0.1)]',
+        pulseClass: 'bg-amber-500 shadow-[0_0_10px_rgba(251,191,36,0.8)]'
       };
+    case 'MATCH_FOUND':
     case 'match':
       return {
         icon: <Flame size={18} className="text-fuchsia-400" />,
@@ -45,6 +49,51 @@ const getNotificationUI = (type: string) => {
         borderClass: 'border-fuchsia-500/20',
         shadowClass: 'shadow-[0_0_30px_rgba(232,121,249,0.1)]',
         pulseClass: 'bg-fuchsia-500 shadow-[0_0_10px_rgba(232,121,249,0.8)]'
+      };
+    case 'REPORT_SUCCESS':
+      return {
+        icon: <ShieldCheck size={18} className="text-green-400" />,
+        colorClass: 'green',
+        bgClass: 'bg-green-500/10',
+        borderClass: 'border-green-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(74,222,128,0.1)]',
+        pulseClass: 'bg-green-500 shadow-[0_0_10px_rgba(74,222,128,0.8)]'
+      };
+    case 'STATUS_LIKED':
+      return {
+        icon: <Heart size={18} className="text-rose-400" />,
+        colorClass: 'rose',
+        bgClass: 'bg-rose-500/10',
+        borderClass: 'border-rose-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(251,113,133,0.1)]',
+        pulseClass: 'bg-rose-500 shadow-[0_0_10px_rgba(251,113,133,0.8)]'
+      };
+    case 'NEW_FOLLOWER':
+      return {
+        icon: <UserPlus size={18} className="text-sky-400" />,
+        colorClass: 'sky',
+        bgClass: 'bg-sky-500/10',
+        borderClass: 'border-sky-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(56,189,248,0.1)]',
+        pulseClass: 'bg-sky-500 shadow-[0_0_10px_rgba(56,189,248,0.8)]'
+      };
+    case 'GROUP_INVITE':
+      return {
+        icon: <Users size={18} className="text-violet-400" />,
+        colorClass: 'violet',
+        bgClass: 'bg-violet-500/10',
+        borderClass: 'border-violet-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(167,139,250,0.1)]',
+        pulseClass: 'bg-violet-500 shadow-[0_0_10px_rgba(167,139,250,0.8)]'
+      };
+    case 'SYSTEM_ALERT':
+      return {
+        icon: <AlertCircle size={18} className="text-red-500" />,
+        colorClass: 'red',
+        bgClass: 'bg-red-500/10',
+        borderClass: 'border-red-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(239,68,68,0.1)]',
+        pulseClass: 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'
       };
     case 'system':
     default:

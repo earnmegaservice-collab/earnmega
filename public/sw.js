@@ -10,8 +10,8 @@ self.addEventListener('push', function(event) {
     if (data.type === 'incoming_call') {
       const options = {
         body: `${data.callerName} is calling...`,
-        icon: data.callerAvatar || '/icon.svg',
-        badge: '/icon.svg',
+        icon: data.callerAvatar || '/icon-192x192.png',
+        badge: '/badge.png',
         vibrate: [1000, 500, 1000, 500, 1000, 500, 1000], // Heavy VoIP vibration
         requireInteraction: true, // Notification stays on screen until answered
         data: {
@@ -40,9 +40,11 @@ self.addEventListener('push', function(event) {
        // Other types of push notifications (e.g. stream start)
        const options = {
            body: data.body || 'New notification',
-           icon: data.icon || '/icon.svg',
-           badge: '/icon.svg',
-           vibrate: [200, 100, 200],
+           icon: data.icon || '/icon-192x192.png',
+           badge: '/badge.png',
+           vibrate: [200, 100, 200, 100, 200],
+           requireInteraction: true,
+           silent: false, // MANDATORY: Overrides silent delivery
            data: {
                url: data.url || '/'
            }

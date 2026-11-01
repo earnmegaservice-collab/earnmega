@@ -4,6 +4,7 @@ import { Resend } from 'resend';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { dispatchGlobalNotification } from '../../lib/notifications/dispatcher';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -81,6 +82,13 @@ export async function submitUserReport(formData: FormData) {
 
     if (insertError) {
       console.warn('[TRUST PIPELINE] Database insert failed:', insertError);
+    } else {
+      await dispatchGlobalNotification({
+        recipientId: reporterId,
+        type: 'REPORT_SUCCESS',
+        title: 'Report Received',
+        body: 'Your report has been successfully submitted and is under review.'
+      });
     }
 
     // Step 2: Hydrate User Data (Resolve UUIDs & Emails)

@@ -3,6 +3,7 @@ import DiscoveryRadar, { DiscoveredUser } from './DiscoveryRadar';
 import DiscoveryProfile from './DiscoveryProfile';
 import { useWallet } from '../../context/WalletContext';
 import { useAuth } from '../../context/AuthContext';
+import { dispatchNotificationAction } from '../../app/actions/dispatchNotificationAction';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { AnimatePresence } from 'framer-motion';
@@ -52,20 +53,22 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
 
       if (partError) throw partError;
 
-      // 3. Insert dual notifications
-      await supabase.from('notifications').insert([
-        {
-          user_id: authUser.id,
-          sender_id: discoveredUser.id,
-          type: 'match',
-          content: `You got a new match with ${discoveredUser.username}!`
-        },
-        {
-          user_id: discoveredUser.id,
-          sender_id: authUser.id,
-          type: 'match',
-          content: `You got a new match with ${authUser.user_metadata?.username || authUser.email || 'Someone'}!`
-        }
+      // 3. Insert dual notifications via Dispatcher
+      await Promise.all([
+        dispatchNotificationAction({
+          recipientId: authUser.id,
+          actorId: discoveredUser.id,
+          type: 'MATCH_FOUND',
+          title: 'New Match!',
+          body: `You got a new match with ${discoveredUser.username}!`
+        }),
+        dispatchNotificationAction({
+          recipientId: discoveredUser.id,
+          actorId: authUser.id,
+          type: 'MATCH_FOUND',
+          title: 'New Match!',
+          body: `You got a new match with ${authUser.user_metadata?.username || authUser.email || 'Someone'}!`
+        })
       ]);
 
       // 4. Initiate navigation
