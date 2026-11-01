@@ -17,5 +17,6 @@ export async function GET(request: Request) {
   const at = new AccessToken(apiKey, apiSecret, { identity: username });
   at.addGrant({ roomJoin: true, room: room, canPublish: role === 'host' });
 
-  return NextResponse.json({ token: await at.toJwt() });
+  const token = await at.toJwt();
+  return NextResponse.json({ token, wsUrl: process.env.NEXT_PUBLIC_LIVEKIT_URL || process.env.LIVEKIT_URL });
 }
