@@ -444,7 +444,7 @@ export default function ChatList({
 
   const finalFilteredUsers = filteredUsers.filter(u => {
     if (activeFilterTab === 'Unread') return (u.unreadCount ?? 0) > 0;
-    if (activeFilterTab === 'Groups') return u.isGroup === true;
+    if (activeFilterTab === 'Groups') return ((u as any).isGroup || (u as any).is_group || (u as any).type === 'group' || (u as any).room_type === 'group');
     return true;
   });
 

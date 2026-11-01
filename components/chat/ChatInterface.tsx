@@ -30,6 +30,7 @@ const CreateGroupModal = dynamic(() => import("./CreateGroupModal"), { ssr: fals
 const GroupInfoDrawer = dynamic(() => import("./GroupInfoDrawer"), { ssr: false });
 
 type Message = {
+  senderId?: string;
   id: string;
   text: string;
   sender: 'user' | 'other';
@@ -292,7 +293,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
         <div className="flex items-center space-x-2.5 p-2 rounded-2xl bg-white/[0.06] border border-white/15 backdrop-blur-2xl shadow-lg">
           <div className="w-10 h-12 rounded-lg overflow-hidden bg-black/50 border border-white/10 shrink-0">
             {mediaPreview && mediaPreview.startsWith('http') ? (
-              <img src={mediaPreview} alt="Status thumbnail" className="w-full h-full object-cover" />
+              <img src={mediaPreview} alt="Status thumbnail" className="w-full h-full object-cover " />
             ) : (
               <div className="w-full h-full p-1 bg-gradient-to-tr from-purple-800 to-indigo-900 flex items-center justify-center text-[7px] text-center font-bold text-white overflow-hidden">
                 {mediaPreview ? mediaPreview.slice(0, 15) + '...' : 'Status'}
@@ -832,6 +833,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                             messageType: msg.message_type === 'system' ? 'system' : undefined,
                             systemEventType: msg.system_event_type || null,
                             senderName,
+                            senderId: msg.sender_id,
                             senderAvatar,
                          };
                          return [...prev, newMessage];
@@ -1101,6 +1103,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               messageType: msg.message_type === 'system' ? 'system' : undefined,
               systemEventType: msg.system_event_type || null,
               senderName,
+                            senderId: msg.sender_id,
               senderAvatar,
             };
           });
@@ -1910,6 +1913,27 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
      setMediaCaption('');
   };
 
+  const handleAvatarProfileClick = async (userId: string) => {
+    if (!userId) return;
+    try {
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      if (data && !error) {
+        openProfile({
+          id: data.id,
+          name: data.username || data.full_name || "User",
+          avatarInitials: (data.username || data.full_name || "U").substring(0, 2).toUpperCase(),
+          avatarUrl: data.avatar_url,
+          bio: data.bio || "Avid Earnmega user",
+          tier: data.subscription_tier,
+          isVerified: data.is_verified,
+          ...data
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load profile", err);
+    }
+  };
+
   const handleReaction = (messageId: string, emoji: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setMessages((prev) =>
@@ -2464,7 +2488,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 groupMembers.length > 0 ? (
                   <span className="truncate">~You, {groupMembers.map(m => '~' + (m.profiles?.username || m.profiles?.full_name || m.username || 'User')).join(', ')}</span>
                 ) : (
-                  <span>Tap here for group info</span>
+                  <span className="cursor-pointer select-none" onClick={() => setIsGroupInfoDrawerOpen(true)}>Tap here for group info</span>
                 )
               ) : (
                 <>
@@ -2642,9 +2666,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                    {!isUser && isGroupChat && (
                       <div className="w-6 h-6 rounded-full self-end shrink-0 mb-1 flex items-center justify-center bg-white/10 overflow-hidden">
                         {message.senderAvatar ? (
-                           <img src={message.senderAvatar} className="w-full h-full object-cover" />
+                           <img src={message.senderAvatar} className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); if (message.senderId) handleAvatarProfileClick(message.senderId); }} />
                         ) : (
-                           <span className="text-[10px] font-bold text-white/50">{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
+                           <span className="text-[10px] font-bold text-white/50 cursor-pointer" onClick={(e) => { e.stopPropagation(); if (message.senderId) handleAvatarProfileClick(message.senderId); }}>{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
                         )}
                       </div>
                    )}
@@ -3162,7 +3186,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     initial={{ opacity: 0, y: 10, scale: 0.9 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                    className="absolute bottom-[52px] left-0 z-50 bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[280px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-2"
+                    className="fixed bottom-[80px] left-4 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[280px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-2"
                   >
                     <div className="grid grid-cols-3 gap-2">
                        <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
