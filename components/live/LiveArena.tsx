@@ -527,9 +527,7 @@ function LiveKitVideoStage({
   const {
     localParticipant
   } = useLocalParticipant();
-  const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: false }], {
-    onlySubscribed: true
-  });
+  const cameraTracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: false }]);
   const connectionState = useConnectionState();
   useEffect(() => {
     if (role === 'host' && localParticipant) {
@@ -538,9 +536,13 @@ function LiveKitVideoStage({
     }
   }, [role, isMicMuted, isCamOff, localParticipant]);
 
+    const activeTrack = role === 'host'
+      ? cameraTracks.find(t => t.participant.isLocal)
+      : cameraTracks.find(t => !t.participant.isLocal);
+
     return <div className="relative h-full w-full bg-[#070709] overflow-hidden">
-      {tracks && tracks.length > 0 && tracks[0] ? (
-        <VideoTrack trackRef={tracks[0] as any} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} />
+      {activeTrack ? (
+        <VideoTrack trackRef={activeTrack as any} className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`} />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-[#12091d] via-[#09090d] to-black">
           <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/30">
@@ -1460,7 +1462,7 @@ export default function LiveArena({
       {currentStream && <LiveGiftOverlay streamId={currentStream.id} localIncomingGift={localIncomingGift} />}
 
       {/* 2.5 LIVE TIMER PILL */}
-      {(stage === 'live' || stage === 'ended') && <div className="absolute top-4 left-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-xl">
+      {(stage === 'live' || stage === 'ended') && role === 'host' && <div className="absolute top-4 left-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-xl">
           <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
           <span className="text-white/90 font-mono text-sm tracking-widest font-medium">
             {liveDuration}
