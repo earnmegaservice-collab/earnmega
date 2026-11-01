@@ -748,7 +748,8 @@ export default function GroupInfoDrawer({
         await supabase.from('group_members').delete().match({ group_id: groupId, user_id: targetId });
         await supabase.from('room_participants').delete().match({ room_id: groupId, user_id: targetId });
         await supabase.from('conversation_participants').delete().match({ conversation_id: groupId, user_id: targetId });
-        await supabase.rpc('remove_participant', { room_id_param: groupId, target_user_id: targetId }).catch(() => {});
+        await supabase.rpc('remove_participant', { room_id_param: groupId, target_user_id: targetId });
+
 
         await fireSystemMessage(`${currentActorName} removed ${targetName}`, 'user_removed');
         toast.success(`${targetName} removed from group`);
