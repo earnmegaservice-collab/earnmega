@@ -28,6 +28,8 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   const [newGroupName, setNewGroupName] = useState(groupName);
   const [groupBio, setGroupBio] = useState('');
   const [newGroupBio, setNewGroupBio] = useState('');
+  const [groupCreatedAt, setGroupCreatedAt] = useState<string | null>(null);
+  const [creatorName, setCreatorName] = useState<string>('admin');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,9 +45,10 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
   const fetchRoomInfo = async () => {
     if (!groupId) return;
     try {
-      const { data, error } = await supabase.from('rooms').select('description').eq('id', groupId).single();
+      const { data, error } = await supabase.from('rooms').select('description, created_at').eq('id', groupId).single();
       if (data && !error) {
         setGroupBio(data.description || '');
+        if (data.created_at) setGroupCreatedAt(new Date(data.created_at).toLocaleDateString());
         setNewGroupBio(data.description || '');
       }
     } catch (err) {
@@ -84,6 +87,10 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
         });
         setParticipants(formatted);
         const myRole = participantData.find((p: any) => p.user_id === currentUserId)?.role || 'member';
+        const ownerOrAdmin = participantData.find((p: any) => p.role === 'owner' || p.role === 'admin');
+        if (ownerOrAdmin && ownerOrAdmin.profiles) {
+            setCreatorName((ownerOrAdmin.profiles as any)[0]?.name || (ownerOrAdmin.profiles as any)[0]?.username || (ownerOrAdmin.profiles as any)?.name || (ownerOrAdmin.profiles as any)?.username || 'admin');
+        }
         setCurrentUserRole(myRole);
       }
     } catch (err) {
@@ -441,6 +448,7 @@ export default function GroupInfoDrawer({ isOpen, onClose, groupId, groupName, g
                              )}
                          </div>
                          {groupBio && <p className="text-white/80 font-medium mt-2">{groupBio}</p>}
+<p className="text-white/40 text-xs mt-2">Created by {creatorName} on {groupCreatedAt || new Date().toLocaleDateString()}</p>
                      </div>
                  )}
                  <p className="text-white/50 font-medium mt-2">Group • {participants.length} participants</p>

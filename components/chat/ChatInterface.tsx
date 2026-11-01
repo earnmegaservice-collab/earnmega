@@ -2668,6 +2668,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
             >
               {/* Sender Name and Badge (Pro/Premium) */}
+              {!isUser && (
               <div className={`flex items-center space-x-1.5 mb-1 ${isUser ? 'mr-1' : 'ml-9'}`}>
                 {isUser && (subscriptionTier?.toLowerCase() === 'premium' || subscriptionTier?.toLowerCase() === 'pro') && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(251,191,36,0.4)] border border-amber-400/50">VIP</motion.span>
@@ -2692,6 +2693,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(251,191,36,0.4)] border border-amber-400/50">VIP</motion.span>
                 )}
               </div>
+
+              )}
 
               {/* Message Bubble Row */}
               <div className={`flex items-end space-x-2 max-w-[85%] relative`}>
@@ -2733,7 +2736,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   </div>
                 )}
 
-                {isUser && currentUserProfile && (
+                {false && currentUserProfile && (
                   <div
                     onClick={() => openProfile(currentUserProfile)}
                     className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer order-last ml-2 shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
