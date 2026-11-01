@@ -599,9 +599,7 @@ function LiveKitVideoStage({
   const {
     localParticipant
   } = useLocalParticipant();
-  const tracks = useTracks([Track.Source.Camera], {
-    onlySubscribed: true
-  });
+  const tracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: false }]);
   const connectionState = useConnectionState();
   useEffect(() => {
     if (role === 'host' && localParticipant) {
@@ -613,16 +611,9 @@ function LiveKitVideoStage({
       } catch (err) {}
     }
   }, [role, isMicMuted, isCamOff, localParticipant]);
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (connectionState !== ConnectionState.Connected) {
-        onTimeout();
-      }
-    }, 8000);
-    return () => clearTimeout(timer);
-  }, [connectionState, onTimeout]);
-  const remoteTrack = tracks.find(t => !t.participant.isLocal && t.publication?.track);
-  const localTrack = tracks.find(t => t.participant.isLocal && t.publication?.track);
+
+  const remoteTrack = tracks.find(t => !t.participant.isLocal && t.publication?.track) as any;
+  const localTrack = tracks.find(t => t.participant.isLocal && t.publication?.track) as any;
 
   return <div className="relative h-full w-full bg-[#070709] overflow-hidden">
       {role === 'host' ? (
