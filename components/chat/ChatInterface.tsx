@@ -12,7 +12,7 @@ import { v4 as uuidv4 } from "uuid";
 import { motion, AnimatePresence } from 'framer-motion';
 import { MediaPreview } from './MediaPreview';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, Settings, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus, ShieldCheck , AtSign, BarChart2, CalendarPlus} from "lucide-react";
+import { Camera, Mic, Gift, Send, Check, CheckCheck, Clock, Menu, Play, Pause, X, Store, Lock, EyeOff, Video, Phone, PhoneMissed, Users, MoreVertical, Search, Share, ShieldAlert, Trash2, Ban, Bookmark, Settings, ChevronRight, BellOff, Download, UserPlus, ArrowLeft, UserMinus, ShieldCheck, AtSign, BarChart2, CalendarPlus, Plus, ImageIcon, FileText } from "lucide-react";
 import { toast } from 'react-hot-toast';
 import { submitUserReport } from '../../app/actions/submitUserReport';
 import { dispatchNotificationAction } from '../../app/actions/dispatchNotificationAction';
@@ -47,11 +47,27 @@ type Message = {
   isSystemMessage?: boolean;
   systemEventType?: string;
   hiddenFor?: string[];
-  messageType?: 'missed_call' | 'text' | 'image' | 'audio' | 'gift' | 'completed_call';
+  messageType?: 'missed_call' | 'text' | 'image' | 'audio' | 'gift' | 'completed_call' | 'system';
   duration?: string;
   giftName?: string;
   giftCost?: number;
+  senderName?: string;
+  senderAvatar?: string;
 }
+
+const getDeterministicColor = (id: string | undefined) => {
+    if (!id) return 'text-white/70';
+    const colors = [
+        'text-emerald-400', 'text-amber-400', 'text-sky-400',
+        'text-violet-400', 'text-rose-400', 'text-fuchsia-400',
+        'text-cyan-400', 'text-indigo-400', 'text-teal-400'
+    ];
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+};
 
 const GOD_MODE = true;
 const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
@@ -780,6 +796,24 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               if (isRelevant) {
                   // Real-Time Message Hydration (Optimistic update for incoming messages)
                   if (msg.sender_id !== user.id) {
+                     let senderName;
+                     let senderAvatar;
+
+                     if (currentOtherUserProfile && (currentOtherUserProfile as any).isGroup && msg.message_type !== 'system' && !msg.is_system_message) {
+                        const member = groupMembers.find(m => m.user_id === msg.sender_id);
+                        if (member && member.profiles) {
+                            senderName = member.profiles.full_name || member.profiles.username;
+                            senderAvatar = member.profiles.avatar_url;
+                        } else {
+                            // Fallback fetch
+                            supabase.from('profiles').select('full_name, username, avatar_url').eq('id', msg.sender_id).single().then(({data: p}) => {
+                                if (p) {
+                                    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, senderName: p.full_name || p.username, senderAvatar: p.avatar_url } : m));
+                                }
+                            });
+                        }
+                     }
+
                      setMessages(prev => {
                          // Check if already in list
                          if (prev.some(m => m.id === msg.id)) return prev;
@@ -794,6 +828,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                             audioUrl: msg.audio_url,
                             isViewOnce: msg.is_view_once,
                             replyToId: msg.reply_to_id,
+                            isSystemMessage: msg.message_type === 'system' || msg.is_system_message || false,
+                            messageType: msg.message_type === 'system' ? 'system' : undefined,
+                            systemEventType: msg.system_event_type || null,
+                            senderName,
+                            senderAvatar,
                          };
                          return [...prev, newMessage];
                      });
@@ -1035,11 +1074,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                text = text.replace(/^\[REPLY:.*?\]\n\n/, '');
             }
 
+            let senderName;
+            let senderAvatar;
+
+            if (isGroupChat && msg.sender_id !== user.id && msg.message_type !== 'system' && !msg.is_system_message) {
+                const member = groupMembers.find(m => m.user_id === msg.sender_id);
+                if (member && member.profiles) {
+                    senderName = member.profiles.full_name || member.profiles.username;
+                    senderAvatar = member.profiles.avatar_url;
+                }
+            }
+
             return {
               id: msg.id,
               text,
-              sender:
- msg.sender_id === user.id ? 'user' : 'other',
+              sender: msg.sender_id === user.id ? 'user' : 'other',
               timestamp: new Date(msg.created_at),
               reactions: [],
               status: msg.status || 'read',
@@ -1048,10 +1097,36 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               replyToId,
               replyToSender,
               replyToText,
-              isSystemMessage: msg.is_system_message || false,
-              systemEventType: msg.system_event_type || null
+              isSystemMessage: msg.message_type === 'system' || msg.is_system_message || false,
+              messageType: msg.message_type === 'system' ? 'system' : undefined,
+              systemEventType: msg.system_event_type || null,
+              senderName,
+              senderAvatar,
             };
           });
+
+          // Fetch fallback profiles for group members not in groupMembers state yet
+          if (isGroupChat) {
+             const missingSenderIds = [...new Set(data
+                .filter(msg => msg.sender_id !== user?.id && msg.message_type !== 'system' && !msg.is_system_message)
+                .map(msg => msg.sender_id)
+                .filter(id => !groupMembers.some(m => m.user_id === id)))];
+
+             if (missingSenderIds.length > 0) {
+                 const { data: fallbackProfiles } = await supabase.from('profiles').select('id, full_name, username, avatar_url').in('id', missingSenderIds);
+                 if (fallbackProfiles) {
+                     formattedMessages.forEach(msg => {
+                         if (msg.sender === 'other' && !msg.senderName && missingSenderIds.includes(data.find(d => d.id === msg.id)?.sender_id)) {
+                             const p = fallbackProfiles.find(fp => fp.id === data.find(d => d.id === msg.id)?.sender_id);
+                             if (p) {
+                                 msg.senderName = p.full_name || p.username;
+                                 msg.senderAvatar = p.avatar_url;
+                             }
+                         }
+                     });
+                 }
+             }
+          }
 
           setMessages(formattedMessages);
 
@@ -1098,6 +1173,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
   const [inputValue, setInputValue] = useState('');
   const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [activeContextMenuId, setActiveContextMenuId] = useState<string | null>(null);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -2541,8 +2617,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           if (message.isSystemMessage || (message.text && message.text.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
               const text = message.text?.startsWith('$$SYSTEM$$') ? message.text.substring(10).trim() : message.text;
               return (
-                  <div key={message.id} className="mx-auto my-2 px-3 py-1 rounded-full bg-zinc-800 text-zinc-400 text-xs text-center w-fit">
-                      {text}
+                  <div key={message.id} className="my-2 flex justify-center select-none">
+                      <span className="px-3.5 py-1 rounded-full bg-zinc-900/90 border border-white/10 text-[11px] text-zinc-300 text-center shadow-sm max-w-[85%]">{text}</span>
                   </div>
               );
           }
@@ -2564,7 +2640,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                >
                  <div className="flex items-end space-x-2 max-w-[85%] relative">
                    {!isUser && isGroupChat && (
-                      <img src={(message as any).senderAvatar || '/placeholder.svg'} className="w-8 h-8 rounded-full self-end object-cover shrink-0 mb-1" />
+                      <div className="w-6 h-6 rounded-full self-end shrink-0 mb-1 flex items-center justify-center bg-white/10 overflow-hidden">
+                        {message.senderAvatar ? (
+                           <img src={message.senderAvatar} className="w-full h-full object-cover" />
+                        ) : (
+                           <span className="text-[10px] font-bold text-white/50">{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
+                        )}
+                      </div>
                    )}
 
                    <div className={`px-4 py-2.5 rounded-2xl border border-white/10 italic text-white/50 text-sm ${isUser ? 'bg-white/5 rounded-tr-sm' : 'bg-white/5 rounded-tl-sm'}`}>
@@ -2591,15 +2673,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(251,191,36,0.4)] border border-amber-400/50">VIP</motion.span>
                 )}
 
-                <span className={`text-xs drop-shadow-sm font-bold ${
-                  (isUser && (subscriptionTier?.toLowerCase() === 'premium' || subscriptionTier?.toLowerCase() === 'pro')) || (!isUser && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro'))
+                <span
+                    onClick={() => {
+                       if (!isUser && isGroupChat) {
+                           // Try to find full profile info if possible, otherwise rely on ID event
+                           window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: (message as any).sender_id || (message as any).senderId || message.id } }));
+                       }
+                    }}
+                    className={`text-xs drop-shadow-sm font-bold ${!isUser && isGroupChat ? 'cursor-pointer hover:underline ' + getDeterministicColor((message as any).sender_id || (message as any).senderId) : ''} ${
+                  (isUser && (subscriptionTier?.toLowerCase() === 'premium' || subscriptionTier?.toLowerCase() === 'pro')) || (!isUser && !isGroupChat && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro'))
                     ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent drop-shadow-md font-black'
-                    : 'text-white/70'
+                    : (!isUser && isGroupChat ? '' : 'text-white/70')
                 }`}>
-                  {isUser && currentUserProfile ? currentUserProfile.name : currentOtherUserProfile.name}
+                  {isUser && currentUserProfile ? currentUserProfile.name : (isGroupChat ? (message.senderName || 'User') : currentOtherUserProfile.name)}
                 </span>
 
-                {!isUser && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro') && (
+                {!isUser && !isGroupChat && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro') && (
                    <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(251,191,36,0.4)] border border-amber-400/50">VIP</motion.span>
                 )}
               </div>
@@ -2610,21 +2699,35 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 {/* Avatar for other */}
                 {!isUser && (
                   <div
-                    onClick={() => openProfile(currentOtherUserProfile)}
+                    onClick={() => {
+                        if (isGroupChat) {
+                            window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: (message as any).sender_id || (message as any).senderId || message.id } }));
+                        } else {
+                            openProfile(currentOtherUserProfile);
+                        }
+                    }}
                     className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
-                      currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[1.5px]' :
-                      currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
+                      !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[1.5px]' :
+                      !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
                       'border border-white/20 hover:border-white/40 bg-white/5 backdrop-blur-md'
                     }`}
                   >
-                    {currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
+                    {!isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
                       <div className="absolute inset-[-1.5px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
                     )}
                     <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
-                      {currentOtherUserProfile.avatarUrl ? (
-                         <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />
+                      {isGroupChat ? (
+                          message.senderAvatar ? (
+                             <img src={message.senderAvatar} className="w-full h-full object-cover rounded-full" />
+                          ) : (
+                             <span className="text-[10px] text-white/70 font-bold">{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
+                          )
                       ) : (
-                         <span className="text-[10px] text-white/70 font-bold">{currentOtherUserProfile.avatarInitials}</span>
+                          currentOtherUserProfile.avatarUrl ? (
+                             <img src={currentOtherUserProfile.avatarUrl} alt={currentOtherUserProfile.name} className="w-full h-full object-cover rounded-full" />
+                          ) : (
+                             <span className="text-[10px] text-white/70 font-bold">{currentOtherUserProfile.avatarInitials}</span>
+                          )
                       )}
                     </div>
                   </div>
@@ -3038,6 +3141,66 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           onSubmit={handleSendMessage}
           className="flex items-end bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-white/20 transition-shadow shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative z-10"
         >
+          <div className="relative flex items-center mr-2 mb-0.5 self-end">
+            <motion.button
+               whileTap={{ scale: 0.9 }}
+               type="button"
+               onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
+               className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm ${isAttachmentMenuOpen ? 'bg-fuchsia-600 text-white rotate-45' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 border border-white/5'}`}
+            >
+               <Plus size={22} className="transition-transform duration-300" />
+            </motion.button>
+
+            <AnimatePresence>
+              {isAttachmentMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsAttachmentMenuOpen(false)}></div>
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                    className="absolute bottom-[52px] left-0 z-50 bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[280px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-2"
+                  >
+                    <div className="grid grid-cols-3 gap-2">
+                       <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                           <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30 group-hover:bg-blue-500 group-hover:border-blue-400 transition-all text-blue-400 group-hover:text-white"><ImageIcon size={22}/></div>
+                           <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Photos</span>
+                       </button>
+                       <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); handleCameraClick(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                           <div className="w-12 h-12 rounded-full bg-rose-500/20 flex items-center justify-center border border-rose-500/30 group-hover:bg-rose-500 group-hover:border-rose-400 transition-all text-rose-400 group-hover:text-white"><Camera size={22}/></div>
+                           <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Camera</span>
+                       </button>
+                       <button type="button" onClick={() => setIsAttachmentMenuOpen(false)} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                           <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30 group-hover:bg-emerald-500 group-hover:border-emerald-400 transition-all text-emerald-400 group-hover:text-white"><FileText size={22}/></div>
+                           <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Document</span>
+                       </button>
+                       {isGroupChat && (
+                           <>
+                             <button type="button" onClick={() => setIsAttachmentMenuOpen(false)} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                                 <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30 group-hover:bg-purple-500 group-hover:border-purple-400 transition-all text-purple-400 group-hover:text-white"><BarChart2 size={22}/></div>
+                                 <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Poll</span>
+                             </button>
+                             <button type="button" onClick={() => setIsAttachmentMenuOpen(false)} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                                 <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30 group-hover:bg-cyan-500 group-hover:border-cyan-400 transition-all text-cyan-400 group-hover:text-white"><AtSign size={22}/></div>
+                                 <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Mention</span>
+                             </button>
+                           </>
+                       )}
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+
           <textarea
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
@@ -3047,96 +3210,71 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 handleSendMessage(e);
               }
             }}
-            placeholder={isGroupChat ? "Type a group message..." : "Type a message... (use **bold** or *italic*)"}
+            placeholder={isGroupChat ? "Type a group message..." : "Type a message..."}
             rows={1}
-            className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-white/50 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32"
+            className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-white/50 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32 px-2"
           />
-          <input
-            type="file"
-            accept="image/*"
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-          <div className="flex items-center space-x-1.5 ml-2 mb-0.5 self-end">
-            {isGroupChat && (
-              <>
+
+          <div className="flex items-center space-x-1.5 ml-1 mb-0.5 self-end">
+            {!inputValue.trim() && (
                 <motion.button
                   whileTap={{ scale: 0.9 }}
                   type="button"
-                  onClick={() => {}}
-                  className="w-10 h-10 shrink-0 text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
+                  onClick={handleCameraClick}
+                  disabled={isUploading}
+                  className="w-10 h-10 shrink-0 text-gray-400 hover:text-white bg-transparent rounded-full flex items-center justify-center transition-all disabled:opacity-50"
+                  aria-label="Upload Image"
                 >
-                  <AtSign size={20} />
+                  {isUploading ? (
+                    <div className="w-4 h-4 border-2 border-t-blue-500 border-gray-400 rounded-full animate-spin"></div>
+                  ) : (
+                    <Camera size={22} />
+                  )}
                 </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.9 }}
-                  type="button"
-                  onClick={() => {}}
-                  className="w-10 h-10 shrink-0 text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
-                >
-                  <BarChart2 size={20} />
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.9 }}
-                  type="button"
-                  onClick={() => {}}
-                  className="w-10 h-10 shrink-0 text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
-                >
-                  <CalendarPlus size={20} />
-                </motion.button>
-              </>
-            )}<motion.button
-              whileTap={{ scale: 0.9 }}
-              type="button"
-              onClick={handleCameraClick}
-              disabled={isUploading}
-              className="w-10 h-10 shrink-0 text-gray-400 hover:text-gray-200 bg-gray-900/50 hover:bg-gray-700/80 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm disabled:opacity-50"
-              aria-label="Upload Image"
-            >
-              {isUploading ? (
-                <div className="w-4 h-4 border-2 border-t-blue-500 border-gray-400 rounded-full animate-spin"></div>
-              ) : (
-                <Camera size={20} />
-              )}
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              type="button"
-              onClick={toggleRecording}
-              disabled={isUploading && !isRecording}
-              className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm disabled:opacity-50 ${
-                isRecording
-                  ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30 animate-pulse'
-                  : 'bg-gray-900/50 text-gray-400 hover:text-gray-200 hover:bg-gray-700/80'
-              }`}
-              aria-label="Record Voice Note"
-            >
-              {isRecording ? (
-                <span className="w-3 h-3 bg-red-500 rounded-sm"></span>
-              ) : (
-                <Mic size={20} />
-              )}
-            </motion.button>
-            {!(currentOtherUserProfile as any)?.isGroup && !currentOtherUserProfile.is_bot && (
+            )}
+
+            {!(currentOtherUserProfile as any)?.isGroup && !currentOtherUserProfile.is_bot && !inputValue.trim() && (
             <motion.button
               whileTap={{ scale: 0.9 }}
               type="button"
               onClick={() => setIsGiftModalOpen(true)}
-              className="w-10 h-10 shrink-0 text-gray-400 hover:text-yellow-500 bg-gray-900/50 hover:bg-gray-700/80 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm"
+              className="w-10 h-10 shrink-0 text-gray-400 hover:text-yellow-500 bg-transparent rounded-full flex items-center justify-center transition-all"
               aria-label="Send Gift"
             >
-              <Gift size={20} />
+              <Gift size={22} />
             </motion.button>
             )}
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              type="submit"
-              disabled={!inputValue.trim()}
-              className="w-10 h-10 shrink-0 bg-blue-600 text-white rounded-full flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:bg-gray-700 transition-colors"
-            >
-              <Send size={20} />
-            </motion.button>
+
+            {inputValue.trim() ? (
+                <motion.button
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  whileTap={{ scale: 0.9 }}
+                  type="submit"
+                  className="w-10 h-10 shrink-0 bg-emerald-500 text-white rounded-full flex items-center justify-center focus:outline-none shadow-lg shadow-emerald-500/20"
+                >
+                  <Send size={18} className="ml-0.5" />
+                </motion.button>
+            ) : (
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  type="button"
+                  onClick={toggleRecording}
+                  disabled={isUploading && !isRecording}
+                  className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all disabled:opacity-50 ${
+                    isRecording
+                      ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30 animate-pulse'
+                      : 'text-gray-400 hover:text-white bg-transparent'
+                  }`}
+                  aria-label="Record Voice Note"
+                >
+                  {isRecording ? (
+                    <span className="w-3 h-3 bg-red-500 rounded-sm"></span>
+                  ) : (
+                    <Mic size={22} />
+                  )}
+                </motion.button>
+            )}
           </div>
         </form>
       )}
@@ -3152,9 +3290,25 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                isOpen={isGroupModalOpen}
                onClose={() => setIsGroupModalOpen(false)}
                userId={user?.id || ''}
-               onGroupCreated={() => {
+               onGroupCreated={(room, members) => {
                    setIsGroupModalOpen(false);
                    setRefreshChatsKey(prev => prev + 1);
+                   if (room) {
+                       const groupProfile = {
+                           id: room.id,
+                           name: room.name,
+                           avatarInitials: (room.name || 'GR').substring(0, 2).toUpperCase(),
+                           avatarUrl: room.avatar_url,
+                           bio: room.description || 'Group Chat',
+                           isGroup: true,
+                           isOnline: true,
+                       };
+                       setOtherUserProfile(groupProfile as any);
+                       setGroupDetails(room);
+                       if (members) {
+                           setGroupMembers(members);
+                       }
+                   }
                }}
             />
          )}
