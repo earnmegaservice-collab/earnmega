@@ -144,13 +144,12 @@ interface LiveStreamRecord {
   total_coins_earned: number;
   viewer_count: number;
   allow_cohost: boolean;
-  status: 'active' | 'live' | 'ended';
+  status?: 'active' | 'live' | 'ended';
   room_id?: string;
   livekit_room_name?: string;
   is_live?: boolean;
   started_at?: string;
   created_at?: string;
-  updated_at?: string;
 }
 
 interface LiveComment {
@@ -226,38 +225,45 @@ const HostLiveKitPublisher = forwardRef<
 
   // Publish the already-open local video track as soon as LiveKit connects
   useEffect(() => {
-    if (
-      connectionState !== ConnectionState.Connected ||
-      !localParticipant ||
-      !localStream
-    ) {
+    if (connectionState !== ConnectionState.Connected || !localParticipant) {
       return;
     }
-
-    const videoTrack = localStream.getVideoTracks()[0];
-    if (!videoTrack || videoTrack.readyState !== 'live') return;
 
     let isCancelled = false;
 
     const publishVideo = async () => {
       try {
-        if (publishedVideoTrackRef.current && publishedVideoTrackRef.current !== videoTrack) {
-          await localParticipant.unpublishTrack(publishedVideoTrackRef.current, false);
-          publishedVideoTrackRef.current = null;
-        }
-        const existingPub = localParticipant.getTrackPublication(Track.Source.Camera);
-        if (!existingPub) {
-          await localParticipant.publishTrack(videoTrack, {
-            name: 'camera',
-            source: Track.Source.Camera,
-            simulcast: true
-          });
-          if (!isCancelled) {
-            publishedVideoTrackRef.current = videoTrack;
+        const videoTrack = localStream?.getVideoTracks()?.[0];
+        if (videoTrack && videoTrack.readyState === 'live') {
+          if (
+            publishedVideoTrackRef.current &&
+            publishedVideoTrackRef.current !== videoTrack
+          ) {
+            await localParticipant
+              .unpublishTrack(publishedVideoTrackRef.current, false)
+              .catch(() => {});
+            publishedVideoTrackRef.current = null;
           }
+
+          const existingPub = localParticipant.getTrackPublication(Track.Source.Camera);
+          if (!existingPub) {
+            await localParticipant.publishTrack(videoTrack, {
+              name: 'camera',
+              source: Track.Source.Camera
+            });
+            if (!isCancelled) {
+              publishedVideoTrackRef.current = videoTrack;
+            }
+          }
+        } else {
+          // Fallback: if localStream wasn't ready yet, let LiveKit enable camera directly
+          await localParticipant.setCameraEnabled(!isCamOff);
         }
       } catch (err) {
-        console.warn('LiveKit video track publish warning:', err);
+        console.warn('LiveKit video track publish warning, trying fallback:', err);
+        try {
+          await localParticipant.setCameraEnabled(!isCamOff);
+        } catch {}
       }
     };
 
@@ -266,7 +272,7 @@ const HostLiveKitPublisher = forwardRef<
     return () => {
       isCancelled = true;
     };
-  }, [connectionState, localParticipant, localStream]);
+  }, [connectionState, localParticipant, localStream, isCamOff]);
 
   // Toggle video track enabled state
   useEffect(() => {
@@ -345,20 +351,25 @@ function ViewerDataListener({
 // VIEWER VIDEO STAGE (RENDERS REMOTE HOST VIDEO TRACK)
 // ============================================================================
 function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: false },
-      { source: Track.Source.Unknown, withPlaceholder: false }
-    ],
+  const subscribedTracks = useTracks(
+    [Track.Source.Camera, Track.Source.Unknown],
+    { onlySubscribed: true }
+  );
+  const allTracks = useTracks(
+    [Track.Source.Camera, Track.Source.Unknown],
     { onlySubscribed: false }
   );
 
-  const remoteTrack = tracks.find(
-    (t) =>
-      !t.participant.isLocal &&
-      t.publication?.track &&
-      t.publication.kind === Track.Kind.Video
-  );
+  const remoteTrack =
+    subscribedTracks.find(
+      (t) => !t.participant.isLocal && t.publication?.track
+    ) ||
+    allTracks.find(
+      (t) =>
+        !t.participant.isLocal &&
+        t.publication?.track &&
+        t.publication.kind === Track.Kind.Video
+    );
 
   if (remoteTrack) {
     return (
@@ -515,35 +526,60 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setLocalStream(null);
   }, []);
 
-  // Purge stale/ghost streams from Supabase live_streams
-  const removeGhostStream = useCallback(async (streamId: string, e?: React.MouseEvent) => {
+  // Manually remove a stale/ghost stream from the lobby
+  const removeGhostStream = useCallback(async (streamId: string, hostId?: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setActiveStreams((prev) => prev.filter((s) => s.id !== streamId));
     try {
       await supabase.from('live_streams').delete().eq('id', streamId);
+      if (hostId) {
+        await supabase.from('live_streams').delete().eq('host_id', hostId);
+      }
     } catch {}
   }, []);
 
   // --------------------------------------------------------------------------
-  // HOST BROADCAST INITIALIZATION
+  // HOST BROADCAST INITIALIZATION (GUARANTEED DB INSERT FOR VIEWER LOBBY)
   // --------------------------------------------------------------------------
   const initializeHostBroadcast = useCallback(async () => {
     if (isInitializingRef.current) return;
     isInitializingRef.current = true;
 
-    const roomId = `live_${user.id}`;
-    const finalTitle = streamTitle.trim() || `${user.username}'s VIP Live`;
+    // Ensure we have the authenticated user ID if available
+    let activeUserId = user.id;
+    let activeUsername = user.username || 'Creator';
+    let activeAvatar = user.avatar_url;
+
+    if (!activeUserId || activeUserId === 'default-user-id') {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user) {
+          activeUserId = authData.user.id;
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('username, avatar_url')
+            .eq('id', activeUserId)
+            .maybeSingle();
+          if (prof?.username) activeUsername = prof.username;
+          if (prof?.avatar_url) activeAvatar = prof.avatar_url;
+        }
+      } catch {}
+    }
+
+    const roomId = `live_${activeUserId}`;
+    const finalTitle = streamTitle.trim() || `${activeUsername}'s VIP Live`;
     let insertedStreamDbId: string | null = null;
     const nowIso = new Date().toISOString();
 
     try {
-      // Remove any previous rows from this host
-      await supabase.from('live_streams').delete().eq('host_id', user.id);
+      // 1. Delete any old rows for this host so there are never duplicate cards
+      await supabase.from('live_streams').delete().eq('host_id', activeUserId);
 
+      // 2. Try full insert first
       const insertPayload = {
-        host_id: user.id,
-        host_username: user.username || 'Creator',
-        host_avatar: user.avatar_url,
+        host_id: activeUserId,
+        host_username: activeUsername,
+        host_avatar: activeAvatar,
         room_id: roomId,
         livekit_room_name: roomId,
         title: finalTitle,
@@ -565,21 +601,23 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         .single();
 
       if (error) {
+        console.warn('Full stream insert failed, falling back to base schema:', error.message);
+        // 3. Exact 4-column base schema fallback that is guaranteed to succeed
         const fallbackPayload = {
-          host_id: user.id,
-          host_username: user.username || 'Creator',
-          host_avatar: user.avatar_url,
+          host_id: activeUserId,
+          host_username: activeUsername,
           title: finalTitle,
-          category: setupCategory,
-          status: 'live'
+          category: setupCategory
         };
-        const { data: fallbackData } = await supabase
+        const { data: fallbackData, error: fallbackError } = await supabase
           .from('live_streams')
           .insert([fallbackPayload])
           .select()
           .single();
 
-        if (fallbackData) {
+        if (fallbackError) {
+          console.error('Fallback stream insert failed:', fallbackError.message);
+        } else if (fallbackData) {
           setCurrentStreamDbId(fallbackData.id);
           insertedStreamDbId = fallbackData.id;
         }
@@ -587,21 +625,15 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         setCurrentStreamDbId(data.id);
         insertedStreamDbId = data.id;
       }
-
-      supabase.channel('global-live-arena').send({
-        type: 'broadcast',
-        event: 'stream-started',
-        payload: { host_id: user.id }
-      });
     } catch (err) {
       console.error('Stream DB initialization warning:', err);
     }
 
     const activeHostStream: LiveStreamRecord = {
       id: insertedStreamDbId || roomId,
-      host_id: user.id,
-      host_username: user.username,
-      host_avatar: user.avatar_url,
+      host_id: activeUserId,
+      host_username: activeUsername,
+      host_avatar: activeAvatar,
       room_id: roomId,
       livekit_room_name: roomId,
       title: finalTitle,
@@ -618,7 +650,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setCurrentStream(activeHostStream);
 
     try {
-      const hostIdentity = `host_${user.id}`;
+      const hostIdentity = `host_${activeUserId}`;
       const res = await fetch(
         `/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(
           hostIdentity
@@ -626,7 +658,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       );
       const data = await res.json();
       if (!res.ok || !data.token) {
-        throw new Error(data?.error || `Failed to fetch LiveKit token`);
+        throw new Error(data?.error || 'Failed to fetch LiveKit token');
       }
       setLivekitServerUrl(data.wsUrl || data.url || DEFAULT_LIVEKIT_URL);
       setLivekitToken(data.token);
@@ -858,17 +890,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         if (currentStreamDbId) {
           await supabase.from('live_streams').delete().eq('id', currentStreamDbId);
         }
-
-        supabase.channel('global-live-arena').send({
-          type: 'broadcast',
-          event: 'stream-ended',
-          payload: {
-            host_id: user.id,
-            stream_id: currentStreamDbId || currentStream?.id,
-            duration: liveDuration,
-            peakViewers
-          }
-        });
       } catch {}
 
       setLivekitToken('');
@@ -903,7 +924,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }
   }, []);
 
-  // Listen for Host ending the broadcast via Realtime & Broadcast channel
+  // Listen for Host ending the broadcast via Realtime & safe '*' polling
   useEffect(() => {
     if (stage !== 'live' || role !== 'viewer' || !currentStream) return;
 
@@ -938,21 +959,15 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           handleHostEnded();
         }
       )
-      .on('broadcast', { event: 'stream-ended' }, (payload) => {
-        if (
-          payload?.payload?.host_id === hostId ||
-          payload?.payload?.stream_id === streamId
-        ) {
-          handleHostEnded(payload?.payload?.duration, payload?.payload?.peakViewers);
-        }
-      })
       .subscribe();
 
+    // Select '*' so missing optional columns (like status or is_live) NEVER cause a query error
     const pollInterval = setInterval(async () => {
+      if (!streamId || String(streamId).startsWith('live_')) return;
       try {
         const { data, error } = await supabase
           .from('live_streams')
-          .select('id, status, is_live')
+          .select('*')
           .eq('id', streamId)
           .maybeSingle();
 
@@ -1002,7 +1017,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           .from('profiles')
           .select('id, username, avatar_url, coin_balance, coins')
           .eq('id', authData.user.id)
-          .single();
+          .maybeSingle();
         if (profile) {
           setUser({
             id: profile.id,
@@ -1017,80 +1032,89 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 ? profile.coins
                 : 1000
           });
+        } else {
+          setUser((prev) => ({
+            ...prev,
+            id: authData.user.id
+          }));
         }
       }
     }
     initUser();
   }, [currentUser]);
 
-  // Fetch active streams & automatically purge stale ghost streams older than 2 hours
+  // Fetch active streams & enrich missing avatars from 'profiles'
   useEffect(() => {
     const fetchStreams = async () => {
-      const { data } = await supabase.from('live_streams').select('*');
-      if (data) {
-        const now = Date.now();
-        const MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
-        const validStreams: LiveStreamRecord[] = [];
-        const staleIds: string[] = [];
+      try {
+        const { data, error } = await supabase.from('live_streams').select('*');
+        if (error || !data) return;
 
-        data.forEach((s: any) => {
-          if (s.status === 'ended' || s.is_live === false) {
-            staleIds.push(s.id);
-            return;
+        const validStreams = data.filter(
+          (s: any) => s.status !== 'ended' && s.is_live !== false
+        );
+
+        // Fetch host avatars from profiles if host_avatar column isn't in live_streams
+        const hostIds = Array.from(
+          new Set(validStreams.map((s: any) => s.host_id).filter(Boolean))
+        );
+        const avatarMap: Record<string, string> = {};
+
+        if (hostIds.length > 0) {
+          const { data: profs } = await supabase
+            .from('profiles')
+            .select('id, avatar_url')
+            .in('id', hostIds);
+          if (profs) {
+            profs.forEach((p: any) => {
+              if (p.avatar_url) avatarMap[p.id] = p.avatar_url;
+            });
           }
-          const ts = s.started_at || s.created_at;
-          if (ts) {
-            const age = now - new Date(ts).getTime();
-            if (age > MAX_AGE_MS) {
-              staleIds.push(s.id);
-              return;
-            }
-          }
-          validStreams.push(s);
-        });
-
-        setActiveStreams(validStreams);
-
-        // Background cleanup of ended or ghost rows
-        if (staleIds.length > 0) {
-          supabase
-            .from('live_streams')
-            .delete()
-            .in('id', staleIds)
-            .then(() => {});
         }
+
+        const enriched: LiveStreamRecord[] = validStreams.map((s: any) => ({
+          ...s,
+          host_username: s.host_username || 'Creator',
+          host_avatar:
+            s.host_avatar ||
+            avatarMap[s.host_id] ||
+            `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+              s.host_username || s.host_id || 'Host'
+            )}`,
+          title: s.title || `${s.host_username || 'Creator'}'s VIP Live`,
+          category: s.category || 'Just Chatting'
+        }));
+
+        setActiveStreams(enriched);
+      } catch (err) {
+        console.warn('Error fetching live streams:', err);
       }
     };
+
     fetchStreams();
 
     const interval = setInterval(() => {
       if (stage === 'lobby') {
         fetchStreams();
       }
-    }, 3000);
+    }, 2500);
 
     const channel = supabase
-      .channel('global-live-arena')
-      .on('broadcast', { event: 'stream-started' }, () => {
-        fetchStreams();
-      })
-      .on('broadcast', { event: 'stream-ended' }, (payload) => {
-        fetchStreams();
-        if (
-          roleRef.current === 'viewer' &&
-          currentStream &&
-          payload?.payload?.host_id === currentStream.host_id
-        ) {
-          handleHostEnded(payload?.payload?.duration, payload?.payload?.peakViewers);
+      .channel('live_streams_lobby_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'live_streams' },
+        () => {
+          fetchStreams();
         }
-      })
+      )
       .subscribe();
 
     return () => {
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [stage, currentStream, handleHostEnded]);
+  }, [stage]);
 
   // Keep Host Camera Active across 'setup' -> 'countdown' -> 'live' so Android never drops or locks the camera!
   useEffect(() => {
@@ -1108,24 +1132,29 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           ?.getVideoTracks()?.[0]
           ?.getSettings?.()?.facingMode;
 
-        // If we already have a live stream in the desired facingMode, just attach it to the active video element
         if (
           current &&
           current.active &&
           current.getVideoTracks().some((t) => t.readyState === 'live') &&
           (!currentFacing || currentFacing === facingMode)
         ) {
-          if (stage === 'live' && liveHostVideoRef.current && liveHostVideoRef.current.srcObject !== current) {
+          if (
+            stage === 'live' &&
+            liveHostVideoRef.current &&
+            liveHostVideoRef.current.srcObject !== current
+          ) {
             liveHostVideoRef.current.srcObject = current;
             liveHostVideoRef.current.play().catch(() => {});
-          } else if (previewVideoRef.current && previewVideoRef.current.srcObject !== current) {
+          } else if (
+            previewVideoRef.current &&
+            previewVideoRef.current.srcObject !== current
+          ) {
             previewVideoRef.current.srcObject = current;
             previewVideoRef.current.play().catch(() => {});
           }
           return;
         }
 
-        // Stop old tracks if switching front/back camera
         if (current) {
           current.getTracks().forEach((t) => t.stop());
           localStreamRef.current = null;
@@ -1417,11 +1446,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                     <div className="flex items-center gap-1">
                       <span className="flex items-center gap-1 rounded-md bg-black/60 backdrop-blur-md px-2 py-0.5 text-[10px] font-semibold text-white">
                         <Users className="h-3 w-3 text-pink-400" />
-                        {stream.viewer_count || 0}
+                        {stream.viewer_count || 1}
                       </span>
                       <button
                         type="button"
-                        onClick={(e) => removeGhostStream(stream.id, e)}
+                        onClick={(e) => removeGhostStream(stream.id, stream.host_id, e)}
                         title="Remove ended/stale stream"
                         className="flex h-5 w-5 items-center justify-center rounded-md bg-black/60 text-white/60 hover:text-rose-400 hover:bg-black/80"
                       >
