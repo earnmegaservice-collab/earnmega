@@ -1137,6 +1137,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           }
           break;
         }
+
+        case 'PARTICIPANT_LEFT': {
+          if (packet.identity) {
+            setPendingMicRequests((prev) => prev.filter((r) => r.userId !== packet.identity));
+            setActiveSpeakers((prev) => prev.filter((s) => s.userId !== packet.identity));
+          }
+          break;
+        }
       }
     },
     [user.id, spawnVisualHeartOnly]
@@ -1188,6 +1196,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             .maybeSingle();
           if (prof?.username) activeUsername = prof.username;
           if (prof?.avatar_url) activeAvatar = prof.avatar_url;
+
+          setUser((prev) => ({
+            ...prev,
+            id: activeUserId,
+            username: activeUsername,
+            avatar_url: activeAvatar
+          }));
         }
       } catch {}
     }
@@ -1588,9 +1603,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       stopCameraTracks();
 
       try {
-        await supabase.from('live_streams').delete().eq('host_id', user.id);
-        if (currentStreamDbId) {
-          await supabase.from('live_streams').delete().eq('id', currentStreamDbId);
+        await supabase.from('live_streams').delete().eq('host_id', currentStream?.host_id || user.id);
+        if (currentStreamDbId || currentStream?.id) {
+          await supabase.from('live_streams').delete().eq('id', currentStreamDbId || currentStream?.id);
         }
       } catch {}
 
@@ -1727,20 +1742,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   useEffect(() => {
     setIsMounted(true);
     const handleBeforeUnload = () => {
-      const streamId = currentStreamDbIdRef.current;
+      const streamId = currentStreamDbIdRef.current || currentStream?.id;
       const currentRole = roleRef.current;
       if (currentRole === 'host') {
         if (streamId) {
           supabase.from('live_streams').delete().eq('id', streamId);
         }
-        supabase.from('live_streams').delete().eq('host_id', user.id);
+        supabase.from('live_streams').delete().eq('host_id', currentStream?.host_id || user.id);
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [user.id]);
+  }, [user.id, currentStream]);
 
   useEffect(() => {
     async function initUser() {
@@ -2472,10 +2487,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       )}
 
       {/* 3. TOP HUD: HOST CAPSULE, RANKINGS, WALLET & VIEWER PILLS */}
-      <div className="absolute top-14 left-3 right-3 z-30 flex flex-col gap-2.5">
+      <div className={`absolute left-3 right-3 z-30 flex flex-col gap-2.5 ${role === 'host' ? 'top-14' : 'top-4'}`}>
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 rounded-full bg-black/45 backdrop-blur-xl border border-white/15 p-1 pr-2.5 shadow-lg">
-            <div className="relative h-9 w-9 rounded-full p-[1.5px] bg-gradient-to-tr from-pink-500 via-amber-400 to-purple-500">
+          <div className="flex items-center gap-2 rounded-full bg-black/45 backdrop-blur-xl border border-white/15 p-1 pr-2.5 shadow-lg min-w-0 flex-1">
+            <div className="relative h-9 w-9 shrink-0 rounded-full p-[1.5px] bg-gradient-to-tr from-pink-500 via-amber-400 to-purple-500">
               <img
                 src={currentStream?.host_avatar || user.avatar_url}
                 alt="Host"
@@ -2486,8 +2501,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               </span>
             </div>
 
-            <div className="flex flex-col">
-              <span className="max-w-[95px] truncate text-xs font-extrabold text-white">
+            <div className="flex flex-col min-w-0">
+              <span className="truncate text-xs font-extrabold text-white">
                 {currentStream?.host_username || user.username}
               </span>
               <span className="flex items-center gap-1 text-[10px] font-bold text-amber-300">
@@ -2501,7 +2516,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             {role === 'viewer' && (
               <button
                 onClick={() => setIsFollowing((prev) => !prev)}
-                className={`ml-1 flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-extrabold transition ${
+                className={`ml-1 shrink-0 flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-extrabold transition ${
                   isFollowing
                     ? 'bg-white/15 text-white/80'
                     : 'bg-gradient-to-r from-pink-500 to-rose-600 text-white shadow-[0_0_12px_rgba(244,63,94,0.5)]'
@@ -2513,7 +2528,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <motion.div
               animate={
                 coinPopTrigger
