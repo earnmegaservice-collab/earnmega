@@ -628,7 +628,6 @@ const LiveKitRoomBridge = forwardRef<
         try {
           const videoTrack = localStream?.getVideoTracks()?.[0];
           if (videoTrack && videoTrack.readyState === 'live') {
-            // Hint browser encoder for high-motion video clarity
             try {
               videoTrack.contentHint = 'motion';
             } catch {}
@@ -1336,7 +1335,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     };
     setComments((prev) => [...prev.slice(-60), tempMsg]);
 
-    // Broadcast immediately over LiveKit & Realtime so Host and Viewers see it instantly
     await dispatchArenaPacket({
       type: 'LIVE_COMMENT',
       comment: tempMsg
