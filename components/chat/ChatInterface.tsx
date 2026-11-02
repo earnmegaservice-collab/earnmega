@@ -374,6 +374,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isGroupInfoDrawerOpen, setIsGroupInfoDrawerOpen] = useState(false);
+  const setIsGroupInfoOpen = setIsGroupInfoDrawerOpen;
   const [activeGift, setActiveGift] = useState<{ id: string, icon: React.ReactNode } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -2427,16 +2428,16 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       </AnimatePresence>
 
       {/* Header */}
-      <header className="bg-black/60 backdrop-blur-xl px-4 py-3 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] flex items-center shrink-0 sticky top-0 z-20">
+      <header className="bg-black/60 backdrop-blur-xl px-4 py-3 border-b border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] flex items-center shrink-0 sticky top-0 z-20 cursor-pointer select-none" onClick={() => setIsGroupInfoOpen(true)}>
         <button
-          onClick={() => setOtherUserProfile(null)}
+          onClick={(e) => { e.stopPropagation(); setOtherUserProfile(null); }}
           className="mr-3 p-1.5 rounded-full hover:bg-white/10 text-white/70 transition-colors"
         >
           <X size={20} />
         </button>
 
         <div
-          onClick={() => { if (isGroupChat) setIsGroupInfoDrawerOpen(true); else openProfile(currentOtherUserProfile); }}
+          onClick={(e) => { e.stopPropagation(); if (isGroupChat) setIsGroupInfoOpen(true); else openProfile(currentOtherUserProfile); }}
           className={`relative w-8 h-8 rounded-full flex items-center justify-center shadow-lg mr-3 shrink-0 cursor-pointer ${
             currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[2px]' :
             currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
@@ -2454,7 +2455,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
              )}
            </div>
         </div>
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { if (isGroupChat) setIsGroupInfoDrawerOpen(true); else openProfile(currentOtherUserProfile); }}>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); if (isGroupChat) setIsGroupInfoOpen(true); else openProfile(currentOtherUserProfile); }}>
           <div className="flex items-center">
             <h1 className={`text-base leading-tight truncate drop-shadow-sm mr-2 ${
               currentOtherUserProfile.is_bot ? 'bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 drop-shadow-[0_0_10px_rgba(232,121,249,0.8)] font-extrabold' :
@@ -2505,7 +2506,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         </div>
 
         {/* Header Icons */}
-        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0 ml-auto mr-2">
+        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0 ml-auto mr-2" onClick={(e) => e.stopPropagation()}>
           {isGroupChat ? (
             <>
               <button className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center">
@@ -2667,9 +2668,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                    {!isUser && isGroupChat && (
                       <div className="w-6 h-6 rounded-full self-end shrink-0 mb-1 flex items-center justify-center bg-white/10 overflow-hidden">
                         {message.senderAvatar ? (
-                           <img src={message.senderAvatar} className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); if ((message as any).sender_id || (message as any).senderId) handleAvatarProfileClick((message as any).sender_id || (message as any).senderId); }} />
+                           <img src={message.senderAvatar} className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); if (message.senderId) handleAvatarProfileClick(message.senderId); }} />
                         ) : (
-                           <span className="text-[10px] font-bold text-white/50 cursor-pointer" onClick={(e) => { e.stopPropagation(); if ((message as any).sender_id || (message as any).senderId) handleAvatarProfileClick((message as any).sender_id || (message as any).senderId); }}>{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
+                           <span className="text-[10px] font-bold text-white/50 cursor-pointer" onClick={(e) => { e.stopPropagation(); if (message.senderId) handleAvatarProfileClick(message.senderId); }}>{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
                         )}
                       </div>
                    )}
@@ -2701,12 +2702,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
                 <span
                     onClick={(e) => {
-  e.stopPropagation();
-  if (!isUser && isGroupChat) {
-    handleAvatarProfileClick((message as any).sender_id || (message as any).senderId);
-  }
-}}
-                    className={`text-xs drop-shadow-sm font-bold ${!isUser && isGroupChat ? 'cursor-pointer hover:underline ' + getDeterministicColor((message as any).sender_id || (message as any).senderId) : ''} ${
+                      e.stopPropagation();
+                      if (!isUser && isGroupChat && message.senderId) {
+                        handleAvatarProfileClick(message.senderId);
+                      }
+                    }}
+                    className={`text-xs drop-shadow-sm font-bold ${!isUser && isGroupChat ? 'cursor-pointer hover:underline ' + getDeterministicColor(message.senderId) : ''} ${
                   (isUser && (subscriptionTier?.toLowerCase() === 'premium' || subscriptionTier?.toLowerCase() === 'pro')) || (!isUser && !isGroupChat && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro'))
                     ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent drop-shadow-md font-black'
                     : (!isUser && isGroupChat ? '' : 'text-white/70')
@@ -2728,13 +2729,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 {!isUser && (
                   <div
                     onClick={(e) => {
-  e.stopPropagation();
-  if (isGroupChat) {
-    handleAvatarProfileClick((message as any).sender_id || (message as any).senderId);
-  } else {
-    openProfile(currentOtherUserProfile);
-  }
-}}
+                      e.stopPropagation();
+                      if (isGroupChat && message.senderId) {
+                        handleAvatarProfileClick(message.senderId);
+                      } else {
+                        openProfile(currentOtherUserProfile);
+                      }
+                    }}
                     className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
                       !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[1.5px]' :
                       !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
@@ -3170,7 +3171,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           onSubmit={handleSendMessage}
           className="flex items-end bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-white/20 transition-shadow shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative z-10"
         >
-          <div className="relative flex items-center mr-2 mb-0.5 self-end">
+          <div className="flex items-center mr-2 mb-0.5 self-end">
             <motion.button
                whileTap={{ scale: 0.9 }}
                type="button"
@@ -3188,7 +3189,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     initial={{ opacity: 0, y: 10, scale: 0.9 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                    className="absolute bottom-[60px] left-2 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[280px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-2"
+                    className="absolute bottom-[60px] left-2 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[280px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-2 "
                   >
                     <div className="grid grid-cols-3 gap-2">
                        <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
