@@ -201,11 +201,14 @@ const CATEGORIES = [
 // ============================================================================
 // MASTER TIER GPU-ACCELERATED GIFT OVERLAY ENGINE (TRACK A & TRACK B)
 // ============================================================================
-function MasterLiveGiftOverlay({
-  incomingGift
-}: {
-  incomingGift: LiveGiftEvent | null;
-}) {
+export interface GiftOverlayHandle {
+  triggerGift: (gift: LiveGiftEvent) => void;
+}
+
+const MasterLiveGiftOverlay = forwardRef<
+  GiftOverlayHandle,
+  { streamId?: string }
+>(({ streamId }, ref) => {
   const [trackAQueue, setTrackAQueue] = useState<LiveGiftEvent[]>([]);
   const [activeTrackA, setActiveTrackA] = useState<LiveGiftEvent[]>([]);
   const [megaQueue, setMegaQueue] = useState<LiveGiftEvent[]>([]);
@@ -230,11 +233,41 @@ function MasterLiveGiftOverlay({
     }
   }, []);
 
-  useEffect(() => {
-    if (incomingGift) {
-      enqueueGift(incomingGift);
+  useImperativeHandle(ref, () => ({
+    triggerGift: (gift: LiveGiftEvent) => {
+      enqueueGift(gift);
     }
-  }, [incomingGift, enqueueGift]);
+  }));
+
+  // Also listen to Supabase 'live_gifts' table inserts as a backup channel
+  useEffect(() => {
+    if (!streamId) return;
+    const channel = supabase
+      .channel(`live_gifts_db_${streamId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'live_gifts',
+          filter: `stream_id=eq.${streamId}`
+        },
+        (payload) => {
+          const newGift = payload.new as LiveGiftEvent;
+          if (newGift) {
+            enqueueGift({
+              ...newGift,
+              id: newGift.id || `db-${Date.now()}-${Math.random()}`
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [streamId, enqueueGift]);
 
   // Process Track B (Mega Gifts >= 500 Coins pause Track A)
   useEffect(() => {
@@ -528,14 +561,16 @@ function MasterLiveGiftOverlay({
       </AnimatePresence>
     </motion.div>
   );
-}
+});
+MasterLiveGiftOverlay.displayName = 'MasterLiveGiftOverlay';
 
 // ============================================================================
-// REALTIME LIVEKIT BRIDGE (HANDLES HD VIDEO, 48KHZ AUDIO, LIKES, GIFTS & MIC)
+// REALTIME LIVEKIT BRIDGE (HD VIDEO, 48KHZ CLEAR AUDIO, LIKES, GIFTS & MIC)
 // ============================================================================
 export interface LiveKitBridgeRef {
   sendPacket: (payload: Record<string, any>) => Promise<void>;
   broadcastEnd: (duration: string, peakViewers: number) => Promise<void>;
+  unlockAudio: () => void;
 }
 
 const LiveKitRoomBridge = forwardRef<
@@ -594,8 +629,20 @@ const LiveKitRoomBridge = forwardRef<
             await localParticipant.publishData(encoded, { reliable: true });
           } catch {}
         }
+      },
+      unlockAudio: () => {
+        if (room) {
+          room.startAudio().catch(() => {});
+        }
       }
     }));
+
+    // Unlock browser audio output as soon as room connects
+    useEffect(() => {
+      if (room && connectionState === ConnectionState.Connected) {
+        room.startAudio().catch(() => {});
+      }
+    }, [room, connectionState]);
 
     // Track remote viewer count accurately
     useEffect(() => {
@@ -612,7 +659,7 @@ const LiveKitRoomBridge = forwardRef<
       onViewerCountChange(viewers.length);
     }, [participants, hostId, hostUsername, onViewerCountChange]);
 
-    // Host HD 720p/1080p Video Track Publisher (No Simulcast Blur)
+    // Host HD 720p/1080p Video Track Publisher (3.0 Mbps, No Simulcast Blur)
     useEffect(() => {
       if (
         role !== 'host' ||
@@ -651,7 +698,7 @@ const LiveKitRoomBridge = forwardRef<
                 source: Track.Source.Camera,
                 simulcast: false,
                 videoEncoding: {
-                  maxBitrate: 2_500_000,
+                  maxBitrate: 3_000_000,
                   maxFramerate: 30
                 }
               });
@@ -688,7 +735,7 @@ const LiveKitRoomBridge = forwardRef<
       }
     }, [role, localStream, isCamOff]);
 
-    // High-Clarity 48kHz Audio Control for BOTH Host AND Accepted Viewer Speaker
+    // Studio-Clear 48kHz Audio Control for BOTH Host AND Accepted Viewer Speaker
     useEffect(() => {
       if (connectionState !== ConnectionState.Connected || !localParticipant) return;
 
@@ -710,7 +757,7 @@ const LiveKitRoomBridge = forwardRef<
           channelCount: 1
         })
         .catch(() => {
-          // If another app is holding the mic, continue video stream without crashing
+          // If screen recorder is holding the mic, keep video running smoothly without crashing
         });
     }, [role, isAcceptedSpeaker, isMicMuted, connectionState, localParticipant]);
 
@@ -784,13 +831,14 @@ function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
         t.publication.kind === Track.Kind.Video
     );
 
-  // Force LiveKit SFU to send HIGH video quality layer to viewer
+  // Force LiveKit SFU to send HIGH video quality layer and full framerate to viewer
   useEffect(() => {
     const pub: any = remoteTrack?.publication;
     if (pub) {
       try {
-        pub.setVideoQuality?.(VideoQuality.HIGH);
         pub.setSubscribed?.(true);
+        pub.setVideoQuality?.(VideoQuality.HIGH);
+        pub.setVideoFPS?.(30);
       } catch {}
     }
   }, [remoteTrack]);
@@ -828,6 +876,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [isMounted, setIsMounted] = useState(false);
   const isInitializingRef = useRef<boolean>(false);
   const viewerLeavingIntentionallyRef = useRef<boolean>(false);
+  const processedPacketIdsRef = useRef<Set<string>>(new Set());
 
   const [user, setUser] = useState(
     currentUser || {
@@ -879,12 +928,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [likeCount, setLikeCount] = useState<number>(0);
 
-  // Gift Drawer & Instant Animation State
+  // Gift Drawer & Instant Animation Ref
   const [isGiftDrawerOpen, setIsGiftDrawerOpen] = useState<boolean>(false);
   const [selectedGiftId, setSelectedGiftId] = useState<string>('rose_1');
   const [quickRoseCombo, setQuickRoseCombo] = useState<number>(0);
   const [coinPopTrigger, setCoinPopTrigger] = useState<boolean>(false);
-  const [incomingGiftEvent, setIncomingGiftEvent] = useState<LiveGiftEvent | null>(null);
+  const giftOverlayRef = useRef<GiftOverlayHandle>(null);
 
   // Viewer Mic / Co-Host Request State (Private to Host until Accepted)
   const [micRequestStatus, setMicRequestStatus] = useState<MicRequestStatus>('idle');
@@ -940,7 +989,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   );
 
   // --------------------------------------------------------------------------
-  // UNIFIED PACKET RECEIVER (HANDLES LIKES, GIFTS, COMMENTS & MIC REQUESTS)
+  // UNIFIED PACKET RECEIVER (DEDUPLICATED ACROSS LIVEKIT & SUPABASE BROADCAST)
   // --------------------------------------------------------------------------
   const spawnVisualHeartOnly = useCallback(() => {
     const colors = ['#FF2E93', '#00F5D4', '#FFD700', '#FF5E00', '#9B5DE5'];
@@ -955,6 +1004,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const handleIncomingArenaPacket = useCallback(
     (packet: Record<string, any>) => {
       if (!packet || !packet.type) return;
+
+      // Deduplicate packets received over both LiveKit DataChannel and Supabase Broadcast
+      if (packet.packetId) {
+        if (processedPacketIdsRef.current.has(packet.packetId)) return;
+        processedPacketIdsRef.current.add(packet.packetId);
+      }
 
       // Ignore self-echo for likes/gifts/comments that were already applied optimistically
       if (
@@ -977,7 +1032,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         case 'LIVE_GIFT': {
           const giftEvt = packet.gift as LiveGiftEvent;
           if (giftEvt) {
-            setIncomingGiftEvent(giftEvt);
+            giftOverlayRef.current?.triggerGift(giftEvt);
             const totalCost = (giftEvt.coin_value || 1) * (giftEvt.combo_count || 1);
             setCurrentStream((prev) =>
               prev
@@ -988,15 +1043,21 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   }
                 : null
             );
-            setComments((prev) => [
-              ...prev.slice(-60),
-              {
-                id: `gift-msg-${giftEvt.id}`,
-                username: giftEvt.sender_username,
-                content: `sent ${giftEvt.gift_icon} ${giftEvt.gift_name} x${giftEvt.combo_count || 1}!`,
-                is_system: true
-              }
-            ]);
+            setComments((prev) => {
+              const msgId = `gift-msg-${giftEvt.id}`;
+              if (prev.some((c) => c.id === msgId)) return prev;
+              return [
+                ...prev.slice(-60),
+                {
+                  id: msgId,
+                  username: giftEvt.sender_username,
+                  content: `sent ${giftEvt.gift_icon} ${giftEvt.gift_name} x${
+                    giftEvt.combo_count || 1
+                  }!`,
+                  is_system: true
+                }
+              ];
+            });
           }
           break;
         }
@@ -1074,10 +1135,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     [user.id, spawnVisualHeartOnly]
   );
 
-  // Helper to dispatch packet across BOTH LiveKit DataChannel & Supabase Broadcast
+  // Dispatch packet across BOTH LiveKit DataChannel & Supabase Broadcast
   const dispatchArenaPacket = useCallback(
     async (payload: Record<string, any>) => {
-      const fullPayload = { ...payload, senderId: user.id };
+      const packetId = `pkt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      processedPacketIdsRef.current.add(packetId);
+      const fullPayload = { ...payload, packetId, senderId: user.id };
+
       if (livekitBridgeRef.current) {
         await livekitBridgeRef.current.sendPacket(fullPayload);
       }
@@ -1121,6 +1185,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       } catch {}
     }
 
+    // Canonical room name based on host_id so Host and Viewers ALWAYS match
     const roomId = `live_${activeUserId}`;
     const finalTitle = streamTitle.trim() || `${activeUsername}'s VIP Live`;
     let insertedStreamDbId: string | null = null;
@@ -1269,11 +1334,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         : Date.now()
     );
 
-    const actualRoomName =
-      stream.livekit_room_name ||
-      stream.room_id ||
-      `live_${stream.host_id || (stream as any).user_id}`;
-    const viewerIdentity = `viewer_${user.username || 'user'}_${user.id.slice(0, 6)}`;
+    // Canonical room name based on host_id so Host and Viewer always connect to the exact same room
+    const actualRoomName = `live_${stream.host_id || (stream as any).user_id}`;
+    const viewerIdentity = `viewer_${user.username || 'user'}_${Math.random()
+      .toString(36)
+      .substring(2, 7)}`;
 
     try {
       // Request with role=host on the token endpoint so the viewer has permission to publish DataPackets & Co-Host Audio when accepted
@@ -1355,6 +1420,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
   // Synced Like Action: Shows on Viewer AND Host screen in real time
   const spawnFloatingHeart = useCallback(() => {
+    livekitBridgeRef.current?.unlockAudio();
     setLikeCount((prev) => prev + 1);
     spawnVisualHeartOnly();
     dispatchArenaPacket({
@@ -1363,9 +1429,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     });
   }, [spawnVisualHeartOnly, dispatchArenaPacket, user.username]);
 
-  // 100% Free Gift Dispatch (No Paywall, Plays Animation on Both Screens)
+  // 100% Free Gift Dispatch (Zero Paywall, Plays Animation on Both Screens)
   const handleDispatchGift = async (gift: GiftTierItem, comboCount = 1) => {
     if (!currentStream) return;
+    livekitBridgeRef.current?.unlockAudio();
     const totalCost = gift.coins * comboCount;
 
     setCoinPopTrigger(true);
@@ -1384,8 +1451,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       combo_count: comboCount
     };
 
-    // 1. Trigger local animation & goal update immediately
-    setIncomingGiftEvent(giftEvent);
+    // 1. Trigger local animation & goal update immediately via imperative ref
+    giftOverlayRef.current?.triggerGift(giftEvent);
     setCurrentStream((prev) =>
       prev
         ? {
@@ -1439,6 +1506,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // VIEWER MIC REQUEST & HOST ACCEPT/DECLINE WORKFLOW
   // --------------------------------------------------------------------------
   const handleToggleMicRequest = async () => {
+    livekitBridgeRef.current?.unlockAudio();
     if (micRequestStatus === 'idle') {
       const reqPayload: MicSpeakerRequest = {
         userId: user.id,
@@ -1557,17 +1625,18 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }
   }, []);
 
-  // Supabase Realtime Broadcast Channel for Likes, Gifts, Comments & Mic Requests
+  // Canonical Supabase Realtime Broadcast Channel for Likes, Gifts, Comments & Mic Requests
   useEffect(() => {
     if (stage !== 'live' || !currentStream) return;
 
-    const roomKey =
-      currentStream.livekit_room_name ||
-      currentStream.room_id ||
-      `live_${currentStream.host_id}`;
+    const canonicalRoomKey = `live_${currentStream.host_id}`;
 
     const eventChannel = supabase
-      .channel(`arena_events_${roomKey}`)
+      .channel(`arena_sync_${canonicalRoomKey}`, {
+        config: {
+          broadcast: { self: false, ack: false }
+        }
+      })
       .on('broadcast', { event: 'arena-packet' }, (payload) => {
         if (payload?.payload) {
           handleIncomingArenaPacket(payload.payload);
@@ -1817,15 +1886,23 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         }
 
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode,
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30 }
-            },
-            audio: false
-          });
+          let stream: MediaStream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                facingMode,
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 30 }
+              },
+              audio: false
+            });
+          } catch {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: { facingMode },
+              audio: false
+            });
+          }
 
           if (isCancelled) {
             stream.getTracks().forEach((t) => t.stop());
@@ -2280,6 +2357,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // ==========================================================================
   return createPortal(
     <div
+      onClick={() => livekitBridgeRef.current?.unlockAudio()}
       onDoubleClick={role === 'viewer' ? spawnFloatingHeart : undefined}
       className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white flex flex-col select-none overflow-hidden"
     >
@@ -2302,14 +2380,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         />
       )}
 
-      {/* 1B. LIVEKIT CLOUD HD VIDEO & 48KHZ AUDIO ROOM */}
+      {/* 1B. LIVEKIT CLOUD HD VIDEO & 48KHZ STUDIO AUDIO ROOM */}
       {livekitToken ? (
         <LiveKitRoom
           video={false}
           audio={false}
           options={{
             adaptiveStream: false,
-            dynacast: true,
+            dynacast: false,
             videoCaptureDefaults: {
               resolution: { width: 1280, height: 720, frameRate: 30 }
             },
@@ -2321,12 +2399,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               channelCount: 1
             },
             publishDefaults: {
-              audioPreset: { maxBitrate: 64_000 },
-              dtx: true,
+              audioPreset: { maxBitrate: 96_000 },
+              dtx: false,
               red: true,
               simulcast: false,
               videoEncoding: {
-                maxBitrate: 2_500_000,
+                maxBitrate: 3_000_000,
                 maxFramerate: 30
               }
             }
@@ -2354,7 +2432,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             onPacketReceived={handleIncomingArenaPacket}
           />
           {role === 'viewer' && <ViewerVideoStage beautyMode={beautyMode} />}
-          <RoomAudioRenderer />
+          <RoomAudioRenderer volume={1.0} />
         </LiveKitRoom>
       ) : (
         role === 'viewer' && (
@@ -2373,8 +2451,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/70 via-black/25 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-80 bg-gradient-to-t from-black/85 via-black/40 to-transparent z-10" />
 
-      {/* 2. MASTER TIER GPU GIFT OVERLAY (BUILT-IN, ZERO PAYWALL) */}
-      <MasterLiveGiftOverlay incomingGift={incomingGiftEvent} />
+      {/* 2. MASTER TIER GPU GIFT OVERLAY (IMPERATIVE REF + REALTIME SYNCED) */}
+      <MasterLiveGiftOverlay ref={giftOverlayRef} streamId={currentStream?.id} />
 
       {/* 2.5 LIVE TIMER PILL (HOST ONLY) */}
       {role === 'host' && (stage === 'live' || stage === 'ended') && (
@@ -2526,6 +2604,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                     <button
                       onClick={() => handleHostDeclineMicRequest(req)}
                       className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 hover:bg-rose-500/30 text-white/80 hover:text-rose-300 transition active:scale-95"
+                      title="Cancel Request"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
