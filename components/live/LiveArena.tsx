@@ -270,26 +270,33 @@ const MasterLiveGiftOverlay = forwardRef<
   }, [streamId, enqueueGift]);
 
   // Process Track B (Mega Gifts >= 500 Coins pause Track A)
+  // 1. Dequeue next Mega Gift only when no activeMega is playing
   useEffect(() => {
     if (!activeMega && megaQueue.length > 0) {
       const nextMega = megaQueue[0];
       setMegaQueue((prev) => prev.slice(1));
       setActiveMega(nextMega);
-      const duration = nextMega.coin_value >= 5000 ? 4800 : 3200;
-      const flashTimer =
-        nextMega.coin_value >= 5000
-          ? setTimeout(() => setUniverseFlash(true), duration - 450)
-          : null;
-      const clearTimer = setTimeout(() => {
-        setUniverseFlash(false);
-        setActiveMega(null);
-      }, duration);
-      return () => {
-        if (flashTimer) clearTimeout(flashTimer);
-        clearTimeout(clearTimer);
-      };
     }
   }, [activeMega, megaQueue]);
+
+  // 2. Run lifecycle timer strictly tied to activeMega.id so queue updates never cancel the timer
+  useEffect(() => {
+    if (!activeMega) return;
+    const duration = activeMega.coin_value >= 5000 ? 4800 : 3200;
+    const flashTimer =
+      activeMega.coin_value >= 5000
+        ? setTimeout(() => setUniverseFlash(true), duration - 450)
+        : null;
+    const clearTimer = setTimeout(() => {
+      setUniverseFlash(false);
+      setActiveMega(null);
+    }, duration);
+
+    return () => {
+      if (flashTimer) clearTimeout(flashTimer);
+      clearTimeout(clearTimer);
+    };
+  }, [activeMega]);
 
   // Process Track A (Up to 4 simultaneous standard/kinetic gifts on lower-left)
   useEffect(() => {
