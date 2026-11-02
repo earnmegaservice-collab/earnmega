@@ -1,6 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  forwardRef,
+  useImperativeHandle
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   LiveKitRoom,
@@ -9,9 +16,10 @@ import {
   useTracks,
   useLocalParticipant,
   useParticipants,
-  useRoomContext
+  useRoomContext,
+  useConnectionState
 } from '@livekit/components-react';
-import { Track, RoomEvent } from 'livekit-client';
+import { Track, RoomEvent, ConnectionState } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
@@ -41,7 +49,8 @@ import {
   Radio,
   Coins,
   Zap,
-  Clock
+  Clock,
+  Trash2
 } from 'lucide-react';
 import LiveGiftOverlay from './LiveGiftOverlay';
 import { supabase } from '../../utils/supabase';
@@ -141,6 +150,7 @@ interface LiveStreamRecord {
   is_live?: boolean;
   started_at?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 interface LiveComment {
@@ -169,6 +179,8 @@ interface LiveArenaProps {
   onBack?: () => void;
 }
 
+const DEFAULT_LIVEKIT_URL = 'wss://earnmega-mbwh7c26.livekit.cloud';
+
 const CATEGORIES = [
   { id: 'All', label: 'All', icon: null },
   { id: 'Just Chatting', label: 'Just Chatting', icon: Flame },
@@ -179,25 +191,27 @@ const CATEGORIES = [
 ];
 
 // ============================================================================
-// INNER LIVEKIT CONTROLLER FOR HOST (HARDWARE FAULT-TOLERANT)
+// HOST TRACK PUBLISHER (PUBLISHES CONTINUOUS LOCAL VIDEO TRACK INTO LIVEKIT)
 // ============================================================================
 export interface HostPublisherRef {
   broadcastEnd: (duration: string, peakViewers: number) => Promise<void>;
 }
 
-const HostLiveKitController = forwardRef<
+const HostLiveKitPublisher = forwardRef<
   HostPublisherRef,
   {
+    localStream: MediaStream | null;
     isMicMuted: boolean;
     isCamOff: boolean;
-    facingMode: 'user' | 'environment';
   }
->(({ isMicMuted, isCamOff, facingMode }, ref) => {
+>(({ localStream, isMicMuted, isCamOff }, ref) => {
   const { localParticipant } = useLocalParticipant();
+  const connectionState = useConnectionState();
+  const publishedVideoTrackRef = useRef<MediaStreamTrack | null>(null);
 
   useImperativeHandle(ref, () => ({
     broadcastEnd: async (duration: string, peakViewers: number) => {
-      if (localParticipant) {
+      if (localParticipant && connectionState === ConnectionState.Connected) {
         try {
           const payload = new TextEncoder().encode(
             JSON.stringify({ type: 'HOST_ENDED_LIVE', duration, peakViewers })
@@ -210,37 +224,74 @@ const HostLiveKitController = forwardRef<
     }
   }));
 
-  // Enable Camera and Microphone independently so a mic conflict (e.g. screen recorder) never blocks video
+  // Publish the already-open local video track as soon as LiveKit connects
   useEffect(() => {
-    if (!localParticipant) return;
+    if (
+      connectionState !== ConnectionState.Connected ||
+      !localParticipant ||
+      !localStream
+    ) {
+      return;
+    }
+
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (!videoTrack || videoTrack.readyState !== 'live') return;
+
     let isCancelled = false;
 
-    const syncTracks = async () => {
+    const publishVideo = async () => {
       try {
-        await localParticipant.setCameraEnabled(!isCamOff, {
-          facingMode,
-          resolution: { width: 1280, height: 720, frameRate: 30 }
-        });
-      } catch (camErr) {
-        if (!isCancelled) console.warn('Host camera enable warning:', camErr);
-      }
-
-      try {
-        await localParticipant.setMicrophoneEnabled(!isMicMuted);
-      } catch (micErr) {
-        if (!isCancelled) console.warn('Host mic warning (continuing with video):', micErr);
+        if (publishedVideoTrackRef.current && publishedVideoTrackRef.current !== videoTrack) {
+          await localParticipant.unpublishTrack(publishedVideoTrackRef.current, false);
+          publishedVideoTrackRef.current = null;
+        }
+        const existingPub = localParticipant.getTrackPublication(Track.Source.Camera);
+        if (!existingPub) {
+          await localParticipant.publishTrack(videoTrack, {
+            name: 'camera',
+            source: Track.Source.Camera,
+            simulcast: true
+          });
+          if (!isCancelled) {
+            publishedVideoTrackRef.current = videoTrack;
+          }
+        }
+      } catch (err) {
+        console.warn('LiveKit video track publish warning:', err);
       }
     };
 
-    syncTracks();
+    publishVideo();
+
     return () => {
       isCancelled = true;
     };
-  }, [localParticipant, isCamOff, isMicMuted, facingMode]);
+  }, [connectionState, localParticipant, localStream]);
+
+  // Toggle video track enabled state
+  useEffect(() => {
+    if (localStream) {
+      localStream.getVideoTracks().forEach((t) => {
+        t.enabled = !isCamOff;
+      });
+    }
+  }, [localStream, isCamOff]);
+
+  // Enable microphone only if not muted; silently ignore if screen recorder locks mic
+  useEffect(() => {
+    if (connectionState !== ConnectionState.Connected || !localParticipant) return;
+    if (isMicMuted) {
+      localParticipant.setMicrophoneEnabled(false).catch(() => {});
+      return;
+    }
+    localParticipant.setMicrophoneEnabled(true).catch(() => {
+      // Screen recorder or another app is using the mic; keep video running cleanly
+    });
+  }, [connectionState, localParticipant, isMicMuted]);
 
   return null;
 });
-HostLiveKitController.displayName = 'HostLiveKitController';
+HostLiveKitPublisher.displayName = 'HostLiveKitPublisher';
 
 // ============================================================================
 // VIEWER DATA & HOST DISCONNECT LISTENER
@@ -269,10 +320,10 @@ function ViewerDataListener({
     };
 
     const handleParticipantDisconnected = (participant: any) => {
+      const id = participant?.identity || '';
       if (
-        (hostId && participant.identity === hostId) ||
-        (hostUsername && participant.identity === hostUsername) ||
-        (hostId && participant.identity?.includes(hostId))
+        (hostId && (id === hostId || id === `host_${hostId}` || id.includes(hostId))) ||
+        (hostUsername && id === hostUsername)
       ) {
         onHostEnded();
       }
@@ -291,83 +342,52 @@ function ViewerDataListener({
 }
 
 // ============================================================================
-// LIVEKIT VIDEO STAGE (NO ROGUE TIMEOUTS)
+// VIEWER VIDEO STAGE (RENDERS REMOTE HOST VIDEO TRACK)
 // ============================================================================
-function LiveKitVideoStage({
-  role,
-  beautyMode,
-  fallbackLocalStream
-}: {
-  role: UserRole;
-  beautyMode: boolean;
-  fallbackLocalStream: MediaStream | null;
-}) {
-  const tracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
-  const fallbackVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  const localTrack = tracks.find(
-    (t) => t.participant.isLocal && t.publication?.track
+function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
+  const tracks = useTracks(
+    [
+      { source: Track.Source.Camera, withPlaceholder: false },
+      { source: Track.Source.Unknown, withPlaceholder: false }
+    ],
+    { onlySubscribed: false }
   );
+
   const remoteTrack = tracks.find(
-    (t) => !t.participant.isLocal && t.publication?.track
+    (t) =>
+      !t.participant.isLocal &&
+      t.publication?.track &&
+      t.publication.kind === Track.Kind.Video
   );
 
-  useEffect(() => {
-    if (role === 'host' && !localTrack && fallbackVideoRef.current && fallbackLocalStream) {
-      if (fallbackVideoRef.current.srcObject !== fallbackLocalStream) {
-        fallbackVideoRef.current.srcObject = fallbackLocalStream;
-        fallbackVideoRef.current.play().catch(() => {});
-      }
-    }
-  }, [role, localTrack, fallbackLocalStream]);
-
-  return (
-    <div className="relative h-full w-full bg-[#070709] overflow-hidden">
-      {role === 'host' ? (
-        localTrack ? (
-          <VideoTrack
-            trackRef={localTrack as any}
-            className={`h-full w-full object-cover transition-all duration-500 ${
-              beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
-            }`}
-          />
-        ) : fallbackLocalStream ? (
-          <video
-            ref={fallbackVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className={`h-full w-full object-cover transition-all duration-500 ${
-              beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
-            }`}
-          />
-        ) : (
-          <div className="w-full h-full bg-black" />
-        )
-      ) : remoteTrack ? (
+  if (remoteTrack) {
+    return (
+      <div className="relative h-full w-full bg-[#070709] overflow-hidden">
         <VideoTrack
           trackRef={remoteTrack as any}
           className={`h-full w-full object-cover transition-all duration-500 ${
             beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
           }`}
         />
-      ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-[#12091d] via-[#09090d] to-black">
-          <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/30">
-            <div className="absolute inset-0 rounded-full border-2 border-pink-500 animate-ping opacity-30" />
-            <Radio className="h-10 w-10 text-pink-500 animate-pulse" />
-          </div>
-          <p className="mt-4 text-sm font-medium text-white/70 tracking-wide">
-            Connecting High-Definition Stream...
-          </p>
-        </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-[#12091d] via-[#09090d] to-black">
+      <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/30">
+        <div className="absolute inset-0 rounded-full border-2 border-pink-500 animate-ping opacity-30" />
+        <Radio className="h-10 w-10 text-pink-500 animate-pulse" />
+      </div>
+      <p className="mt-4 text-sm font-medium text-white/70 tracking-wide">
+        Connecting High-Definition Stream...
+      </p>
     </div>
   );
 }
 
 // ============================================================================
-// INNER LIVEKIT TRACKER FOR VIEWER COUNT
+// LIVEKIT VIEWER COUNT TRACKER
 // ============================================================================
 function LiveKitTracker({
   hostId,
@@ -381,12 +401,16 @@ function LiveKitTracker({
   const participants = useParticipants();
 
   useEffect(() => {
-    const viewers = participants.filter(
-      (p) =>
-        p.identity !== hostId &&
-        p.identity !== hostUsername &&
-        (!hostId || !p.identity.startsWith(hostId))
-    );
+    const viewers = participants.filter((p) => {
+      const id = p.identity || '';
+      if (hostId && (id === hostId || id === `host_${hostId}` || id.includes(hostId))) {
+        return false;
+      }
+      if (hostUsername && id === hostUsername) {
+        return false;
+      }
+      return true;
+    });
     onViewerCountChange(viewers.length);
   }, [participants, hostId, hostUsername, onViewerCountChange]);
 
@@ -410,12 +434,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }
   );
 
-  // Core 4-Stage Machine
+  // Core Stage Machine
   const [stage, setStage] = useState<ArenaStage>('lobby');
   const [role, setRole] = useState<UserRole>('viewer');
   const [livekitToken, setLivekitToken] = useState<string>('');
   const [livekitServerUrl, setLivekitServerUrl] = useState<string>(
-    process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://earnmega-mbwh7c26.livekit.cloud'
+    process.env.NEXT_PUBLIC_LIVEKIT_URL || DEFAULT_LIVEKIT_URL
   );
   const [liveDuration, setLiveDuration] = useState<string>('00:00');
   const [endedAtFormatted, setEndedAtFormatted] = useState<string>('');
@@ -424,7 +448,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [peakViewers, setPeakViewers] = useState<number>(0);
 
   // Lobby State
-  const [activeStreams, setActiveStreams] = useState<any[]>([]);
+  const [activeStreams, setActiveStreams] = useState<LiveStreamRecord[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -459,6 +483,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [localIncomingGift, setLocalIncomingGift] = useState<LiveGiftEvent | null>(null);
 
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const liveHostVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -470,9 +495,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   }, []);
 
   // --------------------------------------------------------------------------
-  // CAMERA PREVIEW RELEASE (CRITICAL FOR ANDROID HARDWARE UNLOCK)
+  // CAMERA STREAM LIFECYCLE (KEPT CONTINUOUS FOR HOST FROM SETUP -> LIVE)
   // --------------------------------------------------------------------------
-  const stopPreviewCamera = useCallback(() => {
+  const stopCameraTracks = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         try {
@@ -484,7 +509,19 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     if (previewVideoRef.current) {
       previewVideoRef.current.srcObject = null;
     }
+    if (liveHostVideoRef.current) {
+      liveHostVideoRef.current.srcObject = null;
+    }
     setLocalStream(null);
+  }, []);
+
+  // Purge stale/ghost streams from Supabase live_streams
+  const removeGhostStream = useCallback(async (streamId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setActiveStreams((prev) => prev.filter((s) => s.id !== streamId));
+    try {
+      await supabase.from('live_streams').delete().eq('id', streamId);
+    } catch {}
   }, []);
 
   // --------------------------------------------------------------------------
@@ -494,14 +531,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     if (isInitializingRef.current) return;
     isInitializingRef.current = true;
 
-    // Ensure pre-live preview stream is 100% stopped so LiveKit can acquire hardware cleanly
-    stopPreviewCamera();
-
     const roomId = `live_${user.id}`;
     const finalTitle = streamTitle.trim() || `${user.username}'s VIP Live`;
     let insertedStreamDbId: string | null = null;
+    const nowIso = new Date().toISOString();
 
     try {
+      // Remove any previous rows from this host
       await supabase.from('live_streams').delete().eq('host_id', user.id);
 
       const insertPayload = {
@@ -519,7 +555,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         allow_cohost: allowCohost,
         status: 'live',
         is_live: true,
-        started_at: new Date().toISOString()
+        started_at: nowIso
       };
 
       const { data, error } = await supabase
@@ -532,8 +568,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         const fallbackPayload = {
           host_id: user.id,
           host_username: user.username || 'Creator',
+          host_avatar: user.avatar_url,
           title: finalTitle,
-          category: setupCategory
+          category: setupCategory,
+          status: 'live'
         };
         const { data: fallbackData } = await supabase
           .from('live_streams')
@@ -550,25 +588,16 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         insertedStreamDbId = data.id;
       }
 
-      fetch('/api/livekit/notifyFollowers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hostId: user.id,
-          hostName: (user as any).user_metadata?.username || user.username || 'Host'
-        })
-      }).catch(() => {});
-
       supabase.channel('global-live-arena').send({
         type: 'broadcast',
         event: 'stream-started',
         payload: { host_id: user.id }
       });
     } catch (err) {
-      console.error('Stream initialization error:', err);
+      console.error('Stream DB initialization warning:', err);
     }
 
-    const fallbackStream: LiveStreamRecord = {
+    const activeHostStream: LiveStreamRecord = {
       id: insertedStreamDbId || roomId,
       host_id: user.id,
       host_username: user.username,
@@ -583,51 +612,49 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       viewer_count: 1,
       allow_cohost: allowCohost,
       status: 'live',
-      is_live: true
+      is_live: true,
+      started_at: nowIso
     };
-    setCurrentStream(fallbackStream);
+    setCurrentStream(activeHostStream);
 
     try {
-      const hostIdentity = user.id || user.username;
+      const hostIdentity = `host_${user.id}`;
       const res = await fetch(
         `/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(
           hostIdentity
         )}&role=host`
       );
-      if (!res.ok) {
-        throw new Error(`Failed to fetch LiveKit token: ${res.statusText}`);
-      }
       const data = await res.json();
-      if (data.wsUrl || data.url) {
-        setLivekitServerUrl(data.wsUrl || data.url);
+      if (!res.ok || !data.token) {
+        throw new Error(data?.error || `Failed to fetch LiveKit token`);
       }
-      if (data.token) {
-        setLivekitToken(data.token);
-        setComments([
-          {
-            id: 'welcome-sys',
-            username: 'EarnMega AI',
-            content: 'Welcome to EarnMega Live Arena! Send gifts to climb the VIP Leaderboard.',
-            is_system: true
-          }
-        ]);
-      } else {
-        throw new Error('No token returned');
-      }
-    } catch (err) {
-      console.error('[LIVEKIT PIPELINE] Token Error:', err);
-      setConnectionError('Token Generation Failed. Check Server API Keys.');
-      toast.error('Token Generation Failed.');
+      setLivekitServerUrl(data.wsUrl || data.url || DEFAULT_LIVEKIT_URL);
+      setLivekitToken(data.token);
+      setComments([
+        {
+          id: 'welcome-sys',
+          username: 'EarnMega AI',
+          content: 'Welcome to EarnMega Live Arena! Send gifts to climb the VIP Leaderboard.',
+          is_system: true
+        }
+      ]);
+    } catch (err: any) {
+      console.error('[LIVEKIT PIPELINE] Host Token Error:', err);
+      toast.error(err?.message || 'LiveKit token warning');
     } finally {
       isInitializingRef.current = false;
     }
-  }, [user, streamTitle, setupCategory, giftGoal, allowCohost, stopPreviewCamera]);
+  }, [user, streamTitle, setupCategory, giftGoal, allowCohost]);
 
   // --------------------------------------------------------------------------
-  // HOST START STREAM WORKFLOW (3-2-1 COUNTDOWN -> LIVE STAGE)
+  // HOST START STREAM WORKFLOW (SETUP -> 3-2-1 COUNTDOWN -> LIVE)
   // --------------------------------------------------------------------------
   const handleStartCountdown = () => {
     setConnectionError(null);
+    setLiveDuration('00:00');
+    setStreamStartMs(null);
+    setViewerCount(0);
+    setPeakViewers(0);
     setRole('host');
     roleRef.current = 'host';
     setCountdown(3);
@@ -640,17 +667,26 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const handleJoinStreamAsViewer = async (stream: LiveStreamRecord) => {
     setConnectionError(null);
     viewerLeavingIntentionallyRef.current = false;
+    stopCameraTracks();
     setRole('viewer');
     roleRef.current = 'viewer';
     setCurrentStream(stream);
+    setLiveDuration('00:00');
+    setViewerCount(stream.viewer_count || 1);
+    setPeakViewers(stream.viewer_count || 1);
     setStreamStartMs(
       stream.started_at || stream.created_at
         ? new Date((stream.started_at || stream.created_at) as string).getTime()
         : Date.now()
     );
 
-    const actualRoomName = `live_${stream.host_id || (stream as any).user_id}`;
-    const viewerIdentity = `${user.username || 'viewer'}_${user.id.slice(0, 6)}`;
+    const actualRoomName =
+      stream.livekit_room_name ||
+      stream.room_id ||
+      `live_${stream.host_id || (stream as any).user_id}`;
+    const viewerIdentity = `viewer_${user.username || 'user'}_${Math.random()
+      .toString(36)
+      .substring(2, 7)}`;
 
     try {
       const res = await fetch(
@@ -658,22 +694,15 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           viewerIdentity
         )}&role=viewer`
       );
-      if (!res.ok) {
-        throw new Error(`Failed to fetch LiveKit token: ${res.statusText}`);
-      }
       const data = await res.json();
-      if (data.wsUrl || data.url) {
-        setLivekitServerUrl(data.wsUrl || data.url);
+      if (!res.ok || !data.token) {
+        throw new Error(data?.error || 'No token returned from server.');
       }
-      if (data.token) {
-        setLivekitToken(data.token);
-      } else {
-        throw new Error('No token returned from server.');
-      }
-    } catch (err) {
+      setLivekitServerUrl(data.wsUrl || data.url || DEFAULT_LIVEKIT_URL);
+      setLivekitToken(data.token);
+    } catch (err: any) {
       console.error('[LIVEKIT PIPELINE] Viewer Token Error:', err);
-      setConnectionError('Token Generation Failed. Check Server API Keys.');
-      toast.error('Token Generation Failed.');
+      toast.error(err?.message || 'Could not connect to stream.');
       setCurrentStream(null);
       return;
     }
@@ -822,24 +851,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           await hostPublisherRef.current.broadcastEnd(liveDuration, peakViewers);
         } catch {}
       }
-      stopPreviewCamera();
+      stopCameraTracks();
 
       try {
-        await supabase
-          .from('live_streams')
-          .update({ status: 'ended', is_live: false })
-          .eq('host_id', user.id);
-
-        await supabase
-          .from('live_streams')
-          .delete()
-          .eq('host_id', user.id);
+        await supabase.from('live_streams').delete().eq('host_id', user.id);
+        if (currentStreamDbId) {
+          await supabase.from('live_streams').delete().eq('id', currentStreamDbId);
+        }
 
         supabase.channel('global-live-arena').send({
           type: 'broadcast',
           event: 'stream-ended',
           payload: {
             host_id: user.id,
+            stream_id: currentStreamDbId || currentStream?.id,
             duration: liveDuration,
             peakViewers
           }
@@ -878,7 +903,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }
   }, []);
 
-  // Listen for Host ending the broadcast via Realtime & Broadcast channel (safe check)
+  // Listen for Host ending the broadcast via Realtime & Broadcast channel
   useEffect(() => {
     if (stage !== 'live' || role !== 'viewer' || !currentStream) return;
 
@@ -914,7 +939,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         }
       )
       .on('broadcast', { event: 'stream-ended' }, (payload) => {
-        if (payload?.payload?.host_id === hostId) {
+        if (
+          payload?.payload?.host_id === hostId ||
+          payload?.payload?.stream_id === streamId
+        ) {
           handleHostEnded(payload?.payload?.duration, payload?.payload?.peakViewers);
         }
       })
@@ -925,10 +953,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         const { data, error } = await supabase
           .from('live_streams')
           .select('id, status, is_live')
-          .eq('host_id', hostId)
+          .eq('id', streamId)
           .maybeSingle();
 
-        // Only end if the row was explicitly marked ended or deleted after creation
         if (!error && (!data || data.status === 'ended' || data.is_live === false)) {
           handleHostEnded();
         }
@@ -954,18 +981,18 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const handleBeforeUnload = () => {
       const streamId = currentStreamDbIdRef.current;
       const currentRole = roleRef.current;
-      if (streamId && currentRole === 'host') {
-        supabase
-          .from('live_streams')
-          .update({ status: 'ended', is_live: false })
-          .eq('id', streamId);
+      if (currentRole === 'host') {
+        if (streamId) {
+          supabase.from('live_streams').delete().eq('id', streamId);
+        }
+        supabase.from('live_streams').delete().eq('host_id', user.id);
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, []);
+  }, [user.id]);
 
   useEffect(() => {
     async function initUser() {
@@ -996,12 +1023,42 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     initUser();
   }, [currentUser]);
 
+  // Fetch active streams & automatically purge stale ghost streams older than 2 hours
   useEffect(() => {
     const fetchStreams = async () => {
       const { data } = await supabase.from('live_streams').select('*');
       if (data) {
-        const liveData = data.filter((s) => s.status !== 'ended' && s.is_live !== false);
-        setActiveStreams(liveData);
+        const now = Date.now();
+        const MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
+        const validStreams: LiveStreamRecord[] = [];
+        const staleIds: string[] = [];
+
+        data.forEach((s: any) => {
+          if (s.status === 'ended' || s.is_live === false) {
+            staleIds.push(s.id);
+            return;
+          }
+          const ts = s.started_at || s.created_at;
+          if (ts) {
+            const age = now - new Date(ts).getTime();
+            if (age > MAX_AGE_MS) {
+              staleIds.push(s.id);
+              return;
+            }
+          }
+          validStreams.push(s);
+        });
+
+        setActiveStreams(validStreams);
+
+        // Background cleanup of ended or ghost rows
+        if (staleIds.length > 0) {
+          supabase
+            .from('live_streams')
+            .delete()
+            .in('id', staleIds)
+            .then(() => {});
+        }
       }
     };
     fetchStreams();
@@ -1035,25 +1092,47 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     };
   }, [stage, currentStream, handleHostEnded]);
 
-  // ONLY run preview camera during 'setup' and 'countdown' (NEVER during 'live' so LiveKit has exclusive camera access)
+  // Keep Host Camera Active across 'setup' -> 'countdown' -> 'live' so Android never drops or locks the camera!
   useEffect(() => {
-    if (stage === 'setup' || stage === 'countdown') {
+    const needsHostCamera =
+      stage === 'setup' ||
+      stage === 'countdown' ||
+      (stage === 'live' && role === 'host');
+
+    if (needsHostCamera) {
       let isCancelled = false;
 
-      const startPreview = async () => {
+      const ensureCamera = async () => {
+        const current = localStreamRef.current;
+        const currentFacing = current
+          ?.getVideoTracks()?.[0]
+          ?.getSettings?.()?.facingMode;
+
+        // If we already have a live stream in the desired facingMode, just attach it to the active video element
         if (
-          localStreamRef.current &&
-          localStreamRef.current.active &&
-          localStreamRef.current.getVideoTracks().some((t) => t.readyState === 'live')
+          current &&
+          current.active &&
+          current.getVideoTracks().some((t) => t.readyState === 'live') &&
+          (!currentFacing || currentFacing === facingMode)
         ) {
-          if (previewVideoRef.current && previewVideoRef.current.srcObject !== localStreamRef.current) {
-            previewVideoRef.current.srcObject = localStreamRef.current;
+          if (stage === 'live' && liveHostVideoRef.current && liveHostVideoRef.current.srcObject !== current) {
+            liveHostVideoRef.current.srcObject = current;
+            liveHostVideoRef.current.play().catch(() => {});
+          } else if (previewVideoRef.current && previewVideoRef.current.srcObject !== current) {
+            previewVideoRef.current.srcObject = current;
+            previewVideoRef.current.play().catch(() => {});
           }
           return;
         }
 
+        // Stop old tracks if switching front/back camera
+        if (current) {
+          current.getTracks().forEach((t) => t.stop());
+          localStreamRef.current = null;
+        }
+
         try {
-          // Video-only preview in setup so we never trigger an Android microphone conflict
+          // Request VIDEO ONLY here so Android screen recorders / mic locks never block the camera feed
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode,
@@ -1070,22 +1149,29 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
           localStreamRef.current = stream;
           setLocalStream(stream);
+
           if (previewVideoRef.current) {
             previewVideoRef.current.srcObject = stream;
+            previewVideoRef.current.play().catch(() => {});
+          }
+          if (liveHostVideoRef.current) {
+            liveHostVideoRef.current.srcObject = stream;
+            liveHostVideoRef.current.play().catch(() => {});
           }
         } catch (err) {
-          console.warn('Camera preview warning:', err);
+          console.error('Camera acquisition error:', err);
+          toast.error('Unable to access camera. Check browser permissions.');
         }
       };
 
-      startPreview();
+      ensureCamera();
       return () => {
         isCancelled = true;
       };
     } else {
-      stopPreviewCamera();
+      stopCameraTracks();
     }
-  }, [stage, facingMode, stopPreviewCamera]);
+  }, [stage, role, facingMode, stopCameraTracks]);
 
   // 3-2-1 Countdown Lifecycle
   useEffect(() => {
@@ -1095,13 +1181,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       return () => clearTimeout(timer);
     } else {
       const launchTimer = setTimeout(() => {
-        stopPreviewCamera();
+        setLiveDuration('00:00');
         setStreamStartMs(Date.now());
         setStage('live');
       }, 900);
       return () => clearTimeout(launchTimer);
     }
-  }, [stage, countdown, stopPreviewCamera]);
+  }, [stage, countdown]);
 
   useEffect(() => {
     if (stage === 'live' && role === 'host' && !isInitializingRef.current && !livekitToken) {
@@ -1328,10 +1414,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                       <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
                       LIVE
                     </span>
-                    <span className="flex items-center gap-1 rounded-md bg-black/60 backdrop-blur-md px-2 py-0.5 text-[10px] font-semibold text-white">
-                      <Users className="h-3 w-3 text-pink-400" />
-                      {stream.viewer_count || 0}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="flex items-center gap-1 rounded-md bg-black/60 backdrop-blur-md px-2 py-0.5 text-[10px] font-semibold text-white">
+                        <Users className="h-3 w-3 text-pink-400" />
+                        {stream.viewer_count || 0}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => removeGhostStream(stream.id, e)}
+                        title="Remove ended/stale stream"
+                        className="flex h-5 w-5 items-center justify-center rounded-md bg-black/60 text-white/60 hover:text-rose-400 hover:bg-black/80"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="absolute bottom-3 left-3 right-3">
@@ -1369,7 +1465,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     return createPortal(
       <div className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white overflow-hidden flex flex-col select-none">
         <video
-          ref={previewVideoRef}
+          ref={(el) => {
+            previewVideoRef.current = el;
+            if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
+              el.srcObject = localStreamRef.current;
+              el.play().catch(() => {});
+            }
+          }}
           autoPlay
           playsInline
           muted
@@ -1384,7 +1486,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             <div className="absolute top-5 left-4 right-4 z-20 flex items-center justify-between">
               <button
                 onClick={() => {
-                  stopPreviewCamera();
+                  stopCameraTracks();
                   setStage('lobby');
                 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-xl border border-white/15 text-white active:scale-90 transition"
@@ -1394,10 +1496,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
               <div className="flex flex-col gap-3">
                 <button
-                  onClick={() => {
-                    stopPreviewCamera();
-                    setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
-                  }}
+                  onClick={() =>
+                    setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
+                  }
                   className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 backdrop-blur-xl border border-white/15 text-white active:scale-90 transition"
                 >
                   <RefreshCw className="h-5 w-5" />
@@ -1537,25 +1638,27 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       onDoubleClick={role === 'viewer' ? spawnFloatingHeart : undefined}
       className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white flex flex-col select-none overflow-hidden"
     >
-      {/* 1. LIVEKIT CLOUD HD VIDEO STREAM */}
-      {connectionError ? (
-        <div className="flex h-full w-full items-center justify-center bg-[#09090d]">
-          <div className="flex flex-col items-center p-6 bg-red-900/20 border border-red-500/50 rounded-2xl backdrop-blur-xl">
-            <X className="h-12 w-12 text-red-500 mb-4" />
-            <h2 className="text-xl font-bold text-red-400 mb-2">Connection Error</h2>
-            <p className="text-sm font-medium text-red-200 text-center">{connectionError}</p>
-            <button
-              onClick={() => {
-                setConnectionError(null);
-                setStage('lobby');
-              }}
-              className="mt-6 px-6 py-2 bg-red-600 hover:bg-red-500 text-white rounded-full font-bold transition"
-            >
-              Return to Lobby
-            </button>
-          </div>
-        </div>
-      ) : livekitToken ? (
+      {/* 1. HOST ALWAYS RENDERS CONTINUOUS LOCAL CAMERA LAYER SO SCREEN NEVER GOES BLACK */}
+      {role === 'host' && (
+        <video
+          ref={(el) => {
+            liveHostVideoRef.current = el;
+            if (el && localStream && el.srcObject !== localStream) {
+              el.srcObject = localStream;
+              el.play().catch(() => {});
+            }
+          }}
+          autoPlay
+          playsInline
+          muted
+          className={`absolute inset-0 h-full w-full object-cover z-0 transition-all duration-500 ${
+            beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
+          } ${isCamOff ? 'opacity-0' : 'opacity-100'}`}
+        />
+      )}
+
+      {/* 1B. LIVEKIT CLOUD HD VIDEO ROOM */}
+      {livekitToken ? (
         <LiveKitRoom
           video={false}
           audio={false}
@@ -1571,45 +1674,44 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           token={livekitToken}
           serverUrl={livekitServerUrl}
           connect={true}
-          className="h-full w-full"
+          className={`h-full w-full ${role === 'host' ? 'pointer-events-none absolute inset-0 z-0' : 'relative z-0'}`}
         >
           <LiveKitTracker
             hostId={currentStream?.host_id || user.id}
             hostUsername={currentStream?.host_username || user.username}
             onViewerCountChange={handleViewerCountChange}
           />
-          {role === 'host' && (
-            <HostLiveKitController
+          {role === 'host' ? (
+            <HostLiveKitPublisher
               ref={hostPublisherRef}
+              localStream={localStream}
               isMicMuted={isMicMuted}
               isCamOff={isCamOff}
-              facingMode={facingMode}
             />
-          )}
-          <LiveKitVideoStage
-            role={role}
-            beautyMode={beautyMode}
-            fallbackLocalStream={localStream}
-          />
-          {role === 'viewer' && (
-            <ViewerDataListener
-              onHostEnded={handleHostEnded}
-              hostId={currentStream?.host_id || (currentStream as any)?.user_id}
-              hostUsername={currentStream?.host_username}
-            />
+          ) : (
+            <>
+              <ViewerVideoStage beautyMode={beautyMode} />
+              <ViewerDataListener
+                onHostEnded={handleHostEnded}
+                hostId={currentStream?.host_id || (currentStream as any)?.user_id}
+                hostUsername={currentStream?.host_username}
+              />
+            </>
           )}
           <RoomAudioRenderer />
         </LiveKitRoom>
       ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center bg-[#070709]">
-          <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/30">
-            <div className="absolute inset-0 rounded-full border-2 border-pink-500 animate-ping opacity-30" />
-            <Radio className="h-10 w-10 text-pink-500 animate-pulse" />
+        role === 'viewer' && (
+          <div className="flex h-full w-full flex-col items-center justify-center bg-[#070709]">
+            <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/10 border border-pink-500/30">
+              <div className="absolute inset-0 rounded-full border-2 border-pink-500 animate-ping opacity-30" />
+              <Radio className="h-10 w-10 text-pink-500 animate-pulse" />
+            </div>
+            <p className="mt-4 text-sm font-medium text-white/70 tracking-wide">
+              Connecting High-Definition Stream...
+            </p>
           </div>
-          <p className="mt-4 text-sm font-medium text-white/70 tracking-wide">
-            Initializing Live Stream...
-          </p>
-        </div>
+        )
       )}
 
       <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/70 via-black/25 to-transparent z-10" />
