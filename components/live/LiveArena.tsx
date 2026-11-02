@@ -19,7 +19,7 @@ import {
   useRoomContext,
   useConnectionState
 } from '@livekit/components-react';
-import { Track, RoomEvent, ConnectionState } from 'livekit-client';
+import { Track, RoomEvent, ConnectionState, VideoQuality } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
@@ -50,9 +50,10 @@ import {
   Coins,
   Zap,
   Clock,
-  Trash2
+  Trash2,
+  Hand,
+  Volume2
 } from 'lucide-react';
-import LiveGiftOverlay from './LiveGiftOverlay';
 import { supabase } from '../../utils/supabase';
 
 // ============================================================================
@@ -60,6 +61,7 @@ import { supabase } from '../../utils/supabase';
 // ============================================================================
 type ArenaStage = 'lobby' | 'setup' | 'countdown' | 'live' | 'ended';
 type UserRole = 'host' | 'viewer';
+type MicRequestStatus = 'idle' | 'pending' | 'accepted';
 
 export interface GiftTierItem {
   id: string;
@@ -167,6 +169,13 @@ interface FloatingHeart {
   color: string;
 }
 
+interface MicSpeakerRequest {
+  userId: string;
+  username: string;
+  avatarUrl: string;
+  requestedAt: number;
+}
+
 interface LiveArenaProps {
   currentUser?: {
     id: string;
@@ -190,165 +199,570 @@ const CATEGORIES = [
 ];
 
 // ============================================================================
-// HOST TRACK PUBLISHER (PUBLISHES CONTINUOUS LOCAL VIDEO TRACK INTO LIVEKIT)
+// MASTER TIER GPU-ACCELERATED GIFT OVERLAY ENGINE (TRACK A & TRACK B)
 // ============================================================================
-export interface HostPublisherRef {
+function MasterLiveGiftOverlay({
+  incomingGift
+}: {
+  incomingGift: LiveGiftEvent | null;
+}) {
+  const [trackAQueue, setTrackAQueue] = useState<LiveGiftEvent[]>([]);
+  const [activeTrackA, setActiveTrackA] = useState<LiveGiftEvent[]>([]);
+  const [megaQueue, setMegaQueue] = useState<LiveGiftEvent[]>([]);
+  const [activeMega, setActiveMega] = useState<LiveGiftEvent | null>(null);
+  const [universeFlash, setUniverseFlash] = useState<boolean>(false);
+  const processedIdsRef = useRef<Set<string>>(new Set());
+
+  const enqueueGift = useCallback((gift: LiveGiftEvent) => {
+    if (!gift || !gift.id) return;
+    if (processedIdsRef.current.has(gift.id)) return;
+    processedIdsRef.current.add(gift.id);
+
+    const totalCoins = (gift.coin_value || 1) * (gift.combo_count || 1);
+    if (
+      totalCoins >= 500 ||
+      gift.gift_id?.includes('rocket') ||
+      gift.gift_id?.includes('universe')
+    ) {
+      setMegaQueue((prev) => [...prev, gift]);
+    } else {
+      setTrackAQueue((prev) => [...prev, gift]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (incomingGift) {
+      enqueueGift(incomingGift);
+    }
+  }, [incomingGift, enqueueGift]);
+
+  // Process Track B (Mega Gifts >= 500 Coins pause Track A)
+  useEffect(() => {
+    if (!activeMega && megaQueue.length > 0) {
+      const nextMega = megaQueue[0];
+      setMegaQueue((prev) => prev.slice(1));
+      setActiveMega(nextMega);
+      const duration = nextMega.coin_value >= 5000 ? 4800 : 3200;
+      const flashTimer =
+        nextMega.coin_value >= 5000
+          ? setTimeout(() => setUniverseFlash(true), duration - 450)
+          : null;
+      const clearTimer = setTimeout(() => {
+        setUniverseFlash(false);
+        setActiveMega(null);
+      }, duration);
+      return () => {
+        if (flashTimer) clearTimeout(flashTimer);
+        clearTimeout(clearTimer);
+      };
+    }
+  }, [activeMega, megaQueue]);
+
+  // Process Track A (Up to 4 simultaneous standard/kinetic gifts on lower-left)
+  useEffect(() => {
+    if (activeMega) return;
+    if (activeTrackA.length < 4 && trackAQueue.length > 0) {
+      const nextGift = trackAQueue[0];
+      setTrackAQueue((prev) => prev.slice(1));
+      setActiveTrackA((prev) => [...prev, nextGift]);
+      setTimeout(() => {
+        setActiveTrackA((prev) => prev.filter((item) => item.id !== nextGift.id));
+      }, 3000);
+    }
+  }, [activeTrackA, trackAQueue, activeMega]);
+
+  const isRocket =
+    activeMega && activeMega.coin_value >= 500 && activeMega.coin_value < 5000;
+  const isUniverse = activeMega && activeMega.coin_value >= 5000;
+
+  return (
+    <motion.div
+      animate={
+        isRocket
+          ? { x: [0, -8, 8, -5, 5, 0], y: [0, 4, -4, 0] }
+          : { x: 0, y: 0 }
+      }
+      transition={{ duration: 0.45 }}
+      className="pointer-events-none absolute inset-0 z-[9999] overflow-hidden"
+    >
+      {/* TRACK A: LOWER-LEFT HOLOGRAPHIC & KINETIC DIAMOND STREAM */}
+      <div className="absolute bottom-60 left-3 flex flex-col gap-2.5 w-[280px]">
+        <AnimatePresence>
+          {!activeMega &&
+            activeTrackA.map((gift) => {
+              const isDiamond = gift.coin_value >= 50;
+              return (
+                <motion.div
+                  key={gift.id}
+                  initial={
+                    isDiamond
+                      ? { y: -140, scale: 0.5, rotateX: 80, opacity: 0 }
+                      : { x: -260, y: 30, scale: 0.85, opacity: 0 }
+                  }
+                  animate={{ x: 0, y: 0, scale: 1, rotateX: 0, opacity: 1 }}
+                  exit={{ y: -25, scale: 0.8, opacity: 0 }}
+                  transition={{
+                    type: 'spring',
+                    mass: 1.1,
+                    stiffness: 220,
+                    damping: 16
+                  }}
+                  className={`relative flex items-center justify-between rounded-full p-1.5 pr-4 backdrop-blur-2xl border transform-gpu ${
+                    isDiamond
+                      ? 'bg-cyan-950/60 border-cyan-300/70 shadow-[0_0_30px_rgba(34,211,238,0.65)]'
+                      : 'bg-white/10 border-white/25 shadow-[0_8px_32px_rgba(255,46,147,0.3)]'
+                  }`}
+                >
+                  {isDiamond && (
+                    <motion.div
+                      initial={{ scale: 0.8, opacity: 0.9 }}
+                      animate={{ scale: 2.6, opacity: 0 }}
+                      transition={{ duration: 0.45, ease: 'easeOut' }}
+                      className="pointer-events-none absolute inset-0 rounded-full border-2 border-cyan-300"
+                    />
+                  )}
+
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src={
+                        gift.sender_avatar ||
+                        'https://api.dicebear.com/7.x/avataaars/svg?seed=Gifter'
+                      }
+                      alt={gift.sender_username}
+                      className="h-9 w-9 rounded-full object-cover ring-2 ring-pink-400"
+                    />
+                    <div className="flex flex-col">
+                      <span className="max-w-[110px] truncate text-xs font-black text-white">
+                        {gift.sender_username}
+                      </span>
+                      <span className="text-[10px] font-bold text-amber-300">
+                        sent {gift.gift_name}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <motion.span
+                      animate={{ y: ['-10%', '10%'], rotate: [0, 8, -8, 0] }}
+                      transition={{
+                        duration: 1.4,
+                        repeat: Infinity,
+                        repeatType: 'reverse',
+                        ease: 'easeInOut'
+                      }}
+                      className="text-3xl drop-shadow-[0_0_12px_rgba(255,255,255,0.8)]"
+                    >
+                      {gift.gift_icon}
+                    </motion.span>
+                    <span className="text-lg font-black italic bg-gradient-to-b from-yellow-200 via-amber-400 to-orange-500 bg-clip-text text-transparent drop-shadow">
+                      x{gift.combo_count || 1}
+                    </span>
+                  </div>
+                </motion.div>
+              );
+            })}
+        </AnimatePresence>
+      </div>
+
+      {/* TRACK B (500 COINS): THE ROCKET DIAGONAL LAUNCH */}
+      <AnimatePresence>
+        {isRocket && activeMega && (
+          <motion.div
+            key={activeMega.id}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ x: -240, y: 380, scale: 0.4, rotate: 35 }}
+              animate={{
+                x: [null, 0, 260],
+                y: [null, 0, -420],
+                scale: [0.4, 1.5, 1.1]
+              }}
+              transition={{ duration: 2.6, ease: 'easeInOut' }}
+              className="relative flex flex-col items-center"
+            >
+              <span className="text-8xl drop-shadow-[0_0_45px_rgba(251,146,60,0.95)]">
+                🚀
+              </span>
+              {Array.from({ length: 12 }).map((_, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 1, scale: 1, x: 0, y: 20 }}
+                  animate={{
+                    opacity: 0,
+                    scale: 0,
+                    x: (i % 2 === 0 ? -1 : 1) * (15 + i * 6),
+                    y: 70 + i * 14
+                  }}
+                  transition={{ duration: 0.7, repeat: 3, delay: i * 0.06 }}
+                  className="absolute top-16 h-3.5 w-3.5 rounded-full bg-gradient-to-t from-red-500 via-orange-400 to-yellow-200 shadow-[0_0_12px_#f97316]"
+                />
+              ))}
+            </motion.div>
+
+            <motion.div
+              initial={{ scale: 0.5, opacity: 0, y: 60 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="absolute bottom-44 rounded-2xl bg-gradient-to-r from-orange-600/90 via-amber-500/90 to-pink-600/90 p-0.5 shadow-[0_0_40px_rgba(249,115,22,0.8)]"
+            >
+              <div className="flex items-center gap-3 rounded-2xl bg-black/80 backdrop-blur-2xl px-5 py-3">
+                <span className="text-3xl">🚀</span>
+                <div>
+                  <p className="text-xs font-extrabold uppercase tracking-widest text-amber-300">
+                    SUPERSONIC LAUNCH
+                  </p>
+                  <p className="text-sm font-black text-white">
+                    @{activeMega.sender_username} launched The Rocket!
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* TRACK B (5000 COINS): EARNMEGA UNIVERSE FULL-SCREEN CINEMATIC TAKEOVER */}
+      <AnimatePresence>
+        {isUniverse && activeMega && (
+          <motion.div
+            key={activeMega.id}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-3xl"
+          >
+            <motion.div
+              initial={{ y: '-100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '-100%' }}
+              transition={{ duration: 0.5 }}
+              className="absolute top-0 inset-x-0 h-16 bg-black border-b border-amber-400/30 z-20"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ duration: 0.5 }}
+              className="absolute bottom-0 inset-x-0 h-16 bg-black border-t border-amber-400/30 z-20"
+            />
+
+            {Array.from({ length: 20 }).map((_, idx) => {
+              const angle = (idx / 20) * Math.PI * 2;
+              const distance = 130 + (idx % 3) * 45;
+              return (
+                <motion.div
+                  key={idx}
+                  initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
+                  animate={{
+                    x: Math.cos(angle) * distance,
+                    y: Math.sin(angle) * distance,
+                    scale: [0, 1.3, 0],
+                    opacity: [1, 1, 0]
+                  }}
+                  transition={{ duration: 2.8, delay: 0.3, ease: 'easeOut' }}
+                  className="absolute text-lg"
+                >
+                  {idx % 2 === 0 ? '✨' : '💎'}
+                </motion.div>
+              );
+            })}
+
+            <motion.div
+              initial={{ scale: 0.1, rotate: -90, opacity: 0 }}
+              animate={{
+                scale: [0.1, 1.25, 1],
+                rotate: [0, 180, 360],
+                opacity: 1
+              }}
+              transition={{ duration: 3.6, ease: 'easeOut' }}
+              className="relative flex h-56 w-56 items-center justify-center rounded-full bg-gradient-to-tr from-purple-700/40 via-pink-500/30 to-amber-400/40 shadow-[0_0_120px_rgba(251,191,36,0.75)] border border-amber-300/50"
+            >
+              <span className="text-8xl drop-shadow-[0_0_40px_rgba(255,255,255,0.95)]">
+                🌌
+              </span>
+            </motion.div>
+
+            <motion.div
+              initial={{ y: 40, opacity: 0, scale: 0.85 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              transition={{ delay: 0.35, duration: 0.6 }}
+              className="mt-8 text-center px-6 z-30"
+            >
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/20 border border-amber-300/50 px-4 py-1 text-[11px] font-black uppercase tracking-[0.25em] text-amber-200 mb-2">
+                <Crown className="h-3.5 w-3.5 text-amber-400" />
+                WORLD-CLASS PATRON
+              </div>
+              <h2
+                style={{
+                  backgroundImage:
+                    'linear-gradient(110deg, #BF953F, #FCF6BA, #B38728, #FBF5B7, #AA771C)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent'
+                }}
+                className="text-2xl font-black tracking-tight drop-shadow-[0_4px_20px_rgba(251,191,36,0.5)]"
+              >
+                @{activeMega.sender_username} GIFTED THE UNIVERSE!
+              </h2>
+              <p className="mt-1 text-xs font-bold text-white/80">
+                5,000 Coins • Ultimate Arena Takeover
+              </p>
+            </motion.div>
+
+            <AnimatePresence>
+              {universeFlash && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0, 1, 0] }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.45 }}
+                  className="absolute inset-0 z-50 bg-white"
+                />
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+// ============================================================================
+// REALTIME LIVEKIT BRIDGE (HANDLES HD VIDEO, 48KHZ AUDIO, LIKES, GIFTS & MIC)
+// ============================================================================
+export interface LiveKitBridgeRef {
+  sendPacket: (payload: Record<string, any>) => Promise<void>;
   broadcastEnd: (duration: string, peakViewers: number) => Promise<void>;
 }
 
-const HostLiveKitPublisher = forwardRef<
-  HostPublisherRef,
+const LiveKitRoomBridge = forwardRef<
+  LiveKitBridgeRef,
   {
+    role: UserRole;
     localStream: MediaStream | null;
     isMicMuted: boolean;
     isCamOff: boolean;
+    isAcceptedSpeaker: boolean;
+    hostId?: string;
+    hostUsername?: string;
+    onViewerCountChange: (count: number) => void;
+    onHostEnded: (duration?: string, peak?: number) => void;
+    onPacketReceived: (packet: Record<string, any>) => void;
   }
->(({ localStream, isMicMuted, isCamOff }, ref) => {
-  const { localParticipant } = useLocalParticipant();
-  const connectionState = useConnectionState();
-  const publishedVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+>(
+  (
+    {
+      role,
+      localStream,
+      isMicMuted,
+      isCamOff,
+      isAcceptedSpeaker,
+      hostId,
+      hostUsername,
+      onViewerCountChange,
+      onHostEnded,
+      onPacketReceived
+    },
+    ref
+  ) => {
+    const room = useRoomContext();
+    const { localParticipant } = useLocalParticipant();
+    const connectionState = useConnectionState();
+    const participants = useParticipants();
+    const publishedVideoTrackRef = useRef<MediaStreamTrack | null>(null);
 
-  useImperativeHandle(ref, () => ({
-    broadcastEnd: async (duration: string, peakViewers: number) => {
-      if (localParticipant && connectionState === ConnectionState.Connected) {
-        try {
-          const payload = new TextEncoder().encode(
-            JSON.stringify({ type: 'HOST_ENDED_LIVE', duration, peakViewers })
-          );
-          await localParticipant.publishData(payload, { reliable: true });
-        } catch (err) {
-          console.warn('Failed to publish end packet:', err);
+    useImperativeHandle(ref, () => ({
+      sendPacket: async (payload: Record<string, any>) => {
+        if (localParticipant && connectionState === ConnectionState.Connected) {
+          try {
+            const encoded = new TextEncoder().encode(JSON.stringify(payload));
+            await localParticipant.publishData(encoded, { reliable: true });
+          } catch (err) {
+            console.warn('Data packet publish warning:', err);
+          }
+        }
+      },
+      broadcastEnd: async (duration: string, peakViewers: number) => {
+        if (localParticipant && connectionState === ConnectionState.Connected) {
+          try {
+            const encoded = new TextEncoder().encode(
+              JSON.stringify({ type: 'HOST_ENDED_LIVE', duration, peakViewers })
+            );
+            await localParticipant.publishData(encoded, { reliable: true });
+          } catch {}
         }
       }
-    }
-  }));
+    }));
 
-  // Publish the already-open local video track as soon as LiveKit connects
-  useEffect(() => {
-    if (connectionState !== ConnectionState.Connected || !localParticipant) {
-      return;
-    }
-
-    let isCancelled = false;
-
-    const publishVideo = async () => {
-      try {
-        const videoTrack = localStream?.getVideoTracks()?.[0];
-        if (videoTrack && videoTrack.readyState === 'live') {
-          if (
-            publishedVideoTrackRef.current &&
-            publishedVideoTrackRef.current !== videoTrack
-          ) {
-            await localParticipant
-              .unpublishTrack(publishedVideoTrackRef.current, false)
-              .catch(() => {});
-            publishedVideoTrackRef.current = null;
-          }
-
-          const existingPub = localParticipant.getTrackPublication(Track.Source.Camera);
-          if (!existingPub) {
-            await localParticipant.publishTrack(videoTrack, {
-              name: 'camera',
-              source: Track.Source.Camera
-            });
-            if (!isCancelled) {
-              publishedVideoTrackRef.current = videoTrack;
-            }
-          }
-        } else {
-          // Fallback: if localStream wasn't ready yet, let LiveKit enable camera directly
-          await localParticipant.setCameraEnabled(!isCamOff);
+    // Track remote viewer count accurately
+    useEffect(() => {
+      const viewers = participants.filter((p) => {
+        const id = p.identity || '';
+        if (hostId && (id === hostId || id === `host_${hostId}` || id.includes(hostId))) {
+          return false;
         }
-      } catch (err) {
-        console.warn('LiveKit video track publish warning, trying fallback:', err);
-        try {
-          await localParticipant.setCameraEnabled(!isCamOff);
-        } catch {}
-      }
-    };
-
-    publishVideo();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [connectionState, localParticipant, localStream, isCamOff]);
-
-  // Toggle video track enabled state
-  useEffect(() => {
-    if (localStream) {
-      localStream.getVideoTracks().forEach((t) => {
-        t.enabled = !isCamOff;
+        if (hostUsername && id === hostUsername) {
+          return false;
+        }
+        return true;
       });
-    }
-  }, [localStream, isCamOff]);
+      onViewerCountChange(viewers.length);
+    }, [participants, hostId, hostUsername, onViewerCountChange]);
 
-  // Enable microphone only if not muted; silently ignore if screen recorder locks mic
-  useEffect(() => {
-    if (connectionState !== ConnectionState.Connected || !localParticipant) return;
-    if (isMicMuted) {
-      localParticipant.setMicrophoneEnabled(false).catch(() => {});
-      return;
-    }
-    localParticipant.setMicrophoneEnabled(true).catch(() => {
-      // Screen recorder or another app is using the mic; keep video running cleanly
-    });
-  }, [connectionState, localParticipant, isMicMuted]);
-
-  return null;
-});
-HostLiveKitPublisher.displayName = 'HostLiveKitPublisher';
-
-// ============================================================================
-// VIEWER DATA & HOST DISCONNECT LISTENER
-// ============================================================================
-function ViewerDataListener({
-  onHostEnded,
-  hostId,
-  hostUsername
-}: {
-  onHostEnded: (duration?: string, peak?: number) => void;
-  hostId?: string;
-  hostUsername?: string;
-}) {
-  const room = useRoomContext();
-
-  useEffect(() => {
-    if (!room) return;
-
-    const handleData = (payload: Uint8Array) => {
-      try {
-        const data = JSON.parse(new TextDecoder().decode(payload));
-        if (data.type === 'HOST_ENDED_LIVE') {
-          onHostEnded(data.duration, data.peakViewers);
-        }
-      } catch {}
-    };
-
-    const handleParticipantDisconnected = (participant: any) => {
-      const id = participant?.identity || '';
+    // Host HD 720p/1080p Video Track Publisher (No Simulcast Blur)
+    useEffect(() => {
       if (
-        (hostId && (id === hostId || id === `host_${hostId}` || id.includes(hostId))) ||
-        (hostUsername && id === hostUsername)
+        role !== 'host' ||
+        connectionState !== ConnectionState.Connected ||
+        !localParticipant
       ) {
-        onHostEnded();
+        return;
       }
-    };
 
-    room.on(RoomEvent.DataReceived, handleData);
-    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+      let isCancelled = false;
 
-    return () => {
-      room.off(RoomEvent.DataReceived, handleData);
-      room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
-    };
-  }, [room, onHostEnded, hostId, hostUsername]);
+      const publishHighDefVideo = async () => {
+        try {
+          const videoTrack = localStream?.getVideoTracks()?.[0];
+          if (videoTrack && videoTrack.readyState === 'live') {
+            // Hint browser encoder for high-motion video clarity
+            try {
+              videoTrack.contentHint = 'motion';
+            } catch {}
 
-  return null;
-}
+            if (
+              publishedVideoTrackRef.current &&
+              publishedVideoTrackRef.current !== videoTrack
+            ) {
+              await localParticipant
+                .unpublishTrack(publishedVideoTrackRef.current, false)
+                .catch(() => {});
+              publishedVideoTrackRef.current = null;
+            }
+
+            const existingPub = localParticipant.getTrackPublication(
+              Track.Source.Camera
+            );
+            if (!existingPub) {
+              await localParticipant.publishTrack(videoTrack, {
+                name: 'camera',
+                source: Track.Source.Camera,
+                simulcast: false,
+                videoEncoding: {
+                  maxBitrate: 2_500_000,
+                  maxFramerate: 30
+                }
+              });
+              if (!isCancelled) {
+                publishedVideoTrackRef.current = videoTrack;
+              }
+            }
+          } else {
+            await localParticipant.setCameraEnabled(!isCamOff, {
+              resolution: { width: 1280, height: 720, frameRate: 30 }
+            });
+          }
+        } catch (err) {
+          console.warn('HD video publish fallback:', err);
+          try {
+            await localParticipant.setCameraEnabled(!isCamOff);
+          } catch {}
+        }
+      };
+
+      publishHighDefVideo();
+
+      return () => {
+        isCancelled = true;
+      };
+    }, [role, connectionState, localParticipant, localStream, isCamOff]);
+
+    // Host camera mute/unmute toggle
+    useEffect(() => {
+      if (role === 'host' && localStream) {
+        localStream.getVideoTracks().forEach((t) => {
+          t.enabled = !isCamOff;
+        });
+      }
+    }, [role, localStream, isCamOff]);
+
+    // High-Clarity 48kHz Audio Control for BOTH Host AND Accepted Viewer Speaker
+    useEffect(() => {
+      if (connectionState !== ConnectionState.Connected || !localParticipant) return;
+
+      const shouldPublishAudio =
+        (role === 'host' && !isMicMuted) ||
+        (role === 'viewer' && isAcceptedSpeaker && !isMicMuted);
+
+      if (!shouldPublishAudio) {
+        localParticipant.setMicrophoneEnabled(false).catch(() => {});
+        return;
+      }
+
+      localParticipant
+        .setMicrophoneEnabled(true, {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1
+        })
+        .catch(() => {
+          // If another app is holding the mic, continue video stream without crashing
+        });
+    }, [role, isAcceptedSpeaker, isMicMuted, connectionState, localParticipant]);
+
+    // Listen for all incoming DataChannel packets & Host disconnect
+    useEffect(() => {
+      if (!room) return;
+
+      const handleData = (payload: Uint8Array) => {
+        try {
+          const data = JSON.parse(new TextDecoder().decode(payload));
+          if (data.type === 'HOST_ENDED_LIVE') {
+            onHostEnded(data.duration, data.peakViewers);
+          } else {
+            onPacketReceived(data);
+          }
+        } catch {}
+      };
+
+      const handleParticipantDisconnected = (participant: any) => {
+        const id = participant?.identity || '';
+        if (
+          role === 'viewer' &&
+          ((hostId &&
+            (id === hostId || id === `host_${hostId}` || id.includes(hostId))) ||
+            (hostUsername && id === hostUsername))
+        ) {
+          onHostEnded();
+        } else if (id) {
+          onPacketReceived({
+            type: 'PARTICIPANT_LEFT',
+            identity: id
+          });
+        }
+      };
+
+      room.on(RoomEvent.DataReceived, handleData);
+      room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+
+      return () => {
+        room.off(RoomEvent.DataReceived, handleData);
+        room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+      };
+    }, [room, role, hostId, hostUsername, onHostEnded, onPacketReceived]);
+
+    return null;
+  }
+);
+LiveKitRoomBridge.displayName = 'LiveKitRoomBridge';
 
 // ============================================================================
-// VIEWER VIDEO STAGE (RENDERS REMOTE HOST VIDEO TRACK)
+// VIEWER VIDEO STAGE (FORCES HIGH QUALITY HD SUBSCRIPTION)
 // ============================================================================
 function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
   const subscribedTracks = useTracks(
@@ -370,6 +784,17 @@ function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
         t.publication?.track &&
         t.publication.kind === Track.Kind.Video
     );
+
+  // Force LiveKit SFU to send HIGH video quality layer to viewer
+  useEffect(() => {
+    const pub: any = remoteTrack?.publication;
+    if (pub) {
+      try {
+        pub.setVideoQuality?.(VideoQuality.HIGH);
+        pub.setSubscribed?.(true);
+      } catch {}
+    }
+  }, [remoteTrack]);
 
   if (remoteTrack) {
     return (
@@ -398,37 +823,6 @@ function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
 }
 
 // ============================================================================
-// LIVEKIT VIEWER COUNT TRACKER
-// ============================================================================
-function LiveKitTracker({
-  hostId,
-  hostUsername,
-  onViewerCountChange
-}: {
-  hostId?: string;
-  hostUsername?: string;
-  onViewerCountChange: (count: number) => void;
-}) {
-  const participants = useParticipants();
-
-  useEffect(() => {
-    const viewers = participants.filter((p) => {
-      const id = p.identity || '';
-      if (hostId && (id === hostId || id === `host_${hostId}` || id.includes(hostId))) {
-        return false;
-      }
-      if (hostUsername && id === hostUsername) {
-        return false;
-      }
-      return true;
-    });
-    onViewerCountChange(viewers.length);
-  }, [participants, hostId, hostUsername, onViewerCountChange]);
-
-  return null;
-}
-
-// ============================================================================
 // MAIN LIVE ARENA COMPONENT
 // ============================================================================
 export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaProps) {
@@ -441,7 +835,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       id: 'default-user-id',
       username: 'MegaCreator',
       avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=EarnMega',
-      coin_balance: 5000
+      coin_balance: 50000
     }
   );
 
@@ -491,14 +885,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [selectedGiftId, setSelectedGiftId] = useState<string>('rose_1');
   const [quickRoseCombo, setQuickRoseCombo] = useState<number>(0);
   const [coinPopTrigger, setCoinPopTrigger] = useState<boolean>(false);
-  const [localIncomingGift, setLocalIncomingGift] = useState<LiveGiftEvent | null>(null);
+  const [incomingGiftEvent, setIncomingGiftEvent] = useState<LiveGiftEvent | null>(null);
+
+  // Viewer Mic / Co-Host Request State (Private to Host until Accepted)
+  const [micRequestStatus, setMicRequestStatus] = useState<MicRequestStatus>('idle');
+  const [pendingMicRequests, setPendingMicRequests] = useState<MicSpeakerRequest[]>([]);
+  const [activeSpeakers, setActiveSpeakers] = useState<MicSpeakerRequest[]>([]);
 
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const liveHostVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
-  const hostPublisherRef = useRef<HostPublisherRef>(null);
+  const livekitBridgeRef = useRef<LiveKitBridgeRef>(null);
+  const realtimeEventChannelRef = useRef<any>(null);
 
   const handleViewerCountChange = useCallback((count: number) => {
     setViewerCount(count);
@@ -526,26 +926,182 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setLocalStream(null);
   }, []);
 
-  // Manually remove a stale/ghost stream from the lobby
-  const removeGhostStream = useCallback(async (streamId: string, hostId?: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setActiveStreams((prev) => prev.filter((s) => s.id !== streamId));
-    try {
-      await supabase.from('live_streams').delete().eq('id', streamId);
-      if (hostId) {
-        await supabase.from('live_streams').delete().eq('host_id', hostId);
-      }
-    } catch {}
-  }, []);
+  const removeGhostStream = useCallback(
+    async (streamId: string, hostId?: string, e?: React.MouseEvent) => {
+      if (e) e.stopPropagation();
+      setActiveStreams((prev) => prev.filter((s) => s.id !== streamId));
+      try {
+        await supabase.from('live_streams').delete().eq('id', streamId);
+        if (hostId) {
+          await supabase.from('live_streams').delete().eq('host_id', hostId);
+        }
+      } catch {}
+    },
+    []
+  );
 
   // --------------------------------------------------------------------------
-  // HOST BROADCAST INITIALIZATION (GUARANTEED DB INSERT FOR VIEWER LOBBY)
+  // UNIFIED PACKET RECEIVER (HANDLES LIKES, GIFTS, COMMENTS & MIC REQUESTS)
+  // --------------------------------------------------------------------------
+  const spawnVisualHeartOnly = useCallback(() => {
+    const colors = ['#FF2E93', '#00F5D4', '#FFD700', '#FF5E00', '#9B5DE5'];
+    const newHeart: FloatingHeart = {
+      id: Date.now() + Math.random(),
+      xOffset: Math.floor(Math.random() * 60) - 30,
+      color: colors[Math.floor(Math.random() * colors.length)]
+    };
+    setFloatingHearts((prev) => [...prev.slice(-18), newHeart]);
+  }, []);
+
+  const handleIncomingArenaPacket = useCallback(
+    (packet: Record<string, any>) => {
+      if (!packet || !packet.type) return;
+
+      // Ignore self-echo for likes/gifts/comments that were already applied optimistically
+      if (
+        packet.senderId &&
+        packet.senderId === user.id &&
+        (packet.type === 'LIVE_LIKE' ||
+          packet.type === 'LIVE_GIFT' ||
+          packet.type === 'LIVE_COMMENT')
+      ) {
+        return;
+      }
+
+      switch (packet.type) {
+        case 'LIVE_LIKE': {
+          setLikeCount((prev) => prev + 1);
+          spawnVisualHeartOnly();
+          break;
+        }
+
+        case 'LIVE_GIFT': {
+          const giftEvt = packet.gift as LiveGiftEvent;
+          if (giftEvt) {
+            setIncomingGiftEvent(giftEvt);
+            const totalCost = (giftEvt.coin_value || 1) * (giftEvt.combo_count || 1);
+            setCurrentStream((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    gift_goal_current: (prev.gift_goal_current || 0) + totalCost,
+                    total_coins_earned: (prev.total_coins_earned || 0) + totalCost
+                  }
+                : null
+            );
+            setComments((prev) => [
+              ...prev.slice(-60),
+              {
+                id: `gift-msg-${giftEvt.id}`,
+                username: giftEvt.sender_username,
+                content: `sent ${giftEvt.gift_icon} ${giftEvt.gift_name} x${giftEvt.combo_count || 1}!`,
+                is_system: true
+              }
+            ]);
+          }
+          break;
+        }
+
+        case 'LIVE_COMMENT': {
+          if (packet.comment) {
+            setComments((prev) => {
+              if (prev.some((c) => c.id === packet.comment.id)) return prev;
+              return [...prev.slice(-60), packet.comment];
+            });
+          }
+          break;
+        }
+
+        case 'MIC_REQUEST': {
+          // ONLY the Host receives and stores pending mic requests
+          if (roleRef.current === 'host' && packet.requester) {
+            const req: MicSpeakerRequest = packet.requester;
+            setPendingMicRequests((prev) => {
+              if (prev.some((r) => r.userId === req.userId)) return prev;
+              return [...prev, req];
+            });
+          }
+          break;
+        }
+
+        case 'MIC_CANCEL': {
+          if (roleRef.current === 'host' && packet.userId) {
+            setPendingMicRequests((prev) =>
+              prev.filter((r) => r.userId !== packet.userId)
+            );
+          }
+          break;
+        }
+
+        case 'MIC_ACCEPTED': {
+          if (packet.speaker) {
+            const spk: MicSpeakerRequest = packet.speaker;
+            setActiveSpeakers((prev) => {
+              if (prev.some((s) => s.userId === spk.userId)) return prev;
+              return [...prev, spk];
+            });
+            if (spk.userId === user.id) {
+              setMicRequestStatus('accepted');
+              setIsMicMuted(false);
+              toast.success('Host accepted your request! Your mic is now LIVE.');
+            }
+          }
+          break;
+        }
+
+        case 'MIC_DECLINED': {
+          if (packet.targetUserId === user.id) {
+            setMicRequestStatus('idle');
+            toast('Host declined your mic request.');
+          }
+          break;
+        }
+
+        case 'MIC_REMOVED': {
+          if (packet.targetUserId) {
+            setActiveSpeakers((prev) =>
+              prev.filter((s) => s.userId !== packet.targetUserId)
+            );
+            if (packet.targetUserId === user.id) {
+              setMicRequestStatus('idle');
+              setIsMicMuted(true);
+              toast('Your mic session has ended.');
+            }
+          }
+          break;
+        }
+      }
+    },
+    [user.id, spawnVisualHeartOnly]
+  );
+
+  // Helper to dispatch packet across BOTH LiveKit DataChannel & Supabase Broadcast
+  const dispatchArenaPacket = useCallback(
+    async (payload: Record<string, any>) => {
+      const fullPayload = { ...payload, senderId: user.id };
+      if (livekitBridgeRef.current) {
+        await livekitBridgeRef.current.sendPacket(fullPayload);
+      }
+      if (realtimeEventChannelRef.current) {
+        try {
+          realtimeEventChannelRef.current.send({
+            type: 'broadcast',
+            event: 'arena-packet',
+            payload: fullPayload
+          });
+        } catch {}
+      }
+    },
+    [user.id]
+  );
+
+  // --------------------------------------------------------------------------
+  // HOST BROADCAST INITIALIZATION
   // --------------------------------------------------------------------------
   const initializeHostBroadcast = useCallback(async () => {
     if (isInitializingRef.current) return;
     isInitializingRef.current = true;
 
-    // Ensure we have the authenticated user ID if available
     let activeUserId = user.id;
     let activeUsername = user.username || 'Creator';
     let activeAvatar = user.avatar_url;
@@ -572,10 +1128,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const nowIso = new Date().toISOString();
 
     try {
-      // 1. Delete any old rows for this host so there are never duplicate cards
       await supabase.from('live_streams').delete().eq('host_id', activeUserId);
 
-      // 2. Try full insert first
       const insertPayload = {
         host_id: activeUserId,
         host_username: activeUsername,
@@ -601,23 +1155,19 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         .single();
 
       if (error) {
-        console.warn('Full stream insert failed, falling back to base schema:', error.message);
-        // 3. Exact 4-column base schema fallback that is guaranteed to succeed
         const fallbackPayload = {
           host_id: activeUserId,
           host_username: activeUsername,
           title: finalTitle,
           category: setupCategory
         };
-        const { data: fallbackData, error: fallbackError } = await supabase
+        const { data: fallbackData } = await supabase
           .from('live_streams')
           .insert([fallbackPayload])
           .select()
           .single();
 
-        if (fallbackError) {
-          console.error('Fallback stream insert failed:', fallbackError.message);
-        } else if (fallbackData) {
+        if (fallbackData) {
           setCurrentStreamDbId(fallbackData.id);
           insertedStreamDbId = fallbackData.id;
         }
@@ -666,7 +1216,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         {
           id: 'welcome-sys',
           username: 'EarnMega AI',
-          content: 'Welcome to EarnMega Live Arena! Send gifts to climb the VIP Leaderboard.',
+          content:
+            'Welcome to EarnMega Live Arena! Tap gifts to test animations for FREE or request the mic to speak.',
           is_system: true
         }
       ]);
@@ -679,7 +1230,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   }, [user, streamTitle, setupCategory, giftGoal, allowCohost]);
 
   // --------------------------------------------------------------------------
-  // HOST START STREAM WORKFLOW (SETUP -> 3-2-1 COUNTDOWN -> LIVE)
+  // HOST START STREAM WORKFLOW
   // --------------------------------------------------------------------------
   const handleStartCountdown = () => {
     setConnectionError(null);
@@ -687,6 +1238,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setStreamStartMs(null);
     setViewerCount(0);
     setPeakViewers(0);
+    setLikeCount(0);
+    setPendingMicRequests([]);
+    setActiveSpeakers([]);
     setRole('host');
     roleRef.current = 'host';
     setCountdown(3);
@@ -702,6 +1256,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     stopCameraTracks();
     setRole('viewer');
     roleRef.current = 'viewer';
+    setMicRequestStatus('idle');
+    setPendingMicRequests([]);
+    setActiveSpeakers([]);
+    setLikeCount(0);
     setCurrentStream(stream);
     setLiveDuration('00:00');
     setViewerCount(stream.viewer_count || 1);
@@ -716,15 +1274,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       stream.livekit_room_name ||
       stream.room_id ||
       `live_${stream.host_id || (stream as any).user_id}`;
-    const viewerIdentity = `viewer_${user.username || 'user'}_${Math.random()
-      .toString(36)
-      .substring(2, 7)}`;
+    const viewerIdentity = `viewer_${user.username || 'user'}_${user.id.slice(0, 6)}`;
 
     try {
+      // Request with role=host on the token endpoint so the viewer has permission to publish DataPackets & Co-Host Audio when accepted
       const res = await fetch(
         `/api/livekit?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(
           viewerIdentity
-        )}&role=viewer`
+        )}&role=host`
       );
       const data = await res.json();
       if (!res.ok || !data.token) {
@@ -739,14 +1296,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       return;
     }
 
-    setComments([
-      {
-        id: `join-${Date.now()}`,
-        username: user.username,
-        content: 'joined the LIVE',
-        is_system: true
-      }
-    ]);
+    const joinComment: LiveComment = {
+      id: `join-${Date.now()}-${user.id.slice(0, 4)}`,
+      username: user.username,
+      content: 'joined the LIVE',
+      is_system: true
+    };
+    setComments([joinComment]);
     setStage('live');
 
     try {
@@ -764,7 +1320,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   };
 
   // --------------------------------------------------------------------------
-  // INTERACTIVE ACTIONS (CHAT, HEARTS, LUXURY GIFT DISPATCH, END/LEAVE STREAM)
+  // INTERACTIVE ACTIONS (CHAT, SYNCED LIKES, FREE GIFTS, MIC REQUESTS)
   // --------------------------------------------------------------------------
   const handleSendComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -772,13 +1328,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const text = commentInput.trim();
     setCommentInput('');
     const tempMsg: LiveComment = {
-      id: `local-${Date.now()}`,
+      id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       username: user.username,
       avatar_url: user.avatar_url,
       content: text,
       badge_level: 14
     };
     setComments((prev) => [...prev.slice(-60), tempMsg]);
+
+    // Broadcast immediately over LiveKit & Realtime so Host and Viewers see it instantly
+    await dispatchArenaPacket({
+      type: 'LIVE_COMMENT',
+      comment: tempMsg
+    });
+
     try {
       await supabase.from('live_comments').insert([
         {
@@ -792,43 +1355,26 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     } catch {}
   };
 
-  const spawnFloatingHeart = () => {
-    const colors = ['#FF2E93', '#00F5D4', '#FFD700', '#FF5E00', '#9B5DE5'];
-    const newHeart: FloatingHeart = {
-      id: Date.now() + Math.random(),
-      xOffset: Math.floor(Math.random() * 60) - 30,
-      color: colors[Math.floor(Math.random() * colors.length)]
-    };
+  // Synced Like Action: Shows on Viewer AND Host screen in real time
+  const spawnFloatingHeart = useCallback(() => {
     setLikeCount((prev) => prev + 1);
-    setFloatingHearts((prev) => [...prev.slice(-18), newHeart]);
-  };
+    spawnVisualHeartOnly();
+    dispatchArenaPacket({
+      type: 'LIVE_LIKE',
+      username: user.username
+    });
+  }, [spawnVisualHeartOnly, dispatchArenaPacket, user.username]);
 
+  // 100% Free Gift Dispatch (No Paywall, Plays Animation on Both Screens)
   const handleDispatchGift = async (gift: GiftTierItem, comboCount = 1) => {
     if (!currentStream) return;
     const totalCost = gift.coins * comboCount;
-    if (user.coin_balance < totalCost) {
-      setIsGiftDrawerOpen(true);
-      return;
-    }
 
-    const updatedBalance = user.coin_balance - totalCost;
-    setUser((prev) => ({
-      ...prev,
-      coin_balance: updatedBalance
-    }));
     setCoinPopTrigger(true);
     setTimeout(() => setCoinPopTrigger(false), 550);
 
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('coin-balance-updated', {
-          detail: { newBalance: updatedBalance }
-        })
-      );
-    }
-
     const giftEvent: LiveGiftEvent = {
-      id: `local-gift-${Date.now()}-${Math.random()}`,
+      id: `gift-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       stream_id: currentStream.id,
       sender_id: user.id,
       sender_username: user.username,
@@ -839,8 +1385,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       coin_value: gift.coins,
       combo_count: comboCount
     };
-    setLocalIncomingGift(giftEvent);
 
+    // 1. Trigger local animation & goal update immediately
+    setIncomingGiftEvent(giftEvent);
     setCurrentStream((prev) =>
       prev
         ? {
@@ -850,22 +1397,37 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           }
         : null
     );
-
-    try {
-      const { data, error } = await supabase.rpc('process_live_gift', {
-        p_stream_id: currentStream.id,
-        p_gift_id: gift.id,
-        p_gift_name: gift.name,
-        p_gift_icon: gift.icon,
-        p_coin_value: gift.coins,
-        p_combo_count: comboCount
-      });
-      if (!error && data?.new_balance !== undefined) {
-        setUser((prev) => ({
-          ...prev,
-          coin_balance: data.new_balance
-        }));
+    setComments((prev) => [
+      ...prev.slice(-60),
+      {
+        id: `gift-sys-${giftEvent.id}`,
+        username: user.username,
+        content: `sent ${gift.icon} ${gift.name} x${comboCount}!`,
+        is_system: true
       }
+    ]);
+
+    // 2. Broadcast over LiveKit DataChannel + Supabase Broadcast so Host & all Viewers see the animation immediately
+    await dispatchArenaPacket({
+      type: 'LIVE_GIFT',
+      gift: giftEvent
+    });
+
+    // 3. Best-effort DB persistence (never blocks animation)
+    try {
+      await supabase.from('live_gifts').insert([
+        {
+          stream_id: currentStream.id,
+          sender_id: user.id,
+          sender_username: user.username,
+          sender_avatar: user.avatar_url,
+          gift_id: gift.id,
+          gift_name: gift.name,
+          gift_icon: gift.icon,
+          coin_value: gift.coins,
+          combo_count: comboCount
+        }
+      ]);
     } catch {}
   };
 
@@ -875,12 +1437,79 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     handleDispatchGift(LUXURY_GIFT_CATALOG[0], 1);
   };
 
-  // CASE A (Host clicks END) vs CASE C (Viewer taps X to leave early)
+  // --------------------------------------------------------------------------
+  // VIEWER MIC REQUEST & HOST ACCEPT/DECLINE WORKFLOW
+  // --------------------------------------------------------------------------
+  const handleToggleMicRequest = async () => {
+    if (micRequestStatus === 'idle') {
+      const reqPayload: MicSpeakerRequest = {
+        userId: user.id,
+        username: user.username,
+        avatarUrl: user.avatar_url,
+        requestedAt: Date.now()
+      };
+      setMicRequestStatus('pending');
+      await dispatchArenaPacket({
+        type: 'MIC_REQUEST',
+        requester: reqPayload
+      });
+      toast.success('Mic request sent privately to Host');
+    } else if (micRequestStatus === 'pending') {
+      setMicRequestStatus('idle');
+      await dispatchArenaPacket({
+        type: 'MIC_CANCEL',
+        userId: user.id
+      });
+      toast('Mic request cancelled');
+    } else if (micRequestStatus === 'accepted') {
+      setMicRequestStatus('idle');
+      setIsMicMuted(true);
+      setActiveSpeakers((prev) => prev.filter((s) => s.userId !== user.id));
+      await dispatchArenaPacket({
+        type: 'MIC_REMOVED',
+        targetUserId: user.id
+      });
+      toast('You left the mic');
+    }
+  };
+
+  const handleHostAcceptMicRequest = async (req: MicSpeakerRequest) => {
+    setPendingMicRequests((prev) => prev.filter((r) => r.userId !== req.userId));
+    setActiveSpeakers((prev) => {
+      if (prev.some((s) => s.userId === req.userId)) return prev;
+      return [...prev, req];
+    });
+    await dispatchArenaPacket({
+      type: 'MIC_ACCEPTED',
+      speaker: req
+    });
+    toast.success(`Accepted @${req.username} to speak live!`);
+  };
+
+  const handleHostDeclineMicRequest = async (req: MicSpeakerRequest) => {
+    setPendingMicRequests((prev) => prev.filter((r) => r.userId !== req.userId));
+    await dispatchArenaPacket({
+      type: 'MIC_DECLINED',
+      targetUserId: req.userId
+    });
+  };
+
+  const handleHostRemoveSpeaker = async (targetUserId: string) => {
+    setActiveSpeakers((prev) => prev.filter((s) => s.userId !== targetUserId));
+    await dispatchArenaPacket({
+      type: 'MIC_REMOVED',
+      targetUserId
+    });
+  };
+
+  // --------------------------------------------------------------------------
+  // END OR LEAVE STREAM
+  // --------------------------------------------------------------------------
   const handleEndOrLeaveStream = async () => {
     if (role === 'host') {
-      if (hostPublisherRef.current) {
+      if (livekitBridgeRef.current) {
         try {
-          await hostPublisherRef.current.broadcastEnd(liveDuration, peakViewers);
+          await livekitBridgeRef.current.broadcastEnd(liveDuration, peakViewers);
         } catch {}
       }
       stopCameraTracks();
@@ -901,8 +1530,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       );
       setStage('ended');
     } else {
-      // Viewer tapped X: leave immediately back to Lobby without showing "Broadcast Concluded"
       viewerLeavingIntentionallyRef.current = true;
+      if (micRequestStatus !== 'idle') {
+        await dispatchArenaPacket({
+          type: 'MIC_REMOVED',
+          targetUserId: user.id
+        });
+      }
+      setMicRequestStatus('idle');
       setLivekitToken('');
       setCurrentStream(null);
       setCurrentStreamDbId(null);
@@ -910,7 +1545,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }
   };
 
-  // CASE B: Host ended stream while Viewer is watching
   const handleHostEnded = useCallback((durationStr?: string, peak?: number) => {
     if (roleRef.current === 'viewer' && !viewerLeavingIntentionallyRef.current) {
       if (durationStr) setLiveDuration(durationStr);
@@ -919,17 +1553,43 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       setEndedAtFormatted(
         new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       );
+      setMicRequestStatus('idle');
       setLivekitToken('');
       setStage('ended');
     }
   }, []);
 
-  // Listen for Host ending the broadcast via Realtime & safe '*' polling
+  // Supabase Realtime Broadcast Channel for Likes, Gifts, Comments & Mic Requests
+  useEffect(() => {
+    if (stage !== 'live' || !currentStream) return;
+
+    const roomKey =
+      currentStream.livekit_room_name ||
+      currentStream.room_id ||
+      `live_${currentStream.host_id}`;
+
+    const eventChannel = supabase
+      .channel(`arena_events_${roomKey}`)
+      .on('broadcast', { event: 'arena-packet' }, (payload) => {
+        if (payload?.payload) {
+          handleIncomingArenaPacket(payload.payload);
+        }
+      })
+      .subscribe();
+
+    realtimeEventChannelRef.current = eventChannel;
+
+    return () => {
+      realtimeEventChannelRef.current = null;
+      supabase.removeChannel(eventChannel);
+    };
+  }, [stage, currentStream, handleIncomingArenaPacket]);
+
+  // Viewer stream-end listener
   useEffect(() => {
     if (stage !== 'live' || role !== 'viewer' || !currentStream) return;
 
     const streamId = currentStream.id;
-    const hostId = currentStream.host_id;
 
     const channel = supabase
       .channel(`stream_status_${streamId}`)
@@ -961,7 +1621,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       )
       .subscribe();
 
-    // Select '*' so missing optional columns (like status or is_live) NEVER cause a query error
     const pollInterval = setInterval(async () => {
       if (!streamId || String(streamId).startsWith('live_')) return;
       try {
@@ -1030,7 +1689,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 ? profile.coin_balance
                 : typeof profile.coins === 'number'
                 ? profile.coins
-                : 1000
+                : 50000
           });
         } else {
           setUser((prev) => ({
@@ -1054,7 +1713,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           (s: any) => s.status !== 'ended' && s.is_live !== false
         );
 
-        // Fetch host avatars from profiles if host_avatar column isn't in live_streams
         const hostIds = Array.from(
           new Set(validStreams.map((s: any) => s.host_id).filter(Boolean))
         );
@@ -1116,7 +1774,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     };
   }, [stage]);
 
-  // Keep Host Camera Active across 'setup' -> 'countdown' -> 'live' so Android never drops or locks the camera!
+  // Keep Host Camera Active in HD across 'setup' -> 'countdown' -> 'live'
   useEffect(() => {
     const needsHostCamera =
       stage === 'setup' ||
@@ -1161,12 +1819,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         }
 
         try {
-          // Request VIDEO ONLY here so Android screen recorders / mic locks never block the camera feed
           const stream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode,
               width: { ideal: 1280 },
-              height: { ideal: 720 }
+              height: { ideal: 720 },
+              frameRate: { ideal: 30 }
             },
             audio: false
           });
@@ -1223,46 +1881,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       initializeHostBroadcast();
     }
   }, [stage, role, livekitToken, initializeHostBroadcast]);
-
-  useEffect(() => {
-    if (stage !== 'live' || !currentStream) return;
-    const chatChannel = supabase
-      .channel(`live_chat_${currentStream.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'live_comments',
-          filter: `stream_id=eq.${currentStream.id}`
-        },
-        (payload) => {
-          const newMsg = payload.new as LiveComment;
-          setComments((prev) => [...prev.slice(-60), newMsg]);
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'live_streams',
-          filter: `id=eq.${currentStream.id}`
-        },
-        (payload) => {
-          const newData = payload.new as Partial<LiveStreamRecord>;
-          setCurrentStream((prev) => (prev ? { ...prev, ...newData } : null));
-          if (newData.status === 'ended' || newData.is_live === false) {
-            handleHostEnded();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(chatChannel);
-    };
-  }, [stage, currentStream, handleHostEnded]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1686,47 +2304,58 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         />
       )}
 
-      {/* 1B. LIVEKIT CLOUD HD VIDEO ROOM */}
+      {/* 1B. LIVEKIT CLOUD HD VIDEO & 48KHZ AUDIO ROOM */}
       {livekitToken ? (
         <LiveKitRoom
           video={false}
           audio={false}
           options={{
-            adaptiveStream: true,
+            adaptiveStream: false,
             dynacast: true,
+            videoCaptureDefaults: {
+              resolution: { width: 1280, height: 720, frameRate: 30 }
+            },
+            audioCaptureDefaults: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+              sampleRate: 48000,
+              channelCount: 1
+            },
             publishDefaults: {
+              audioPreset: { maxBitrate: 64_000 },
               dtx: true,
               red: true,
-              simulcast: true
+              simulcast: false,
+              videoEncoding: {
+                maxBitrate: 2_500_000,
+                maxFramerate: 30
+              }
             }
           }}
           token={livekitToken}
           serverUrl={livekitServerUrl}
           connect={true}
-          className={`h-full w-full ${role === 'host' ? 'pointer-events-none absolute inset-0 z-0' : 'relative z-0'}`}
+          className={`h-full w-full ${
+            role === 'host'
+              ? 'pointer-events-none absolute inset-0 z-0'
+              : 'relative z-0'
+          }`}
         >
-          <LiveKitTracker
+          <LiveKitRoomBridge
+            ref={livekitBridgeRef}
+            role={role}
+            localStream={localStream}
+            isMicMuted={isMicMuted}
+            isCamOff={isCamOff}
+            isAcceptedSpeaker={micRequestStatus === 'accepted'}
             hostId={currentStream?.host_id || user.id}
             hostUsername={currentStream?.host_username || user.username}
             onViewerCountChange={handleViewerCountChange}
+            onHostEnded={handleHostEnded}
+            onPacketReceived={handleIncomingArenaPacket}
           />
-          {role === 'host' ? (
-            <HostLiveKitPublisher
-              ref={hostPublisherRef}
-              localStream={localStream}
-              isMicMuted={isMicMuted}
-              isCamOff={isCamOff}
-            />
-          ) : (
-            <>
-              <ViewerVideoStage beautyMode={beautyMode} />
-              <ViewerDataListener
-                onHostEnded={handleHostEnded}
-                hostId={currentStream?.host_id || (currentStream as any)?.user_id}
-                hostUsername={currentStream?.host_username}
-              />
-            </>
-          )}
+          {role === 'viewer' && <ViewerVideoStage beautyMode={beautyMode} />}
           <RoomAudioRenderer />
         </LiveKitRoom>
       ) : (
@@ -1746,10 +2375,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/70 via-black/25 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-80 bg-gradient-to-t from-black/85 via-black/40 to-transparent z-10" />
 
-      {/* 2. MASTER TIER GPU GIFT OVERLAY */}
-      {currentStream && (
-        <LiveGiftOverlay streamId={currentStream.id} localIncomingGift={localIncomingGift} />
-      )}
+      {/* 2. MASTER TIER GPU GIFT OVERLAY (BUILT-IN, ZERO PAYWALL) */}
+      <MasterLiveGiftOverlay incomingGift={incomingGiftEvent} />
 
       {/* 2.5 LIVE TIMER PILL (HOST ONLY) */}
       {role === 'host' && (stage === 'live' || stage === 'ended') && (
@@ -1782,7 +2409,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               </span>
               <span className="flex items-center gap-1 text-[10px] font-bold text-amber-300">
                 <Heart className="h-2.5 w-2.5 fill-pink-500 text-pink-500" />
-                {((currentStream?.total_coins_earned || 0) + likeCount).toLocaleString()}
+                {(
+                  (currentStream?.total_coins_earned || 0) + likeCount
+                ).toLocaleString()}
               </span>
             </div>
 
@@ -1809,13 +2438,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   : { scale: 1 }
               }
               transition={{ duration: 0.35 }}
-              onClick={() => role === 'viewer' && setIsGiftDrawerOpen(true)}
+              onClick={() => setIsGiftDrawerOpen(true)}
               className="cursor-pointer flex items-center gap-1.5 rounded-full bg-black/50 backdrop-blur-xl border border-amber-400/30 px-3 py-1.5 shadow-md"
             >
               <Coins className="h-3.5 w-3.5 text-amber-400" />
-              <span className="text-xs font-black text-amber-300">
-                {user.coin_balance.toLocaleString()}
-              </span>
+              <span className="text-xs font-black text-amber-300">FREE GIFTS</span>
             </motion.div>
 
             <div className="flex items-center gap-1 rounded-full bg-black/45 backdrop-blur-xl border border-white/10 px-2.5 py-1.5 text-xs font-bold text-white">
@@ -1845,7 +2472,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 <Crown className="h-2.5 w-2.5 text-amber-400" /> Goal
               </span>
               <span>
-                {currentStream?.gift_goal_current || 0}/{currentStream?.gift_goal_target || 500}
+                {currentStream?.gift_goal_current || 0}/
+                {currentStream?.gift_goal_target || 500}
               </span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/15">
@@ -1856,6 +2484,98 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             </div>
           </div>
         </div>
+
+        {/* 3.5 HOST-ONLY PRIVATE MIC REQUEST BANNER (DOES NOT INTERRUPT STREAM OR SHOW TO VIEWERS) */}
+        <AnimatePresence>
+          {role === 'host' && pendingMicRequests.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="flex flex-col gap-1.5 mt-1"
+            >
+              {pendingMicRequests.map((req) => (
+                <div
+                  key={req.userId}
+                  className="flex items-center justify-between rounded-2xl bg-black/75 backdrop-blur-2xl border border-pink-500/40 px-3.5 py-2 shadow-[0_8px_25px_rgba(0,0,0,0.6)]"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src={
+                        req.avatarUrl ||
+                        'https://api.dicebear.com/7.x/avataaars/svg?seed=Guest'
+                      }
+                      alt={req.username}
+                      className="h-8 w-8 rounded-full object-cover ring-2 ring-pink-500"
+                    />
+                    <div>
+                      <p className="text-xs font-extrabold text-white">
+                        @{req.username} wants to speak
+                      </p>
+                      <p className="text-[10px] text-pink-300 font-semibold">
+                        Private Host Request • Audio Co-Host
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleHostAcceptMicRequest(req)}
+                      className="flex items-center gap-1 rounded-full bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 text-[11px] font-black text-black shadow transition active:scale-95"
+                    >
+                      <Check className="h-3.5 w-3.5 stroke-[3]" />
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => handleHostDeclineMicRequest(req)}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 hover:bg-rose-500/30 text-white/80 hover:text-rose-300 transition active:scale-95"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 3.6 ACTIVE SPEAKERS PILL (SHOWS WHO IS TALKING LIVE ON STREAM) */}
+        <AnimatePresence>
+          {activeSpeakers.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-1">
+              {activeSpeakers.map((spk) => (
+                <motion.div
+                  key={spk.userId}
+                  initial={{ scale: 0.85, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.85, opacity: 0 }}
+                  className="flex items-center gap-2 rounded-full bg-emerald-950/75 backdrop-blur-xl border border-emerald-400/50 pl-1.5 pr-3 py-1 shadow-[0_0_20px_rgba(16,185,129,0.35)]"
+                >
+                  <img
+                    src={
+                      spk.avatarUrl ||
+                      'https://api.dicebear.com/7.x/avataaars/svg?seed=Speaker'
+                    }
+                    alt={spk.username}
+                    className="h-6 w-6 rounded-full object-cover ring-1 ring-emerald-400"
+                  />
+                  <Volume2 className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
+                  <span className="text-[11px] font-extrabold text-white">
+                    @{spk.username}
+                  </span>
+                  {role === 'host' && (
+                    <button
+                      onClick={() => handleHostRemoveSpeaker(spk.userId)}
+                      title="Remove speaker from mic"
+                      className="ml-1 rounded-full bg-rose-500/30 hover:bg-rose-500/60 p-0.5 text-rose-200"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* 4. FLOATING NEON HEARTS STREAM */}
@@ -1936,10 +2656,47 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             )}
           </form>
 
+          {/* Viewer Request to Speak / Active Mic Controls */}
+          {micRequestStatus === 'accepted' && (
+            <button
+              onClick={() => setIsMicMuted((prev) => !prev)}
+              className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
+                isMicMuted
+                  ? 'bg-red-600/90 border-red-400 text-white'
+                  : 'bg-emerald-500 border-emerald-300 text-black shadow-[0_0_15px_rgba(16,185,129,0.6)]'
+              }`}
+              title={isMicMuted ? 'Unmute Mic' : 'Mute Mic'}
+            >
+              {isMicMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </button>
+          )}
+
+          <button
+            onClick={handleToggleMicRequest}
+            className={`relative flex h-10 px-3 items-center justify-center gap-1 rounded-full backdrop-blur-xl border text-[11px] font-extrabold transition active:scale-90 ${
+              micRequestStatus === 'accepted'
+                ? 'bg-rose-600/90 border-rose-400 text-white'
+                : micRequestStatus === 'pending'
+                ? 'bg-amber-500/30 border-amber-400 text-amber-200 animate-pulse'
+                : 'bg-black/55 border-white/15 text-white hover:bg-white/10'
+            }`}
+            title="Request to Speak on Stream"
+          >
+            <Hand className="h-3.5 w-3.5 text-pink-400" />
+            <span>
+              {micRequestStatus === 'accepted'
+                ? 'Leave Mic'
+                : micRequestStatus === 'pending'
+                ? 'Requested'
+                : 'Speak'}
+            </span>
+          </button>
+
+          {/* 1-Tap Quick Rose Combo Button (Free) */}
           <button
             onClick={handleQuickRoseGift}
             className="relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-rose-600/80 to-pink-500/80 backdrop-blur-xl border border-pink-300/40 shadow-[0_0_15px_rgba(244,63,94,0.5)] active:scale-90 transition"
-            title="Send Quick Rose (1 Coin)"
+            title="Send Quick Rose (Free)"
           >
             <span className="text-lg">🌹</span>
             {quickRoseCombo > 0 && (
@@ -1949,6 +2706,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             )}
           </button>
 
+          {/* Luxury Gift Box Trigger */}
           <button
             onClick={() => setIsGiftDrawerOpen(true)}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-amber-500 via-pink-600 to-purple-600 text-white shadow-[0_0_20px_rgba(236,72,153,0.6)] active:scale-90 transition"
@@ -1956,6 +2714,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             <Gift className="h-5 w-5 animate-bounce" />
           </button>
 
+          {/* Synced Floating Like Button */}
           <button
             onClick={spawnFloatingHeart}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 backdrop-blur-xl border border-white/15 text-pink-500 active:scale-75 transition"
@@ -1963,6 +2722,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             <Heart className="h-5 w-5 fill-pink-500" />
           </button>
 
+          {/* Share Button */}
           <button
             onClick={() => {
               if (navigator.share) {
@@ -1999,6 +2759,15 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             )}
           </form>
 
+          {/* Host can also test Gifts directly */}
+          <button
+            onClick={() => setIsGiftDrawerOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-amber-500 via-pink-600 to-purple-600 text-white shadow-[0_0_15px_rgba(236,72,153,0.5)] active:scale-90 transition"
+            title="Test Luxury Gifts"
+          >
+            <Gift className="h-4 w-4" />
+          </button>
+
           <button
             onClick={() => setIsMicMuted((prev) => !prev)}
             className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
@@ -2022,7 +2791,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           </button>
 
           <button
-            onClick={() => setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))}
+            onClick={() =>
+              setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
+            }
             className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-white transition hover:bg-white/10"
             title="Flip Camera"
           >
@@ -2049,7 +2820,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         </div>
       )}
 
-      {/* 7. BUILT-IN LUXURY 5-TIER GIFT DRAWER */}
+      {/* 7. BUILT-IN LUXURY 5-TIER GIFT DRAWER (PAYWALL REMOVED - 100% FREE TESTING) */}
       <AnimatePresence>
         {isGiftDrawerOpen && (
           <>
@@ -2071,14 +2842,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 <div className="flex items-center gap-2">
                   <Zap className="h-4 w-4 text-amber-400" />
                   <h3 className="text-sm font-black uppercase tracking-wider text-white">
-                    EarnMega Luxury Gifts
+                    EarnMega Luxury Gifts (Free Test Mode)
                   </h3>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1 rounded-full bg-amber-400/15 border border-amber-400/40 px-3 py-1">
-                    <Coins className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="text-xs font-black text-amber-300">
-                      {user.coin_balance.toLocaleString()}
+                  <div className="flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-400/40 px-3 py-1">
+                    <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-xs font-black text-emerald-300">
+                      UNLIMITED FREE
                     </span>
                   </div>
                   <button
@@ -2110,9 +2881,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                       <span className="text-[9px] font-semibold text-white/50 mb-1">
                         {item.tagline}
                       </span>
-                      <div className="flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[11px] font-black text-amber-300">
+                      <div className="flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-black text-emerald-300">
                         <Coins className="h-3 w-3 text-amber-400" />
-                        {item.coins.toLocaleString()}
+                        FREE ({item.coins})
                       </div>
                     </button>
                   );
@@ -2129,7 +2900,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 }}
                 className="w-full rounded-2xl bg-gradient-to-r from-pink-600 via-fuchsia-600 to-amber-500 py-3.5 text-sm font-black uppercase tracking-wider text-white shadow-[0_0_25px_rgba(236,72,153,0.5)] active:scale-98 transition"
               >
-                Send Luxury Gift Now
+                Send Luxury Gift Now (Free)
               </button>
             </motion.div>
           </>
@@ -2170,7 +2941,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               <div className="grid grid-cols-2 gap-3 my-6">
                 <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
                   <Clock className="w-5 h-5 text-amber-500 mb-2" />
-                  <span className="text-xl font-mono text-white tracking-wider">{liveDuration}</span>
+                  <span className="text-xl font-mono text-white tracking-wider">
+                    {liveDuration}
+                  </span>
                   <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">
                     DURATION
                   </span>
@@ -2187,10 +2960,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
                   <Diamond className="w-5 h-5 text-amber-400 mb-2" />
                   <span className="text-xl font-bold text-white">
-                    {currentStream?.total_coins_earned || 0}
+                    {((currentStream?.total_coins_earned || 0) + likeCount).toLocaleString()}
                   </span>
                   <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">
-                    DIAMONDS
+                    DIAMONDS & LIKES
                   </span>
                 </div>
 
