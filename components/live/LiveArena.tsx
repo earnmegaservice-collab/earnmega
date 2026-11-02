@@ -37,7 +37,7 @@ import {
   MessageSquare,
   Gamepad2,
   Diamond,
-  Heart,
+  Heart, Flag, User,
   Gift,
   Share2,
   Send,
@@ -158,6 +158,7 @@ interface LiveComment {
   id: string;
   username: string;
   avatar_url?: string;
+  sender_id?: string;
   content: string;
   is_system?: boolean;
   badge_level?: number;
@@ -204,6 +205,339 @@ const CATEGORIES = [
 export interface GiftOverlayHandle {
   triggerGift: (gift: LiveGiftEvent) => void;
 }
+
+
+const GiftUniverseAnimation = ({ activeMega, universeFlash }: { activeMega: any, universeFlash: boolean }) => {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animationFrameId: number;
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const stars: {x: number, y: number, z: number, o: number, c: string}[] = [];
+    const numStars = 350;
+    const colors = ['#00FFFF', '#FFD700', '#8A2BE2', '#FFFFFF'];
+
+    for (let i = 0; i < numStars; i++) {
+      stars.push({
+        x: (Math.random() - 0.5) * width * 2,
+        y: (Math.random() - 0.5) * height * 2,
+        z: Math.random() * width,
+        o: parseFloat('0.' + Math.floor(Math.random() * 99)) + 1,
+        c: colors[Math.floor(Math.random() * colors.length)]
+      });
+    }
+
+    const draw = () => {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.fillRect(0, 0, width, height);
+
+      const cx = width / 2;
+      const cy = height / 2;
+
+      stars.forEach(star => {
+        star.z -= 15;
+        if (star.z <= 0) {
+          star.x = (Math.random() - 0.5) * width * 2;
+          star.y = (Math.random() - 0.5) * height * 2;
+          star.z = width;
+        }
+
+        const k = 128.0 / star.z;
+        const px = star.x * k + cx;
+        const py = star.y * k + cy;
+        const radius = (1 - star.z / width) * 3;
+
+        ctx.beginPath();
+        ctx.arc(px, py, radius, 0, Math.PI * 2);
+        ctx.fillStyle = star.c;
+        ctx.fill();
+
+        // Trail
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px - (star.x * k - star.x * 128.0 / (star.z + 15)), py - (star.y * k - star.y * 128.0 / (star.z + 15)));
+        ctx.strokeStyle = star.c;
+        ctx.lineWidth = radius * 0.8;
+        ctx.stroke();
+      });
+
+      // Simple accretion disk / Galaxy core drawing
+      const time = Date.now() * 0.001;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(time * 0.5);
+
+      const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 200);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      gradient.addColorStop(0.2, 'rgba(255, 215, 0, 0.8)');
+      gradient.addColorStop(0.5, 'rgba(138, 43, 226, 0.5)');
+      gradient.addColorStop(0.8, 'rgba(0, 255, 255, 0.2)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+      ctx.globalCompositeOperation = 'screen';
+      ctx.fillStyle = gradient;
+      ctx.scale(1, 0.4);
+      ctx.beginPath();
+      ctx.arc(0, 0, 300, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      animationFrameId = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="absolute inset-0 z-40 overflow-hidden bg-black flex flex-col items-center justify-center"
+    >
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none" />
+
+      <motion.div
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: [1, 2, 3], opacity: [1, 0, 0] }}
+        transition={{ duration: 1.5, times: [0, 0.2, 1], ease: 'easeOut' }}
+        className="absolute rounded-full border-4 border-cyan-400 z-10 w-32 h-32"
+        style={{ boxShadow: '0 0 50px #00ffff' }}
+      />
+      <motion.div
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: [1, 3, 5], opacity: [1, 0, 0] }}
+        transition={{ duration: 2, delay: 1.5, times: [0, 0.2, 1], ease: 'easeOut' }}
+        className="absolute rounded-full border-4 border-yellow-400 z-10 w-32 h-32"
+        style={{ boxShadow: '0 0 50px #ffd700' }}
+      />
+
+      <div className="z-30 absolute bottom-20 w-full flex justify-center">
+        <motion.div
+          initial={{ y: 50, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.5 }}
+          className="relative px-8 py-4 bg-zinc-900/80 backdrop-blur-xl border border-yellow-500/50 rounded-2xl flex flex-col items-center shadow-[0_0_40px_rgba(255,215,0,0.3)] overflow-hidden"
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-yellow-200/20 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
+          <Crown className="w-10 h-10 text-yellow-400 mb-2 drop-shadow-[0_0_10px_rgba(255,215,0,0.8)]" />
+          <h2 className="text-xl md:text-2xl font-black bg-gradient-to-b from-yellow-100 via-yellow-400 to-yellow-600 bg-clip-text text-transparent uppercase tracking-wider text-center">
+            @{activeMega?.sender_username} GIFTED THE EARNMEGA UNIVERSE!
+          </h2>
+        </motion.div>
+      </div>
+
+      <AnimatePresence>
+        {universeFlash && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 1, 0] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.45 }}
+            className="absolute inset-0 z-50 bg-white"
+          />
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
+
+const GiftRocketAnimation = ({ activeMega }: { activeMega: any }) => {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animationFrameId: number;
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const lines: {x: number, y: number, speed: number, length: number}[] = [];
+    for (let i = 0; i < 80; i++) {
+      lines.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        speed: 15 + Math.random() * 20,
+        length: 50 + Math.random() * 150
+      });
+    }
+
+    const particles: {x: number, y: number, vx: number, vy: number, life: number, maxLife: number, color: string}[] = [];
+
+    const colors = ['#FFFFFF', '#FFD700', '#FF4500', '#FF0000', '#808080'];
+
+    let startTime = Date.now();
+
+    const draw = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      const time = Date.now() - startTime;
+      const progress = Math.min(time / 2000, 1);
+
+      // Draw warp lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 2;
+      lines.forEach(line => {
+        ctx.beginPath();
+        ctx.moveTo(line.x, line.y);
+        ctx.lineTo(line.x - line.length, line.y + line.length);
+        ctx.stroke();
+
+        line.x += line.speed;
+        line.y -= line.speed;
+
+        if (line.x > width + line.length || line.y < -line.length) {
+          line.x = Math.random() * width * 1.5 - width * 0.5;
+          line.y = height + Math.random() * height * 0.5;
+        }
+      });
+
+      // Rocket position logic (matching Framer Motion rough path for exhaust generation)
+      // Path goes from bottom-left to top-right
+      const startX = -100;
+      const startY = height + 100;
+      const endX = width + 100;
+      const endY = -100;
+
+      // Bezier curve approximation
+      const t = progress;
+      const rx = startX + (endX - startX) * t;
+      const ry = startY + (endY - startY) * Math.pow(t, 2); // Accelerating upward
+
+      if (progress > 0.1 && progress < 0.9) {
+        // Generate particles
+        for(let i=0; i<5; i++) {
+          particles.push({
+            x: rx - 30, // Offset for nozzle
+            y: ry + 30,
+            vx: -5 - Math.random() * 5,
+            vy: 5 + Math.random() * 5,
+            life: 0,
+            maxLife: 30 + Math.random() * 20,
+            color: colors[Math.floor(Math.random() * colors.length)]
+          });
+        }
+      }
+
+      // Draw particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life++;
+
+        const opacity = 1 - (p.life / p.maxLife);
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, (p.life / p.maxLife) * 15, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = opacity;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        if (p.life >= p.maxLife) {
+          particles.splice(i, 1);
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="absolute inset-0 z-40 overflow-hidden bg-black/60 flex flex-col items-center justify-center"
+    >
+      <div className="absolute bottom-0 w-full h-1/2 bg-gradient-to-t from-orange-600/40 via-violet-600/20 to-transparent pointer-events-none" />
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none" />
+
+      <motion.div
+        initial={{ x: '-100vw', y: '100vh', rotate: 45, scale: 0.5 }}
+        animate={{ x: '100vw', y: '-100vh', scale: 1.5 }}
+        transition={{ duration: 2, ease: 'easeInOut' }}
+        className="absolute z-20 pointer-events-none"
+      >
+        <svg width="150" height="150" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="rocketBody" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#e0e0e0" />
+              <stop offset="50%" stopColor="#ffffff" />
+              <stop offset="100%" stopColor="#a0a0a0" />
+            </linearGradient>
+            <linearGradient id="rocketWindow" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#00ffff" />
+              <stop offset="100%" stopColor="#0088ff" />
+            </linearGradient>
+            <linearGradient id="rocketFin" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#ff0000" />
+              <stop offset="100%" stopColor="#880000" />
+            </linearGradient>
+          </defs>
+
+          <path d="M40 80 L20 100 L35 70 Z" fill="url(#rocketFin)" />
+          <path d="M60 80 L80 100 L65 70 Z" fill="url(#rocketFin)" />
+
+          <path d="M35 70 C35 70, 50 10, 50 10 C50 10, 65 70, 65 70 C65 70, 50 85, 35 70" fill="url(#rocketBody)" />
+
+          <ellipse cx="50" cy="40" rx="6" ry="10" fill="url(#rocketWindow)" />
+          <ellipse cx="50" cy="40" rx="3" ry="5" fill="#ffffff" opacity="0.8" transform="translate(-1, -2)" />
+
+          <path d="M42 75 L45 85 L55 85 L58 75 Z" fill="#333333" />
+        </svg>
+      </motion.div>
+
+      <motion.div
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: [1, 4], opacity: [1, 0] }}
+        transition={{ duration: 1, delay: 0.8 }}
+        className="absolute rounded-full border-4 border-white/50 z-10 w-40 h-40 pointer-events-none"
+      />
+
+      <div className="z-30 absolute top-20 w-full flex justify-center pointer-events-none">
+        <motion.div
+          initial={{ y: -50, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="px-6 py-2 bg-black/80 backdrop-blur-md border border-red-500/50 rounded-xl shadow-[0_0_20px_rgba(255,0,0,0.4)]"
+        >
+          <span className="text-red-400 font-bold text-sm tracking-widest uppercase">
+            @{activeMega?.sender_username} LAUNCHED THE SUPERSONIC ROCKET!
+          </span>
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+};
+
 
 const MasterLiveGiftOverlay = forwardRef<
   GiftOverlayHandle,
@@ -406,165 +740,12 @@ const MasterLiveGiftOverlay = forwardRef<
 
       {/* TRACK B (500 COINS): THE ROCKET DIAGONAL LAUNCH */}
       <AnimatePresence>
-        {isRocket && activeMega && (
-          <motion.div
-            key={activeMega.id}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ x: -240, y: 380, scale: 0.4, rotate: 35 }}
-              animate={{
-                x: [null, 0, 260],
-                y: [null, 0, -420],
-                scale: [0.4, 1.5, 1.1]
-              }}
-              transition={{ duration: 2.6, ease: 'easeInOut' }}
-              className="relative flex flex-col items-center"
-            >
-              <span className="text-8xl drop-shadow-[0_0_45px_rgba(251,146,60,0.95)]">
-                🚀
-              </span>
-              {Array.from({ length: 12 }).map((_, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 1, scale: 1, x: 0, y: 20 }}
-                  animate={{
-                    opacity: 0,
-                    scale: 0,
-                    x: (i % 2 === 0 ? -1 : 1) * (15 + i * 6),
-                    y: 70 + i * 14
-                  }}
-                  transition={{ duration: 0.7, repeat: 3, delay: i * 0.06 }}
-                  className="absolute top-16 h-3.5 w-3.5 rounded-full bg-gradient-to-t from-red-500 via-orange-400 to-yellow-200 shadow-[0_0_12px_#f97316]"
-                />
-              ))}
-            </motion.div>
-
-            <motion.div
-              initial={{ scale: 0.5, opacity: 0, y: 60 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.8, opacity: 0 }}
-              className="absolute bottom-44 rounded-2xl bg-gradient-to-r from-orange-600/90 via-amber-500/90 to-pink-600/90 p-0.5 shadow-[0_0_40px_rgba(249,115,22,0.8)]"
-            >
-              <div className="flex items-center gap-3 rounded-2xl bg-black/80 backdrop-blur-2xl px-5 py-3">
-                <span className="text-3xl">🚀</span>
-                <div>
-                  <p className="text-xs font-extrabold uppercase tracking-widest text-amber-300">
-                    SUPERSONIC LAUNCH
-                  </p>
-                  <p className="text-sm font-black text-white">
-                    @{activeMega.sender_username} launched The Rocket!
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
+        {isRocket && activeMega && <GiftRocketAnimation activeMega={activeMega} />}
       </AnimatePresence>
 
       {/* TRACK B (5000 COINS): EARNMEGA UNIVERSE FULL-SCREEN CINEMATIC TAKEOVER */}
       <AnimatePresence>
-        {isUniverse && activeMega && (
-          <motion.div
-            key={activeMega.id}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-3xl"
-          >
-            <motion.div
-              initial={{ y: '-100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '-100%' }}
-              transition={{ duration: 0.5 }}
-              className="absolute top-0 inset-x-0 h-16 bg-black border-b border-amber-400/30 z-20"
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ duration: 0.5 }}
-              className="absolute bottom-0 inset-x-0 h-16 bg-black border-t border-amber-400/30 z-20"
-            />
-
-            {Array.from({ length: 20 }).map((_, idx) => {
-              const angle = (idx / 20) * Math.PI * 2;
-              const distance = 130 + (idx % 3) * 45;
-              return (
-                <motion.div
-                  key={idx}
-                  initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
-                  animate={{
-                    x: Math.cos(angle) * distance,
-                    y: Math.sin(angle) * distance,
-                    scale: [0, 1.3, 0],
-                    opacity: [1, 1, 0]
-                  }}
-                  transition={{ duration: 2.8, delay: 0.3, ease: 'easeOut' }}
-                  className="absolute text-lg"
-                >
-                  {idx % 2 === 0 ? '✨' : '💎'}
-                </motion.div>
-              );
-            })}
-
-            <motion.div
-              initial={{ scale: 0.1, rotate: -90, opacity: 0 }}
-              animate={{
-                scale: [0.1, 1.25, 1],
-                rotate: [0, 180, 360],
-                opacity: 1
-              }}
-              transition={{ duration: 3.6, ease: 'easeOut' }}
-              className="relative flex h-56 w-56 items-center justify-center rounded-full bg-gradient-to-tr from-purple-700/40 via-pink-500/30 to-amber-400/40 shadow-[0_0_120px_rgba(251,191,36,0.75)] border border-amber-300/50"
-            >
-              <span className="text-8xl drop-shadow-[0_0_40px_rgba(255,255,255,0.95)]">
-                🌌
-              </span>
-            </motion.div>
-
-            <motion.div
-              initial={{ y: 40, opacity: 0, scale: 0.85 }}
-              animate={{ y: 0, opacity: 1, scale: 1 }}
-              transition={{ delay: 0.35, duration: 0.6 }}
-              className="mt-8 text-center px-6 z-30"
-            >
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/20 border border-amber-300/50 px-4 py-1 text-[11px] font-black uppercase tracking-[0.25em] text-amber-200 mb-2">
-                <Crown className="h-3.5 w-3.5 text-amber-400" />
-                WORLD-CLASS PATRON
-              </div>
-              <h2
-                style={{
-                  backgroundImage:
-                    'linear-gradient(110deg, #BF953F, #FCF6BA, #B38728, #FBF5B7, #AA771C)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent'
-                }}
-                className="text-2xl font-black tracking-tight drop-shadow-[0_4px_20px_rgba(251,191,36,0.5)]"
-              >
-                @{activeMega.sender_username} GIFTED THE UNIVERSE!
-              </h2>
-              <p className="mt-1 text-xs font-bold text-white/80">
-                5,000 Coins • Ultimate Arena Takeover
-              </p>
-            </motion.div>
-
-            <AnimatePresence>
-              {universeFlash && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: [0, 1, 0] }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.45 }}
-                  className="absolute inset-0 z-50 bg-white"
-                />
-              )}
-            </AnimatePresence>
-          </motion.div>
-        )}
+        {isUniverse && activeMega && <GiftUniverseAnimation activeMega={activeMega} universeFlash={universeFlash} />}
       </AnimatePresence>
     </motion.div>
   );
@@ -638,15 +819,15 @@ const LiveKitRoomBridge = forwardRef<
         }
       },
       unlockAudio: () => {
-        if (room) {
-          room.startAudio().catch(() => {});
-        }
+        if (room && !room.canPlaybackAudio) {
+        room.startAudio().catch(() => {});
+      }
       }
     }));
 
     // Unlock browser audio output as soon as room connects
     useEffect(() => {
-      if (room && connectionState === ConnectionState.Connected) {
+      if (room && connectionState === ConnectionState.Connected && !room.canPlaybackAudio) {
         room.startAudio().catch(() => {});
       }
     }, [room, connectionState]);
@@ -683,7 +864,7 @@ const LiveKitRoomBridge = forwardRef<
           const videoTrack = localStream?.getVideoTracks()?.[0];
           if (videoTrack && videoTrack.readyState === 'live') {
             try {
-              videoTrack.contentHint = 'motion';
+              videoTrack.contentHint = 'detail';
             } catch {}
 
             if (
@@ -934,6 +1115,15 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [commentInput, setCommentInput] = useState<string>('');
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [likeCount, setLikeCount] = useState<number>(0);
+      const mutedViewerIds = useRef<Set<string>>(new Set());
+      const [isMutedByHost, setIsMutedByHost] = useState(false);
+      const [selectedViewerForAction, setSelectedViewerForAction] = useState<{userId: string, username: string, avatar?: string} | null>(null);
+      const [reportModalTarget, setReportModalTarget] = useState<any>(null);
+      const [reportCategory, setReportCategory] = useState<string>('');
+      const [reportReason, setReportReason] = useState<string>('');
+      const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const pendingLikesDeltaRef = useRef<number>(0);
+  const [burstHearts, setBurstHearts] = useState<{id: string, x: number, y: number, color: string}[]>([]);
 
   // Gift Drawer & Instant Animation Ref
   const [isGiftDrawerOpen, setIsGiftDrawerOpen] = useState<boolean>(false);
@@ -1031,11 +1221,30 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
       switch (packet.type) {
         case 'LIVE_LIKE': {
-          setLikeCount((prev) => prev + 1);
-          spawnVisualHeartOnly();
+          if (role === 'host') {
+            const nextTotal = likeCount + (packet.delta || 1);
+            setLikeCount(nextTotal);
+            for (let i=0; i<(packet.delta || 1); i++) spawnVisualHeartOnly();
+            dispatchArenaPacket({ type: 'LIKE_SYNC', authoritativeLikes: nextTotal });
+          }
+          break;
+        }
+        case 'LIKE_SYNC': {
+          if (role === 'viewer') {
+            setLikeCount((prev) => Math.max(prev, packet.authoritativeLikes || prev));
+          }
           break;
         }
 
+        case 'VIEWER_MUTED': {
+          if (packet.targetUserId === user.id) {
+            setIsMutedByHost(packet.muted);
+            if (packet.muted) {
+              toast.error("🚫 The host muted you for this live stream.", { style: { background: '#333', color: '#fff' }});
+            }
+          }
+          break;
+        }
         case 'LIVE_GIFT': {
           const giftEvt = packet.gift as LiveGiftEvent;
           if (giftEvt) {
@@ -1441,15 +1650,52 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   };
 
   // Synced Like Action: Shows on Viewer AND Host screen in real time
-  const spawnFloatingHeart = useCallback(() => {
+  const spawnFloatingHeart = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     livekitBridgeRef.current?.unlockAudio();
     setLikeCount((prev) => prev + 1);
     spawnVisualHeartOnly();
-    dispatchArenaPacket({
-      type: 'LIVE_LIKE',
-      username: user.username
-    });
-  }, [spawnVisualHeartOnly, dispatchArenaPacket, user.username]);
+    pendingLikesDeltaRef.current += 1;
+
+    // Add burst heart at coordinates if event is provided
+    if (e) {
+      let clientX = 0, clientY = 0;
+      if ('touches' in e && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else if ('clientX' in e) {
+        clientX = (e as React.MouseEvent).clientX;
+        clientY = (e as React.MouseEvent).clientY;
+      }
+
+      if (clientX !== 0 && clientY !== 0) {
+        const id = Math.random().toString(36).substr(2, 9);
+        const colors = ['#FF1493', '#FF69B4', '#FFB6C1', '#FFC0CB', '#DC143C'];
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        setBurstHearts(prev => [...prev.slice(-15), { id, x: clientX, y: clientY, color }]);
+
+        setTimeout(() => {
+          setBurstHearts(prev => prev.filter(h => h.id !== id));
+        }, 1000);
+      }
+    }
+  }, [spawnVisualHeartOnly]);
+
+  // Flush pending likes interval
+  useEffect(() => {
+    if (role !== 'viewer') return;
+    const interval = setInterval(() => {
+      if (pendingLikesDeltaRef.current > 0) {
+        dispatchArenaPacket({
+          type: 'LIVE_LIKE',
+          delta: pendingLikesDeltaRef.current,
+          senderTotalLikes: likeCount,
+          username: user.username
+        });
+        pendingLikesDeltaRef.current = 0;
+      }
+    }, 150);
+    return () => clearInterval(interval);
+  }, [role, dispatchArenaPacket, likeCount, user.username]);
 
   // 100% Free Gift Dispatch (Zero Paywall, Plays Animation on Both Screens)
   const handleDispatchGift = async (gift: GiftTierItem, comboCount = 1) => {
@@ -1913,8 +2159,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             stream = await navigator.mediaDevices.getUserMedia({
               video: {
                 facingMode,
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
+                width: { ideal: 1920, min: 1280 },
+                height: { ideal: 1080, min: 720 },
                 frameRate: { ideal: 30 }
               },
               audio: false
@@ -2421,8 +2667,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               channelCount: 1
             },
             publishDefaults: {
-              audioPreset: { maxBitrate: 96_000 },
-              dtx: false,
+              audioPreset: { maxBitrate: 128_000 },
+              dtx: true,
               red: true,
               simulcast: false,
               videoEncoding: {
@@ -2505,11 +2751,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               <span className="truncate text-xs font-extrabold text-white">
                 {currentStream?.host_username || user.username}
               </span>
-              <span className="flex items-center gap-1 text-[10px] font-bold text-amber-300">
+              <span className="flex items-center gap-1 text-[10px] font-bold text-pink-300">
                 <Heart className="h-2.5 w-2.5 fill-pink-500 text-pink-500" />
-                {(
-                  (currentStream?.total_coins_earned || 0) + likeCount
-                ).toLocaleString()}
+                {likeCount.toLocaleString()}
+              </span>
+              <span className="flex items-center gap-1 text-[10px] font-bold text-amber-300">
+                <Diamond className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
+                {(currentStream?.total_coins_earned || 0).toLocaleString()}
               </span>
             </div>
 
@@ -2548,6 +2796,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               <span>{viewerCount}</span>
             </div>
 
+
+            <button
+              onClick={() => setReportModalTarget('live')}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 backdrop-blur-xl border border-white/15 text-white active:scale-90 transition"
+            >
+              <Flag className="h-4 w-4 text-red-400" />
+            </button>
             <button
               onClick={handleEndOrLeaveStream}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 backdrop-blur-xl border border-white/15 text-white active:scale-90 transition"
@@ -2713,7 +2968,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             key={msg.id}
             initial={{ opacity: 0, x: -15 }}
             animate={{ opacity: 1, x: 0 }}
-            className={`inline-flex items-start gap-2 self-start rounded-2xl px-3 py-1.5 text-xs backdrop-blur-md ${
+            onClick={() => {
+              if (role === 'host' && msg.sender_id && msg.sender_id !== user.id && !msg.is_system) {
+                setSelectedViewerForAction({ userId: msg.sender_id, username: msg.username, avatar: msg.avatar_url });
+              }
+            }}
+            className={`${role === 'host' && !msg.is_system ? 'cursor-pointer hover:bg-white/10 transition-colors' : ''} inline-flex items-start gap-2 self-start rounded-2xl px-3 py-1.5 text-xs backdrop-blur-md ${
               msg.is_system
                 ? 'bg-pink-500/20 border border-pink-400/30 text-pink-200 font-semibold'
                 : 'bg-black/40 border border-white/5 text-white'
@@ -2737,12 +2997,21 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       {/* 6. STRICT ROLE-BASED BOTTOM DECK (VIEWER VS HOST) */}
       {role === 'viewer' ? (
         <div className="absolute bottom-3 left-3 right-3 z-30 flex items-center gap-2">
-          <form onSubmit={handleSendComment} className="relative flex-1">
+          <form
+            onSubmit={(e) => {
+              if (isMutedByHost) {
+                e.preventDefault();
+                toast.error("🚫 Host muted you! You cannot send messages during this live stream.", { style: { background: '#333', color: '#fff' }});
+                return;
+              }
+              handleSendComment(e);
+            }}
+            className="relative flex-1">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder="Say something nice..."
+              placeholder={isMutedByHost ? "🔇 Muted by host for this live" : "Say something nice..."}
               className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-10 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:border-pink-500/60 focus:outline-none"
             />
             {commentInput.trim() && (
@@ -2840,12 +3109,21 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         </div>
       ) : (
         <div className="absolute bottom-3 left-3 right-3 z-30 flex items-center justify-between gap-2">
-          <form onSubmit={handleSendComment} className="relative flex-1">
+          <form
+            onSubmit={(e) => {
+              if (isMutedByHost) {
+                e.preventDefault();
+                toast.error("🚫 Host muted you! You cannot send messages during this live stream.", { style: { background: '#333', color: '#fff' }});
+                return;
+              }
+              handleSendComment(e);
+            }}
+            className="relative flex-1">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder="Chat with your viewers..."
+              placeholder={isMutedByHost ? "🔇 Muted by host for this live" : "Chat with your viewers..."}
               className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-9 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:outline-none"
             />
             {commentInput.trim() && (
@@ -2918,6 +3196,231 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           </button>
         </div>
       )}
+
+      {/* HOST VIEWER ACTION SHEET */}
+      <AnimatePresence>
+        {selectedViewerForAction && role === 'host' && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedViewerForAction(null)}
+              className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="absolute bottom-0 inset-x-0 z-50 rounded-t-3xl bg-[#111116] border-t border-white/10 p-5 pb-8 shadow-[0_-20px_40px_rgba(0,0,0,0.8)]"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                {selectedViewerForAction.avatar ? (
+                  <img src={selectedViewerForAction.avatar} alt="avatar" width={48} height={48} className="rounded-full object-cover border border-white/20" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
+                    <User className="w-6 h-6 text-zinc-400" />
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-white font-bold text-lg">@{selectedViewerForAction.username}</h3>
+                  <span className="text-zinc-500 text-xs">Viewer in Live Arena</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    const isCurrentlyMuted = mutedViewerIds.current.has(selectedViewerForAction.userId);
+                    const newMutedState = !isCurrentlyMuted;
+
+                    if (newMutedState) {
+                      mutedViewerIds.current.add(selectedViewerForAction.userId);
+                      toast.success(`🔇 Muted @${selectedViewerForAction.username} for this live stream`);
+                    } else {
+                      mutedViewerIds.current.delete(selectedViewerForAction.userId);
+                      toast.success(`🔊 Unmuted @${selectedViewerForAction.username}`);
+                    }
+
+                    dispatchArenaPacket({
+                      type: 'VIEWER_MUTED',
+                      streamId: currentStream?.id,
+                      targetUserId: selectedViewerForAction.userId,
+                      targetUsername: selectedViewerForAction.username,
+                      muted: newMutedState
+                    });
+
+                    setSelectedViewerForAction(null);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 bg-zinc-900 rounded-xl hover:bg-zinc-800 transition active:scale-[0.98]"
+                >
+                  {mutedViewerIds.current.has(selectedViewerForAction.userId) ? (
+                    <Volume2 className="w-5 h-5 text-emerald-400" />
+                  ) : (
+                    <MicOff className="w-5 h-5 text-amber-500" />
+                  )}
+                  <span className="text-white font-bold text-sm">
+                    {mutedViewerIds.current.has(selectedViewerForAction.userId) ? "🔊 Unmute Viewer" : "🔇 Mute from Chat (This Live Only)"}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setReportModalTarget(selectedViewerForAction);
+                    setSelectedViewerForAction(null);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 bg-zinc-900 rounded-xl hover:bg-zinc-800 transition active:scale-[0.98]"
+                >
+                  <Flag className="w-5 h-5 text-red-500" />
+                  <span className="text-white font-bold text-sm">🚩 Report Viewer</span>
+                </button>
+
+                <button
+                  onClick={() => setSelectedViewerForAction(null)}
+                  className="w-full mt-2 py-3 rounded-xl bg-white/5 text-white/70 text-sm font-bold hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* REPORT MODAL */}
+      <AnimatePresence>
+        {reportModalTarget && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setReportModalTarget(null);
+                setReportCategory('');
+                setReportReason('');
+              }}
+              className="absolute inset-0 z-[60] bg-black/70 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="absolute top-1/2 left-4 right-4 -translate-y-1/2 z-[70] bg-[#111116] rounded-2xl border border-white/10 p-5 shadow-2xl flex flex-col max-h-[80vh]"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                  <Flag className="w-5 h-5 text-red-500" />
+                  {reportModalTarget === 'live' ? 'Report Live Stream' : 'Report Viewer'}
+                </h3>
+                <button
+                  onClick={() => {
+                    setReportModalTarget(null);
+                    setReportCategory('');
+                    setReportReason('');
+                  }}
+                  className="text-zinc-500 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto no-scrollbar flex flex-col gap-4">
+                <div>
+                  <label className="text-xs font-bold text-zinc-400 mb-2 block uppercase tracking-wider">Select Reason</label>
+                  <div className="flex flex-wrap gap-2">
+                    {(reportModalTarget === 'live'
+                      ? ['Explicit / Inappropriate Content', 'Scam / Fraud', 'Violence / Dangerous Acts', 'Harassment / Hate Speech', 'Fake / Pre-recorded Stream', 'Other']
+                      : ['Harassment / Bullying', 'Spam / Scams', 'Hate Speech / Abuse', 'Inappropriate Messages', 'Other']
+                    ).map(cat => (
+                      <button
+                        key={cat}
+                        onClick={() => setReportCategory(cat)}
+                        className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition ${reportCategory === cat ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-white/5 border-white/10 text-zinc-300 hover:bg-white/10'}`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-zinc-400 mb-2 block uppercase tracking-wider">Additional Details</label>
+                  <textarea
+                    value={reportReason}
+                    onChange={(e) => setReportReason(e.target.value)}
+                    placeholder={reportModalTarget === 'live' ? "Add details about this stream..." : `Add details or reason for reporting @${reportModalTarget?.username}...`}
+                    className="w-full h-24 bg-black/50 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-red-500/50 resize-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-6">
+                <button
+                  disabled={!reportCategory || isSubmittingReport}
+                  onClick={async () => {
+                    setIsSubmittingReport(true);
+                    try {
+                      const payload = {
+                        reportType: reportModalTarget === 'live' ? 'VIEWER REPORTED A LIVE STREAM' : 'HOST REPORTED A VIEWER',
+                        streamInfo: {
+                          id: currentStream?.id,
+                          title: currentStream?.title
+                        },
+                        reporterInfo: {
+                          userId: user.id,
+                          username: user.username,
+                          role
+                        },
+                        targetInfo: reportModalTarget === 'live' ? null : reportModalTarget,
+                        category: reportCategory,
+                        reason: reportReason,
+                        chatContext: comments.slice(-10)
+                      };
+
+                      await fetch('/api/report-live', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                      });
+
+                      if (reportModalTarget !== 'live') {
+                         toast.success("✅ Report sent to EarnMega Trust & Safety via Email");
+                         // Optional auto mute
+                         if (!mutedViewerIds.current.has(reportModalTarget.userId)) {
+                           mutedViewerIds.current.add(reportModalTarget.userId);
+                           dispatchArenaPacket({
+                             type: 'VIEWER_MUTED',
+                             streamId: currentStream?.id,
+                             targetUserId: reportModalTarget.userId,
+                             targetUsername: reportModalTarget.username,
+                             muted: true
+                           });
+                           toast.success(`🔇 Also auto-muted @${reportModalTarget.username} for this live stream`);
+                         }
+                      } else {
+                         toast.success("✅ Live stream report submitted. Thank you!");
+                      }
+
+                      setReportModalTarget(null);
+                      setReportCategory('');
+                      setReportReason('');
+                    } catch (err) {
+                      toast.error("Failed to submit report");
+                    } finally {
+                      setIsSubmittingReport(false);
+                    }
+                  }}
+                  className={`w-full py-3.5 rounded-xl font-bold text-sm transition ${!reportCategory || isSubmittingReport ? 'bg-zinc-800 text-zinc-500' : 'bg-red-500 hover:bg-red-600 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]'}`}
+                >
+                  {isSubmittingReport ? 'Submitting...' : 'Submit Report'}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* 7. BUILT-IN LUXURY 5-TIER GIFT DRAWER (PAYWALL REMOVED - 100% FREE TESTING) */}
       <AnimatePresence>
@@ -3057,13 +3560,26 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 </div>
 
                 <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
-                  <Diamond className="w-5 h-5 text-amber-400 mb-2" />
-                  <span className="text-xl font-bold text-white">
-                    {((currentStream?.total_coins_earned || 0) + likeCount).toLocaleString()}
-                  </span>
-                  <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">
-                    DIAMONDS & LIKES
-                  </span>
+                  <div className="flex gap-4">
+                    <div className="flex flex-col items-center">
+                      <Heart className="w-5 h-5 text-pink-500 mb-2 fill-pink-500" />
+                      <span className="text-xl font-bold text-white">
+                        {likeCount.toLocaleString()}
+                      </span>
+                      <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">
+                        LIKES
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <Diamond className="w-5 h-5 text-amber-400 mb-2" />
+                      <span className="text-xl font-bold text-white">
+                        {(currentStream?.total_coins_earned || 0).toLocaleString()}
+                      </span>
+                      <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">
+                        DIAMONDS
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
