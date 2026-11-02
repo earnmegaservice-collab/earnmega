@@ -2207,19 +2207,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           </div>
         </div>
 
-                  {isGroupChat && user?.id && currentOtherUserProfile && (
-         <GroupInfoDrawer
-           isOpen={isGroupInfoDrawerOpen}
-           onClose={() => setIsGroupInfoDrawerOpen(false)}
-           groupId={currentOtherUserProfile.id}
-           groupName={currentOtherUserProfile.name}
-           groupAvatar={currentOtherUserProfile.avatarUrl}
-           currentUserId={user.id}
-           onGroupUpdated={() => {
-              // Optionally trigger a chat list refresh if needed, for now just close
-           }}
-         />
-      )}
     </AppShell>
     );
   }
@@ -2535,20 +2522,53 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                             exit={{ opacity: 0, scale: 0.95, y: -10 }}
                             className="absolute right-0 top-12 z-[100] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 shadow-[0_20px_40px_rgba(0,0,0,0.9)] rounded-2xl p-2 min-w-[200px]"
                          >
-                            <div className="flex flex-col">
-                               <button onClick={() => { setIsChatMenuOpen(false); setIsThemeModalOpen(true); }} className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                                  <Camera size={16} className="text-white/50" /> Theme & Wallpaper
-                               </button>
-                               <div className="h-px w-full bg-white/10 my-1"></div>
-                               <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                                  <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
-                               </button>
-                               {groupMembers.some(m => m.profiles?.id === user?.id && m.role === 'admin') && (
-                                  <button onClick={handleDeleteGroup} className="px-4 py-2.5 text-sm text-left text-red-500 hover:bg-red-500/10 transition-colors duration-200 flex items-center gap-3 rounded-lg font-bold">
-                                     <Trash2 size={16} className="text-red-500" /> Delete Group
-                                  </button>
-                               )}
-                            </div>
+<div className="flex flex-col">
+  <button
+    onClick={() => {
+      setIsChatMenuOpen(false);
+      setIsGroupInfoDrawerOpen(true);
+    }}
+    className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg font-semibold"
+  >
+    <Users size={16} className="text-fuchsia-400" /> Group Info & Members
+  </button>
+  <button
+    onClick={() => {
+      setIsChatMenuOpen(false);
+      setIsThemeModalOpen(true);
+    }}
+    className="px-4 py-2.5 text-sm text-left text-white/90 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg"
+  >
+    <Camera size={16} className="text-white/50" /> Theme & Wallpaper
+  </button>
+  <div className="h-px w-full bg-white/10 my-1"></div>
+  <button
+    onClick={() => {
+      setIsChatMenuOpen(false);
+      setIsClearChatConfirmOpen(true);
+    }}
+    className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg"
+  >
+    <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
+  </button>
+  <button
+    onClick={() => {
+      setIsChatMenuOpen(false);
+      setIsExitGroupConfirmOpen(true);
+    }}
+    className="px-4 py-2.5 text-sm text-left text-amber-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg"
+  >
+    <UserMinus size={16} className="text-amber-400/70" /> Exit Group
+  </button>
+  {groupMembers.some(m => m.user_id === user?.id && m.role === 'admin') && (
+    <button
+      onClick={handleDeleteGroup}
+      className="px-4 py-2.5 text-sm text-left text-red-500 hover:bg-red-500/10 transition-colors duration-200 flex items-center gap-3 rounded-lg font-bold"
+    >
+      <Trash2 size={16} className="text-red-500" /> Delete Group
+    </button>
+  )}
+</div>
                          </motion.div>
                       </>
                    )}
@@ -2668,9 +2688,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                    {!isUser && isGroupChat && (
                       <div className="w-6 h-6 rounded-full self-end shrink-0 mb-1 flex items-center justify-center bg-white/10 overflow-hidden">
                         {message.senderAvatar ? (
-                           <img src={message.senderAvatar} className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); if (message.senderId) handleAvatarProfileClick(message.senderId); }} />
+                           <img src={message.senderAvatar} className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); const targetId = message.senderId || (message as any).sender_id; if (targetId) handleAvatarProfileClick(targetId); }} />
                         ) : (
-                           <span className="text-[10px] font-bold text-white/50 cursor-pointer" onClick={(e) => { e.stopPropagation(); if (message.senderId) handleAvatarProfileClick(message.senderId); }}>{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
+                           <span className="text-[10px] font-bold text-white/50 cursor-pointer" onClick={(e) => { e.stopPropagation(); const targetId = message.senderId || (message as any).sender_id; if (targetId) handleAvatarProfileClick(targetId); }}>{(message.senderName || 'U').substring(0,2).toUpperCase()}</span>
                         )}
                       </div>
                    )}
@@ -2730,9 +2750,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   <div
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (isGroupChat && message.senderId) {
-                        handleAvatarProfileClick(message.senderId);
-                      } else {
+                      if (isGroupChat) {
+                        const targetId = message.senderId || (message as any).sender_id;
+                        if (targetId) handleAvatarProfileClick(targetId);
+                      } else if (currentOtherUserProfile) {
                         openProfile(currentOtherUserProfile);
                       }
                     }}
@@ -3162,7 +3183,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            </div>
         </div>
       )}
-{isGroupChat && groupDetails?.only_admins_message && !groupMembers.some(m => m.profiles?.id === user?.id && m.role === 'admin') ? (
+{(groupDetails?.only_admins_message || groupDetails?.only_admins_can_send) && !groupMembers.some(m => m.user_id === user?.id && m.role === 'admin') ? (
         <div className="w-full py-4 bg-black/60 backdrop-blur-xl rounded-3xl border border-white/10 relative z-20 text-center text-white/50 text-sm">
           🔒 Only admins can send messages to this group.
         </div>
@@ -3189,7 +3210,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     initial={{ opacity: 0, y: 10, scale: 0.9 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                    className="absolute bottom-[60px] left-2 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[280px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-2 "
+                    className="absolute bottom-[60px] left-2 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[260px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-1.5"
                   >
                     <div className="grid grid-cols-3 gap-2">
                        <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
@@ -3206,11 +3227,20 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                        </button>
                        {isGroupChat && (
                            <>
-                             <button type="button" onClick={() => setIsAttachmentMenuOpen(false)} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                             <button type="button" onClick={() => {
+                                setIsAttachmentMenuOpen(false);
+                                const question = window.prompt('Enter Poll Question:');
+                                if (question && question.trim()) {
+                                  setInputValue(`📊 POLL: ${question.trim()}\n👍 Yes\n👎 No`);
+                                }
+                             }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
                                  <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30 group-hover:bg-purple-500 group-hover:border-purple-400 transition-all text-purple-400 group-hover:text-white"><BarChart2 size={22}/></div>
                                  <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Poll</span>
                              </button>
-                             <button type="button" onClick={() => setIsAttachmentMenuOpen(false)} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                             <button type="button" onClick={() => {
+                                setIsAttachmentMenuOpen(false);
+                                setInputValue((prev) => (prev.endsWith(' ') || !prev ? `${prev}@` : `${prev} @`));
+                             }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
                                  <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30 group-hover:bg-cyan-500 group-hover:border-cyan-400 transition-all text-cyan-400 group-hover:text-white"><AtSign size={22}/></div>
                                  <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Mention</span>
                              </button>
@@ -3780,6 +3810,35 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             </motion.div>
          )}
       </AnimatePresence>
+
+      {/* Group Info Drawer mounted in the Active Chat View */}
+      {isGroupChat && user?.id && currentOtherUserProfile && (
+        <GroupInfoDrawer
+          isOpen={isGroupInfoDrawerOpen}
+          onClose={() => setIsGroupInfoDrawerOpen(false)}
+          groupId={groupDetails?.id || currentOtherUserProfile.id}
+          groupName={groupDetails?.name || currentOtherUserProfile.name}
+          groupAvatar={groupDetails?.avatar_url || currentOtherUserProfile.avatarUrl}
+          currentUserId={user.id}
+          onGroupUpdated={() => {
+            setRefreshChatsKey((prev) => prev + 1);
+          }}
+          onSelectUserDM={(targetUserId) => {
+            setIsGroupInfoDrawerOpen(false);
+            handleAvatarProfileClick(targetUserId);
+          }}
+          onStartGroupCall={(callType) => {
+            setIsGroupInfoDrawerOpen(false);
+            initiateCall(
+              currentOtherUserProfile.id,
+              currentOtherUserProfile.name,
+              currentOtherUserProfile.avatarUrl,
+              callType,
+              true
+            );
+          }}
+        />
+      )}
 </div>
   );
 }
