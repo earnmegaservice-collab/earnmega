@@ -199,7 +199,42 @@ import ExploreFeed from '../explore/ExploreFeed';
 import DiscoveryContainer from '../explore/DiscoveryContainer';
 import MyProfileView from '../profile/MyProfileView';
 
-import { User } from 'lucide-react';
+import { User } from "lucide-react";
+
+const renderInviteLink = (text: string) => {
+  const inviteRegex = /https?:\/\/[^\s]+\/invite\/([a-zA-Z0-9_-]+)/g;
+  const parts = text.split(inviteRegex);
+  const matches = [...text.matchAll(inviteRegex)];
+
+  if (matches.length === 0) return <span>{text}</span>;
+
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (i % 2 === 1) return <a key={i} href={`/invite/${part}`} className="text-blue-400 underline decoration-blue-400/50 hover:text-blue-300 font-semibold" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("handle_invite_click", { detail: { code: part } })); }}>{matches[(i-1)/2][0]}</a>;
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+};
+
+const renderTextWithMentions = (text: string) => {
+  const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
+  const parts = text.split(mentionRegex);
+  const matches = [...text.matchAll(mentionRegex)];
+
+  if (matches.length === 0) return <span>{text}</span>;
+
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (i % 2 === 1) return <span key={i} className="text-fuchsia-400 font-bold bg-fuchsia-500/10 px-1 rounded-md cursor-pointer" onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.dispatchEvent(new CustomEvent("open_profile_by_username", { detail: { username: part } })); }}>@{matches[(i-1)/2][1]}</span>;
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+};
+
 export const renderMessageContent = (message: any, currentUserId: string) => {
   if (message.text && message.text.startsWith('$$PROFILE_SHARE$$')) {
      const sharedId = message.text.split('$$')[2];
@@ -1181,7 +1216,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [activeContextMenuId, setActiveContextMenuId] = useState<string | null>(null);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
-  const [mediaCaption, setMediaCaption] = useState<string>('');
+  const [mediaCaption, setMediaCaption] = useState<string>("");
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
 
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -1356,12 +1394,23 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       setActiveContextMenuId(null);
     };
     document.addEventListener('click', handleClickOutside);
-    document.addEventListener('scroll', handleClickOutside, true);
-
-  return () => {
-      document.removeEventListener('click', handleClickOutside);
-      document.removeEventListener('scroll', handleClickOutside, true);
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+      document.removeEventListener("scroll", handleClickOutside, true);
     };
+  }, []);
+
+  useEffect(() => {
+    const handleOpenProfileByUsername = async (e: CustomEvent) => {
+       if (e.detail && e.detail.username) {
+           const { data } = await supabase.from("profiles").select("*").eq("username", e.detail.username).maybeSingle();
+           if (data) {
+               openProfile(data);
+           }
+       }
+    };
+    window.addEventListener("open_profile_by_username", handleOpenProfileByUsername as EventListener);
+    return () => window.removeEventListener("open_profile_by_username", handleOpenProfileByUsername as EventListener);
   }, []);
 
   const handleUnlockViewOnce = async (message: Message) => {
@@ -3094,9 +3143,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                         <button className="w-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-bold px-3 py-1.5 rounded-lg text-sm transition-colors">Going</button>
                      </div>
                   )}
-
-                    {message.text && message.messageType !== 'gift' && renderMessageContent(message, user?.id || '')}
-
+                    {message.text && message.messageType !== "gift" && (
+                        <div className="whitespace-pre-wrap break-words">
+                            {typeof message.text === "string" && message.text.includes("/invite/") ? renderInviteLink(message.text) : renderMessageContent({...message, text: typeof message.text === "string" ? renderTextWithMentions(message.text) : message.text}, user?.id || "")}
+                        </div>
+                    )}
                     {/* Meta Row (Time & Status) */}
                     <div
                       className={`flex items-center justify-end mt-1.5 space-x-1.5 opacity-80 ${
@@ -3239,7 +3290,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                              </button>
                              <button type="button" onClick={() => {
                                 setIsAttachmentMenuOpen(false);
-                                setInputValue((prev) => (prev.endsWith(' ') || !prev ? `${prev}@` : `${prev} @`));
+                                setInputValue((prev) => (prev.endsWith(" ") || !prev ? `${prev}@` : `${prev} @`));
+                                inputRef.current?.focus();
                              }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
                                  <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30 group-hover:bg-cyan-500 group-hover:border-cyan-400 transition-all text-cyan-400 group-hover:text-white"><AtSign size={22}/></div>
                                  <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Mention</span>
@@ -3261,9 +3313,44 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             className="hidden"
           />
 
+          {mentionQuery !== null && isGroupChat && (
+              <div className="absolute bottom-full mb-2 left-0 w-64 max-h-48 overflow-y-auto bg-black/90 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl z-50 py-1">
+                  {isAdmin && (
+                      <div onClick={() => { setInputValue(prev => prev.slice(0, inputRef.current?.selectionStart || 0).replace(/@\w*$/, `@everyone `) + prev.slice(inputRef.current?.selectionStart || 0)); setMentionQuery(null); inputRef.current?.focus(); }} className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 cursor-pointer transition-colors">
+                          <div className="w-8 h-8 rounded-full bg-fuchsia-500/20 flex items-center justify-center text-fuchsia-400 font-black shrink-0">@</div>
+                          <div className="flex flex-col min-w-0">
+                              <span className="text-sm font-bold text-white truncate">Everyone</span>
+                              <span className="text-xs text-white/50 truncate">Notify all members</span>
+                          </div>
+                      </div>
+                  )}
+                  {groupMembers.filter(m => m.profiles && (m.profiles.username?.toLowerCase().includes(mentionQuery.toLowerCase()) || m.profiles.full_name?.toLowerCase().includes(mentionQuery.toLowerCase()))).map(m => (
+                      <div key={m.user_id} onClick={() => { setInputValue(prev => prev.slice(0, inputRef.current?.selectionStart).replace(/@\w*$/, `@${m.profiles.username} `) + prev.slice(inputRef.current?.selectionStart || 0)); setMentionQuery(null); inputRef.current?.focus(); }} className="flex items-center gap-3 px-3 py-2 hover:bg-white/10 cursor-pointer transition-colors">
+                          <img src={m.profiles.avatar_url || ""} className="w-8 h-8 rounded-full object-cover shrink-0 bg-white/10" />
+                          <div className="flex flex-col min-w-0">
+                              <span className="text-sm font-bold text-white truncate">{m.profiles.full_name || m.profiles.username}</span>
+                              <span className="text-xs text-white/50 truncate">@{m.profiles.username}</span>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          )}
+
           <textarea
+            ref={inputRef}
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={(e) => {
+               const val = e.target.value;
+               setInputValue(val);
+               const cursorPosition = e.target.selectionStart;
+               const textBeforeCursor = val.slice(0, cursorPosition);
+               const match = textBeforeCursor.match(/@(\w*)$/);
+               if (match) {
+                   setMentionQuery(match[1]);
+               } else {
+                   setMentionQuery(null);
+               }
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
