@@ -2,3 +2,9 @@ node_modules/
 .next/
 npm_output.log
 .env.local
+*.py
+*.bak
+*.log
+*.pid
+.tsbuildinfo
+test-results.json

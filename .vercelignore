@@ -1,0 +1,6 @@
+*.py
+*.bak
+*.log
+*.pid
+.tsbuildinfo
+test-results.json
