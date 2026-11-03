@@ -376,6 +376,8 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
 
 import { AppShell } from '../layout/AppShell';
 
+const getCanonicalDmKey = (userA: string, userB: string) => ['dm', ...[String(userA), String(userB)].sort()].join('_');
+
 export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live', setAppTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live') => void }) {
   const { subscriptionTier, balance, setBalance } = useWallet();
   const { initiateCall, joinCall } = useCall();
@@ -1619,12 +1621,35 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     setMessages((prev) => [...prev, optimisticMessage]);
 
     try {
+      let finalChatId = undefined;
+      if (!(currentOtherUserProfile as any).isGroup) {
+         const dmKey = getCanonicalDmKey(user.id, currentOtherUserProfile.id);
+         const { data: existingChat } = await supabase.from('chats')
+            .select('id')
+            .or(`id.eq.${dmKey},and(user1_id.eq.${user.id},user2_id.eq.${currentOtherUserProfile.id}),and(user1_id.eq.${currentOtherUserProfile.id},user2_id.eq.${user.id})`)
+            .maybeSingle();
+
+         if (!existingChat) {
+            await supabase.from('chats').insert({
+               id: dmKey,
+               user1_id: user.id,
+               user2_id: currentOtherUserProfile.id,
+               updated_at: new Date().toISOString()
+            });
+         } else {
+            // Update updated_at of existing chat
+            await supabase.from('chats').update({ updated_at: new Date().toISOString() }).eq('id', existingChat.id);
+         }
+         finalChatId = existingChat ? existingChat.id : dmKey;
+      }
+
       const insertData: any = {
           id: optimisticMessage.id,
           sender_id: user.id,
           receiver_id: currentOtherUserProfile.id,
           content: finalContentToSave,
-          status: 'sent'
+          status: 'sent',
+          conversation_id: finalChatId
       };
 
       if ((currentOtherUserProfile as any).isGroup) {
