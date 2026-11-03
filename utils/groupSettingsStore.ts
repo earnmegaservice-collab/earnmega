@@ -16,35 +16,41 @@ export interface GroupConfigSnapshot {
 export const saveGroupSettings = async (settings: GroupConfigSnapshot, userId: string) => {
   const { groupId, ...rest } = settings;
 
-  // 1. Attempt normal column update (fail silently if columns don't exist)
   try {
     await supabase.from('chat_groups').update(rest).eq('id', groupId);
     await supabase.from('rooms').update(rest).eq('id', groupId);
     await supabase.from('conversations').update(rest).eq('id', groupId);
   } catch (e) {
-    // Ignore schema errors
   }
 
-  // 2. Save canonical JSON snapshot
+  try {
+    localStorage.setItem(`earnmega_group_settings_${groupId}`, JSON.stringify(settings));
+  } catch (e) {}
+
   const jsonString = '[GROUP_CONFIG_JSON]' + JSON.stringify({ ...settings, updated_at: Date.now() });
 
   await supabase.from('messages').insert({
     room_id: groupId,
     sender_id: userId,
-    receiver_id: groupId,
-    message_type: 'system',
-    system_event_type: 'group_config_sync',
     content: jsonString,
-    is_system_message: true,
+    is_read: true
   });
 };
 
 export const fetchGroupSettings = async (groupId: string): Promise<GroupConfigSnapshot | null> => {
+  let localSettings: GroupConfigSnapshot | null = null;
+  try {
+    const local = localStorage.getItem(`earnmega_group_settings_${groupId}`);
+    if (local) {
+      localSettings = JSON.parse(local);
+    }
+  } catch (e) {}
+
   const { data, error } = await supabase
     .from('messages')
     .select('content')
     .eq('room_id', groupId)
-    .eq('system_event_type', 'group_config_sync')
+    .like('content', '[GROUP_CONFIG_JSON]%')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -54,8 +60,8 @@ export const fetchGroupSettings = async (groupId: string): Promise<GroupConfigSn
       const jsonStr = data.content.replace('[GROUP_CONFIG_JSON]', '');
       return JSON.parse(jsonStr) as GroupConfigSnapshot;
     } catch (e) {
-      return null;
     }
   }
-  return null;
+
+  return localSettings;
 };

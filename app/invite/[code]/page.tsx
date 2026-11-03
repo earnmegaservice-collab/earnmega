@@ -24,20 +24,42 @@ export default function InvitePage() {
             if (!code || !user) return;
             try {
                 // 1. Fetch Invite
-                const { data: invite, error: inviteError } = await supabase
+                let invite = null;
+                const { data: inviteData, error: inviteError } = await supabase
                     .from('group_invites')
                     .select('*')
                     .eq('code', code)
-                    .single();
+                    .maybeSingle();
 
-                if (inviteError || !invite) {
+                if (inviteData) {
+                    invite = inviteData;
+                }
+
+                // If code is not found in group_invites, fallback to checking if code contains __
+                if (!invite) {
+                     let groupId = null;
+                     if (typeof code === 'string' && code.includes('__')) {
+                          groupId = code.split('__')[0];
+                     }
+
+                     if (groupId) {
+                          invite = { group_id: groupId, id: 'fallback_' + groupId, code };
+                     } else {
+                          // Try to check messages for [GROUP_CONFIG_JSON] containing the code
+                          const { data: messages } = await supabase.from('messages').select('room_id, content').like('content', '%[GROUP_CONFIG_JSON]%').like('content', `%${code}%`).limit(1);
+                          if (messages && messages.length > 0) {
+                              invite = { group_id: messages[0].room_id, id: 'fallback_' + messages[0].room_id, code };
+                          }
+                     }
+                }
+
+                if (!invite) {
                     toast.error("Invalid or expired invite link");
                     router.push('/');
                     return;
                 }
 
-                // Check expiry
-                if (new Date(invite.expires_at) < new Date()) {
+                if (invite.expires_at && new Date(invite.expires_at) < new Date()) {
                     toast.error("This invite link has expired");
                     router.push('/');
                     return;

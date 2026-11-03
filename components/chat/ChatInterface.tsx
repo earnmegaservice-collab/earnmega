@@ -42,6 +42,7 @@ type Message = {
   replyToId?: string;
   replyToText?: string;
   replyToSender?: 'user' | 'other';
+  replyToSenderName?: string;
   isViewOnce?: boolean;
   viewedBy?: string[];
   isDeleted?: boolean;
@@ -927,6 +928,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                id: gm.rooms?.id,
                name: gm.rooms?.name || "Unknown Group",
                avatarInitials: (gm.rooms?.name?.[0] || "G").toUpperCase() + (gm.rooms?.name?.[1] || "R").toUpperCase(),
+               avatarUrl: undefined as string | undefined,
                bio: 'Group Chat',
                joinDate: new Date(gm.rooms?.created_at || Date.now()).toLocaleDateString(),
                tier: 'FREE' as const,
@@ -986,19 +988,32 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               const groupIds = roomsFormatted.map(g => g.id);
               const { data: messagesData, error: msgError } = await supabase
                 .from('messages')
-                .select('id, sender_id, receiver_id, room_id, created_at, status, is_read')
+                .select('id, sender_id, receiver_id, room_id, created_at, status, is_read, content')
                 .in('room_id', groupIds)
                 .order('created_at', { ascending: false })
                 .limit(500);
 
               if (!msgError && messagesData) {
+                // Keep track of group config updates for avatars
+                const latestConfigs = new Map<string, any>();
+
                 messagesData.forEach(msg => {
                   const targetId = msg.room_id;
                   if (!targetId) return;
 
                   const time = new Date(msg.created_at).getTime();
-                  // Correct unread logic using read-receipt/status
-                  const isUnread = msg.sender_id !== user.id && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
+                  const isConfigMsg = typeof msg.content === 'string' && msg.content.startsWith('[GROUP_CONFIG_JSON]');
+
+                  if (isConfigMsg) {
+                      if (!latestConfigs.has(targetId)) {
+                          try {
+                              const conf = JSON.parse(msg.content.replace('[GROUP_CONFIG_JSON]', ''));
+                              latestConfigs.set(targetId, conf);
+                          } catch (e) {}
+                      }
+                  }
+
+                  const isUnread = !isConfigMsg && msg.sender_id !== user.id && (new Date(msg.created_at).getTime() > Number(localStorage.getItem(`earnmega_last_read_${user.id}_${targetId}`) || 0));
 
                   if (!statsMap.has(targetId)) {
                     statsMap.set(targetId, { unreadCount: 0, lastMessageTime: 0 });
@@ -1009,6 +1024,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   if (isUnread) {
                     stats.unreadCount += 1;
                   }
+                });
+
+                roomsFormatted.forEach(room => {
+                    const conf = latestConfigs.get(room.id);
+                    if (conf && conf.avatar_url) {
+                        room.avatarUrl = conf.avatar_url;
+                    } else if (conf && conf.name) {
+                        room.name = conf.name;
+                    }
                 });
               }
           }
@@ -1182,6 +1206,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             .map(msg => msg.id);
 
           // Clear local unread badge count unconditionally when opening chat
+          localStorage.setItem(`earnmega_last_read_${user.id}_${currentOtherUserProfile.id}`, String(Date.now()));
           setExploreUsers(prev => prev.map(u =>
             u.id === currentOtherUserProfile.id ? { ...u, unreadCount: 0 } : u
           ));
@@ -2577,7 +2602,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div className="flex items-center space-x-1 sm:space-x-2 shrink-0 ml-auto mr-2" onClick={(e) => e.stopPropagation()}>
           {isGroupChat ? (
             <>
-              <button className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center">
+              <button onClick={() => toast("Search coming soon!", { icon: "🔍" })} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center">
                 <Search size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
               <div className="relative">
@@ -2630,7 +2655,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     }}
     className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg"
   >
-    <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
+    <Trash2 size={16} className="text-rose-400/50" /> {groupMembers.some(m => m.user_id === user?.id && (m.role === 'admin' || m.role === 'owner')) ? 'Clear Message History' : 'Clear Chat for Me'}
   </button>
   <button
     onClick={() => {
@@ -2715,7 +2740,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                                  </button>
                                  <div className="h-px w-full bg-white/10 my-1"></div>
                                  <button onClick={() => { setIsChatMenuOpen(false); setIsClearChatConfirmOpen(true); }} className="px-4 py-2.5 text-sm text-left text-rose-400 hover:bg-white/10 transition-colors duration-200 flex items-center gap-3 rounded-lg">
-                                    <Trash2 size={16} className="text-rose-400/50" /> Clear Message History
+                                    <Trash2 size={16} className="text-rose-400/50" /> Clear Chat for Me
                                  </button>
                               </div>
                            </motion.div>
@@ -3045,7 +3070,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     {message.replyToText && (
                       <div className={`mb-2 p-2 rounded-lg text-sm border-l-2 backdrop-blur-md shadow-inner ${isUser ? 'bg-white/10 border-blue-300 text-blue-50' : 'bg-black/20 border-white/30 text-gray-200'}`}>
                          <span className="font-bold text-[10px] uppercase tracking-wider opacity-75 mb-0.5 block">
-                           {message.replyToSender === 'user' ? (currentUserProfile?.name || 'You') : (currentOtherUserProfile?.name || 'User')}
+                           {message.replyToSender === 'user' ? (currentUserProfile?.name || 'You') : (message.replyToSenderName || (isGroupChat ? 'Member' : (currentOtherUserProfile?.name || 'User')))}
                          </span>
                          <span className="line-clamp-2 text-xs italic">{message.replyToText}</span>
                       </div>
@@ -3247,7 +3272,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             >
                <div className="flex flex-col flex-1 truncate pr-4">
                  <span className="text-xs font-bold text-blue-400 mb-0.5">
-                    Replying to {replyingTo.sender === 'user' ? 'yourself' : (currentOtherUserProfile?.name || 'User')}
+                    Replying to {replyingTo.sender === 'user' ? 'yourself' : (replyingTo.senderName || 'Member')}
                  </span>
                  <span className="text-sm text-gray-300 truncate">{replyingTo.text}</span>
                </div>
