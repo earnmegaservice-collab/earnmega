@@ -32,6 +32,7 @@ import {
   LogOut
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
+import { saveGroupSettings, fetchGroupSettings } from '../../utils/groupSettingsStore';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 
