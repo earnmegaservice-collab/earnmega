@@ -3,4 +3,5 @@
 *.log
 *.pid
 .tsbuildinfo
+*.tsbuildinfo
 test-results.json
