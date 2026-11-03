@@ -21,16 +21,8 @@ export const deleteConversationPermanently = async (userId: string, roomId: stri
      await supabase.from('group_members').delete().eq('group_id', roomId);
      await supabase.from('groups').delete().eq('id', roomId);
   } else {
-     // Non-admin exiting a group chat
-     await supabase.from('group_members').delete().match({ group_id: roomId, user_id: userId });
-
-     // Check if any participants remain
-     const { count } = await supabase.from('group_members').select('*', { count: 'exact', head: true }).eq('group_id', roomId);
-
-     if (count === 0) {
-        await supabase.from('messages').delete().eq('group_id', roomId);
-        await supabase.from('groups').delete().eq('id', roomId);
-     }
+     // Non-admin in group: update cleared_at timestamp to hide previous messages locally without exiting
+     await supabase.from('group_members').update({ cleared_at: new Date().toISOString() }).match({ group_id: roomId, user_id: userId });
   }
 };
 
