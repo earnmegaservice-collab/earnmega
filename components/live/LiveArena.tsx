@@ -200,6 +200,32 @@ const CATEGORIES = [
 ];
 
 // ============================================================================
+// LIVE DURATION BADGE (ISOLATED TIMER TO PREVENT FULL-TREE RE-RENDERS)
+// ============================================================================
+const LiveDurationBadge = React.memo(({ streamStartMs, className = '' }: { streamStartMs: number | null, className?: string }) => {
+  const [duration, setDuration] = useState('00:00');
+
+  useEffect(() => {
+    if (!streamStartMs) {
+      setDuration('00:00');
+      return;
+    }
+    const interval = setInterval(() => {
+      const diff = Math.max(0, Math.floor((Date.now() - streamStartMs) / 1000));
+      const minutes = Math.floor(diff / 60)
+        .toString()
+        .padStart(2, '0');
+      const seconds = (diff % 60).toString().padStart(2, '0');
+      setDuration(`${minutes}:${seconds}`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [streamStartMs]);
+
+  return <span className={className}>{duration}</span>;
+});
+LiveDurationBadge.displayName = 'LiveDurationBadge';
+
+// ============================================================================
 // MASTER TIER GPU-ACCELERATED GIFT OVERLAY ENGINE (TRACK A & TRACK B)
 // ============================================================================
 export interface GiftOverlayHandle {
@@ -1082,9 +1108,17 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [livekitServerUrl, setLivekitServerUrl] = useState<string>(
     process.env.NEXT_PUBLIC_LIVEKIT_URL || DEFAULT_LIVEKIT_URL
   );
-  const [liveDuration, setLiveDuration] = useState<string>('00:00');
   const [endedAtFormatted, setEndedAtFormatted] = useState<string>('');
   const [streamStartMs, setStreamStartMs] = useState<number | null>(null);
+  const finalDurationRef = useRef<string>('00:00');
+
+  const getCalculatedDuration = useCallback(() => {
+    if (!streamStartMs) return '00:00';
+    const diff = Math.max(0, Math.floor((Date.now() - streamStartMs) / 1000));
+    const minutes = Math.floor(diff / 60).toString().padStart(2, '0');
+    const seconds = (diff % 60).toString().padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  }, [streamStartMs]);
   const [viewerCount, setViewerCount] = useState<number>(0);
   const [peakViewers, setPeakViewers] = useState<number>(0);
 
@@ -1529,7 +1563,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // --------------------------------------------------------------------------
   const handleStartCountdown = () => {
     setConnectionError(null);
-    setLiveDuration('00:00');
+    finalDurationRef.current = '00:00';
     setStreamStartMs(null);
     setViewerCount(0);
     setPeakViewers(0);
@@ -1556,7 +1590,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setActiveSpeakers([]);
     setLikeCount(0);
     setCurrentStream(stream);
-    setLiveDuration('00:00');
+    finalDurationRef.current = '00:00';
     setViewerCount(stream.viewer_count || 1);
     setPeakViewers(stream.viewer_count || 1);
     setStreamStartMs(
@@ -1843,7 +1877,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     if (role === 'host') {
       if (livekitBridgeRef.current) {
         try {
-          await livekitBridgeRef.current.broadcastEnd(liveDuration, peakViewers);
+          const finalDurationStr = getCalculatedDuration();
+          finalDurationRef.current = finalDurationStr;
+          await livekitBridgeRef.current.broadcastEnd(finalDurationStr, peakViewers);
         } catch {}
       }
       stopCameraTracks();
@@ -1881,7 +1917,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
   const handleHostEnded = useCallback((durationStr?: string, peak?: number) => {
     if (roleRef.current === 'viewer' && !viewerLeavingIntentionallyRef.current) {
-      if (durationStr) setLiveDuration(durationStr);
+      if (durationStr) finalDurationRef.current = durationStr;
       if (peak !== undefined) setPeakViewers(peak);
 
       setEndedAtFormatted(
@@ -2211,7 +2247,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       return () => clearTimeout(timer);
     } else {
       const launchTimer = setTimeout(() => {
-        setLiveDuration('00:00');
+        finalDurationRef.current = '00:00';
         setStreamStartMs(Date.now());
         setStage('live');
       }, 900);
@@ -2229,18 +2265,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [comments]);
 
-  useEffect(() => {
-    if (stage !== 'live' || !streamStartMs) return;
-    const interval = setInterval(() => {
-      const diff = Math.max(0, Math.floor((Date.now() - streamStartMs) / 1000));
-      const minutes = Math.floor(diff / 60)
-        .toString()
-        .padStart(2, '0');
-      const seconds = (diff % 60).toString().padStart(2, '0');
-      setLiveDuration(`${minutes}:${seconds}`);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [stage, streamStartMs]);
 
   const goalProgress = currentStream
     ? Math.min(
@@ -2726,9 +2750,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       {role === 'host' && (stage === 'live' || stage === 'ended') && (
         <div className="absolute top-4 left-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-xl">
           <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-          <span className="text-white/90 font-mono text-sm tracking-widest font-medium">
-            {liveDuration}
-          </span>
+          {stage === 'live' ? (
+            <LiveDurationBadge streamStartMs={streamStartMs} className="text-white/90 font-mono text-sm tracking-widest font-medium" />
+          ) : (
+            <span className="text-white/90 font-mono text-sm tracking-widest font-medium">
+              {finalDurationRef.current || '00:00'}
+            </span>
+          )}
         </div>
       )}
 
@@ -3544,7 +3572,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
                   <Clock className="w-5 h-5 text-amber-500 mb-2" />
                   <span className="text-xl font-mono text-white tracking-wider">
-                    {liveDuration}
+                    {finalDurationRef.current || '00:00'}
                   </span>
                   <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">
                     DURATION
