@@ -516,7 +516,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.room_id);
 
-  const isAdmin = isGroupChat && groupMembers.some(m => m.user_id === user?.id && m.role === 'admin');
+  const isAdmin = isGroupChat && groupMembers.some(m => m.user_id === user?.id && (m.role === 'admin' || m.role === 'owner'));
 
   useEffect(() => {
     if (isGroupChat) {
@@ -1179,6 +1179,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [activeContextMenuId, setActiveContextMenuId] = useState<string | null>(null);
+  const [adminDeleteMessageId, setAdminDeleteMessageId] = useState<string | null>(null);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaCaption, setMediaCaption] = useState<string>('');
@@ -2560,7 +2561,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   >
     <UserMinus size={16} className="text-amber-400/70" /> Exit Group
   </button>
-  {groupMembers.some(m => m.user_id === user?.id && m.role === 'admin') && (
+  {groupMembers.some(m => m.user_id === user?.id && (m.role === 'admin' || m.role === 'owner')) && (
     <button
       onClick={handleDeleteGroup}
       className="px-4 py-2.5 text-sm text-left text-red-500 hover:bg-red-500/10 transition-colors duration-200 flex items-center gap-3 rounded-lg font-bold"
@@ -2844,12 +2845,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      if (isUser) {
+                      if (isUser || isAdmin) {
                          setActiveContextMenuId(message.id);
                       }
                     }}
                     onTouchStart={() => {
-                      if (isUser) {
+                      if (isUser || isAdmin) {
                         longPressTimerRef.current = setTimeout(() => {
                            setActiveContextMenuId(message.id);
                         }, 500); // 500ms for long press
@@ -2936,26 +2937,26 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                             >
                                <span>Forward</span>
                             </button>
-                            <button
-                               onClick={() => handleDeleteForMe(message.id)}
-                               className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full"
-                            >
-                               <span>Delete for me</span>
-                            </button>
                             <button onClick={() => {
                               console.log('Create Group Button Tapped - State Updated');
                               setIsGroupModalOpen(true);
                             }} className="px-4 py-2 text-sm font-bold text-white hover:bg-white/10 flex items-center justify-between transition-colors w-full">
                                <span>Create Group with User</span>
                             </button>
-                            {isUser && (
-                               <button
-                                  onClick={() => handleDeleteForEveryone(message.id)}
-                                  className="px-4 py-2 text-sm font-bold text-red-400 hover:bg-white/10 flex items-center justify-between transition-colors w-full"
-                               >
-                                  <span>Delete for everyone</span>
-                               </button>
-                            )}
+
+                            <button
+                               onClick={() => {
+                                 if (isAdmin) {
+                                    setAdminDeleteMessageId(message.id);
+                                    setActiveContextMenuId(null);
+                                 } else {
+                                    handleDeleteForMe(message.id);
+                                 }
+                               }}
+                               className="px-4 py-2 text-sm font-bold text-red-400 hover:bg-white/10 flex items-center justify-between transition-colors w-full"
+                            >
+                               <span>Delete</span>
+                            </button>
                           </div>
                         </motion.div>
                       )}
@@ -3183,7 +3184,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            </div>
         </div>
       )}
-{(groupDetails?.only_admins_message || groupDetails?.only_admins_can_send) && !groupMembers.some(m => m.user_id === user?.id && m.role === 'admin') ? (
+{(groupDetails?.only_admins_message || groupDetails?.only_admins_can_send) && !groupMembers.some(m => m.user_id === user?.id && (m.role === 'admin' || m.role === 'owner')) ? (
         <div className="w-full py-4 bg-black/60 backdrop-blur-xl rounded-3xl border border-white/10 relative z-20 text-center text-white/50 text-sm">
           🔒 Only admins can send messages to this group.
         </div>
@@ -3787,7 +3788,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            const targetId = currentOtherUserProfile.id;
 
                            try {
-                               const isAdmin = groupMembers.some(m => m.user_id === user.id && m.role === 'admin');
+                               const isAdmin = groupMembers.some(m => m.user_id === user.id && (m.role === 'admin' || m.role === 'owner'));
                                await clearChatPermanently(user.id, targetId, isGroupChat, isAdmin);
 
                                // 2. Clear UI state
@@ -3804,6 +3805,62 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                         className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(225,29,72,0.4)]"
                      >
                         Clear Chat
+                     </button>
+                  </div>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
+      {/* Admin Delete Message Confirmation Modal */}
+      <AnimatePresence>
+         {adminDeleteMessageId && (
+            <motion.div
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[250] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            >
+               <motion.div
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  className="bg-[#111] border border-white/10 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-6"
+               >
+                  <div className="flex flex-col items-center text-center">
+                     <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
+                        <Trash2 size={32} className="text-rose-500" />
+                     </div>
+                     <h3 className="text-xl font-bold text-white mb-2">Delete Message</h3>
+                     <p className="text-sm text-white/60 mb-6">
+                        Are you sure you want to delete this message?
+                     </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                     <button
+                        onClick={() => {
+                           handleDeleteForEveryone(adminDeleteMessageId);
+                           setAdminDeleteMessageId(null);
+                        }}
+                        className="w-full py-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(225,29,72,0.4)]"
+                     >
+                        Delete for Everyone
+                     </button>
+                     <button
+                        onClick={() => {
+                           handleDeleteForMe(adminDeleteMessageId);
+                           setAdminDeleteMessageId(null);
+                        }}
+                        className="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold transition-all text-sm"
+                     >
+                        Delete for Me
+                     </button>
+                     <button
+                        onClick={() => setAdminDeleteMessageId(null)}
+                        className="w-full py-3 bg-transparent border border-white/20 hover:bg-white/5 rounded-xl text-white font-bold transition-all text-sm mt-2"
+                     >
+                        Cancel
                      </button>
                   </div>
                </motion.div>
