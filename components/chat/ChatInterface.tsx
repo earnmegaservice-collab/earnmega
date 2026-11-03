@@ -75,6 +75,7 @@ const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
 // Helper to parse basic formatting
 const formatText = (text: string) => {
+  if (typeof text !== 'string' || !text) return text as any || null;
   // Simple regex for **bold**, *italic*, ~strikethrough~
   const parts = text.split(/(\*\*.*?\*\*|\*.*?\*|~.*?~)/g);
 
@@ -202,6 +203,7 @@ import MyProfileView from '../profile/MyProfileView';
 import { User } from "lucide-react";
 
 const renderInviteLink = (text: string) => {
+  if (typeof text !== 'string' || !text) return text as any || null;
   const inviteRegex = /https?:\/\/[^\s]+\/invite\/([a-zA-Z0-9_-]+)/g;
   const parts = text.split(inviteRegex);
   const matches = [...text.matchAll(inviteRegex)];
@@ -219,6 +221,7 @@ const renderInviteLink = (text: string) => {
 };
 
 const renderTextWithMentions = (text: string) => {
+  if (typeof text !== 'string' || !text) return text as any || null;
   const mentionRegex = /@([a-zA-Z0-9_-]+)/g;
   const parts = text.split(mentionRegex);
   const matches = [...text.matchAll(mentionRegex)];
@@ -236,8 +239,10 @@ const renderTextWithMentions = (text: string) => {
 };
 
 export const renderMessageContent = (message: any, currentUserId: string) => {
-  if (message.text && message.text.startsWith('$$PROFILE_SHARE$$')) {
-     const sharedId = message.text.split('$$')[2];
+  const msgText = typeof message?.text === 'string' ? message.text : typeof (message as any)?.content === 'string' ? (message as any).content : '';
+  if (msgText && msgText.startsWith('$PROFILE_SHARE$')) {
+     const sharedId = msgText.split('$')[2];
+
      return (
         <div className="w-[250px] p-4 rounded-2xl bg-gradient-to-br from-[#1a1a1a] to-[#0a0a0a] border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
           <div className="flex items-center gap-3 mb-3">
@@ -307,7 +312,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
   }
 
   const isMe = message.sender === 'user';
-  const rawContent = message.text || '';
+  const rawContent = typeof message.text === 'string' ? message.text : typeof (message as any)?.content === 'string' ? (message as any).content : '';
 
   const isForwarded = rawContent.startsWith('[FORWARDED]\n');
   const displayContent = isForwarded ? rawContent.replace('[FORWARDED]\n', '') : rawContent;
@@ -1536,7 +1541,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const handleForwardMessage = async (receiverIds: string[]) => {
     if (!messageToForward || !user) return;
 
-    const content = messageToForward.text ? `[FORWARDED]\n${messageToForward.text}` : '';
+    const content = typeof messageToForward.text === 'string' ? `[FORWARDED]\n${messageToForward.text}` : typeof (messageToForward as any)?.content === 'string' ? `[FORWARDED]\n${(messageToForward as any).content}` : '';
 
     try {
       for (const receiverId of receiverIds) {
@@ -1591,7 +1596,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     // Format reply prefix if replying
     let finalContentToSave = textContent;
     if (replyingTo) {
-       finalContentToSave = `[REPLY:${replyingTo.id}:${replyingTo.sender}:${replyingTo.text.substring(0, 50).replace(/\[REPLY:[\s\S]*?\]\n\n/g, '')}]` + "\n\n" + textContent;
+       const replyText = typeof replyingTo.text === 'string' ? replyingTo.text : typeof (replyingTo as any)?.content === 'string' ? (replyingTo as any).content : '';
+       finalContentToSave = `[REPLY:${replyingTo.id}:${replyingTo.sender}:${replyText.substring(0, 50).replace(/\[REPLY:[\s\S]*?\]\n\n/g, '')}]` + "\n\n" + textContent;
     }
 
     setInputValue('');
@@ -1606,7 +1612,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       status: 'sending',
       reactions: [],
       replyToId: currentReplyingTo?.id,
-      replyToText: currentReplyingTo?.text.replace(/\[REPLY:[\s\S]*?\]\n\n/g, ''),
+      replyToText: typeof currentReplyingTo?.text === 'string' ? currentReplyingTo.text.replace(/\[REPLY:[\s\S]*?\]\n\n/g, '') : typeof (currentReplyingTo as any)?.content === 'string' ? (currentReplyingTo as any).content.replace(/\[REPLY:[\s\S]*?\]\n\n/g, '') : '',
       replyToSender: currentReplyingTo?.sender,
     };
 
@@ -2709,9 +2715,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div className="absolute inset-0 bg-black/40 pointer-events-none z-0"></div>
 
         {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
+          const msgText = typeof message?.text === 'string' ? message.text : typeof (message as any)?.content === 'string' ? (message as any).content : '';
 
-          if (message.isSystemMessage || (message.text && message.text.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
-              const text = message.text?.startsWith('$$SYSTEM$$') ? message.text.substring(10).trim() : message.text;
+          if (message.isSystemMessage || (msgText && msgText.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
+              const text = msgText.startsWith('$$SYSTEM$$') ? msgText.substring(10).trim() : msgText;
               return (
                   <div key={message.id} className="my-2 flex justify-center select-none">
                       <span className="px-3.5 py-1 rounded-full bg-zinc-900/90 border border-white/10 text-[11px] text-zinc-300 text-center shadow-sm max-w-[85%]">{text}</span>
@@ -3018,7 +3025,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                          <span className="line-clamp-2 text-xs italic">{message.replyToText}</span>
                       </div>
                     )}
-                    {message.text?.startsWith('[FORWARDED]\n') && !message.text?.replace('[FORWARDED]\n', '') && (
+                    {msgText.startsWith('[FORWARDED]\n') && !msgText.replace('[FORWARDED]\n', '') && (
                       <span className="text-[10px] italic text-white/50 mb-1 flex items-center"><Send size={10} className="mr-1 inline" /> Forwarded</span>
                     )}
                     {message.imageUrl && (
