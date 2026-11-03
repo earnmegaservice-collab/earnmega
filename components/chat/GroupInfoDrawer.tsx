@@ -223,6 +223,19 @@ export default function GroupInfoDrawer({
           approve_new_members: Boolean(groupRecord.approve_new_members)
         });
 
+        const savedSettings = await fetchGroupSettings(groupId);
+        if (savedSettings) {
+          setPermissions({
+            only_admins_can_send: Boolean(savedSettings.only_admins_can_send),
+            only_admins_can_edit_info: Boolean(savedSettings.only_admins_can_edit_info),
+            only_admins_can_add_members: Boolean(savedSettings.only_admins_can_add_members),
+            approve_new_members: Boolean(savedSettings.approve_new_members),
+          });
+          if (savedSettings.avatar_url) setDisplayGroupAvatar(savedSettings.avatar_url);
+          if (savedSettings.bio) { setGroupBio(savedSettings.bio); setNewGroupBio(savedSettings.bio); }
+          if (savedSettings.invite_code) setInviteLink(`${window.location.origin}/invite/${savedSettings.invite_code}`);
+        }
+
         if (resolvedCreator) {
           const { data: creatorProfile } = await supabase
             .from('profiles')
@@ -559,6 +572,8 @@ export default function GroupInfoDrawer({
       await supabase.from('rooms').update({ avatar_url: publicUrl }).eq('id', groupId);
       await supabase.from('conversations').update({ avatar_url: publicUrl }).eq('id', groupId);
 
+      await saveGroupSettings({ groupId, ...permissions, avatar_url: publicUrl, name: displayGroupName, invite_code: inviteLink?.split('/').pop(), updated_at: Date.now() }, effectiveUserId);
+
       setDisplayGroupAvatar(publicUrl);
       await fireSystemMessage(`${currentActorName} changed the group icon`, 'group_icon_changed');
       onGroupUpdated?.();
@@ -835,7 +850,8 @@ export default function GroupInfoDrawer({
   // Generate or Reset Invite Link
   const generateInviteLink = async (isReset = false) => {
     try {
-      const code = uuidv4().substring(0, 8);
+      const shortCode = uuidv4().substring(0, 8);
+      const code = `${groupId}__${shortCode}`;
       await supabase.from('group_invites').insert({
         room_id: groupId,
         created_by: effectiveUserId,
@@ -843,6 +859,7 @@ export default function GroupInfoDrawer({
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
       });
       await supabase.from('chat_groups').update({ invite_code: code }).eq('id', groupId);
+      await saveGroupSettings({ groupId, ...permissions, invite_code: code, name: displayGroupName, avatar_url: displayGroupAvatar, updated_at: Date.now() }, effectiveUserId);
       const link = `${window.location.origin}/invite/${code}`;
       setInviteLink(link);
       if (isReset) {
@@ -852,7 +869,9 @@ export default function GroupInfoDrawer({
         toast.success('Invite link generated!');
       }
     } catch (err) {
-      const fallbackLink = `${window.location.origin}/invite/${groupId.substring(0, 8)}`;
+      const code = `${groupId}__${uuidv4().substring(0, 8)}`;
+      await saveGroupSettings({ groupId, ...permissions, invite_code: code, name: displayGroupName, avatar_url: displayGroupAvatar, updated_at: Date.now() }, effectiveUserId);
+      const fallbackLink = `${window.location.origin}/invite/${code}`;
       setInviteLink(fallbackLink);
       toast.success('Invite link ready!');
     }
