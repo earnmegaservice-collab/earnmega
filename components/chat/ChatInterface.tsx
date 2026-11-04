@@ -40,6 +40,7 @@ type Message = {
   imageUrl?: string;
   audioUrl?: string;
   replyToId?: string;
+  mediaType?: 'image' | 'video' | 'audio' | string;
   replyToText?: string;
   replyToSender?: 'user' | 'other';
   isViewOnce?: boolean;
@@ -1681,6 +1682,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     }
   };
 
+    // Create isVideoMessage helper
+  const isVideoMessage = (msg: Message) => {
+    if (msg.mediaType === 'video') return true;
+    if (msg.imageUrl && /\.(mp4|webm|ogg|mov|m4v|mkv)(\?.*|#.*)?$/i.test(msg.imageUrl)) return true;
+    return false;
+  };
+
   const handleMediaClick = () => {
     if ((!GOD_MODE && subscriptionTier === 'FREE')) {
       setIsTierLockModalOpen(true);
@@ -1788,15 +1796,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     }
   };
 
-  const uploadMediaFile = async (file: File | Blob, type: 'image' | 'audio', originalName?: string) => {
+  const uploadMediaFile = async (file: File | Blob, type: 'image' | 'audio' | 'video', caption?: string, originalName?: string) => {
     setIsUploading(true);
     try {
       let fileName;
       if (originalName) {
-        const fileExt = originalName.split('.').pop() || (type === 'audio' ? 'webm' : 'jpg');
+        const fileExt = originalName.split('.').pop() || (type === 'audio' ? 'webm' : type === 'video' ? 'mp4' : 'jpg');
         fileName = `${uuidv4()}.${fileExt}`;
       } else {
-        fileName = `${uuidv4()}.${type === 'audio' ? 'webm' : 'jpg'}`;
+        fileName = `${uuidv4()}.${type === 'audio' ? 'webm' : type === 'video' ? 'mp4' : 'jpg'}`;
       }
 
       const filePath = `${fileName}`;
@@ -1834,10 +1842,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            id: newMessage.id,
            sender_id: user.id,
            content: '',
-           image_url: type === 'image' ? publicUrl : null,
+           image_url: (type === 'image' || type === 'video') ? publicUrl : null,
            audio_url: type === 'audio' ? publicUrl : null,
            status: 'sent',
            is_view_once: type === 'image' ? isViewOnceMode : false,
+           media_type: type === 'video' ? 'video' : null,
         };
         if (isGroupChat) {
            msgPayload.room_id = currentOtherUserProfile.id;
@@ -1886,8 +1895,23 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('File must be under 50MB');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    const isVideo = typeof file.type === 'string' && (file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|m4v|avi)$/i.test(file.name));
+
+    if (isVideo) {
+        setMediaPreviewUrl(URL.createObjectURL(file));
+        setMediaFile(file);
+        setMediaCaption('');
+    } else {
+        const reader = new FileReader();
+        reader.onload = (event) => {
         if (event.target?.result) {
             setMediaPreviewUrl(event.target.result as string);
             setMediaFile(file);
@@ -1895,6 +1919,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         }
     };
     reader.readAsDataURL(file);
+    }
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -1904,7 +1929,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const handleMediaSend = async () => {
      if (!mediaFile) return;
      setIsUploading(true);
-     await uploadMediaFile(mediaFile, 'image', mediaCaption);
+     const isVideo = typeof mediaFile.type === 'string' && (mediaFile.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|m4v|avi)$/i.test(mediaFile.name));
+     await uploadMediaFile(mediaFile, isVideo ? 'video' : 'image', mediaCaption, mediaFile.name);
      setIsUploading(false);
      cancelMediaPreview();
   };
@@ -3155,6 +3181,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       ) : (
         <footer className="bg-white/5 backdrop-blur-xl border-t border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.37)] p-4 pb-safe shrink-0 w-full flex flex-col">
         <AnimatePresence>
+          {mediaPreviewUrl && (
+            <MediaPreview
+              url={mediaPreviewUrl}
+              onCancel={cancelMediaPreview}
+              onSend={handleMediaSend}
+              isUploading={isUploading}
+              isViewOnce={isViewOnceMode}
+              onToggleViewOnce={() => setIsViewOnceMode(!isViewOnceMode)}
+              caption={mediaCaption}
+              onCaptionChange={(e) => setMediaCaption(e.target.value)}
+              isVideo={mediaFile ? (typeof mediaFile.type === 'string' && (mediaFile.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|m4v|avi)$/i.test(mediaFile.name))) : false}
+            />
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
           {replyingTo && (
             <motion.div
               initial={{ opacity: 0, y: 10, height: 0 }}
@@ -3256,7 +3297,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,video/*,video/mp4,video/webm,video/quicktime"
             ref={fileInputRef}
             onChange={handleFileUpload}
             className="hidden"
