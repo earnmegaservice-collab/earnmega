@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, BellOff, X, Eye, Radio, Flame, Heart, ShieldCheck, UserPlus, Users, AlertCircle } from 'lucide-react';
+import { Bell, BellOff, X, Eye, Radio, Flame, Heart, ShieldCheck, UserPlus, Users, AlertCircle, MessageCircle } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGlobalNotifications } from '../../context/NotificationContext';
@@ -95,6 +95,16 @@ const getNotificationUI = (type: string) => {
         shadowClass: 'shadow-[0_0_30px_rgba(239,68,68,0.1)]',
         pulseClass: 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]'
       };
+    case 'MESSAGE':
+    case 'message':
+      return {
+        icon: <MessageCircle size={18} className="text-blue-400" />,
+        colorClass: 'blue',
+        bgClass: 'bg-blue-500/10',
+        borderClass: 'border-blue-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(59,130,246,0.1)]',
+        pulseClass: 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]'
+      };
     case 'system':
     default:
       return {
@@ -110,7 +120,7 @@ const getNotificationUI = (type: string) => {
 
 export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boolean, onClose?: () => void }) {
   const { user } = useAuth();
-  const { notifications, unreadCount, markAllAsRead, markAsRead } = useGlobalNotifications();
+  const { notifications, unreadCount, markAllAsRead, markAsRead, refreshNotifications, requestPushPermission, permissionStatus } = useGlobalNotifications();
 
   const [isMuted, setIsMuted] = useState(false);
   const isMutedRef = useRef(false);
@@ -123,6 +133,12 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
     await supabase.from('profiles').update({ notifications_muted: newMuted }).eq('id', user.id);
     localStorage.setItem(`earnmega_notif_muted_${user.id}`, String(newMuted));
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      refreshNotifications?.();
+    }
+  }, [isOpen, refreshNotifications]);
 
   useEffect(() => {
     if (!user) return;
@@ -173,7 +189,7 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                </div>
                <div className="flex flex-row items-center gap-3">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold whitespace-nowrap">Mute Alerts</span>
+                    <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold whitespace-nowrap">Mute</span>
                     <button
                       onClick={toggleMute}
                       className={`relative inline-flex h-4 w-8 flex-shrink-0 items-center rounded-full transition-colors ${isMuted ? 'bg-amber-500' : 'bg-zinc-700'}`}
@@ -185,6 +201,18 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                   <button onClick={() => onClose?.()} className="text-white/60 hover:text-white flex-shrink-0"><X size={16}/></button>
                </div>
              </div>
+
+            {typeof window !== 'undefined' && 'Notification' in window && permissionStatus !== 'granted' && (
+              <div
+                onClick={() => requestPushPermission?.()}
+                className="mx-3 mt-3 p-3 bg-gradient-to-r from-indigo-500/20 to-blue-500/20 border border-indigo-500/30 rounded-xl cursor-pointer hover:bg-indigo-500/30 transition-all flex items-center justify-between"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-white font-bold text-sm">🔔 Enable Phone Alerts</span>
+                  <span className="text-white/60 text-xs">Tap to get outside-app alerts</span>
+                </div>
+              </div>
+            )}
 
             <motion.div
               className="flex-1 overflow-y-auto p-4 space-y-3"
@@ -203,7 +231,7 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                     const ui = getNotificationUI(notif.type);
                     const displayMessage = notif.content || notif.message || notif.title || 'New activity on your account';
                     const rawActorId = notif.actor_id;
-                    const actorHandle = notif.actor_username || notif.actor_name || (rawActorId && String(rawActorId).length < 20 ? rawActorId : null);
+                    const actorHandle = notif.actor_username || notif.actor_name;
                     return (
                       <motion.div
                         key={notif.id}

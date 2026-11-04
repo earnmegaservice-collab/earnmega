@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 import { supabase } from '../utils/supabase';
 import { useAuth } from './AuthContext';
 
@@ -27,6 +27,9 @@ interface NotificationContextType {
   bellShake: boolean;
   setBellShake: (shake: boolean) => void;
   triggerNativeNotification: (title: string, body: string, tag?: string) => void;
+  requestPushPermission?: () => void;
+  permissionStatus: string;
+  refreshNotifications: () => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
@@ -36,13 +39,34 @@ const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0,
   bellShake: false,
   setBellShake: () => {},
-  triggerNativeNotification: () => {}
+  triggerNativeNotification: () => {},
+  permissionStatus: 'default',
+  refreshNotifications: async () => {}
 });
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<GlobalNotification[]>([]);
   const [bellShake, setBellShake] = useState(false);
+  const [permissionStatus, setPermissionStatus] = useState<string>('default');
+  const lastSeenTimestampRef = useRef<number>(Date.now());
+
+  const requestPushPermission = () => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(status => {
+        setPermissionStatus(status);
+        if (status === 'granted') {
+           triggerNativeNotification('Outside-App Alerts Enabled! ✅', 'You will now receive alerts even when using other apps.');
+        }
+      });
+    }
+  };
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setPermissionStatus(Notification.permission);
+    }
+  }, []);
 
   // Helper for outside-app OS notifications
   const triggerNativeNotification = async (title: string, body: string, tag?: string) => {
@@ -53,20 +77,21 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
         const swReg = await navigator.serviceWorker.getRegistration();
-        if (swReg) {
+        if (swReg && swReg.active) {
           swReg.showNotification(title, {
             body,
             icon: '/favicon.ico',
             badge: '/favicon.ico',
-            tag: tag || 'earnmega-alert',
+            tag: tag || 'hubpal-' + Date.now(),
             renotify: true,
             vibrate: [200, 100, 200]
           } as any);
+          swReg.active.postMessage({ type: 'SHOW_NOTIFICATION', title, body, tag: tag || 'hubpal-' + Date.now() });
         } else {
-          new window.Notification(title, { body, icon: '/favicon.ico', tag: tag || 'earnmega-alert' });
+          new window.Notification(title, { body, icon: '/favicon.ico', tag: tag || 'hubpal-' + Date.now() });
         }
       } catch (e) {
-        new window.Notification(title, { body, icon: '/favicon.ico', tag: tag || 'earnmega-alert' });
+        new window.Notification(title, { body, icon: '/favicon.ico', tag: tag || 'hubpal-' + Date.now() });
       }
     }
 
@@ -96,17 +121,95 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     const requestPerm = () => {
       if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
+        Notification.requestPermission().then(status => setPermissionStatus(status));
       }
       document.removeEventListener('click', requestPerm);
+      document.removeEventListener('pointerdown', requestPerm);
     };
     if (typeof document !== 'undefined') {
        document.addEventListener('click', requestPerm);
+       document.addEventListener('pointerdown', requestPerm);
     }
     return () => {
-      if (typeof document !== 'undefined') document.removeEventListener('click', requestPerm);
+      if (typeof document !== 'undefined') {
+         document.removeEventListener('click', requestPerm);
+         document.removeEventListener('pointerdown', requestPerm);
+      }
     }
   }, []);
+
+  const fetchNotifications = async () => {
+    if (!user) return;
+
+    // 1. Fetch from notifications table
+    const { data: notifsData, error: notifsError } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (notifsError) {
+      console.error('Error fetching notifications:', notifsError);
+    }
+
+    // 2. Fetch incoming messages to act as notifications
+    const { data: msgsData, error: msgsError } = await supabase
+      .from('messages')
+      .select('id, sender_id, receiver_id, room_id, content, created_at, is_read')
+      .neq('sender_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    if (msgsError) {
+      console.error('Error fetching messages for notifications:', msgsError);
+    }
+
+    let combined: GlobalNotification[] = [];
+
+    if (notifsData) {
+      const normalizedNotifs = notifsData.map((raw: any) => ({
+        ...raw,
+        content: raw.content || raw.message || raw.title || 'New activity on your account'
+      }));
+      combined = [...combined, ...normalizedNotifs as GlobalNotification[]];
+    }
+
+    if (msgsData) {
+      // Filter messages to only those meant for user (or group), and exclude group config
+      const relevantMsgs = msgsData.filter(m => (m.receiver_id === user.id || m.room_id) && (!m.content || !m.content.startsWith('[GROUP_CONFIG_JSON]')));
+      const msgNotifs = relevantMsgs.map((msg: any) => ({
+        id: `msg-${msg.id}`,
+        user_id: user.id,
+        actor_id: msg.sender_id,
+        type: 'MESSAGE',
+        content: msg.content || 'Sent you a media attachment',
+        is_read: Boolean(msg.is_read),
+        created_at: msg.created_at
+      }));
+
+      // Merge and sort
+      combined = [...combined, ...msgNotifs];
+    }
+
+    // Sort combined by created_at descending and deduplicate by id
+    combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    const dedupedMap = new Map();
+    combined.forEach(n => {
+       if (!dedupedMap.has(n.id)) {
+          dedupedMap.set(n.id, n);
+       }
+    });
+
+    const finalCombined = Array.from(dedupedMap.values()).slice(0, 50);
+
+    if (finalCombined.length > 0) {
+      lastSeenTimestampRef.current = Math.max(lastSeenTimestampRef.current, new Date(finalCombined[0].created_at).getTime());
+    }
+
+    setNotifications(finalCombined);
+  };
 
   useEffect(() => {
     if (!user) {
@@ -114,63 +217,23 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const fetchNotifications = async () => {
-      // 1. Fetch from notifications table
-      const { data: notifsData, error: notifsError } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(50);
+    fetchNotifications();
 
-      if (notifsError) {
-        console.error('Error fetching notifications:', notifsError);
-      }
-
-      // 2. Fetch incoming messages to act as notifications
-      const { data: msgsData, error: msgsError } = await supabase
-        .from('messages')
-        .select('id, sender_id, receiver_id, room_id, content, created_at, is_read')
-        .neq('sender_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (msgsError) {
-        console.error('Error fetching messages for notifications:', msgsError);
-      }
-
-      let combined: GlobalNotification[] = [];
-
-      if (notifsData) {
-        combined = [...combined, ...notifsData as GlobalNotification[]];
-      }
-
-      if (msgsData) {
-        // Filter messages to only those meant for user (or group)
-        const relevantMsgs = msgsData.filter(m => m.receiver_id === user.id || m.room_id);
-        const msgNotifs = relevantMsgs.map((msg: any) => ({
-          id: `msg-${msg.id}`,
-          user_id: user.id,
-          actor_id: msg.sender_id,
-          type: 'MESSAGE',
-          content: msg.content ? 'New message: ' + msg.content : 'Sent you a media attachment',
-          is_read: msg.is_read || false,
-          created_at: msg.created_at
-        }));
-
-        // Merge and sort
-        combined = [...combined, ...msgNotifs];
-      }
-
-      // Sort combined by created_at descending
-      combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      // Keep only top 50
-      combined = combined.slice(0, 50);
-      setNotifications(combined);
+    // Heartbeat logic to catch up when returning from background
+    const handleVisibilityAndFocus = () => {
+       if (document.visibilityState === 'visible') {
+           fetchNotifications();
+       }
     };
 
-    fetchNotifications();
+    document.addEventListener('visibilitychange', handleVisibilityAndFocus);
+    window.addEventListener('focus', handleVisibilityAndFocus);
+
+    const intervalId = setInterval(() => {
+       if (document.visibilityState === 'hidden') {
+           fetchNotifications();
+       }
+    }, 20000);
 
     const uniqueChannel = `appshell-notifications-${Date.now()}`;
     const channel = supabase
@@ -281,8 +344,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
+    // Acquire a non-blocking web lock
+    if (navigator.locks) {
+        navigator.locks.request('hubpal_realtime_keepalive', { mode: 'shared' }, () => new Promise(() => {}));
+    }
+
     return () => {
       supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange', handleVisibilityAndFocus);
+      window.removeEventListener('focus', handleVisibilityAndFocus);
+      clearInterval(intervalId);
     };
   }, [user]);
 
@@ -308,7 +379,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
-    <NotificationContext.Provider value={{ notifications, markAsRead, markAllAsRead, unreadCount, bellShake, setBellShake, triggerNativeNotification }}>
+    <NotificationContext.Provider value={{ notifications, markAsRead, markAllAsRead, unreadCount, bellShake, setBellShake, triggerNativeNotification, requestPushPermission, permissionStatus, refreshNotifications: fetchNotifications }}>
       {children}
     </NotificationContext.Provider>
   );
