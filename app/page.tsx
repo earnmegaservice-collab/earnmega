@@ -8,6 +8,7 @@ import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { EarnMegaLandingGateway } from '../components/home/EarnMegaLandingGateway';
 import { RadarActivationModal } from '../components/location/RadarActivationModal';
 import { useWallet } from '../context/WalletContext';
 import dynamic from 'next/dynamic';
@@ -19,6 +20,20 @@ function HomeContent() {
   const { user, isLoading } = useAuth();
   const { balance } = useWallet();
   const [appTab, setAppTab] = useState<'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live'>('chats');
+  const [showGateway, setShowGateway] = useState(true);
+
+  useEffect(() => {
+    const handleOpenPillar1 = () => setShowGateway(false);
+    const handleReturnHome = () => setShowGateway(true);
+
+    window.addEventListener('earnmega:open-pillar-1', handleOpenPillar1);
+    window.addEventListener('earnmega:return-home', handleReturnHome);
+
+    return () => {
+      window.removeEventListener('earnmega:open-pillar-1', handleOpenPillar1);
+      window.removeEventListener('earnmega:return-home', handleReturnHome);
+    };
+  }, []);
 
   const [session, setSession] = useState<any>(null);
   const [profileState, setProfileState] = useState<any>(null);
@@ -195,12 +210,16 @@ function HomeContent() {
     }
   };
 
-  if (!hasMounted) {
+if (!hasMounted) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#050505] text-emerald-400/50 tracking-widest text-xs font-mono uppercase">
         SYNCHRONIZING ENVIRONMENT...
       </div>
     );
+  }
+
+  if (showGateway) {
+    return <EarnMegaLandingGateway onEnterPillar1={() => setShowGateway(false)} />;
   }
 
   if (isGateLoading || isLoading) {
@@ -218,6 +237,15 @@ function HomeContent() {
         <div className="fixed inset-0 z-0 pointer-events-none">
           <div className="absolute top-[-10%] left-[-10%] w-[120%] h-[120%] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#0a0a0a] to-[#0a0a0a] mix-blend-screen"></div>
           <div className="absolute bottom-0 left-0 right-0 h-[50vh] bg-gradient-to-t from-purple-900/10 to-transparent"></div>
+        </div>
+
+        <div className="w-full max-w-sm flex justify-start mb-4 z-10">
+          <button
+            onClick={() => setShowGateway(true)}
+            className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors text-sm font-medium"
+          >
+            &larr; Home
+          </button>
         </div>
 
         <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center font-bold text-3xl shadow-2xl mb-6 z-10">
