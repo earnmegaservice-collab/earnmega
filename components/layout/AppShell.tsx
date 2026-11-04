@@ -6,6 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Compass,
   Radar,
+  Bot,
+  Home,
   MessageCircle,
   Radio,
   User,
@@ -24,7 +26,6 @@ import NotificationDrawer from '../notifications/NotificationDrawer';
 import { supabase } from '../../utils/supabase';
 import { ProfileCompletionModal } from '../profile/ProfileCompletionModal';
 import HelpBotModal from '../chat/HelpBotModal';
-
 
 
 interface AppShellProps {
@@ -132,12 +133,24 @@ export const AppShell: React.FC<AppShellProps> = ({
       {activeTab !== 'live' && (
         <header className="fixed top-0 left-0 right-0 h-16 bg-black/60 backdrop-blur-2xl border-b border-white/[0.08] z-50 px-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.4)]">
-              <span className="text-black font-black text-sm tracking-tighter">EM</span>
-            </div>
-            <span className="text-lg font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-white/60">
-              EARNMEGA
-            </span>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('earnmega:return-home'))}
+              className="flex items-center space-x-2 cursor-pointer group"
+            >
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.4)] group-hover:scale-105 transition-transform">
+                <span className="text-black font-black text-sm tracking-tighter">EM</span>
+              </div>
+              <span className="text-lg font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-white/60">
+                EARNMEGA
+              </span>
+            </button>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('earnmega:return-home'))}
+              className="hidden sm:flex items-center gap-1.5 ml-2 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-colors text-white/60 hover:text-white"
+            >
+              <Home size={14} />
+              <span className="text-xs font-semibold">Home</span>
+            </button>
           </div>
 
           <div className="flex items-center space-x-3">
