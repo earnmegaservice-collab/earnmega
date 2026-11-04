@@ -14,7 +14,8 @@ import {
   X,
   Heart,
   Store,
-  Flame
+  Flame,
+  Bot
 } from 'lucide-react';
 import GiftOverlay from '../chat/GiftOverlay';
 import { useAuth } from '../../context/AuthContext';
@@ -23,7 +24,7 @@ import NotificationDrawer from '../notifications/NotificationDrawer';
 import { supabase } from '../../utils/supabase';
 import { ProfileCompletionModal } from '../profile/ProfileCompletionModal';
 import HelpBotModal from '../chat/HelpBotModal';
-import { Bot } from 'lucide-react';
+
 
 
 interface AppShellProps {
@@ -45,8 +46,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { user } = useAuth();
-  const { unreadCount } = useGlobalNotifications();
-  const [bellShake, setBellShake] = useState(false);
+  const { unreadCount, bellShake } = useGlobalNotifications();
   const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
 
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
@@ -121,62 +121,6 @@ export const AppShell: React.FC<AppShellProps> = ({
     fetchUnreadCount();
 
     // The Global Render Queue & Notification Matrix Active Bell
-    const uniqueChannel = `appshell-notifications-${Date.now()}`;
-    const notificationChannel = supabase
-      .channel(uniqueChannel)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${user?.id}`
-      }, (payload) => {
-        const newNotif = payload.new;
-
-        // Update the active bell badge
-
-        // Trigger Framer Motion shake animation
-        setBellShake(true);
-        setTimeout(() => setBellShake(false), 500);
-
-        // App-Open Supernova: Check if the notification is a gift and trigger local visual feedback
-        // The Global Render Queue is technically implicitly handled here:
-        // If they were offline, the database queue stored it.
-        // Now that they are online (and received this via realtime if they just came online,
-        // or fetched initially), we could trigger it.
-        // For now, if a real-time 'INSERT' comes in for a gift, we trigger the overlay.
-        if (newNotif.type === 'GIFT' && newNotif.content) {
-           try {
-             // Expecting content like: GIFT:Rose:50:sender_id
-             const parts = newNotif.content.split('|');
-             if ((parts || []).length >= 3) {
-               const giftData = { name: parts[0], cost: parseInt(parts[1]) };
-               const senderId = (parts || []).length > 3 ? parts[3] : '';
-
-               // Dispatch custom event to App-Open Supernova GiftOverlay
-               const customEvent = new CustomEvent('gift_received_local', {
-                 detail: { giftData: giftData, senderId: senderId, receiverId: user?.id }
-               });
-               window.dispatchEvent(customEvent);
-             }
-           } catch(e) {
-             console.error("Error parsing gift notification", e);
-           }
-        }
-      })
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${user?.id}`
-      }, (payload) => {
-         // If marked as read, recalculate or decrement (to simplify, let's just refetch)
-         fetchUnreadCount();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(notificationChannel);
-    };
   }, [user]);
 
 
