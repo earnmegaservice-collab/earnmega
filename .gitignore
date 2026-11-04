@@ -7,5 +7,4 @@ npm_output.log
 *.log
 *.pid
 .tsbuildinfo
-*.tsbuildinfo
 test-results.json
