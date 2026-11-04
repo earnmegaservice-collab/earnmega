@@ -1,5 +1,13 @@
 // public/sw.js
 
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('push', function(event) {
   if (!event.data) return;
   
@@ -88,7 +96,13 @@ self.addEventListener('notificationclick', function(event) {
         }
         return client.focus();
       }
-      return clients.openWindow(event.notification.data.url);
+      return clients.openWindow(event.notification.data?.url || '/');
     })
   );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    self.registration.showNotification(event.data.title, event.data.options);
+  }
 });

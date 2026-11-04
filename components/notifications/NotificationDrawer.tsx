@@ -121,6 +121,7 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
     setIsMuted(newMuted);
     isMutedRef.current = newMuted;
     await supabase.from('profiles').update({ notifications_muted: newMuted }).eq('id', user.id);
+    localStorage.setItem(`earnmega_notif_muted_${user.id}`, String(newMuted));
   };
 
   useEffect(() => {
@@ -159,29 +160,29 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
             animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: -20, scale: 0.95, filter: "blur(10px)" }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="absolute top-20 right-4 w-[340px] max-h-[500px] overflow-y-auto bg-neutral-950/80 backdrop-blur-[60px] border border-white/10 rounded-[2rem] shadow-[0_40px_100px_rgba(0,0,0,0.9)] z-[999] p-2 flex flex-col"
+            className="fixed top-16 right-3 left-3 sm:left-auto sm:right-4 sm:w-[360px] max-h-[75vh] overflow-y-auto bg-neutral-950/80 backdrop-blur-[60px] border border-white/10 rounded-[2rem] shadow-[0_40px_100px_rgba(0,0,0,0.9)] z-[9999] p-2 flex flex-col"
           >
-            <div className="flex justify-between items-center px-5 py-4 border-b border-white/5">
+            <div className="flex justify-between items-center px-5 py-4 border-b border-white/5 gap-2">
                <div className="flex items-center gap-2">
                  <h3 className="text-white font-black text-lg tracking-tight">Activity</h3>
                  {!isMuted && unreadCount > 0 && (
-                   <span className="bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                   <span className="bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
                      {unreadCount}
                    </span>
                  )}
                </div>
                <div className="flex flex-row items-center gap-3">
-                  <div className="flex items-center gap-2 mr-2">
-                    <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Mute Alerts</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold whitespace-nowrap">Mute Alerts</span>
                     <button
                       onClick={toggleMute}
-                      className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${isMuted ? 'bg-amber-500' : 'bg-zinc-700'}`}
+                      className={`relative inline-flex h-4 w-8 flex-shrink-0 items-center rounded-full transition-colors ${isMuted ? 'bg-amber-500' : 'bg-zinc-700'}`}
                     >
                       <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isMuted ? 'translate-x-4' : 'translate-x-1'}`} />
                     </button>
                   </div>
-                  <button onClick={markAllAsRead} className="text-[11px] uppercase tracking-widest text-indigo-400 font-bold hover:text-indigo-300 transition-colors">MARK READ</button>
-                  <button onClick={() => onClose?.()} className="text-white/60 hover:text-white"><X size={16}/></button>
+                  <button onClick={markAllAsRead} className="text-[11px] uppercase tracking-widest text-indigo-400 font-bold hover:text-indigo-300 transition-colors whitespace-nowrap">MARK READ</button>
+                  <button onClick={() => onClose?.()} className="text-white/60 hover:text-white flex-shrink-0"><X size={16}/></button>
                </div>
              </div>
 
@@ -200,6 +201,9 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                 <div className="flex flex-col gap-1 p-2">
                   {notifications.map((notif, idx) => {
                     const ui = getNotificationUI(notif.type);
+                    const displayMessage = notif.content || notif.message || notif.title || 'New activity on your account';
+                    const rawActorId = notif.actor_id;
+                    const actorHandle = notif.actor_username || notif.actor_name || (rawActorId && String(rawActorId).length < 20 ? rawActorId : null);
                     return (
                       <motion.div
                         key={notif.id}
@@ -207,15 +211,16 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                           hidden: { opacity: 0, x: 20 },
                           show: { opacity: 1, x: 0 }
                         }}
-                        className={`relative flex items-start gap-4 p-4 rounded-2xl transition-all bg-zinc-950/80 backdrop-blur-xl border-b border-white/5 overflow-hidden ${!notif.is_read ? 'before:absolute before:left-0 before:w-1 before:h-full before:bg-gradient-to-b before:from-amber-400 before:to-amber-600' : 'hover:bg-white/5'}`}
+                        onClick={() => { markAsRead(notif.id); onClose?.(); }}
+                        className={`relative flex items-start gap-4 p-4 rounded-2xl transition-all cursor-pointer bg-zinc-950/80 backdrop-blur-xl border-b border-white/5 overflow-hidden ${!notif.is_read ? 'before:absolute before:left-0 before:w-1 before:h-full before:bg-gradient-to-b before:from-amber-400 before:to-amber-600' : 'hover:bg-white/5'}`}
                       >
                         <div className={`p-2 rounded-full ${ui.bgClass} flex items-center justify-center z-10`}>
                           {ui.icon}
                         </div>
                         <div className="flex flex-col flex-1 z-10">
                           <span className="text-sm text-zinc-400">
-                            {notif.actor_id && <span className="text-amber-100 font-semibold tracking-wide mr-1">@{notif.actor_id}</span>}
-                            {notif.message}
+                            {actorHandle && <span className="text-amber-100 font-semibold tracking-wide mr-1">@{actorHandle}</span>}
+                            {displayMessage}
                           </span>
                           <span className="text-[10px] text-white/30 font-semibold uppercase tracking-wider mt-2">{new Date(notif.created_at).toLocaleString()}</span>
                         </div>
