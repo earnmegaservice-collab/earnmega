@@ -1255,18 +1255,19 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
       switch (packet.type) {
         case 'LIVE_LIKE': {
-          if (role === 'host') {
-            const nextTotal = likeCount + (packet.delta || 1);
-            setLikeCount(nextTotal);
-            for (let i=0; i<(packet.delta || 1); i++) spawnVisualHeartOnly();
-            dispatchArenaPacket({ type: 'LIKE_SYNC', authoritativeLikes: nextTotal });
-          }
+          const delta = packet.delta || 1;
+          setLikeCount((prev) => {
+            const nextTotal = prev + delta;
+            if (role === 'host') {
+              dispatchArenaPacket({ type: 'LIKE_SYNC', authoritativeLikes: nextTotal });
+            }
+            return nextTotal;
+          });
+          for (let i=0; i<delta; i++) spawnVisualHeartOnly();
           break;
         }
         case 'LIKE_SYNC': {
-          if (role === 'viewer') {
-            setLikeCount((prev) => Math.max(prev, packet.authoritativeLikes || prev));
-          }
+          setLikeCount((prev) => Math.max(prev, packet.authoritativeLikes || prev));
           break;
         }
 
@@ -1719,17 +1720,34 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     if (role !== 'viewer') return;
     const interval = setInterval(() => {
       if (pendingLikesDeltaRef.current > 0) {
+        const deltaToSync = pendingLikesDeltaRef.current;
+        pendingLikesDeltaRef.current = 0;
         dispatchArenaPacket({
           type: 'LIVE_LIKE',
-          delta: pendingLikesDeltaRef.current,
+          delta: deltaToSync,
           senderTotalLikes: likeCount,
           username: user.username
         });
-        pendingLikesDeltaRef.current = 0;
+
+        if (currentStream?.id) {
+            // Update db record (optimistic background update)
+            try {
+               supabase.rpc('increment_stream_likes', { stream_id: currentStream.id, amount: deltaToSync }).then(({error}) => {
+                  if (error) {
+                     // fallback if RPC doesn't exist
+                     supabase.from('live_streams').select('likes_count').eq('id', currentStream.id).single().then(({data}) => {
+                        if (data) {
+                           supabase.from('live_streams').update({ likes_count: (data.likes_count || 0) + deltaToSync }).eq('id', currentStream.id).then();
+                        }
+                     })
+                  }
+               });
+            } catch (e) {}
+        }
       }
     }, 150);
     return () => clearInterval(interval);
-  }, [role, dispatchArenaPacket, likeCount, user.username]);
+  }, [role, dispatchArenaPacket, likeCount, user.username, currentStream]);
 
   // 100% Free Gift Dispatch (Zero Paywall, Plays Animation on Both Screens)
   const handleDispatchGift = async (gift: GiftTierItem, comboCount = 1) => {
@@ -3034,13 +3052,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               }
               handleSendComment(e);
             }}
-            className="relative flex-1">
+            className="relative flex-1 min-w-[150px]">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔇 Muted by host for this live" : "Say something nice..."}
-              className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-10 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:border-pink-500/60 focus:outline-none"
+              placeholder={isMutedByHost ? "🔇 You are muted by the host for this live" : "Say something nice..."}
+              disabled={isMutedByHost}
+              className={`w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-10 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:border-pink-500/60 focus:outline-none ${isMutedByHost ? 'opacity-50 cursor-not-allowed' : ''}`}
             />
             {commentInput.trim() && (
               <button
@@ -3146,13 +3165,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               }
               handleSendComment(e);
             }}
-            className="relative flex-1">
+            className="relative flex-1 min-w-[150px]">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔇 Muted by host for this live" : "Chat with your viewers..."}
-              className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-9 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:outline-none"
+              placeholder={isMutedByHost ? "🔇 You are muted by the host for this live" : "Chat with your viewers..."}
+              disabled={isMutedByHost}
+              className={`w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-9 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:outline-none ${isMutedByHost ? 'opacity-50 cursor-not-allowed' : ''}`}
             />
             {commentInput.trim() && (
               <button
