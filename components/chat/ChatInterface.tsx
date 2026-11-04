@@ -1693,6 +1693,20 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         throw error;
       }
 
+      if (!(currentOtherUserProfile as any).isGroup) {
+         try {
+           await supabase.from('notifications').insert({
+             user_id: currentOtherUserProfile.id,
+             actor_id: user.id,
+             type: 'MESSAGE',
+             content: `New message: ${finalContentToSave.substring(0, 50)}`,
+             is_read: false
+           });
+         } catch (e) {
+           console.error("Failed to insert notification for DM", e);
+         }
+      }
+
       // Dynamically set status based on recipient's online state
       const nextStatus = currentOtherUserProfile.isOnline ? 'delivered' : 'sent';
       setMessages((prev) =>

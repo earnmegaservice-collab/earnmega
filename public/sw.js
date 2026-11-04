@@ -48,10 +48,11 @@ self.addEventListener('push', function(event) {
        // Other types of push notifications (e.g. stream start)
        const options = {
            body: data.body || 'New notification',
-           icon: data.icon || '/icon-192x192.png',
-           badge: '/badge.png',
-           vibrate: [200, 100, 200, 100, 200],
-           requireInteraction: true,
+           icon: '/favicon.ico',
+           badge: '/favicon.ico',
+           vibrate: [200, 100, 200],
+           renotify: true,
+           requireInteraction: false,
            silent: false, // MANDATORY: Overrides silent delivery
            data: {
                url: data.url || '/'
@@ -72,7 +73,21 @@ self.addEventListener('push', function(event) {
        );
     }
   } catch (e) {
-    console.error('Error parsing push data', e);
+    try {
+      const text = event.data.text();
+      const options = {
+        body: text || 'New notification',
+        icon: '/favicon.ico',
+        badge: '/favicon.ico',
+        vibrate: [200, 100, 200],
+        renotify: true,
+        requireInteraction: false,
+        data: { url: '/' }
+      };
+      event.waitUntil(self.registration.showNotification('EarnMega', options));
+    } catch (err) {
+      console.error('Error parsing push data', e);
+    }
   }
 });
 
@@ -103,6 +118,14 @@ self.addEventListener('notificationclick', function(event) {
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    self.registration.showNotification(event.data.title, event.data.options);
+    self.registration.showNotification(event.data.title || 'HubPal', {
+       body: event.data.body || 'You have a new notification',
+       icon: '/favicon.ico',
+       badge: '/favicon.ico',
+       tag: event.data.tag || 'hubpal-notif-' + Date.now(),
+       renotify: true,
+       vibrate: [200, 100, 200],
+       data: { url: event.data.url || '/' }
+     });
   }
 });

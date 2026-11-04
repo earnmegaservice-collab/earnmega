@@ -17,7 +17,6 @@ import {
   Heart,
   Store,
   Flame,
-  Bot
 } from 'lucide-react';
 import GiftOverlay from '../chat/GiftOverlay';
 import { useAuth } from '../../context/AuthContext';
@@ -47,7 +46,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { user } = useAuth();
-  const { unreadCount, bellShake } = useGlobalNotifications();
+  const { unreadCount, bellShake, requestPushPermission } = useGlobalNotifications();
   const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
 
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
@@ -164,7 +163,10 @@ export const AppShell: React.FC<AppShellProps> = ({
 
             {/* Notification Bell */}
             <motion.button
-              onClick={() => setShowNotifications(true)}
+              onClick={() => {
+                setShowNotifications(true);
+                requestPushPermission?.();
+              }}
               animate={bellShake ? { rotate: [-10, 10, -10, 10, 0], scale: [1, 1.2, 1] } : {}}
               transition={{ duration: 0.4 }}
               className="relative p-2 rounded-full bg-white/[0.05] border border-white/10 hover:border-white/20 active:scale-95 transition"
