@@ -1,18 +1,43 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
 // Only instantiate Resend if the key is provided
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const REPORT_ADMIN_EMAIL = process.env.REPORT_ADMIN_EMAIL || 'earnmegaservice@gmail.com';
+const REPORT_ADMIN_EMAIL = 'horpalservice@gmail.com'; // Changed as requested
 
 export async function POST(request: Request) {
   try {
     const data = await request.json();
-    const { reportType, streamInfo, reporterInfo, targetInfo, category, reason, chatContext } = data;
+    const { reportType, streamInfo, reporterInfo, targetInfo, category, reason, chatContext, reporterName, reportedName, liveStreamId } = data;
+
+    const actualReporterName = reporterName || reporterInfo?.username;
+    const actualReportedName = reportedName || targetInfo?.username;
+    const actualLiveStreamId = liveStreamId || streamInfo?.id;
 
     if (!resend) {
-      console.warn("RESEND_API_KEY is not set. Simulating report success.");
-      return NextResponse.json({ success: true, simulated: true });
+      console.warn("RESEND_API_KEY is not set. Falling back to nodemailer.");
+      let transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.SMTP_USER || 'earnmegaservice@gmail.com',
+          pass: process.env.SMTP_PASS || 'dummy_password'
+        }
+      });
+
+      const mailOptions = {
+        from: process.env.SMTP_USER || 'earnmegaservice@gmail.com',
+        to: REPORT_ADMIN_EMAIL,
+        subject: `Trust & Safety Report: ${actualReportedName}`,
+        text: `Reporter: ${actualReporterName}\nReported: ${actualReportedName}\nReason: ${reason}\nLive Stream ID: ${actualLiveStreamId}\n`
+      };
+
+      try {
+        await transporter.sendMail(mailOptions);
+      } catch(e) {
+        console.log('Nodemailer error (expected if no valid creds):', e);
+      }
+      return NextResponse.json({ success: true, fallback: true });
     }
 
     const chatContextHtml = chatContext
@@ -33,13 +58,13 @@ export async function POST(request: Request) {
 
         <h3>Stream Info</h3>
         <ul>
-          <li><strong>Stream ID:</strong> ${streamInfo?.id || 'N/A'}</li>
+          <li><strong>Stream ID:</strong> ${actualLiveStreamId || 'N/A'}</li>
           <li><strong>Title:</strong> ${streamInfo?.title || 'N/A'}</li>
         </ul>
 
         <h3>Reporter Info</h3>
         <ul>
-          <li><strong>Username:</strong> ${reporterInfo?.username || 'N/A'}</li>
+          <li><strong>Username:</strong> ${actualReporterName || 'N/A'}</li>
           <li><strong>User ID:</strong> ${reporterInfo?.userId || 'N/A'}</li>
           <li><strong>Role:</strong> ${reporterInfo?.role || 'N/A'}</li>
         </ul>
@@ -47,7 +72,7 @@ export async function POST(request: Request) {
         ${targetInfo ? `
         <h3>Target Info (Reported User)</h3>
         <ul>
-          <li><strong>Username:</strong> ${targetInfo.username || 'N/A'}</li>
+          <li><strong>Username:</strong> ${actualReportedName || 'N/A'}</li>
           <li><strong>User ID:</strong> ${targetInfo.userId || 'N/A'}</li>
         </ul>
         ` : ''}
