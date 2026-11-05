@@ -52,9 +52,44 @@ import {
   Clock,
   Trash2,
   Hand,
-  Volume2
+  Volume2,
+  Lock
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
+
+
+const DrawerViewerList = ({ searchTerm, onViewerClick, hostId }: { searchTerm: string, onViewerClick: (v: any) => void, hostId: string }) => {
+  const participants = useParticipants();
+  const filtered = participants.filter((p) => {
+    const id = p.identity || '';
+    if (id === hostId || id === `host_${hostId}` || id.includes(hostId)) return false;
+    const searchLower = searchTerm.toLowerCase();
+    const nameLower = (p.name || id).toLowerCase();
+    return nameLower.includes(searchLower);
+  });
+
+  return (
+    <>
+      {filtered.map(p => (
+        <div key={p.identity} onClick={() => onViewerClick(p)} className="flex items-center justify-between p-2 rounded-xl hover:bg-white/10 cursor-pointer transition">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center border border-white/20">
+                <User className="w-5 h-5 text-zinc-400" />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-[#111116]" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-white font-bold text-sm flex items-center gap-1">
+                @{p.name || p.identity.replace('viewer_', '').split('_')[0]}
+              </span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+};
 
 // ============================================================================
 // TYPES & FIXED LUXURY GIFT CATALOG
@@ -1149,7 +1184,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [commentInput, setCommentInput] = useState<string>('');
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [likeCount, setLikeCount] = useState<number>(0);
-      const mutedViewerIds = useRef<Set<string>>(new Set());
+      const [mutedUserIds, setMutedUserIds] = useState<Set<string>>(new Set());
       const [isMutedByHost, setIsMutedByHost] = useState(false);
       const [selectedViewerForAction, setSelectedViewerForAction] = useState<{userId: string, username: string, avatar?: string} | null>(null);
       const [reportModalTarget, setReportModalTarget] = useState<any>(null);
@@ -1160,6 +1195,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [burstHearts, setBurstHearts] = useState<{id: string, x: number, y: number, color: string}[]>([]);
 
   // Gift Drawer & Instant Animation Ref
+
+  const [showViewersDrawer, setShowViewersDrawer] = useState(false);
+  const [viewerSearchTerm, setViewerSearchTerm] = useState('');
+  const [isAudioBoostEnabled, setIsAudioBoostEnabled] = useState(false);
+  const [isRoomLocked, setIsRoomLocked] = useState(false);
+
   const [isGiftDrawerOpen, setIsGiftDrawerOpen] = useState<boolean>(false);
   const [selectedGiftId, setSelectedGiftId] = useState<string>('rose_1');
   const [quickRoseCombo, setQuickRoseCombo] = useState<number>(0);
@@ -1270,6 +1311,18 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           break;
         }
 
+        case 'broadcast': {
+          if (packet.event === 'mute_user' && packet.payload) {
+             if (packet.payload.targetUserId === user.id) {
+                const isMuted = packet.payload.muted !== undefined ? packet.payload.muted : true;
+                setIsMutedByHost(isMuted);
+                if (isMuted) {
+                  toast.error("🚫 The host muted you for this live stream.", { style: { background: '#333', color: '#fff' }});
+                }
+             }
+          }
+          break;
+        }
         case 'VIEWER_MUTED': {
           if (packet.targetUserId === user.id) {
             setIsMutedByHost(packet.muted);
@@ -1309,6 +1362,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               ];
             });
           }
+          break;
+        }
+
+        case 'clear_chat': {
+          setComments([]);
           break;
         }
 
@@ -1579,7 +1637,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // --------------------------------------------------------------------------
   // VIEWER JOIN STREAM WORKFLOW
   // --------------------------------------------------------------------------
-  const handleJoinStreamAsViewer = async (stream: LiveStreamRecord) => {
+  const handleJoinStreamAsViewer = async (stream: LiveStreamRecord & { is_locked?: boolean }) => {
+    if (stream.is_locked) {
+      toast.error('This live room is currently locked by the host.');
+      return;
+    }
+
     setConnectionError(null);
     viewerLeavingIntentionallyRef.current = false;
     stopCameraTracks();
@@ -1652,6 +1715,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // INTERACTIVE ACTIONS (CHAT, SYNCED LIKES, FREE GIFTS, MIC REQUESTS)
   // --------------------------------------------------------------------------
   const handleSendComment = async (e: React.FormEvent) => {
+    if (isMutedByHost) return;
     e.preventDefault();
     if (!commentInput.trim() || !currentStream) return;
     const text = commentInput.trim();
@@ -1873,6 +1937,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // --------------------------------------------------------------------------
   // END OR LEAVE STREAM
   // --------------------------------------------------------------------------
+
+  const handleClearChat = async () => {
+    setComments([]);
+    dispatchArenaPacket({ type: 'clear_chat' });
+    toast.success('Chat cleared for everyone');
+  };
+
   const handleEndOrLeaveStream = async () => {
     if (role === 'host') {
       if (livekitBridgeRef.current) {
@@ -2207,6 +2278,45 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               audio: false
             });
           }
+
+
+            try {
+              if (isAudioBoostEnabled) {
+                // Audio Boost Processing Graph
+                const streamAudio = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(streamAudio);
+                const compressor = audioContext.createDynamicsCompressor();
+                compressor.threshold.value = -24;
+                compressor.knee.value = 30;
+                compressor.ratio.value = 12;
+                compressor.attack.value = 0.003;
+                compressor.release.value = 0.25;
+                const filter = audioContext.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 80;
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = 1.5;
+
+                source.connect(filter);
+                filter.connect(compressor);
+                compressor.connect(gainNode);
+
+                const destination = audioContext.createMediaStreamDestination();
+                gainNode.connect(destination);
+                const boostedAudioTrack = destination.stream.getAudioTracks()[0];
+
+                // Remove existing audio tracks to prevent dual track echo
+                stream.getAudioTracks().forEach(track => {
+                    track.stop();
+                    stream.removeTrack(track);
+                });
+
+                stream.addTrack(boostedAudioTrack);
+              }
+            } catch (err) {
+              console.warn("Audio boost failed:", err);
+            }
 
           if (isCancelled) {
             stream.getTracks().forEach((t) => t.stop());
@@ -2819,10 +2929,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               <span className="text-xs font-black text-amber-300">FREE GIFTS</span>
             </motion.div>
 
-            <div className="flex items-center gap-1 rounded-full bg-black/45 backdrop-blur-xl border border-white/10 px-2.5 py-1.5 text-xs font-bold text-white">
+            <button onClick={() => setShowViewersDrawer(true)} className="cursor-pointer hover:opacity-80 transition-opacity bg-black/40 backdrop-blur-md px-3 py-1 rounded-full flex items-center gap-1.5 z-50 relative">
               <Users className="h-3.5 w-3.5 text-pink-400" />
-              <span>{viewerCount}</span>
-            </div>
+              <span className="text-xs font-bold text-white">{viewerCount}</span>
+            </button>
 
 
             <button
@@ -3039,7 +3149,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔇 Muted by host for this live" : "Say something nice..."}
+              placeholder={isMutedByHost ? "🔒 You have been muted by the host" : "Say something nice..."} disabled={isMutedByHost}
               className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-10 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:border-pink-500/60 focus:outline-none"
             />
             {commentInput.trim() && (
@@ -3151,7 +3261,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔇 Muted by host for this live" : "Chat with your viewers..."}
+              placeholder={isMutedByHost ? "🔒 You have been muted by the host" : "Chat with your viewers..."} disabled={isMutedByHost}
               className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-9 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:outline-none"
             />
             {commentInput.trim() && (
@@ -3217,6 +3327,47 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           </button>
 
           <button
+            onClick={handleClearChat}
+            className="rounded-full bg-orange-600/90 hover:bg-orange-600 border border-orange-400/40 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white shadow-lg active:scale-95 transition"
+          >
+            Clear
+          </button>
+          <button
+            onClick={async () => {
+              const newLockedState = !isRoomLocked;
+              setIsRoomLocked(newLockedState);
+              if (currentStreamDbId || currentStream?.id) {
+                try {
+                  await supabase.from('rooms').update({ is_locked: newLockedState }).eq('id', currentStreamDbId || currentStream?.id);
+                  toast.success(newLockedState ? 'Room locked' : 'Room unlocked');
+                } catch (e) {
+                  console.error(e);
+                }
+              }
+            }}
+            className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
+              isRoomLocked
+                ? 'bg-red-600/90 border-red-400 text-white'
+                : 'bg-black/60 border-white/15 text-white'
+            }`}
+            title="Lock Room"
+          >
+            🔒
+          </button>
+
+          <button
+            onClick={() => setIsAudioBoostEnabled(!isAudioBoostEnabled)}
+            className={`flex items-center justify-center rounded-full backdrop-blur-xl border transition px-3 py-1.5 ${
+              isAudioBoostEnabled
+                ? 'bg-emerald-600/90 border-emerald-400 text-white shadow-[0_0_12px_rgba(16,185,129,0.6)]'
+                : 'bg-black/60 border-white/15 text-white/70'
+            }`}
+            title="Audio Boost Engine"
+          >
+            <span className="text-xs font-black uppercase">🎙️ Boost: {isAudioBoostEnabled ? 'ON' : 'OFF'}</span>
+          </button>
+
+          <button
             onClick={handleEndOrLeaveStream}
             className="rounded-full bg-red-600/90 hover:bg-red-600 border border-red-400/40 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white shadow-lg active:scale-95 transition"
           >
@@ -3260,36 +3411,35 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               <div className="flex flex-col gap-2">
                 <button
                   onClick={() => {
-                    const isCurrentlyMuted = mutedViewerIds.current.has(selectedViewerForAction.userId);
+                    const isCurrentlyMuted = mutedUserIds.has(selectedViewerForAction.userId);
                     const newMutedState = !isCurrentlyMuted;
 
                     if (newMutedState) {
-                      mutedViewerIds.current.add(selectedViewerForAction.userId);
+                      setMutedUserIds((prev) => new Set(prev).add(selectedViewerForAction.userId));
                       toast.success(`🔇 Muted @${selectedViewerForAction.username} for this live stream`);
                     } else {
-                      mutedViewerIds.current.delete(selectedViewerForAction.userId);
+                      setMutedUserIds((prev) => { const next = new Set(prev); next.delete(selectedViewerForAction.userId); return next; });
                       toast.success(`🔊 Unmuted @${selectedViewerForAction.username}`);
                     }
 
+                    // Need to match the EXACT broadcast request
                     dispatchArenaPacket({
-                      type: 'VIEWER_MUTED',
-                      streamId: currentStream?.id,
-                      targetUserId: selectedViewerForAction.userId,
-                      targetUsername: selectedViewerForAction.username,
-                      muted: newMutedState
+                      type: 'broadcast',
+                      event: 'mute_user',
+                      payload: { targetUserId: selectedViewerForAction.userId, muted: newMutedState }
                     });
 
                     setSelectedViewerForAction(null);
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3.5 bg-zinc-900 rounded-xl hover:bg-zinc-800 transition active:scale-[0.98]"
                 >
-                  {mutedViewerIds.current.has(selectedViewerForAction.userId) ? (
+                  {mutedUserIds.has(selectedViewerForAction.userId) ? (
                     <Volume2 className="w-5 h-5 text-emerald-400" />
                   ) : (
                     <MicOff className="w-5 h-5 text-amber-500" />
                   )}
                   <span className="text-white font-bold text-sm">
-                    {mutedViewerIds.current.has(selectedViewerForAction.userId) ? "🔊 Unmute Viewer" : "🔇 Mute from Chat (This Live Only)"}
+                    {mutedUserIds.has(selectedViewerForAction.userId) ? "🔊 Unmute Viewer" : "🔇 Mute from Chat (This Live Only)"}
                   </span>
                 </button>
 
@@ -3416,8 +3566,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                       if (reportModalTarget !== 'live') {
                          toast.success("✅ Report sent to EarnMega Trust & Safety via Email");
                          // Optional auto mute
-                         if (!mutedViewerIds.current.has(reportModalTarget.userId)) {
-                           mutedViewerIds.current.add(reportModalTarget.userId);
+                         if (!mutedUserIds.has(reportModalTarget.userId)) {
+                           setMutedUserIds((prev) => new Set(prev).add(reportModalTarget.userId));
                            dispatchArenaPacket({
                              type: 'VIEWER_MUTED',
                              streamId: currentStream?.id,
@@ -3532,6 +3682,66 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               >
                 Send Luxury Gift Now (Free)
               </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+
+      {/* VIEWER DRAWER MODAL */}
+      <AnimatePresence>
+        {showViewersDrawer && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowViewersDrawer(false)}
+              className="absolute inset-0 z-[10000] bg-black/50 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="absolute bottom-0 inset-x-0 z-[10000] rounded-t-3xl bg-[#111116] border-t border-white/10 p-5 shadow-[0_-20px_40px_rgba(0,0,0,0.8)] max-h-[80vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-4 shrink-0">
+                <h3 className="text-white font-bold text-lg">Active Viewers in Live</h3>
+                <button onClick={() => setShowViewersDrawer(false)} className="text-zinc-500 hover:text-white transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="relative mb-4 shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type="text"
+                  value={viewerSearchTerm}
+                  onChange={(e) => setViewerSearchTerm(e.target.value)}
+                  placeholder="Search viewers..."
+                  className="w-full bg-black/50 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white focus:outline-none focus:border-pink-500/50"
+                />
+              </div>
+              <div className="overflow-y-auto no-scrollbar flex-1 flex flex-col gap-2">
+                {/* Host always at top */}
+                <div className="flex items-center justify-between p-2 rounded-xl bg-white/5">
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <img src={currentStream?.host_avatar || user.avatar_url} alt="host" className="w-10 h-10 rounded-full object-cover border border-pink-500" />
+                      <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-[#111116]" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-white font-bold text-sm flex items-center gap-1">
+                        @{currentStream?.host_username || user.username}
+                        <span className="text-[9px] bg-pink-500 text-white px-1.5 py-0.5 rounded-sm font-black uppercase">Host</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {/* Viewers list logic (dummy mapping over a custom hook we will write above) */}
+                {/* We'll handle this purely in React using LiveKit Participants */}
+                <DrawerViewerList searchTerm={viewerSearchTerm} onViewerClick={(v) => { if (role === 'host') setSelectedViewerForAction({ userId: v.identity, username: v.name || v.identity, avatar: undefined }); setShowViewersDrawer(false); }} hostId={currentStream?.host_id || user.id} />
+              </div>
             </motion.div>
           </>
         )}
