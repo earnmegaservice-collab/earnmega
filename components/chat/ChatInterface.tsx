@@ -242,6 +242,7 @@ const renderTextWithMentions = (text: string) => {
 
 export const renderMessageContent = (message: any, currentUserId: string) => {
   const msgText = typeof message?.text === 'string' ? message.text : typeof (message as any)?.content === 'string' ? (message as any).content : '';
+  if (!msgText && message.text) return <>{message.text}</>;
   if (msgText && msgText.startsWith('$PROFILE_SHARE$')) {
      const sharedId = msgText.split('$')[2];
 
@@ -960,10 +961,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
               const otherUser = chat.user1_id === user.id ? user2Obj : user1Obj;
               if (otherUser && !localDeletedRooms.includes(otherUser.id)) {
-                  const time = chat.updated_at ? new Date(chat.updated_at).getTime() : 0;
                   statsMap.set(otherUser.id, {
-                      unreadCount: chat.unread_count || 0,
-                      lastMessageTime: time
+                      unreadCount: 0,
+                      lastMessageTime: 0
                   });
                   formattedProfiles.push({
                       id: otherUser.id,
@@ -976,36 +976,44 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       isOnline: onlineUsers.has(otherUser.id),
                       coinsGifted: otherUser.coins_gifted || 0,
                       isSelf: false,
-                      unreadCount: chat.unread_count || 0,
-                      lastMessageTime: time,
+                      unreadCount: 0,
+                      lastMessageTime: 0,
                       isVerified: otherUser.is_verified || false
                   });
               }
             });
           }
 
-          // 3. Fetch Unread Counters and Latest Message Time for Groups correctly
-          if (roomsFormatted.length > 0) {
-              const groupIds = roomsFormatted.map(g => g.id);
+          // 3. Fetch Unread Counters and Latest Message Time for Groups and DMs correctly
+          const groupIds = roomsFormatted.map(g => g.id);
+          let allTargetIds = [...groupIds];
+          if (formattedProfiles.length > 0) {
+              allTargetIds = [...allTargetIds, ...formattedProfiles.map(p => p.id)];
+          }
+
+          if (allTargetIds.length > 0) {
               const { data: messagesData, error: msgError } = await supabase
                 .from('messages')
                 .select('id, sender_id, receiver_id, room_id, created_at, status, is_read, content')
-                .in('room_id', groupIds)
+                .or(`room_id.in.(${groupIds.join(',')}),and(room_id.is.null,or(sender_id.eq.${user.id},receiver_id.eq.${user.id}))`)
                 .order('created_at', { ascending: false })
-                .limit(500);
+                .limit(1000);
 
               if (!msgError && messagesData) {
                 // Keep track of group config updates for avatars
                 const latestConfigs = new Map<string, any>();
 
                 messagesData.forEach(msg => {
-                  const targetId = msg.room_id;
+                  let targetId = msg.room_id;
+                  if (!targetId) {
+                      targetId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
+                  }
                   if (!targetId) return;
 
                   const time = new Date(msg.created_at).getTime();
                   const isConfigMsg = typeof msg.content === 'string' && msg.content.startsWith('[GROUP_CONFIG_JSON]');
 
-                  if (isConfigMsg) {
+                  if (isConfigMsg && msg.room_id) {
                       if (!latestConfigs.has(targetId)) {
                           try {
                               const conf = JSON.parse(msg.content.replace('[GROUP_CONFIG_JSON]', ''));
@@ -1014,14 +1022,17 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       }
                   }
 
-                  const isUnread = !isConfigMsg && msg.sender_id !== user.id && (new Date(msg.created_at).getTime() > Number(localStorage.getItem(`earnmega_last_read_${user.id}_${targetId}`) || 0));
+                  const isUnread = !isConfigMsg && msg.sender_id !== user.id && (time > Number(localStorage.getItem(`earnmega_last_read_${user.id}_${targetId}`) || 0)) && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
 
                   if (!statsMap.has(targetId)) {
                     statsMap.set(targetId, { unreadCount: 0, lastMessageTime: 0 });
                   }
 
                   const stats = statsMap.get(targetId)!;
-                  stats.lastMessageTime = Math.max(stats.lastMessageTime, time);
+                  if (!isConfigMsg) {
+                      stats.lastMessageTime = Math.max(stats.lastMessageTime, time);
+                  }
+
                   if (isUnread) {
                     stats.unreadCount += 1;
                   }
@@ -1035,6 +1046,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                         room.name = conf.name;
                     }
                 });
+                if (isGroupChat && latestConfigs.has(currentOtherUserProfile.id)) {
+                     // Pass latest permissions to state for the lock banner
+                     const conf = latestConfigs.get(currentOtherUserProfile.id);
+                     setGroupDetails(prev => ({ ...prev, ...conf }));
+                }
               }
           }
 
@@ -1097,6 +1113,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     async function fetchMessages() {
       if (!currentOtherUserProfile || !user) return;
       setIsLoadingMessages(true);
+      setMessages([]); // Clear stale messages
       try {
         let query = supabase.from('messages').select('*');
 
@@ -1203,7 +1220,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
           // Mark unread messages from the other user as read
           const unreadMessageIds = data
-            .filter(msg => msg.sender_id === currentOtherUserProfile.id && msg.status !== 'read')
+            .filter(msg => msg.sender_id !== user.id && (msg.status !== 'read' || msg.is_read === false))
             .map(msg => msg.id);
 
           // Clear local unread badge count unconditionally when opening chat
@@ -1251,6 +1268,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaCaption, setMediaCaption] = useState<string>("");
+  const [showSearchBar, setShowSearchBar] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1317,7 +1335,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
              .single();
 
           if (!error && data) {
-             let text = data.content || '';
+             let text = data.content || data.text || '';
              let replyToId, replyToSender, replyToText;
 
              const replyMatch = text.match(/^\[REPLY:(.*?):(user|other):([\s\S]*?)\]\n\n/);
@@ -1672,7 +1690,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       const insertData: any = {
           id: optimisticMessage.id,
           sender_id: user.id,
-          receiver_id: currentOtherUserProfile.id,
           content: finalContentToSave,
           status: 'sent',
           conversation_id: finalChatId
@@ -1680,7 +1697,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       if ((currentOtherUserProfile as any).isGroup) {
           insertData.room_id = currentOtherUserProfile.id;
-          insertData.receiver_id = null;
+          // strictly no receiver_id for group chat
+      } else {
+          insertData.receiver_id = currentOtherUserProfile.id;
       }
 
       const { data, error } = await supabase
@@ -1965,7 +1984,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            audio_url: type === 'audio' ? publicUrl : null,
            status: 'sent',
            is_view_once: type === 'image' ? isViewOnceMode : false,
-           media_type: type === 'video' ? 'video' : null,
         };
         if (isGroupChat) {
            msgPayload.room_id = currentOtherUserProfile.id;
@@ -2792,8 +2810,36 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           )}
         </div>
 </header>
-
-      {/* Messages Area */}
+      {showSearchBar && (
+         <div className="bg-neutral-900 border-b border-white/10 p-3 sticky top-[72px] z-30">
+            <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/50" />
+                <input
+                   type="text"
+                   autoFocus
+                   placeholder="Search in chat..."
+                   onChange={(e) => {
+                      const q = e.target.value.toLowerCase();
+                      if (!q) return;
+                      const msgElements = document.querySelectorAll('.text-\\[15px\\]');
+                      msgElements.forEach(el => {
+                         if (el.textContent?.toLowerCase().includes(q)) {
+                             el.parentElement?.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                             (el.parentElement as HTMLElement).style.boxShadow = '0 0 0 2px #f59e0b';
+                             setTimeout(() => {
+                                 (el.parentElement as HTMLElement).style.boxShadow = 'none';
+                             }, 2000);
+                         }
+                      });
+                   }}
+                   className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+                />
+                <button onClick={() => setShowSearchBar(false)} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/50 hover:text-white">
+                   <X size={16} />
+                </button>
+            </div>
+         </div>
+      )}
       <main
         ref={scrollContainerRef}
         className={`flex-1 overflow-y-auto p-4 space-y-6 relative z-10 w-full ${
@@ -3241,11 +3287,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                         <button className="w-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-bold px-3 py-1.5 rounded-lg text-sm transition-colors">Going</button>
                      </div>
                   )}
-                    {message.text && message.messageType !== "gift" && (
-                        <div className="whitespace-pre-wrap break-words">
-                            {typeof message.text === "string" && message.text.includes("/invite/") ? renderInviteLink(message.text) : renderMessageContent({...message, text: typeof message.text === "string" ? renderTextWithMentions(message.text) : message.text}, user?.id || "")}
-                        </div>
-                    )}
+                    {message.text && message.messageType !== 'gift' && (
+      <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-medium">
+         {typeof message.text === "string" && message.text.includes("/invite/")
+            ? renderInviteLink(message.text)
+            : renderMessageContent({...message, text: typeof message.text === "string" ? renderTextWithMentions(message.text) : message.text}, user?.id || "")}
+      </div>
+  )}
                     {/* Meta Row (Time & Status) */}
                     <div
                       className={`flex items-center justify-end mt-1.5 space-x-1.5 opacity-80 ${
@@ -3356,67 +3404,69 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           onSubmit={handleSendMessage}
           className="flex items-end bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-white/20 transition-shadow shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative z-10"
         >
-          <div className="flex items-center mr-2 mb-0.5 self-end">
-            <motion.button
-               whileTap={{ scale: 0.9 }}
-               type="button"
-               onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
-               className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm ${isAttachmentMenuOpen ? 'bg-fuchsia-600 text-white rotate-45' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 border border-white/5'}`}
-            >
-               <Plus size={22} className="transition-transform duration-300" />
-            </motion.button>
+          {isGroupChat && (
+            <div className="flex items-center mr-2 mb-0.5 self-end">
+              <motion.button
+                 whileTap={{ scale: 0.9 }}
+                 type="button"
+                 onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
+                 className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm ${isAttachmentMenuOpen ? 'bg-fuchsia-600 text-white rotate-45' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 border border-white/5'}`}
+              >
+                 <Plus size={22} className="transition-transform duration-300" />
+              </motion.button>
 
-            <AnimatePresence>
-              {isAttachmentMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsAttachmentMenuOpen(false)}></div>
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.9 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                    className="absolute bottom-[60px] left-2 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[260px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-1.5"
-                  >
-                    <div className="grid grid-cols-3 gap-2">
-                       <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                           <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30 group-hover:bg-blue-500 group-hover:border-blue-400 transition-all text-blue-400 group-hover:text-white"><ImageIcon size={22}/></div>
-                           <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Photos</span>
-                       </button>
-                       <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); handleCameraClick(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                           <div className="w-12 h-12 rounded-full bg-rose-500/20 flex items-center justify-center border border-rose-500/30 group-hover:bg-rose-500 group-hover:border-rose-400 transition-all text-rose-400 group-hover:text-white"><Camera size={22}/></div>
-                           <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Camera</span>
-                       </button>
-                       <button type="button" onClick={() => setIsAttachmentMenuOpen(false)} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                           <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30 group-hover:bg-emerald-500 group-hover:border-emerald-400 transition-all text-emerald-400 group-hover:text-white"><FileText size={22}/></div>
-                           <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Document</span>
-                       </button>
-                       {isGroupChat && (
-                           <>
-                             <button type="button" onClick={() => {
-                                setIsAttachmentMenuOpen(false);
-                                const question = window.prompt('Enter Poll Question:');
-                                if (question && question.trim()) {
-                                  setInputValue(`📊 POLL: ${question.trim()}\n👍 Yes\n👎 No`);
-                                }
-                             }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                                 <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30 group-hover:bg-purple-500 group-hover:border-purple-400 transition-all text-purple-400 group-hover:text-white"><BarChart2 size={22}/></div>
-                                 <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Poll</span>
-                             </button>
-                             <button type="button" onClick={() => {
-                                setIsAttachmentMenuOpen(false);
-                                setInputValue((prev) => (prev.endsWith(" ") || !prev ? `${prev}@` : `${prev} @`));
-                                inputRef.current?.focus();
-                             }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                                 <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30 group-hover:bg-cyan-500 group-hover:border-cyan-400 transition-all text-cyan-400 group-hover:text-white"><AtSign size={22}/></div>
-                                 <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Mention</span>
-                             </button>
-                           </>
-                       )}
-                    </div>
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
+              <AnimatePresence>
+                {isAttachmentMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsAttachmentMenuOpen(false)}></div>
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                      className="absolute bottom-[60px] left-2 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[260px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-1.5"
+                    >
+                      <div className="grid grid-cols-3 gap-2">
+                         <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                             <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30 group-hover:bg-blue-500 group-hover:border-blue-400 transition-all text-blue-400 group-hover:text-white"><ImageIcon size={22}/></div>
+                             <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Photos</span>
+                         </button>
+                         <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); handleCameraClick(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                             <div className="w-12 h-12 rounded-full bg-rose-500/20 flex items-center justify-center border border-rose-500/30 group-hover:bg-rose-500 group-hover:border-rose-400 transition-all text-rose-400 group-hover:text-white"><Camera size={22}/></div>
+                             <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Camera</span>
+                         </button>
+                         <button type="button" onClick={() => setIsAttachmentMenuOpen(false)} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                             <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30 group-hover:bg-emerald-500 group-hover:border-emerald-400 transition-all text-emerald-400 group-hover:text-white"><FileText size={22}/></div>
+                             <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Document</span>
+                         </button>
+                         {isGroupChat && (
+                             <>
+                               <button type="button" onClick={() => {
+                                  setIsAttachmentMenuOpen(false);
+                                  const question = window.prompt('Enter Poll Question:');
+                                  if (question && question.trim()) {
+                                    setInputValue(`📊 POLL: ${question.trim()}\n👍 Yes\n👎 No`);
+                                  }
+                               }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                                   <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30 group-hover:bg-purple-500 group-hover:border-purple-400 transition-all text-purple-400 group-hover:text-white"><BarChart2 size={22}/></div>
+                                   <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Poll</span>
+                               </button>
+                               <button type="button" onClick={() => {
+                                  setIsAttachmentMenuOpen(false);
+                                  setInputValue((prev) => (prev.endsWith(" ") || !prev ? `${prev}@` : `${prev} @`));
+                                  inputRef.current?.focus();
+                               }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
+                                   <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30 group-hover:bg-cyan-500 group-hover:border-cyan-400 transition-all text-cyan-400 group-hover:text-white"><AtSign size={22}/></div>
+                                   <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Mention</span>
+                               </button>
+                             </>
+                         )}
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
 
           <input
             type="file"

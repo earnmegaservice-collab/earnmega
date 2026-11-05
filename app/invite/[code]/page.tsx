@@ -37,19 +37,16 @@ export default function InvitePage() {
 
                 // If code is not found in group_invites, fallback to checking if code contains __
                 if (!invite) {
-                     let groupId = null;
-                     if (typeof code === 'string' && code.includes('__')) {
-                          groupId = code.split('__')[0];
-                     }
-
-                     if (groupId) {
-                          invite = { group_id: groupId, id: 'fallback_' + groupId, code };
+                     // Check rooms directly by id prefix
+                     const { data: roomData } = await supabase.from('rooms').select('id').eq('id', code).maybeSingle();
+                     if (roomData) {
+                         invite = { group_id: roomData.id, id: 'fallback_' + roomData.id, code };
                      } else {
-                          // Try to check messages for [GROUP_CONFIG_JSON] containing the code
-                          const { data: messages } = await supabase.from('messages').select('room_id, content').like('content', '%[GROUP_CONFIG_JSON]%').like('content', `%${code}%`).limit(1);
-                          if (messages && messages.length > 0) {
-                              invite = { group_id: messages[0].room_id, id: 'fallback_' + messages[0].room_id, code };
-                          }
+                         // Check messages for GROUP_CONFIG_JSON containing the code
+                         const { data: messages } = await supabase.from('messages').select('room_id, content').like('content', '%[GROUP_CONFIG_JSON]%').like('content', `%${code}%`).limit(1);
+                         if (messages && messages.length > 0) {
+                             invite = { group_id: messages[0].room_id, id: 'fallback_' + messages[0].room_id, code };
+                         }
                      }
                 }
 
@@ -111,16 +108,31 @@ export default function InvitePage() {
         if (!user || !inviteData) return;
         setIsSubmitting(true);
         try {
-            const { error } = await supabase.from('group_join_requests').insert({
-                group_id: inviteData.group_id,
+            // Try inserting directly into room_participants
+            const { error: joinErr } = await supabase.from('room_participants').insert({
+                room_id: inviteData.group_id,
                 user_id: user.id,
-                invite_id: inviteData.id,
-                status: 'pending'
+                role: 'member'
             });
-            if (error) throw error;
 
-            setRequestStatus('pending');
-            toast.success("Join request sent successfully!");
+            if (joinErr && joinErr.code !== '23505') { // Ignore unique violation if already member
+                // Fallback to request
+                const { error } = await supabase.from('group_join_requests').insert({
+                    group_id: inviteData.group_id,
+                    user_id: user.id,
+                    invite_id: inviteData.id,
+                    status: 'pending'
+                });
+                if (error) throw error;
+                setRequestStatus('pending');
+                toast.success("Join request sent successfully!");
+            } else {
+                setRequestStatus('approved');
+                toast.success("Joined group successfully!");
+                setTimeout(() => {
+                    router.push('/');
+                }, 1500);
+            }
         } catch (err) {
             console.error("Failed to request join", err);
             toast.error("Failed to send request.");
