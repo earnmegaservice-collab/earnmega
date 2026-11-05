@@ -1,4 +1,5 @@
 'use client';
+import { formatDistanceToNow } from 'date-fns';
 
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -120,46 +121,15 @@ const getNotificationUI = (type: string) => {
 
 export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boolean, onClose?: () => void }) {
   const { user } = useAuth();
-  const { notifications, unreadCount, markAllAsRead, clearAllNotifications, markAsRead, refreshNotifications, requestPushPermission, permissionStatus } = useGlobalNotifications();
-
-  const [isMuted, setIsMuted] = useState(false);
-  const isMutedRef = useRef(false);
-
-  const toggleMute = async () => {
-    if (!user) return;
-    const newMuted = !isMuted;
-    setIsMuted(newMuted);
-    isMutedRef.current = newMuted;
-    await supabase.from('profiles').update({ notifications_muted: newMuted }).eq('id', user.id);
-    localStorage.setItem(`earnmega_notif_muted_${user.id}`, String(newMuted));
-  };
+  const { notifications, unreadCount, markAllAsRead, clearAllNotifications, markAsRead, refreshNotifications, requestPushPermission, permissionStatus, isMuted, toggleMute } = useGlobalNotifications();
+  const [filter, setFilter] = useState<'ALL' | 'LIVE' | 'STATUS' | 'GROUPS' | 'DMS'>('ALL');
 
   useEffect(() => {
     if (isOpen) {
-      refreshNotifications?.();
+      // Just mark all as read when opening. The global context handles fetching on background/foreground.
       markAllAsRead?.();
     }
-  }, [isOpen, refreshNotifications, markAllAsRead]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const fetchMutePreference = async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('notifications_muted')
-        .eq('id', user.id)
-        .single();
-      if (!error && data) {
-        const muted = !!data.notifications_muted;
-        setIsMuted(muted);
-        isMutedRef.current = muted;
-      }
-    };
-    fetchMutePreference();
-
-
-  }, [user]);
+  }, [isOpen, markAllAsRead]);
 
   return (
     <AnimatePresence>
@@ -179,30 +149,35 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
             className="fixed top-16 right-3 left-3 sm:left-auto sm:right-4 sm:w-[360px] max-h-[75vh] bg-neutral-950/80 backdrop-blur-[60px] border border-white/10 rounded-[2rem] shadow-[0_40px_100px_rgba(0,0,0,0.9)] z-[9999] p-2 flex flex-col"
           >
-            <div className="flex justify-between items-center px-5 py-4 border-b border-white/5 gap-2">
-               <div className="flex items-center gap-2">
-                 <h3 className="text-white font-black text-lg tracking-tight">Activity</h3>
-                 {!isMuted && unreadCount > 0 && (
-                   <span className="bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
-                     {unreadCount}
-                   </span>
-                 )}
-               </div>
-               <div className="flex flex-row items-center gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold whitespace-nowrap">Mute</span>
-                    <button
-                      onClick={toggleMute}
-                      className={`relative inline-flex h-4 w-8 flex-shrink-0 items-center rounded-full transition-colors ${isMuted ? 'bg-amber-500' : 'bg-zinc-700'}`}
-                    >
-                      <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isMuted ? 'translate-x-4' : 'translate-x-1'}`} />
+            <div className="flex flex-col border-b border-white/5">
+              <div className="flex justify-between items-center px-5 py-4 gap-2">
+                 <div className="flex items-center gap-2">
+                   <h3 className="text-white font-black text-lg tracking-tight">Activity</h3>
+                 </div>
+                 <div className="flex flex-row items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-semibold whitespace-nowrap">Mute</span>
+                      <button
+                        onClick={toggleMute}
+                        className={`relative inline-flex h-4 w-8 flex-shrink-0 items-center rounded-full transition-colors ${isMuted ? 'bg-amber-500' : 'bg-zinc-700'}`}
+                      >
+                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isMuted ? 'translate-x-4' : 'translate-x-1'}`} />
+                      </button>
+                    </div>
+                    <button onClick={() => { clearAllNotifications?.(); toast.success('All notifications cleared'); }} className="text-red-400 hover:text-red-300 transition-colors flex items-center gap-1" title="Clear All">
+                       <Trash2 size={13} />
                     </button>
-                  </div>
-                  <button onClick={markAllAsRead} className="text-[11px] uppercase tracking-widest text-indigo-400 font-bold hover:text-indigo-300 transition-colors whitespace-nowrap">MARK READ</button>
-                  <button onClick={() => { clearAllNotifications?.(); toast.success('All notifications cleared'); }} className="text-red-400 hover:text-red-300 transition-colors" title="Clear All">
-                     <Trash2 size={13} />
-                  </button>
-                  <button onClick={() => onClose?.()} className="text-white/60 hover:text-white flex-shrink-0"><X size={16}/></button>
+                    <button onClick={() => onClose?.()} className="text-white/60 hover:text-white flex-shrink-0"><X size={16}/></button>
+                 </div>
+               </div>
+
+               {/* Filter Pills */}
+               <div className="flex items-center gap-2 px-4 pb-3 overflow-x-auto scrollbar-hide">
+                  <button onClick={() => setFilter('ALL')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'ALL' ? 'bg-indigo-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>All</button>
+                  <button onClick={() => setFilter('LIVE')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'LIVE' ? 'bg-rose-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>Live 🔴</button>
+                  <button onClick={() => setFilter('STATUS')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'STATUS' ? 'bg-sky-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>Status 📸</button>
+                  <button onClick={() => setFilter('GROUPS')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'GROUPS' ? 'bg-violet-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>Groups 👥</button>
+                  <button onClick={() => setFilter('DMS')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'DMS' ? 'bg-blue-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>DMs 💬</button>
                </div>
              </div>
 
@@ -227,15 +202,36 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
               initial="hidden"
               animate="show"
             >
-              {notifications.length === 0 ? (
+              {notifications.filter(n => {
+                 if (filter === 'ALL') return true;
+                 if (filter === 'LIVE') return n.type === 'LIVE_STARTED';
+                 if (filter === 'STATUS') return n.type === 'STATUS_POSTED' || n.type === 'STATUS_LIKED';
+                 if (filter === 'GROUPS') return n.type === 'MESSAGE' && n.room_id;
+                 if (filter === 'DMS') return n.type === 'MESSAGE' && !n.room_id;
+                 return true;
+              }).length === 0 ? (
                 <p className="text-white/50 text-center mt-10">No notifications yet</p>
               ) : (
-                <div className="flex flex-col gap-1 p-2">
-                  {notifications.map((notif, idx) => {
+                <div className="flex flex-col gap-2 p-2">
+                  {notifications.filter(n => {
+                     if (filter === 'ALL') return true;
+                     if (filter === 'LIVE') return n.type === 'LIVE_STARTED';
+                     if (filter === 'STATUS') return n.type === 'STATUS_POSTED' || n.type === 'STATUS_LIKED';
+                     if (filter === 'GROUPS') return n.type === 'MESSAGE' && n.room_id;
+                     if (filter === 'DMS') return n.type === 'MESSAGE' && !n.room_id;
+                     return true;
+                  }).map((notif, idx) => {
                     const ui = getNotificationUI(notif.type);
-                    const displayMessage = notif.content || notif.message || notif.title || 'New activity on your account';
-                    const rawActorId = notif.actor_id;
-                    const actorHandle = notif.actor_username || notif.actor_name;
+                    const displayMessage = notif.content || notif.message || 'New activity on your account';
+
+                    let relTime = '';
+                    try {
+                       relTime = formatDistanceToNow(new Date(notif.created_at), { addSuffix: true });
+                       relTime = relTime.replace('about ', '').replace('less than a minute ago', 'Just now');
+                    } catch (e) {
+                       relTime = new Date(notif.created_at).toLocaleDateString();
+                    }
+
                     return (
                       <motion.div
                         key={notif.id}
@@ -243,25 +239,57 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                           hidden: { opacity: 0, x: 20 },
                           show: { opacity: 1, x: 0 }
                         }}
-                        onClick={() => { markAsRead(notif.id); onClose?.(); }}
-                        className={`relative flex items-start gap-4 p-4 rounded-2xl transition-all cursor-pointer bg-zinc-950/80 backdrop-blur-xl border-b border-white/5 overflow-hidden ${!notif.is_read ? 'before:absolute before:left-0 before:w-1 before:h-full before:bg-gradient-to-b before:from-amber-400 before:to-amber-600' : 'hover:bg-white/5'}`}
+                        className={`relative flex items-start gap-4 p-4 rounded-2xl transition-all cursor-pointer bg-zinc-950/80 backdrop-blur-xl border border-white/5 overflow-hidden group hover:bg-white/5`}
                       >
-                        <div className={`p-2 rounded-full ${ui.bgClass} flex items-center justify-center z-10 flex-shrink-0`}>
-                          {notif.actor_avatar_url ? (
-                             <img src={notif.actor_avatar_url} alt="" className="w-5 h-5 rounded-full object-cover" />
-                          ) : ui.icon}
+                        <div
+                          className="flex flex-1 min-w-0 items-start gap-4"
+                          onClick={() => {
+                             markAsRead(notif.id);
+                             window.dispatchEvent(new CustomEvent('horpal:navigate-notification', { detail: notif }));
+                             onClose?.();
+                          }}
+                        >
+                          <div className={`p-2 rounded-full ${ui.bgClass} flex items-center justify-center z-10 flex-shrink-0 mt-1`}>
+                            {notif.actor_avatar_url ? (
+                               <img src={notif.actor_avatar_url} alt="" className="w-6 h-6 rounded-full object-cover" />
+                            ) : ui.icon}
+                          </div>
+
+                          <div className="flex flex-col flex-1 z-10 min-w-0">
+                            {notif.sourceLabel && (
+                               <div className="mb-1">
+                                 <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-white/10 text-white/70">
+                                   {notif.sourceLabel}
+                                 </span>
+                               </div>
+                            )}
+
+                            {notif.title && (
+                               <span className="text-sm text-white font-bold leading-tight line-clamp-2 mb-1">
+                                 {notif.title}
+                               </span>
+                            )}
+
+                            <span className="text-xs text-zinc-400 line-clamp-2">
+                              {displayMessage}
+                            </span>
+
+                            <span className="text-[10px] text-white/30 font-semibold uppercase tracking-wider mt-2">
+                              {relTime}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex flex-col flex-1 z-10 min-w-0">
-                          {notif.title && (
-                             <span className="text-sm text-white font-bold truncate">
-                               {notif.title}
-                             </span>
-                          )}
-                          <span className="text-xs text-zinc-400 break-words mt-0.5">
-                            {displayMessage}
-                          </span>
-                          <span className="text-[10px] text-white/30 font-semibold uppercase tracking-wider mt-2">{new Date(notif.created_at).toLocaleString()}</span>
-                        </div>
+
+                        <button
+                          onClick={(e) => {
+                             e.stopPropagation();
+                             markAsRead(notif.id); // For dismiss we just mark read, or optionally we could delete
+                             // Optional: we can soft-delete by clearing just this ID if we want, but instructions said mark read / dismiss.
+                          }}
+                          className="text-white/20 hover:text-white/60 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                        >
+                          <X size={14} />
+                        </button>
                       </motion.div>
                     );
                   })}

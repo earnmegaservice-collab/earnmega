@@ -46,8 +46,19 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { user } = useAuth();
-  const { unreadCount, bellShake, requestPushPermission } = useGlobalNotifications();
+  const { unreadCount, bellShake, requestPushPermission, isMuted } = useGlobalNotifications();
   const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
+
+  useEffect(() => {
+     const handleNavigate = (e: any) => {
+        const notif = e.detail;
+        if (notif.type === 'LIVE_STARTED') setActiveTab('live');
+        else if (notif.type === 'STATUS_POSTED' || notif.type === 'STATUS_LIKED') setActiveTab('status');
+        else if (notif.type === 'MESSAGE' || notif.type === 'GROUP_INVITE') setActiveTab('chats');
+     };
+     window.addEventListener('horpal:navigate-notification', handleNavigate);
+     return () => window.removeEventListener('horpal:navigate-notification', handleNavigate);
+  }, [setActiveTab]);
 
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [profileImages, setProfileImages] = useState<string[]>([]);
@@ -172,7 +183,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               className="relative p-2 rounded-full bg-white/[0.05] border border-white/10 hover:border-white/20 active:scale-95 transition"
             >
               <Bell className="w-4 h-4 text-white/90" />
-              {unreadCount > 0 && (
+              {!isMuted && unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-pink-500 to-rose-600 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg border border-black">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>

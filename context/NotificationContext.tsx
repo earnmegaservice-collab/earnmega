@@ -17,6 +17,7 @@ export interface GlobalNotification {
   message?: string;
   content?: string;
   title?: string;
+  sourceLabel?: string;
   is_read: boolean;
   created_at: string;
 }
@@ -33,6 +34,8 @@ interface NotificationContextType {
   requestPushPermission?: () => void;
   permissionStatus: string;
   refreshNotifications: () => Promise<void>;
+  isMuted: boolean;
+  toggleMute: () => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
@@ -45,7 +48,9 @@ const NotificationContext = createContext<NotificationContextType>({
   setBellShake: () => {},
   triggerNativeNotification: () => {},
   permissionStatus: 'default',
-  refreshNotifications: async () => {}
+  refreshNotifications: async () => {},
+  isMuted: false,
+  toggleMute: async () => {}
 });
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
@@ -53,6 +58,36 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<GlobalNotification[]>([]);
   const [bellShake, setBellShake] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<string>('default');
+  const [isMuted, setIsMuted] = useState(false);
+  const isMutedRef = useRef(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const muted = localStorage.getItem(`horpal_notif_muted_${user.id}`) === 'true' || localStorage.getItem(`earnmega_notif_muted_${user.id}`) === 'true';
+    setIsMuted(muted);
+    isMutedRef.current = muted;
+  }, [user]);
+
+  const toggleMute = React.useCallback(async () => {
+    if (!user) return;
+    const newMuted = !isMuted;
+    setIsMuted(newMuted);
+    isMutedRef.current = newMuted;
+    localStorage.setItem(`horpal_notif_muted_${user.id}`, String(newMuted));
+    localStorage.setItem(`earnmega_notif_muted_${user.id}`, String(newMuted));
+
+    import('react-hot-toast').then(({ toast }) => {
+      if (newMuted) {
+         toast.success('🔕 Notifications muted');
+      } else {
+         toast.success('🔔 Notifications unmuted');
+      }
+    });
+
+    try {
+      await supabase.from('profiles').update({ notifications_muted: newMuted }).eq('id', user.id);
+    } catch (e) {}
+  }, [isMuted, user]);
   const lastSeenTimestampRef = useRef<number>(Date.now());
 
   const profileCache = useRef<Map<string, { username: string; full_name: string; avatar_url: string }>>(new Map());
@@ -78,22 +113,23 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   // Helper for outside-app OS notifications
   const triggerNativeNotification = async (title: string, body: string, tag?: string) => {
     // Check if muted via localStorage
-    const isMuted = user ? localStorage.getItem(`earnmega_notif_muted_${user.id}`) === 'true' : false;
-    if (isMuted) return;
+    if (isMutedRef.current || (user && localStorage.getItem(`horpal_notif_muted_${user.id}`) === 'true')) return;
 
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
-        const swReg = await navigator.serviceWorker.getRegistration();
-        if (swReg && swReg.active) {
-          swReg.showNotification(title, {
+        const swReg = await navigator.serviceWorker.ready;
+        if (swReg) {
+          await swReg.showNotification(title, {
             body,
             icon: '/favicon.ico',
             badge: '/favicon.ico',
-            tag: tag || 'hubpal-' + Date.now(),
+            tag: tag || 'horpal-' + Date.now(),
             renotify: true,
-            vibrate: [200, 100, 200]
+            silent: false,
+            requireInteraction: false,
+            vibrate: [250, 100, 250],
+            data: { url: '/' }
           } as any);
-          swReg.active.postMessage({ type: 'SHOW_NOTIFICATION', title, body, tag: tag || 'hubpal-' + Date.now() });
         } else {
           new window.Notification(title, { body, icon: '/favicon.ico', tag: tag || 'hubpal-' + Date.now() });
         }
@@ -105,6 +141,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     // Play subtle audio if not muted
     try {
        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+       if (audioContext.state === 'suspended') {
+          audioContext.resume();
+       }
 
        // Tone 1
        const osc1 = audioContext.createOscillator();
@@ -132,10 +171,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
        osc2.start(audioContext.currentTime + 0.15);
        osc2.stop(audioContext.currentTime + 0.4);
     } catch(e) {
-       console.error("Audio chime failed", e);
        try {
-         const fallbackAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='); // Stub for minimal empty WAV, browser will just ignore if invalid, but you can put a real Base64 string for a sound here
-         fallbackAudio.volume = 0.5;
+         // Valid fallback chime WAV base64
+         const fallbackAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAB/f39/f38=');
+         fallbackAudio.volume = 0.85;
          fallbackAudio.play().catch(() => {});
        } catch (fallbackError) {}
     }
@@ -169,7 +208,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (!raw) return '';
     let cleaned = raw;
     cleaned = cleaned.replace(/^\[REPLY:[^\]]+\]\s*/i, '');
-    cleaned = cleaned.replace(/^\[FORWARDED\]\n/i, '');
+    cleaned = cleaned.replace(/^\[FORWARDED\]\s*/i, '');
+    cleaned = cleaned.replace(/^\[GROUP_CONFIG_JSON\][\s\S]*$/, '');
+    // Replace raw UUIDs if they somehow made it in (simple heuristic)
+    cleaned = cleaned.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, 'User');
     return cleaned;
   };
 
@@ -200,39 +242,107 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
 
     if (missingRoomIds.size > 0) {
+      // Try rooms first
       const { data: rooms } = await supabase
         .from('rooms')
         .select('id, name, avatar_url')
         .in('id', Array.from(missingRoomIds));
 
+      const foundRoomIds = new Set<string>();
       if (rooms) {
         for (const r of rooms) {
           roomCache.current.set(r.id, r);
+          foundRoomIds.add(r.id);
         }
+      }
+
+      // Check remaining missing in chat_groups
+      const remainingRoomIds = Array.from(missingRoomIds).filter(id => !foundRoomIds.has(id));
+      if (remainingRoomIds.length > 0) {
+         const { data: chatGroups } = await supabase
+            .from('chat_groups')
+            .select('id, name, avatar_url')
+            .in('id', remainingRoomIds);
+
+         if (chatGroups) {
+            for (const cg of chatGroups) {
+               roomCache.current.set(cg.id, cg);
+               foundRoomIds.add(cg.id);
+            }
+         }
+      }
+
+      // Check remaining missing as profiles
+      const stillRemaining = remainingRoomIds.filter(id => !foundRoomIds.has(id));
+      if (stillRemaining.length > 0) {
+         const { data: groupProfiles } = await supabase
+            .from('profiles')
+            .select('id, username, full_name, avatar_url')
+            .in('id', stillRemaining);
+         if (groupProfiles) {
+            for (const gp of groupProfiles) {
+               roomCache.current.set(gp.id, { name: gp.full_name || gp.username, avatar_url: gp.avatar_url });
+            }
+         }
       }
     }
 
     return combined.map(notif => {
-      const p = notif.actor_id ? profileCache.current.get(notif.actor_id) : undefined;
-      const r = notif.room_id ? roomCache.current.get(notif.room_id) : undefined;
-
-      const actor_username = notif.actor_username || p?.username;
-      const actor_name = notif.actor_name || p?.full_name || p?.username;
-      const actor_avatar_url = p?.avatar_url;
-
+      let actor_username = notif.actor_username;
+      let actor_name = notif.actor_name;
+      let actor_avatar_url = notif.actor_avatar_url;
       let title = notif.title;
-      let subtitle = undefined;
+      let sourceLabel = notif.sourceLabel;
 
-      if (notif.type === 'MESSAGE' || notif.type === 'message') {
-        const cleanMessage = cleanNotificationText(notif.content || '');
-        if (notif.room_id) {
-          title = `${actor_name || 'Someone'} in ${r?.name || 'Group'}`;
-          subtitle = 'Group Chat';
-        } else {
-          title = actor_name || 'Someone';
-          subtitle = 'Direct Message';
+      if (notif.actor_id && profileCache.current.has(notif.actor_id)) {
+        const p = profileCache.current.get(notif.actor_id)!;
+        actor_username = p.username;
+        actor_name = p.full_name || p.username;
+        actor_avatar_url = p.avatar_url;
+      }
+
+      const senderName = actor_name || actor_username || 'Someone';
+      const cleanMessage = cleanNotificationText(notif.content || '');
+      let displayContent = cleanMessage;
+
+      if (!cleanMessage) {
+         if ((notif as any).image_url || notif.content?.includes('#image')) {
+            displayContent = '📷 Sent a photo';
+         } else if ((notif as any).audio_url || notif.content?.includes('#audio')) {
+            displayContent = '🎤 Sent a voice note';
+         } else if (notif.content?.includes('#video')) {
+            displayContent = '🎥 Sent a video';
+         } else if (notif.type === 'MESSAGE' || notif.type === 'message') {
+            displayContent = 'Sent an attachment';
+         }
+      }
+
+      if (notif.type === 'MESSAGE' || notif.type === 'message' || notif.id.startsWith('msg-')) {
+        let roomName = '';
+        if (notif.room_id && roomCache.current.has(notif.room_id)) {
+          roomName = roomCache.current.get(notif.room_id)!.name;
         }
-        notif.content = cleanMessage || 'Sent you a media attachment';
+
+        if (roomName) {
+           sourceLabel = `👥 ${roomName}`;
+           title = `${senderName} sent a message in ${roomName}`;
+        } else {
+           sourceLabel = `💬 Direct Message`;
+           title = `${senderName} sent you a message`;
+        }
+        notif.content = displayContent;
+      } else if (notif.type === 'STATUS_POSTED') {
+         sourceLabel = `📸 Status Update`;
+         title = `${senderName} updated their status`;
+         notif.content = displayContent || 'Posted a new status — tap to view';
+      } else if (notif.type === 'LIVE_STARTED') {
+         sourceLabel = `🔴 Live Arena`;
+         title = `🔴 ${senderName} is Live now!`;
+         notif.content = displayContent || 'Tap to join their live stream';
+      } else {
+         if (!sourceLabel) sourceLabel = '🔔 Notification';
+         if (!title) title = `${senderName} interacted with you`;
+         notif.content = displayContent;
       }
 
       return {
@@ -241,111 +351,119 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         actor_name,
         actor_avatar_url,
         title,
-        subtitle
+        sourceLabel
       };
     });
   };
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = React.useCallback(async () => {
     if (!user) return;
 
-    // 1. Fetch from notifications table
-    const { data: notifsData, error: notifsError } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(50);
+    const [notifsRes, msgsRes, statusesRes, liveRes] = await Promise.allSettled([
+      supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(40),
+      supabase.from('messages').select('id, sender_id, receiver_id, room_id, content, image_url, audio_url, created_at, is_read').neq('sender_id', user.id).order('created_at', { ascending: false }).limit(40),
+      supabase.from('statuses').select('id, user_id, text_content, media_url, caption, created_at').neq('user_id', user.id).order('created_at', { ascending: false }).limit(20),
+      supabase.from('live_streams').select('id, host_id, host_username, host_avatar, title, category, status, is_live, created_at, started_at').neq('host_id', user.id).order('created_at', { ascending: false }).limit(15)
+    ]);
 
-    if (notifsError) {
-      console.error('Error fetching notifications:', notifsError);
-    }
-
-    // 2. Fetch incoming messages to act as notifications
-    const { data: msgsData, error: msgsError } = await supabase
-      .from('messages')
-      .select('id, sender_id, receiver_id, room_id, content, created_at, is_read')
-      .neq('sender_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(30);
-
-    if (msgsError) {
-      console.error('Error fetching messages for notifications:', msgsError);
-    }
+    const notifsData = notifsRes.status === 'fulfilled' ? notifsRes.value.data || [] : [];
+    const msgsData = msgsRes.status === 'fulfilled' ? msgsRes.value.data || [] : [];
+    const statusesData = statusesRes.status === 'fulfilled' ? statusesRes.value.data || [] : [];
+    const liveData = liveRes.status === 'fulfilled' ? liveRes.value.data || [] : [];
 
     let combined: GlobalNotification[] = [];
 
-    if (notifsData) {
-      const normalizedNotifs = notifsData.map((raw: any) => ({
-        ...raw,
-        content: raw.content || raw.message || raw.title || 'New activity on your account'
-      }));
-      combined = [...combined, ...normalizedNotifs as GlobalNotification[]];
-    }
+    // Notifications
+    combined = [...combined, ...notifsData.map(n => ({
+      ...n,
+      actor_id: n.actor_id || null,
+      type: n.type || 'SYSTEM_ALERT',
+      id: `notif-${n.id}`
+    }))];
 
-    if (msgsData) {
-      // Filter messages to only those meant for user (or group), and exclude group config
-      const relevantMsgs = msgsData.filter(m => {
-        if (m.sender_id === user.id) return false;
-        if (!m.receiver_id && !m.room_id) return false;
-        if (m.room_id && m.receiver_id && m.receiver_id !== user.id) return false; // Not strictly needed if room_id broadcasts to all
-
-        if (!m.content) return true;
-        if (m.content.startsWith('[GROUP_CONFIG_JSON]')) return false;
-        if (m.content.toLowerCase().includes('updated group settings:')) return false;
-        if (m.content.toLowerCase().includes('changed the group icon')) return false;
-        return true;
-      });
-
-      const msgNotifs = relevantMsgs.map((msg: any) => ({
-        id: `msg-${msg.id}`,
+    // Messages
+    const msgsAsNotifs: GlobalNotification[] = msgsData
+      .filter(m => (m.receiver_id === user.id || m.room_id))
+      .map(m => ({
+        id: `msg-${m.id}`,
         user_id: user.id,
-        actor_id: msg.sender_id,
-        room_id: msg.room_id,
+        actor_id: m.sender_id,
+        room_id: m.room_id,
         type: 'MESSAGE',
-        content: msg.content ? cleanNotificationText(msg.content) : 'Sent you a media attachment',
-        is_read: Boolean(msg.is_read),
-        created_at: msg.created_at
-      }));
+        content: m.content || '',
+        image_url: m.image_url,
+        audio_url: m.audio_url,
+        is_read: m.is_read || false,
+        created_at: m.created_at
+      } as any));
+    combined = [...combined, ...msgsAsNotifs];
 
-      // Merge and sort
-      combined = [...combined, ...msgNotifs];
+    // Statuses
+    const statusesAsNotifs: GlobalNotification[] = statusesData.map(s => ({
+      id: `status-${s.id}`,
+      user_id: user.id,
+      actor_id: s.user_id,
+      type: 'STATUS_POSTED',
+      content: s.text_content || s.caption || 'Posted a new status update — tap to view',
+      is_read: false,
+      created_at: s.created_at
+    }));
+    combined = [...combined, ...statusesAsNotifs];
+
+    // Live Streams
+    const liveAsNotifs: GlobalNotification[] = liveData
+      .filter(s => s.status === 'live' || s.status === 'active' || s.is_live === true)
+      .map(s => ({
+        id: `live-${s.id}`,
+        user_id: user.id,
+        actor_id: s.host_id,
+        actor_name: s.host_username,
+        actor_avatar_url: s.host_avatar,
+        type: 'LIVE_STARTED',
+        content: s.title ? `Streaming "${s.title}" in Live Arena — tap to join` : 'Started a live stream in Live Arena — tap to join',
+        is_read: false,
+        created_at: s.started_at || s.created_at
+      }));
+    combined = [...combined, ...liveAsNotifs];
+
+    // Filter spam
+    combined = combined.filter(n => {
+       const text = (n.content || '').toLowerCase();
+       if (text.includes('[group_config_json]')) return false;
+       if (text.includes('updated group settings:')) return false;
+       if (text.includes('only admins can')) return false;
+       if (text.includes('changed the group icon')) return false;
+       return true;
+    });
+
+    // Dedup and Sort
+    const dedupedMap = new Map<string, GlobalNotification>();
+    for (const c of combined) {
+      if (!dedupedMap.has(c.id)) dedupedMap.set(c.id, c);
     }
 
-    // Apply local storage filters for cleared and read items
     const clearedAt = Number(localStorage.getItem(`horpal_notif_cleared_at_${user.id}`) || 0);
-    const lastReadAt = Number(localStorage.getItem(`horpal_notif_last_read_${user.id}`) || 0);
     let clearedIds: string[] = [];
+    try { clearedIds = JSON.parse(localStorage.getItem(`horpal_cleared_notif_ids_${user.id}`) || '[]'); } catch {}
+
+    const lastReadAt = Number(localStorage.getItem(`horpal_notif_last_read_${user.id}`) || 0);
     let readIds: string[] = [];
-    try {
-      clearedIds = JSON.parse(localStorage.getItem(`horpal_cleared_notif_ids_${user.id}`) || '[]');
-      readIds = JSON.parse(localStorage.getItem(`horpal_read_notif_ids_${user.id}`) || '[]');
-    } catch {}
+    try { readIds = JSON.parse(localStorage.getItem(`horpal_read_notif_ids_${user.id}`) || '[]'); } catch {}
 
-    const filteredCombined = combined.filter(n => {
-      const createdTime = new Date(n.created_at).getTime();
-      if (createdTime <= clearedAt) return false;
-      if (clearedIds.includes(n.id)) return false;
-      return true;
-    }).map(n => {
-      const createdTime = new Date(n.created_at).getTime();
-      if (createdTime <= lastReadAt || readIds.includes(n.id)) {
-        n.is_read = true;
-      }
-      return n;
-    });
-
-    // Sort combined by created_at descending and deduplicate by id
-    filteredCombined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-    const dedupedMap = new Map();
-    filteredCombined.forEach(n => {
-       if (!dedupedMap.has(n.id)) {
-          dedupedMap.set(n.id, n);
-       }
-    });
-
-    const finalCombined = Array.from(dedupedMap.values()).slice(0, 50);
+    const finalCombined = Array.from(dedupedMap.values())
+      .filter(n => {
+         if (new Date(n.created_at).getTime() <= clearedAt) return false;
+         if (clearedIds.includes(n.id)) return false;
+         return true;
+      })
+      .map(n => {
+         if (readIds.includes(n.id) || new Date(n.created_at).getTime() <= lastReadAt) {
+            return { ...n, is_read: true };
+         }
+         return n;
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 50);
 
     const resolvedCombined = await resolveProfilesAndRooms(finalCombined);
 
@@ -354,7 +472,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
 
     setNotifications(resolvedCombined);
-  };
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -380,6 +498,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
        }
     }, 20000);
 
+    const broadcastChannel = supabase.channel('global-app-notifications')
+      .on('broadcast', { event: 'status_posted' }, () => {
+         fetchNotifications();
+      })
+      .on('broadcast', { event: 'live_started' }, () => {
+         fetchNotifications();
+      })
+      .subscribe();
+
     const uniqueChannel = `appshell-notifications-${Date.now()}`;
     const channel = supabase
       .channel(uniqueChannel)
@@ -399,15 +526,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             user_id: user.id,
             actor_id: status.user_id,
             type: 'STATUS_POSTED',
-            content: status.text_content || "Posted a new photo/video status — tap to view",
-            title: "updated their status",
+            content: status.text_content || status.caption || 'Posted a new status update',
+            title: 'New Status',
             is_read: false,
             created_at: status.created_at || new Date().toISOString()
           };
 
           resolveProfilesAndRooms([notif]).then(resolved => {
             const finalNotif = resolved[0];
-            finalNotif.title = `${finalNotif.actor_name || 'Someone'} updated their status`;
 
             setNotifications(prev => {
               const clearedAt = Number(localStorage.getItem(`horpal_notif_cleared_at_${user.id}`) || 0);
@@ -416,23 +542,25 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               if (exists) return prev;
               return [finalNotif, ...prev].slice(0, 50);
             });
-            setBellShake(true);
-            setTimeout(() => setBellShake(false), 500);
 
-            if (document.visibilityState === 'hidden' || window.location.pathname !== '/status') {
-               triggerNativeNotification('EarnMega Alert', finalNotif.title || 'New status update', `status-${status.id}`);
+            if (!isMutedRef.current) {
+                setBellShake(true);
+                setTimeout(() => setBellShake(false), 500);
             }
+
+            triggerNativeNotification('HorPal Alert', finalNotif.title || 'New status update', `status-${status.id}`);
           });
         }
       )
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'live_streams',
         },
         async (payload) => {
+          if (payload.eventType === 'DELETE') return;
           const stream = payload.new as any;
           if (stream.host_id === user.id) return;
           if (stream.status !== 'live' && stream.is_live !== true) return;
@@ -450,8 +578,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
           resolveProfilesAndRooms([notif]).then(resolved => {
             const finalNotif = resolved[0];
-            finalNotif.title = `🔴 ${finalNotif.actor_name || 'Someone'} is Live now!`;
-            finalNotif.content = `Tap to join ${finalNotif.actor_name || 'Someone'}'s live stream in Live Arena`;
 
             setNotifications(prev => {
               const clearedAt = Number(localStorage.getItem(`horpal_notif_cleared_at_${user.id}`) || 0);
@@ -460,12 +586,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               if (exists) return prev;
               return [finalNotif, ...prev].slice(0, 50);
             });
-            setBellShake(true);
-            setTimeout(() => setBellShake(false), 500);
 
-            if (document.visibilityState === 'hidden' || window.location.pathname !== '/') {
-               triggerNativeNotification('EarnMega Live', finalNotif.title || 'Someone is live', `live-${stream.id}`);
+            if (!isMutedRef.current) {
+                setBellShake(true);
+                setTimeout(() => setBellShake(false), 500);
             }
+
+            triggerNativeNotification('HorPal Live Arena', finalNotif.title || 'Someone is live', `live-${stream.id}`);
           });
         }
       )
@@ -492,23 +619,23 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               if (exists) return prev;
               return [finalNewNotification, ...prev].slice(0, 50);
             });
-            setBellShake(true);
-            setTimeout(() => setBellShake(false), 500);
 
-            triggerNativeNotification('EarnMega Alert', finalNewNotification.content || finalNewNotification.message || 'You have a new notification', `notif-${finalNewNotification.id}`);
+            if (!isMutedRef.current) {
+                setBellShake(true);
+                setTimeout(() => setBellShake(false), 500);
 
-            // Toast if drawer closed (simplified check since we don't track drawer state in context directly right now)
-            // But since we trigger native we also trigger toast
-            import('react-hot-toast').then(({ toast }) => {
-                toast.success(finalNewNotification.content || finalNewNotification.message || 'New notification', {
-                    icon: '🔔',
-                    style: {
-                      borderRadius: '10px',
-                      background: '#333',
-                      color: '#fff',
-                    },
+                // Toast if drawer closed
+                import('react-hot-toast').then(({ toast }) => {
+                    toast.success(finalNewNotification.content || finalNewNotification.message || 'New notification', {
+                        icon: '🔔',
+                        style: {
+                          borderRadius: '10px',
+                          background: '#333',
+                          color: '#fff',
+                        },
+                    });
                 });
-            });
+            }
 
             // Restore GIFT handling
             if (finalNewNotification.type === 'GIFT' && finalNewNotification.content) {
@@ -586,11 +713,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                    return [finalMsgNotif, ...prev].slice(0, 50);
                 });
 
-                setBellShake(true);
-                setTimeout(() => setBellShake(false), 500);
-
-                if (document.visibilityState === 'hidden' || window.location.pathname !== '/chats') {
-                   triggerNativeNotification(finalMsgNotif.title || 'New Message on EarnMega', finalMsgNotif.content || 'Sent you a media attachment', `msg-${msg.id}`);
+                if (!isMutedRef.current) {
+                    setBellShake(true);
+                    setTimeout(() => setBellShake(false), 500);
                 }
              });
           }
@@ -605,13 +730,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(broadcastChannel);
       document.removeEventListener('visibilitychange', handleVisibilityAndFocus);
       window.removeEventListener('focus', handleVisibilityAndFocus);
       clearInterval(intervalId);
     };
   }, [user]);
 
-  const markAsRead = async (id: string) => {
+  const markAsRead = React.useCallback(async (id: string) => {
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n));
     if (user) {
       let readIds: string[] = [];
@@ -625,35 +751,51 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (id.startsWith('msg-')) {
       const realId = id.replace('msg-', '');
       await supabase.from('messages').update({ is_read: true }).eq('id', realId);
-    } else {
-      await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+    } else if (id.startsWith('notif-')) {
+      const realId = id.replace('notif-', '');
+      await supabase.from('notifications').update({ is_read: true }).eq('id', realId);
     }
-  };
+  }, [user]);
 
-  const markAllAsRead = async () => {
+  const markAllAsRead = React.useCallback(async () => {
+    const now = Date.now();
     setNotifications((prev) => prev.map(n => ({ ...n, is_read: true })));
 
     if (user) {
-      localStorage.setItem(`horpal_notif_last_read_${user.id}`, Date.now().toString());
-      await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id).eq('is_read', false);
-    }
-  };
+      localStorage.setItem(`horpal_notif_last_read_${user.id}`, now.toString());
 
-  const clearAllNotifications = async () => {
+      const allIds = notifications.map(n => n.id);
+      let readIds: string[] = [];
+      try { readIds = JSON.parse(localStorage.getItem(`horpal_read_notif_ids_${user.id}`) || '[]'); } catch {}
+      const mergedReadIds = Array.from(new Set([...readIds, ...allIds]));
+      localStorage.setItem(`horpal_read_notif_ids_${user.id}`, JSON.stringify(mergedReadIds));
+
+      await Promise.allSettled([
+         supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id).eq('is_read', false),
+         supabase.from('messages').update({ is_read: true }).eq('receiver_id', user.id).eq('is_read', false)
+      ]);
+    }
+  }, [user, notifications]);
+
+  const clearAllNotifications = React.useCallback(async () => {
     if (!user) return;
     const ids = notifications.map(n => n.id);
     setNotifications([]);
 
     localStorage.setItem(`horpal_notif_cleared_at_${user.id}`, Date.now().toString());
-    localStorage.setItem(`horpal_cleared_notif_ids_${user.id}`, JSON.stringify(ids));
+
+    let clearedIds: string[] = [];
+    try { clearedIds = JSON.parse(localStorage.getItem(`horpal_cleared_notif_ids_${user.id}`) || '[]'); } catch {}
+    const mergedClearedIds = Array.from(new Set([...clearedIds, ...ids]));
+    localStorage.setItem(`horpal_cleared_notif_ids_${user.id}`, JSON.stringify(mergedClearedIds));
 
     await supabase.from('notifications').delete().eq('user_id', user.id);
-  };
+  }, [user, notifications]);
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadCount = React.useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
 
   return (
-    <NotificationContext.Provider value={{ notifications, markAsRead, markAllAsRead, clearAllNotifications, unreadCount, bellShake, setBellShake, triggerNativeNotification, requestPushPermission, permissionStatus, refreshNotifications: fetchNotifications }}>
+    <NotificationContext.Provider value={{ notifications, markAsRead, markAllAsRead, clearAllNotifications, unreadCount, bellShake, setBellShake, triggerNativeNotification, requestPushPermission, permissionStatus, refreshNotifications: fetchNotifications, isMuted, toggleMute }}>
       {children}
     </NotificationContext.Provider>
   );
