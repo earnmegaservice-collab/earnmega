@@ -53,7 +53,8 @@ import {
   Trash2,
   Hand,
   Volume2,
-  Lock
+  Lock,
+  MoreVertical
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 
@@ -1061,7 +1062,7 @@ LiveKitRoomBridge.displayName = 'LiveKitRoomBridge';
 // ============================================================================
 // VIEWER VIDEO STAGE (FORCES HIGH QUALITY HD SUBSCRIPTION)
 // ============================================================================
-function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
+const ViewerVideoStage = React.memo(function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
   const subscribedTracks = useTracks(
     [Track.Source.Camera, Track.Source.Unknown],
     { onlySubscribed: true }
@@ -1118,7 +1119,13 @@ function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
       </p>
     </div>
   );
-}
+});
+
+// ============================================================================
+// AUDIO BOOST SHARED STATE
+// ============================================================================
+const sharedAudioCtx = typeof window !== 'undefined' ? new (window.AudioContext || (window as any).webkitAudioContext)() : null;
+const audioBoostMap = new WeakMap<HTMLMediaElement, { gainNode: GainNode }>();
 
 // ============================================================================
 // MAIN LIVE ARENA COMPONENT
@@ -1186,6 +1193,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [commentInput, setCommentInput] = useState<string>('');
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [likeCount, setLikeCount] = useState<number>(0);
+  const likeCountRef = useRef<number>(0);
       const [mutedUserIds, setMutedUserIds] = useState<Set<string>>(new Set());
       const [isMutedByHost, setIsMutedByHost] = useState(false);
       const [selectedViewerForAction, setSelectedViewerForAction] = useState<{userId: string, username: string, avatar?: string} | null>(null);
@@ -1202,7 +1210,43 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [activeParticipants, setActiveParticipants] = useState<any[]>([]);
   const [viewerSearchTerm, setViewerSearchTerm] = useState('');
   const [isAudioBoostEnabled, setIsAudioBoostEnabled] = useState(false);
+
+  const applyAudioBoost = useCallback((enabled: boolean) => {
+    try {
+      if (!sharedAudioCtx) return;
+      const elements = document.querySelectorAll('audio, video');
+      elements.forEach((el) => {
+        const mediaEl = el as HTMLMediaElement;
+        // Host should never hear their own voice through the local stream elements
+        if (mediaEl.muted && (mediaEl === previewVideoRef.current || mediaEl === liveHostVideoRef.current)) return;
+
+        let state = audioBoostMap.get(mediaEl);
+        if (!state) {
+          const source = sharedAudioCtx.createMediaElementSource(mediaEl);
+          const gainNode = sharedAudioCtx.createGain();
+          source.connect(gainNode);
+          gainNode.connect(sharedAudioCtx.destination);
+          state = { gainNode };
+          audioBoostMap.set(mediaEl, state);
+        }
+        state.gainNode.gain.value = enabled ? 1.6 : 1.0;
+
+        // Ensure volume is strictly between 0 and 1 to prevent IndexSizeError
+        if (mediaEl.volume > 1.0 || mediaEl.volume < 0.0) {
+          mediaEl.volume = Math.min(1.0, Math.max(0.0, mediaEl.volume));
+        }
+      });
+      toast.success(enabled ? 'Audio Boost ON' : 'Audio Boost OFF');
+    } catch (e) {
+      console.error('Audio Boost Error:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    applyAudioBoost(isAudioBoostEnabled);
+  }, [isAudioBoostEnabled, applyAudioBoost]);
   const [isRoomLocked, setIsRoomLocked] = useState(false);
+  const [showHostMoreMenu, setShowHostMoreMenu] = useState(false);
 
   const [isGiftDrawerOpen, setIsGiftDrawerOpen] = useState<boolean>(false);
   const [selectedGiftId, setSelectedGiftId] = useState<string>('rose_1');
@@ -1297,47 +1341,48 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         return;
       }
 
-      if (packet.type === 'MUTE_USER' && packet.targetUserId === user.id) {
-        setIsMutedByHost(true);
+      if (packet.type === 'MUTE_VIEWER' && (packet.targetUserId === user.id || packet.targetUsername === user.username)) {
+        setIsMutedByHost(packet.isMuted);
+        if (typeof window !== 'undefined' && currentStream?.id) {
+          localStorage.setItem('horpal_live_muted_' + currentStream.id, String(packet.isMuted));
+        }
+        if (packet.isMuted) {
+          toast.error("🚫 You have been muted by the host for this live stream");
+        }
       }
       if (packet.type === 'LOCK_CHAT') {
         setIsRoomLocked(packet.locked);
       }
       switch (packet.type) {
-        case 'LIVE_LIKE': {
-          if (role === 'host') {
-            const nextTotal = likeCount + (packet.delta || 1);
-            setLikeCount(nextTotal);
-            for (let i=0; i<(packet.delta || 1); i++) spawnVisualHeartOnly();
-            dispatchArenaPacket({ type: 'LIKE_SYNC', authoritativeLikes: nextTotal });
-          }
-          break;
-        }
+        case 'LIVE_LIKE':
         case 'LIKE_SYNC': {
-          if (role === 'viewer') {
-            setLikeCount((prev) => Math.max(prev, packet.authoritativeLikes || prev));
+          const delta = packet.delta || 1;
+          const remoteTotal = packet.totalLikes || packet.authoritativeLikes || 0;
+
+          setLikeCount((prev) => {
+            const nextTotal = Math.max(prev + delta, remoteTotal);
+            likeCountRef.current = nextTotal;
+            return nextTotal;
+          });
+
+          for (let i=0; i<delta; i++) {
+            spawnVisualHeartOnly();
           }
           break;
         }
 
         case 'broadcast': {
-          if (packet.event === 'mute_user' && packet.payload) {
-             if (packet.payload.targetUserId === user.id) {
-                const isMuted = packet.payload.muted !== undefined ? packet.payload.muted : true;
+          if (packet.event === 'mute_viewer' && packet.payload) {
+             if (packet.payload.targetUserId === user.id || packet.payload.targetUsername === user.username) {
+                const isMuted = packet.payload.isMuted !== undefined ? packet.payload.isMuted : true;
                 setIsMutedByHost(isMuted);
+                if (typeof window !== 'undefined' && currentStream?.id) {
+                  localStorage.setItem('horpal_live_muted_' + currentStream.id, String(isMuted));
+                }
                 if (isMuted) {
-                  toast.error("🚫 The host muted you for this live stream.", { style: { background: '#333', color: '#fff' }});
+                  toast.error("🚫 You have been muted by the host for this live stream");
                 }
              }
-          }
-          break;
-        }
-        case 'VIEWER_MUTED': {
-          if (packet.targetUserId === user.id) {
-            setIsMutedByHost(packet.muted);
-            if (packet.muted) {
-              toast.error("🚫 The host muted you for this live stream.", { style: { background: '#333', color: '#fff' }});
-            }
           }
           break;
         }
@@ -1679,6 +1724,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         : Date.now()
     );
 
+    if (typeof window !== 'undefined') {
+      const isMuted = localStorage.getItem('horpal_live_muted_' + stream.id) === 'true';
+      setIsMutedByHost(isMuted);
+    }
+
     // Canonical room name based on host_id so Host and Viewer always connect to the exact same room
     const actualRoomName = `live_${stream.host_id || (stream as any).user_id}`;
     const viewerIdentity = `viewer_${user.username || 'user'}_${Math.random()
@@ -1767,9 +1817,28 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // Synced Like Action: Shows on Viewer AND Host screen in real time
   const spawnFloatingHeart = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
     livekitBridgeRef.current?.unlockAudio();
-    setLikeCount((prev) => prev + 1);
+
+    const newTotal = likeCountRef.current + 1;
+    likeCountRef.current = newTotal;
+    setLikeCount(newTotal);
     spawnVisualHeartOnly();
-    pendingLikesDeltaRef.current += 1;
+
+    // Broadcast via both LiveKit and Supabase
+    dispatchArenaPacket({
+      type: 'LIVE_LIKE',
+      delta: 1,
+      totalLikes: newTotal,
+      streamId: currentStreamDbIdRef.current || currentStream?.id,
+      senderId: user?.id,
+      username: user?.username
+    });
+
+    // Also save to database silently
+    if (currentStreamDbIdRef.current || currentStream?.id) {
+      try {
+        supabase.from('live_streams').update({ likes_count: newTotal }).eq('id', currentStreamDbIdRef.current || currentStream?.id);
+      } catch (err) {}
+    }
 
     // Add burst heart at coordinates if event is provided
     if (e) {
@@ -1793,24 +1862,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         }, 1000);
       }
     }
-  }, [spawnVisualHeartOnly]);
-
-  // Flush pending likes interval
-  useEffect(() => {
-    if (role !== 'viewer') return;
-    const interval = setInterval(() => {
-      if (pendingLikesDeltaRef.current > 0) {
-        dispatchArenaPacket({
-          type: 'LIVE_LIKE',
-          delta: pendingLikesDeltaRef.current,
-          senderTotalLikes: likeCount,
-          username: user.username
-        });
-        pendingLikesDeltaRef.current = 0;
-      }
-    }, 150);
-    return () => clearInterval(interval);
-  }, [role, dispatchArenaPacket, likeCount, user.username]);
+  }, [spawnVisualHeartOnly, dispatchArenaPacket, user?.id, user?.username, currentStream?.id]);
 
   // 100% Free Gift Dispatch (Zero Paywall, Plays Animation on Both Screens)
   const handleDispatchGift = async (gift: GiftTierItem, comboCount = 1) => {
@@ -2775,8 +2827,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           video={false}
           audio={{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }}
           options={{
-            adaptiveStream: false,
-            dynacast: false,
+            adaptiveStream: true,
+            dynacast: true,
             videoCaptureDefaults: {
               resolution: { width: 1280, height: 720, frameRate: 30 }
             },
@@ -2791,7 +2843,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               audioPreset: { maxBitrate: 128_000 },
               dtx: true,
               red: true,
-              simulcast: false,
+              simulcast: true,
+              videoCodec: 'vp8',
               videoEncoding: {
                 maxBitrate: 3_000_000,
                 maxFramerate: 30
@@ -2929,12 +2982,22 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             >
               <Flag className="h-4 w-4 text-red-400" />
             </button>
-            <button
-              onClick={handleEndOrLeaveStream}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 backdrop-blur-xl border border-white/15 text-white active:scale-90 transition"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            {role === 'host' && (
+              <button
+                onClick={handleEndOrLeaveStream}
+                className="flex items-center justify-center gap-1.5 rounded-full bg-red-600 hover:bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg active:scale-90 transition"
+              >
+                End Stream
+              </button>
+            )}
+            {role === 'viewer' && (
+              <button
+                onClick={handleEndOrLeaveStream}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/50 backdrop-blur-xl border border-white/15 text-white active:scale-90 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -3137,13 +3200,25 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               }
               handleSendComment(e);
             }}
-            className="relative flex-1">
+            className="relative flex-1 min-w-[180px] sm:min-w-[260px]">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔒 You have been muted by the host" : (isRoomLocked ? "🔒 Chat is currently locked by the host." : "Say something nice...")} disabled={isMutedByHost || isRoomLocked}
-              className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-10 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:border-pink-500/60 focus:outline-none"
+              placeholder={isMutedByHost ? "🔇 Muted by host for this live stream" : (isRoomLocked ? "🔒 Host locked live" : "Say something nice...")}
+              readOnly={isMutedByHost || isRoomLocked}
+              onClick={(e) => {
+                if (isMutedByHost || isRoomLocked) {
+                  e.currentTarget.blur();
+                  toast.error(isMutedByHost ? "🔇 You have been muted by the host for this live stream" : "🔒 Host locked live chat");
+                }
+              }}
+              onFocus={(e) => {
+                if (isMutedByHost || isRoomLocked) {
+                  e.currentTarget.blur();
+                }
+              }}
+              className="w-full pl-4 pr-10 py-2.5 rounded-full bg-black/65 border border-white/20 text-white text-sm placeholder:text-white/50 focus:outline-none focus:border-pink-500/60"
             />
             {commentInput.trim() && (
               <button
@@ -3254,13 +3329,25 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               }
               handleSendComment(e);
             }}
-            className="relative flex-1">
+            className="relative flex-1 min-w-[180px] sm:min-w-[260px]">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔒 You have been muted by the host" : "Chat with your viewers..."} disabled={isMutedByHost}
-              className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-9 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:outline-none"
+              placeholder={isMutedByHost ? "🔇 Muted by host for this live stream" : (isRoomLocked ? "🔒 Host locked live" : "Chat with your viewers...")}
+              readOnly={isMutedByHost || isRoomLocked}
+              onClick={(e) => {
+                if (isMutedByHost || isRoomLocked) {
+                  e.currentTarget.blur();
+                  toast.error(isMutedByHost ? "🔇 You have been muted by the host for this live stream" : "🔒 Host locked live chat");
+                }
+              }}
+              onFocus={(e) => {
+                if (isMutedByHost || isRoomLocked) {
+                  e.currentTarget.blur();
+                }
+              }}
+              className="w-full pl-4 pr-10 py-2.5 rounded-full bg-black/65 border border-white/20 text-white text-sm placeholder:text-white/50 focus:outline-none focus:border-pink-500/60"
             />
             {commentInput.trim() && (
               <button
@@ -3271,15 +3358,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               </button>
             )}
           </form>
-
-          {/* Host can also test Gifts directly */}
-          <button
-            onClick={() => setIsGiftDrawerOpen(true)}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-amber-500 via-pink-600 to-purple-600 text-white shadow-[0_0_15px_rgba(236,72,153,0.5)] active:scale-90 transition"
-            title="Test Luxury Gifts"
-          >
-            <Gift className="h-4 w-4" />
-          </button>
 
           <button
             onClick={() => setIsMicMuted((prev) => !prev)}
@@ -3293,17 +3371,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           </button>
 
           <button
-            onClick={() => setIsCamOff((prev) => !prev)}
-            className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
-              isCamOff
-                ? 'bg-red-600/90 border-red-400 text-white'
-                : 'bg-black/60 border-white/15 text-white'
-            }`}
-          >
-            {isCamOff ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
-          </button>
-
-          <button
             onClick={() =>
               setFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
             }
@@ -3313,65 +3380,102 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             <RefreshCw className="h-4 w-4" />
           </button>
 
-          <button
-            onClick={() => setBeautyMode((prev) => !prev)}
-            className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
-              beautyMode
-                ? 'bg-pink-600 border-pink-400 text-white shadow-[0_0_12px_rgba(236,72,153,0.6)]'
-                : 'bg-black/60 border-white/15 text-white'
-            }`}
-          >
-            <Sparkles className="h-4 w-4" />
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowHostMoreMenu(!showHostMoreMenu)}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-white transition hover:bg-white/10"
+            >
+              <MoreVertical className="h-5 w-5" />
+            </button>
 
-          <button
-            onClick={handleClearChat}
-            className="rounded-full bg-orange-600/90 hover:bg-orange-600 border border-orange-400/40 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white shadow-lg active:scale-95 transition"
-          >
-            Clear
-          </button>
-          <button
-            onClick={async () => {
-              const newLockedState = !isRoomLocked;
-              setIsRoomLocked(newLockedState);
-              if (currentStreamDbId || currentStream?.id) {
-                try {
-                  await supabase.from('rooms').update({ is_locked: newLockedState }).eq('id', currentStreamDbId || currentStream?.id);
-                  await dispatchArenaPacket({ type: 'LOCK_CHAT', locked: newLockedState });
-                  toast.success(newLockedState ? 'Room locked' : 'Room unlocked');
-                } catch (e) {
-                  console.error(e);
-                }
-              }
-            }}
-            className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
-              isRoomLocked
-                ? 'bg-red-600/90 border-red-400 text-white'
-                : 'bg-black/60 border-white/15 text-white'
-            }`}
-            title="Lock Room"
-          >
-            🔒
-          </button>
+            <AnimatePresence>
+              {showHostMoreMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute bottom-14 right-0 flex flex-col gap-2 p-2 rounded-2xl bg-[#111116]/95 backdrop-blur-xl border border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] min-w-[180px] z-[9999]"
+                >
+                  <button
+                    onClick={async () => {
+                      const newLockedState = !isRoomLocked;
+                      setIsRoomLocked(newLockedState);
+                      if (currentStreamDbId || currentStream?.id) {
+                        try {
+                          await supabase.from('rooms').update({ is_locked: newLockedState }).eq('id', currentStreamDbId || currentStream?.id);
+                          await dispatchArenaPacket({ type: 'LOCK_CHAT', locked: newLockedState });
+                          toast.success(newLockedState ? 'Room locked' : 'Room unlocked');
+                        } catch (e) {
+                          console.error(e);
+                        }
+                      }
+                      setShowHostMoreMenu(false);
+                    }}
+                    className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl transition ${isRoomLocked ? 'bg-red-500/20 text-red-400' : 'hover:bg-white/10 text-white'}`}
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span className="text-sm font-semibold">{isRoomLocked ? 'Unlock Chat' : 'Lock Chat'}</span>
+                  </button>
 
-          <button
-            onClick={() => setIsAudioBoostEnabled(!isAudioBoostEnabled)}
-            className={`flex items-center justify-center rounded-full backdrop-blur-xl border transition px-3 py-1.5 ${
-              isAudioBoostEnabled
-                ? 'bg-emerald-600/90 border-emerald-400 text-white shadow-[0_0_12px_rgba(16,185,129,0.6)]'
-                : 'bg-black/60 border-white/15 text-white/70'
-            }`}
-            title="Audio Boost Engine"
-          >
-            <span className="text-xs font-black uppercase">🎙️ Boost: {isAudioBoostEnabled ? 'ON' : 'OFF'}</span>
-          </button>
+                  <button
+                    onClick={() => {
+              const newVal = !isAudioBoostEnabled;
+              setIsAudioBoostEnabled(newVal);
+                      setShowHostMoreMenu(false);
+                    }}
+                    className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl transition ${isAudioBoostEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-white/10 text-white'}`}
+                  >
+                    <Volume2 className="w-4 h-4" />
+                    <span className="text-sm font-semibold">Audio Boost: {isAudioBoostEnabled ? 'ON' : 'OFF'}</span>
+                  </button>
 
-          <button
-            onClick={handleEndOrLeaveStream}
-            className="rounded-full bg-red-600/90 hover:bg-red-600 border border-red-400/40 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white shadow-lg active:scale-95 transition"
-          >
-            End
-          </button>
+                  <button
+                    onClick={() => {
+                      setBeautyMode(!beautyMode);
+                      setShowHostMoreMenu(false);
+                    }}
+                    className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl transition ${beautyMode ? 'bg-pink-500/20 text-pink-400' : 'hover:bg-white/10 text-white'}`}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span className="text-sm font-semibold">Voice Effect / Studio FX</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsCamOff(!isCamOff);
+                      setShowHostMoreMenu(false);
+                    }}
+                    className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl transition hover:bg-white/10 text-white`}
+                  >
+                    {isCamOff ? <CameraOff className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
+                    <span className="text-sm font-semibold">Camera Toggle / Screenshot</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      handleClearChat();
+                      setShowHostMoreMenu(false);
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-2 rounded-xl hover:bg-orange-500/20 text-orange-400 transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span className="text-sm font-semibold">Clear Chat</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsGiftDrawerOpen(true);
+                      setShowHostMoreMenu(false);
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-2 rounded-xl hover:bg-amber-500/20 text-amber-400 transition"
+                  >
+                    <Gift className="w-4 h-4" />
+                    <span className="text-sm font-semibold">Gifts Drawer</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       )}
 
@@ -3415,17 +3519,28 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
                     if (newMutedState) {
                       setMutedUserIds((prev) => new Set(prev).add(selectedViewerForAction.userId));
-                      toast.success(`🔇 Muted @${selectedViewerForAction.username} for this live stream`);
+                      toast.success(`🔇 Muted @${selectedViewerForAction.username} from chat`);
                     } else {
                       setMutedUserIds((prev) => { const next = new Set(prev); next.delete(selectedViewerForAction.userId); return next; });
                       toast.success(`🔊 Unmuted @${selectedViewerForAction.username}`);
                     }
 
-                    // Need to match the EXACT broadcast request
+                    // Dispatch via LiveKit and Supabase Realtime
+                    dispatchArenaPacket({
+                      type: 'MUTE_VIEWER',
+                      targetUserId: selectedViewerForAction.userId,
+                      targetUsername: selectedViewerForAction.username,
+                      isMuted: newMutedState
+                    });
+
                     dispatchArenaPacket({
                       type: 'broadcast',
-                      event: 'mute_user',
-                      payload: { targetUserId: selectedViewerForAction.userId, muted: newMutedState }
+                      event: 'mute_viewer',
+                      payload: {
+                        targetUserId: selectedViewerForAction.userId,
+                        targetUsername: selectedViewerForAction.username,
+                        isMuted: newMutedState
+                      }
                     });
 
                     setSelectedViewerForAction(null);
@@ -3452,21 +3567,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   <Flag className="w-5 h-5 text-red-500" />
                   <span className="text-white font-bold text-sm">🚩 Report Viewer</span>
                 </button>
-
-
                 <button
-                  onClick={() => { dispatchArenaPacket({ type: 'MUTE_USER', targetUserId: selectedViewerForAction.userId }); setSelectedViewerForAction(null); toast.success('Viewer Muted'); }}
-                  className="w-full mb-2 flex items-center gap-3 px-4 py-3.5 bg-zinc-900 rounded-xl hover:bg-zinc-800 transition active:scale-[0.98]"
-                >
-                  <span className="text-orange-400 font-bold text-sm">🔇 Mute User</span>
-                </button>
-                <button
-                  onClick={() => { setReportModalTarget(selectedViewerForAction); setSelectedViewerForAction(null); }}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 bg-zinc-900 rounded-xl hover:bg-zinc-800 transition active:scale-[0.98]"
-                >
-                  <span className="text-red-500 font-bold text-sm">🚩 Report User</span>
-                </button>
-<button
                   onClick={() => setSelectedViewerForAction(null)}
                   className="w-full mt-2 py-3 rounded-xl bg-white/5 text-white/70 text-sm font-bold hover:bg-white/10"
                 >
