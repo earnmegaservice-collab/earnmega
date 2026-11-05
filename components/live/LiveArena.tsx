@@ -1099,9 +1099,8 @@ function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
       <div className="relative h-full w-full bg-[#070709] overflow-hidden">
         <VideoTrack
           trackRef={remoteTrack as any}
-          className={`h-full w-full object-cover transition-all duration-500 ${
-            beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
-          }`}
+          className={`h-full w-full object-cover transition-all duration-500 ${beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''}`}
+          style={{ transform: "translateZ(0)" }}
         />
       </div>
     );
@@ -1305,17 +1304,24 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       }
       switch (packet.type) {
         case 'LIVE_LIKE': {
+          const delta = packet.delta || 1;
+          const nextTotal = likeCount + delta;
+          setLikeCount(nextTotal);
+          for (let i=0; i<delta; i++) spawnVisualHeartOnly();
           if (role === 'host') {
-            const nextTotal = likeCount + (packet.delta || 1);
-            setLikeCount(nextTotal);
-            for (let i=0; i<(packet.delta || 1); i++) spawnVisualHeartOnly();
             dispatchArenaPacket({ type: 'LIKE_SYNC', authoritativeLikes: nextTotal });
           }
           break;
         }
         case 'LIKE_SYNC': {
           if (role === 'viewer') {
-            setLikeCount((prev) => Math.max(prev, packet.authoritativeLikes || prev));
+            setLikeCount((prev) => {
+              const diff = (packet.authoritativeLikes || prev) - prev;
+              if (diff > 0) {
+                for (let i=0; i<Math.min(diff, 10); i++) spawnVisualHeartOnly(); // Catch up visuals safely
+              }
+              return Math.max(prev, packet.authoritativeLikes || prev);
+            });
           }
           break;
         }
@@ -2764,8 +2770,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       {/* 1B. LIVEKIT CLOUD HD VIDEO & 48KHZ STUDIO AUDIO ROOM */}
       {livekitToken ? (
         <LiveKitRoom
-          video={false}
-          audio={{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }}
+          video={{ resolution: { width: 1280, height: 720, frameRate: 30 } }}
+          audio={{ echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 }}
           options={{
             adaptiveStream: false,
             dynacast: false,
@@ -2814,7 +2820,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             onPacketReceived={handleIncomingArenaPacket}
           />
           {role === 'viewer' && <ViewerVideoStage beautyMode={beautyMode} />}
-          <RoomAudioRenderer volume={1.0} />
+          <RoomAudioRenderer volume={isAudioBoostEnabled ? 2.5 : 1.0} />
         </LiveKitRoom>
       ) : (
         role === 'viewer' && (
@@ -3119,12 +3125,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             onSubmit={(e) => {
               if (isMutedByHost) {
                 e.preventDefault();
-                toast.error("🚫 Host muted you! You cannot send messages during this live stream.", { style: { background: '#333', color: '#fff' }});
+                toast.error("You have been muted by the host for this live stream", { style: { background: '#333', color: '#fff' }});
                 return;
               }
               if (isRoomLocked) {
                 e.preventDefault();
-                toast.error("🔒 Chat is currently locked by the host.", { style: { background: '#333', color: '#fff' }});
+                toast.error("Host locked chat", { style: { background: '#333', color: '#fff' }});
                 return;
               }
               handleSendComment(e);
@@ -3134,7 +3140,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔒 You have been muted by the host" : (isRoomLocked ? "🔒 Chat is currently locked by the host." : "Say something nice...")} disabled={isMutedByHost || isRoomLocked}
+              placeholder={isMutedByHost ? "🔒 You have been muted by the host for this live stream" : (isRoomLocked ? "Host locked chat" : "Say something nice...")} disabled={isMutedByHost || isRoomLocked}
               className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-10 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:border-pink-500/60 focus:outline-none"
             />
             {commentInput.trim() && (
@@ -3236,12 +3242,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             onSubmit={(e) => {
               if (isMutedByHost) {
                 e.preventDefault();
-                toast.error("🚫 Host muted you! You cannot send messages during this live stream.", { style: { background: '#333', color: '#fff' }});
-                return;
-              }
-              if (isRoomLocked) {
-                e.preventDefault();
-                toast.error("🔒 Chat is currently locked by the host.", { style: { background: '#333', color: '#fff' }});
+                toast.error("You have been muted by the host for this live stream", { style: { background: '#333', color: '#fff' }});
                 return;
               }
               handleSendComment(e);
@@ -3251,7 +3252,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔒 You have been muted by the host" : "Chat with your viewers..."} disabled={isMutedByHost}
+              placeholder={isMutedByHost ? "🔒 You have been muted by the host for this live stream" : "Chat with your viewers..."} disabled={isMutedByHost}
               className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-9 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:outline-none"
             />
             {commentInput.trim() && (
