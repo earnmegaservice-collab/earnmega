@@ -35,7 +35,7 @@ export function SmartInstallBanner() {
           className="fixed bottom-4 left-4 right-4 z-50 bg-black/80 backdrop-blur-3xl border border-white/10 rounded-2xl p-4 shadow-[0_0_40px_rgba(255,255,255,0.1)]"
         >
           <div className="flex justify-between items-start mb-2">
-            <h3 className="text-white font-bold text-lg">Install EarnMega</h3>
+            <h3 className="text-white font-bold text-lg">Install HorPal</h3>
             <button
               onClick={handleDismiss}
               className="text-white/50 hover:text-white transition-colors"

@@ -60,7 +60,7 @@ self.addEventListener('push', function(event) {
        };
 
        event.waitUntil(
-           self.registration.showNotification(data.title || 'EarnMega', options).then(() => {
+           self.registration.showNotification(data.title || 'HorPal', options).then(() => {
                return clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
                    clientList.forEach(client => {
                        client.postMessage({

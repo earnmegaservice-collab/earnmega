@@ -12,7 +12,7 @@ import { useAuth } from '../../context/AuthContext';
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
 const NotificationDrawer = dynamic(() => import("../../components/notifications/NotificationDrawer"), { ssr: false });
 
-export default function EarnmegaWalletHeader() {
+export default function HorPalWalletHeader() {
   const { user } = useAuth();
   const { balance, subscriptionTier } = useWallet();
   const [isStoreOpen, setIsStoreOpen] = useState(false);

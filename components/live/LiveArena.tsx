@@ -147,7 +147,7 @@ export const LUXURY_GIFT_CATALOG: GiftTierItem[] = [
   },
   {
     id: 'universe_5000',
-    name: 'The EarnMega Universe',
+    name: 'The HorPal Universe',
     icon: '🌌',
     coins: 5000,
     tier: 'universe',
@@ -397,7 +397,7 @@ const GiftUniverseAnimation = ({ activeMega, universeFlash }: { activeMega: any,
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-yellow-200/20 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
           <Crown className="w-10 h-10 text-yellow-400 mb-2 drop-shadow-[0_0_10px_rgba(255,215,0,0.8)]" />
           <h2 className="text-xl md:text-2xl font-black bg-gradient-to-b from-yellow-100 via-yellow-400 to-yellow-600 bg-clip-text text-transparent uppercase tracking-wider text-center">
-            @{activeMega?.sender_username} GIFTED THE EARNMEGA UNIVERSE!
+            @{activeMega?.sender_username} GIFTED THE HORPAL UNIVERSE!
           </h2>
         </motion.div>
       </div>
@@ -804,7 +804,7 @@ const MasterLiveGiftOverlay = forwardRef<
         {isRocket && activeMega && <GiftRocketAnimation activeMega={activeMega} />}
       </AnimatePresence>
 
-      {/* TRACK B (5000 COINS): EARNMEGA UNIVERSE FULL-SCREEN CINEMATIC TAKEOVER */}
+      {/* TRACK B (5000 COINS): HORPAL UNIVERSE FULL-SCREEN CINEMATIC TAKEOVER */}
       <AnimatePresence>
         {isUniverse && activeMega && <GiftUniverseAnimation activeMega={activeMega} universeFlash={universeFlash} />}
       </AnimatePresence>
@@ -1131,7 +1131,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     currentUser || {
       id: 'default-user-id',
       username: 'MegaCreator',
-      avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=EarnMega',
+      avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=HorPal',
       coin_balance: 50000
     }
   );
@@ -1602,9 +1602,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       setComments([
         {
           id: 'welcome-sys',
-          username: 'EarnMega AI',
+          username: 'HorPal AI',
           content:
-            'Welcome to EarnMega Live Arena! Tap gifts to test animations for FREE or request the mic to speak.',
+            'Welcome to HorPal Live Arena! Tap gifts to test animations for FREE or request the mic to speak.',
           is_system: true
         }
       ]);
@@ -2125,7 +2125,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             username: profile.username || 'MegaUser',
             avatar_url:
               profile.avatar_url ||
-              'https://api.dicebear.com/7.x/avataaars/svg?seed=EarnMega',
+              'https://api.dicebear.com/7.x/avataaars/svg?seed=HorPal',
             coin_balance:
               typeof profile.coin_balance === 'number'
                 ? profile.coin_balance
@@ -2509,7 +2509,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               </div>
               <h2 className="text-lg font-extrabold text-white">No Active Streams</h2>
               <p className="mt-1 max-w-xs text-xs text-white/50">
-                Be the first creator to go live right now and command the entire EarnMega stage.
+                Be the first creator to go live right now and command the entire HorPal stage.
               </p>
               <button
                 onClick={() => setStage('setup')}
@@ -3234,7 +3234,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               if (navigator.share) {
                 navigator
                   .share({
-                    title: currentStream?.title || 'EarnMega Live',
+                    title: currentStream?.title || 'HorPal Live',
                     url: window.location.href
                   })
                   .catch(() => {});
@@ -3564,7 +3564,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                       });
 
                       if (reportModalTarget !== 'live') {
-                         toast.success("✅ Report sent to EarnMega Trust & Safety via Email");
+                         toast.success("✅ Report sent to HorPal Trust & Safety via Email");
                          // Optional auto mute
                          if (!mutedUserIds.has(reportModalTarget.userId)) {
                            setMutedUserIds((prev) => new Set(prev).add(reportModalTarget.userId));
@@ -3622,7 +3622,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 <div className="flex items-center gap-2">
                   <Zap className="h-4 w-4 text-amber-400" />
                   <h3 className="text-sm font-black uppercase tracking-wider text-white">
-                    EarnMega Luxury Gifts (Free Test Mode)
+                    HorPal Luxury Gifts (Free Test Mode)
                   </h3>
                 </div>
                 <div className="flex items-center gap-3">

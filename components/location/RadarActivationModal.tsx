@@ -118,7 +118,7 @@ export function RadarActivationModal() {
 
             <h2 className="text-2xl font-bold text-white tracking-tight mb-3 relative z-10">Activate Global Radar</h2>
             <p className="text-sm text-white/60 mb-8 leading-relaxed relative z-10">
-              Connect with the EarnMega network and discover opportunities in your city.
+              Connect with the HorPal network and discover opportunities in your city.
             </p>
 
             <div className="w-full space-y-3 relative z-10">

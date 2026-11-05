@@ -71,7 +71,7 @@ export function SpatialRadarModal() {
               Initialize Spatial Radar
             </h2>
             <p className="text-sm text-white/60 mb-8 leading-relaxed relative z-10 font-light">
-              Allow EarnMega to pinpoint your global coordinates to unlock the local hub and display your live city to the network.
+              Allow HorPal to pinpoint your global coordinates to unlock the local hub and display your live city to the network.
             </p>
 
             <div className="w-full space-y-3 relative z-10">

@@ -28,8 +28,8 @@
   <circle cx="256" cy="256" r="160" fill="none" stroke="url(#gold)" stroke-width="2" opacity="0.3" stroke-dasharray="10 10"/>
 
   <!-- The "EM" Monogram -->
-  <text x="50%" y="54%" font-family="system-ui, -apple-system, sans-serif" font-size="160" font-weight="900" fill="url(#gold)" text-anchor="middle" dominant-baseline="middle" filter="url(#glow)" letter-spacing="-5">EM</text>
+  <text x="50%" y="54%" font-family="system-ui, -apple-system, sans-serif" font-size="160" font-weight="900" fill="url(#gold)" text-anchor="middle" dominant-baseline="middle" filter="url(#glow)" letter-spacing="-5">HP</text>
 
   <!-- Premium Subtitle -->
-  <text x="50%" y="78%" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#a3a3a3" text-anchor="middle" letter-spacing="14">EARNMEGA</text>
+  <text x="50%" y="78%" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#a3a3a3" text-anchor="middle" letter-spacing="14">HORPAL</text>
 </svg>

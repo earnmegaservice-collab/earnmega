@@ -49,10 +49,10 @@ export function PwaInstallPrompt() {
         >
           <div className="flex items-center gap-4 max-w-md mx-auto">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px] shadow-lg flex-shrink-0">
-              <img src="/icon-192x192.png" alt="EarnMega" className="w-full h-full rounded-xl object-cover" />
+              <img src="/icon-192x192.png" alt="HorPal" className="w-full h-full rounded-xl object-cover" />
             </div>
             <div className="flex-1">
-              <h3 className="text-white font-bold text-lg">Install EarnMega</h3>
+              <h3 className="text-white font-bold text-lg">Install HorPal</h3>
               <p className="text-neutral-400 text-xs">Add to home screen for full-screen view, push notifications, and faster speeds.</p>
             </div>
             <button

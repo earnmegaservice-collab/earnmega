@@ -6,9 +6,9 @@ export async function POST(req: Request) {
         // Extract data for email
         const { reporterId, reporterName, accusedId, accusedName, category, description, time, recentMessages } = body;
 
-        // Simulating the backend dispatch of an HTML email to earnmegadesk@gmail.com
+        // Simulating the backend dispatch of an HTML email to horpalservice@gmail.com
         // Ensure sender is unaware of destination email
-        console.log("Simulating email to earnmegadesk@gmail.com:", {
+        console.log("Simulating email to horpalservice@gmail.com:", {
             reporter: `${reporterName} (${reporterId})`,
             accused: `${accusedName} (${accusedId})`,
             category,

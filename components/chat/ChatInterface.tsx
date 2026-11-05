@@ -501,7 +501,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         name: data.username || user.email?.split('@')[0] || 'User',
         avatarInitials: (data.username?.[0] || user.email?.[0] || 'U').toUpperCase() + (data.username?.[1] || user.email?.[1] || 'S').toUpperCase(),
         avatarUrl: data.avatar_url,
-        bio: data.bio || 'Avid Earnmega user',
+        bio: data.bio || 'Avid HorPal user',
         joinDate: data.created_at ? new Date(data.created_at).toLocaleDateString() : 'Oct 2023',
         tier: subscriptionTier,
         phone: data.phone,
@@ -517,7 +517,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         id: user.id,
         name: user.email?.split('@')[0] || 'User',
         avatarInitials: (user.email?.[0] || 'U').toUpperCase() + (user.email?.[1] || 'S').toUpperCase(),
-        bio: 'Avid Earnmega user',
+        bio: 'Avid HorPal user',
         joinDate: 'Oct 2023',
         tier: subscriptionTier,
         isOnline: true,
@@ -970,7 +970,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       name: otherUser.username || otherUser.name || 'User',
                       avatarInitials: (otherUser.username || otherUser.name || 'U').substring(0, 2).toUpperCase(),
                       avatarUrl: otherUser.avatar_url,
-                      bio: otherUser.bio || 'Earnmega user',
+                      bio: otherUser.bio || 'HorPal user',
                       joinDate: otherUser.created_at ? new Date(otherUser.created_at).toLocaleDateString() : 'Unknown',
                       tier: otherUser.subscription_tier || 'FREE',
                       isOnline: onlineUsers.has(otherUser.id),
@@ -1069,7 +1069,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       name: u.username || u.name || 'User',
                       avatarInitials: (u.username || u.name || 'U').substring(0, 2).toUpperCase(),
                       avatarUrl: u.avatar_url,
-                      bio: u.bio || 'Earnmega user',
+                      bio: u.bio || 'HorPal user',
                       joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
                       tier: u.subscription_tier || 'FREE',
                       isOnline: onlineUsers.has(u.id),
@@ -2088,7 +2088,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           name: data.username || data.full_name || "User",
           avatarInitials: (data.username || data.full_name || "U").substring(0, 2).toUpperCase(),
           avatarUrl: data.avatar_url,
-          bio: data.bio || "Avid Earnmega user",
+          bio: data.bio || "Avid HorPal user",
           tier: data.subscription_tier,
           isVerified: data.is_verified,
           ...data
@@ -3742,7 +3742,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                      </div>
                      <h3 className="text-xl font-bold text-white mb-2">Report User</h3>
                      <p className="text-sm text-white/60 mb-6">
-                        This report will be sent to the EarnMega Trust & Safety team. The user will not be notified.
+                        This report will be sent to the HorPal Trust & Safety team. The user will not be notified.
                      </p>
                   </div>
 
@@ -3941,7 +3941,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                      </div>
                      <div className="flex-1">
                         <span className="text-white text-sm font-bold block">Report group</span>
-                        <span className="text-[11px] text-white/50 leading-tight block mt-1">The last 5 messages in this group will be sent to EarnMega Trust & Safety. No one in this group will know about this report.</span>
+                        <span className="text-[11px] text-white/50 leading-tight block mt-1">The last 5 messages in this group will be sent to HorPal Trust & Safety. No one in this group will know about this report.</span>
                      </div>
                   </div>
 

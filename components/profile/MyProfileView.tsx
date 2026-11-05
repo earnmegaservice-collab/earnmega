@@ -504,7 +504,7 @@ export default function MyProfileView({
                 <Crown size={14} className="text-amber-400" /> About {username}
               </span>
               <p className="text-2xl sm:text-3xl font-black text-white leading-snug tracking-tight">
-                {mappedProfile.bio || 'Living life on the EarnMega stage. Tap Edit Profile to add your bio.'}
+                {mappedProfile.bio || 'Living life on the HorPal stage. Tap Edit Profile to add your bio.'}
               </p>
             </div>
           </div>
@@ -589,7 +589,7 @@ export default function MyProfileView({
           <div className="p-5 bg-gradient-to-r from-amber-500/15 via-fuchsia-500/15 to-indigo-500/15 rounded-3xl border border-amber-400/30 backdrop-blur-xl shadow-[0_15px_40px_rgba(0,0,0,0.6)] flex items-center justify-between">
             <div>
               <span className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-300 block mb-1">
-                EarnMega Membership
+                HorPal Membership
               </span>
               <h3 className="text-2xl font-black text-white tracking-tight">
                 {mappedProfile.tier} Member
