@@ -84,7 +84,7 @@ self.addEventListener('push', function(event) {
         requireInteraction: false,
         data: { url: '/' }
       };
-      event.waitUntil(self.registration.showNotification('EarnMega', options));
+      event.waitUntil(self.registration.showNotification('HorPal', options));
     } catch (err) {
       console.error('Error parsing push data', e);
     }
@@ -118,11 +118,11 @@ self.addEventListener('notificationclick', function(event) {
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    self.registration.showNotification(event.data.title || 'EarnMega', {
+    self.registration.showNotification(event.data.title || 'HorPal', {
        body: event.data.body || 'You have a new notification',
        icon: '/favicon.ico',
        badge: '/favicon.ico',
-       tag: event.data.tag || 'hubpal-notif-' + Date.now(),
+       tag: event.data.tag || 'horpal-notif-' + Date.now(),
        renotify: true,
        silent: false,
        vibrate: [200, 100, 200],
