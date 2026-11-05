@@ -36,7 +36,7 @@ export const DevicePermissionsModal: React.FC<DevicePermissionsModalProps> = ({ 
 
         <h2 className="text-2xl font-bold text-white mb-3 tracking-tight">Permission Vault</h2>
         <p className="text-sm text-white/70 mb-8 leading-relaxed">
-          To provide a studio-grade 4K calling experience, EarnMega requires access to your camera and microphone.
+          To provide a studio-grade 4K calling experience, HorPal requires access to your camera and microphone.
         </p>
 
         <div className="w-full space-y-3">

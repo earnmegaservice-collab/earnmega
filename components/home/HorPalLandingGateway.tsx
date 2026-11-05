@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Volume2, VolumeX, Lock, ChevronLeft, ChevronRight } from 'lucide-react';
 
-interface EarnMegaLandingGatewayProps {
+interface HorPalLandingGatewayProps {
   onEnterPillar1: () => void;
 }
 
@@ -13,7 +13,7 @@ const carouselSlides = [
     type: 'video',
     url: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/promo.mp4',
     badge: 'OFFICIAL PLATFORM PROMO',
-    headline: 'Welcome to EarnMega — Where Real Connections Turn Into Real Value',
+    headline: 'Welcome to HorPal — Where Real Connections Turn Into Real Value',
     subtitle: 'Experience HD live streaming, verified social discovery, VIP communities, and instant creator rewards.',
   },
   {
@@ -33,13 +33,13 @@ const carouselSlides = [
   {
     type: 'image',
     url: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/file_00000000006082438fdf286c8d7920d7.png',
-    badge: 'THE EARNMEGA ECOSYSTEM',
+    badge: 'THE HORPAL ECOSYSTEM',
     headline: 'One Elite Platform. Two Powerful Wealth & Social Pillars.',
     subtitle: 'Built with enterprise AI and dedicated human staff to deliver a world-class experience.',
   },
 ];
 
-export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ onEnterPillar1 }) => {
+export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEnterPillar1 }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isVideoMuted, setIsVideoMuted] = useState(true);
   const [touchStart, setTouchStart] = useState(0);
@@ -80,10 +80,10 @@ export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.3)]">
-              <span className="text-black font-black text-lg tracking-tighter">EM</span>
+              <span className="text-black font-black text-lg tracking-tighter">HP</span>
             </div>
             <span className="text-xl font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-amber-200 via-white to-white/70 hidden sm:block">
-              EARNMEGA
+              HORPAL
             </span>
           </div>
           <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10">
@@ -210,7 +210,7 @@ export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ 
       {/* 4. DUAL-PILLAR COMMAND DECK */}
       <section id="pillars" className="py-24 px-4 md:px-8 max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-4xl sm:text-5xl font-black mb-4">Choose Your EarnMega Pillar</h2>
+          <h2 className="text-4xl sm:text-5xl font-black mb-4">Choose Your HorPal Pillar</h2>
           <p className="text-white/60 text-lg">One elite platform. Two powerful paths to social and financial growth.</p>
         </div>
 
@@ -293,7 +293,7 @@ export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ 
           <div className="text-center mb-16">
             <h2 className="text-3xl sm:text-5xl font-black mb-6">Built for Quality, Powered by Paid AI & Real Human Workers.</h2>
             <p className="text-white/60 text-lg max-w-3xl mx-auto leading-relaxed">
-              Unlike free apps that sell your data, flood your screen with ads, and leave you talking to bots, EarnMega uses your small entry fee to fund real intelligence, real human staff, and real creator payouts.
+              Unlike free apps that sell your data, flood your screen with ads, and leave you talking to bots, HorPal uses your small entry fee to fund real intelligence, real human staff, and real creator payouts.
             </p>
           </div>
 
@@ -301,7 +301,7 @@ export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ 
             {[
               {
                 title: "Enterprise AI Compute (High-Quality Answers 24/7)",
-                desc: "We pay directly for top-tier commercial AI models and neural servers so that every question you ask inside EarnMega is answered instantly, accurately, and in extraordinary quality—with zero daily limits or generic responses.",
+                desc: "We pay directly for top-tier commercial AI models and neural servers so that every question you ask inside HorPal is answered instantly, accurately, and in extraordinary quality—with zero daily limits or generic responses.",
                 icon: "🧠", color: "from-blue-500/20 to-purple-500/20"
               },
               {
@@ -381,7 +381,7 @@ export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ 
       <section id="faq" className="py-24 bg-zinc-950 px-4 md:px-8">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-5xl font-black mb-4">Why EarnMega Beats Ordinary Free Social Apps</h2>
+            <h2 className="text-3xl sm:text-5xl font-black mb-4">Why HorPal Beats Ordinary Free Social Apps</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-20">
@@ -400,12 +400,12 @@ export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ 
               </ul>
             </div>
 
-            {/* EarnMega */}
+            {/* HorPal */}
             <div className="p-8 rounded-3xl bg-gradient-to-b from-amber-500/10 to-transparent border border-amber-500/30 relative overflow-hidden">
               <div className="absolute top-0 right-0 px-4 py-1 bg-amber-500 text-black text-[10px] font-black tracking-widest rounded-bl-xl">ELITE STANDARD</div>
               <h3 className="text-xl font-bold text-amber-400 mb-6 flex items-center gap-2">
                 <span className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center">✓</span>
-                EarnMega Pillar 1
+                HorPal Pillar 1
               </h3>
               <ul className="space-y-4">
                 {['100% Verified Real Members', 'Paid Human Workers & 24/7 Moderators', 'Paid Premium AI Answering Every Question', 'Direct Live & Chat Earning System'].map((item, i) => (
@@ -421,7 +421,7 @@ export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ 
           <div className="space-y-4 mb-20">
             {[
               {
-                q: "Why do I pay a small entry fee to join EarnMega?",
+                q: "Why do I pay a small entry fee to join HorPal?",
                 a: "Your entry fee directly funds our high-speed global servers, our paid premium AI that answers your questions 24/7 without limits, and our real human workers who moderate and support the community. This paid gate also immediately blocks bots, scammers, and time-wasters, ensuring 100% of the people you meet are real and verified."
               },
               {
@@ -455,7 +455,7 @@ export const EarnMegaLandingGateway: React.FC<EarnMegaLandingGatewayProps> = ({ 
       </section>
 
       <footer className="py-8 text-center border-t border-white/5 text-white/40 text-sm">
-        <p>&copy; {new Date().getFullYear()} EarnMega. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} HorPal. All rights reserved.</p>
       </footer>
     </div>
   );

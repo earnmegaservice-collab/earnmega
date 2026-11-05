@@ -114,7 +114,7 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
               name: u.username || 'Unknown User',
               avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
               avatarUrl: u.avatar_url,
-              bio: u.bio || 'Earnmega user',
+              bio: u.bio || 'HorPal user',
               joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
               tier: 'FREE', // Default fallback
               isOnline: true,

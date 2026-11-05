@@ -20,9 +20,9 @@ export async function POST(request: Request) {
       : '<em>No chat context provided</em>';
 
     const { data: emailData, error } = await resend.emails.send({
-      from: 'EarnMega Trust & Safety <reports@resend.dev>', // Use a verified domain in production
+      from: 'HorPal Trust & Safety <reports@resend.dev>', // Use a verified domain in production
       to: [REPORT_ADMIN_EMAIL],
-      subject: `🚨 ${reportType} - EarnMega Live`,
+      subject: `🚨 ${reportType} - HorPal Live`,
       html: `
         <h2>${reportType}</h2>
 

@@ -140,7 +140,7 @@ export async function submitUserReport(formData: FormData) {
 
     const emailHtmlBody = `
       <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #09090b; color: #f4f4f5; padding: 40px; border-radius: 8px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #27272a;">
-        <h1 style="color: #fbbf24; margin-bottom: 24px; border-bottom: 1px solid #3f3f46; padding-bottom: 12px; font-weight: 800; letter-spacing: -0.5px;">🚨 EarnMega Trust & Safety Alert</h1>
+        <h1 style="color: #fbbf24; margin-bottom: 24px; border-bottom: 1px solid #3f3f46; padding-bottom: 12px; font-weight: 800; letter-spacing: -0.5px;">🚨 HorPal Trust & Safety Alert</h1>
 
         <div style="margin-bottom: 24px;">
           <h3 style="color: #ef4444; text-transform: uppercase; letter-spacing: 1px; font-size: 14px; margin-bottom: 12px;">🔴 Reported User (Target):</h3>
@@ -178,7 +178,7 @@ export async function submitUserReport(formData: FormData) {
     await resend.emails.send({
       from: 'trust-pipeline@resend.dev',
       to: adminEmail,
-      subject: `[EarnMega Trust & Safety] New Report against User ${reportedUserId}`,
+      subject: `[HorPal Trust & Safety] New Report against User ${reportedUserId}`,
       html: emailHtmlBody,
     });
 

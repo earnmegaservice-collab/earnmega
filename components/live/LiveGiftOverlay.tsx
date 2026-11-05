@@ -851,7 +851,7 @@ export default function LiveGiftOverlay({
       </AnimatePresence>
 
       {/* ====================================================================
-          TRACK B (5,000 COINS): THE EARNMEGA UNIVERSE SOVEREIGN SINGULARITY
+          TRACK B (5,000 COINS): THE HORPAL UNIVERSE SOVEREIGN SINGULARITY
          ==================================================================== */}
       <AnimatePresence>
         {isUniverseActive && activeMega && (
@@ -876,7 +876,7 @@ export default function LiveGiftOverlay({
             >
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.35em] text-amber-300/90">
                 <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                EARNMEGA CELESTIAL SOVEREIGN BROADCAST
+                HORPAL CELESTIAL SOVEREIGN BROADCAST
                 <Sparkles className="h-3.5 w-3.5 text-amber-400" />
               </div>
             </motion.div>
@@ -984,7 +984,7 @@ export default function LiveGiftOverlay({
                 </h2>
 
                 <p className="mt-1 text-xs font-bold uppercase tracking-widest text-white/90">
-                  Summoned <span className="text-amber-300">The EarnMega Universe</span>
+                  Summoned <span className="text-amber-300">The HorPal Universe</span>
                 </p>
 
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-500/25 via-yellow-400/25 to-amber-500/25 border border-amber-300/60 px-5 py-1.5 shadow-[0_0_25px_rgba(251,191,36,0.4)]">

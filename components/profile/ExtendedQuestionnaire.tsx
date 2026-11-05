@@ -18,7 +18,7 @@ const STEPS = [
     ]
   },
   {
-    title: 'EarnMega Intent & Vibe',
+    title: 'HorPal Intent & Vibe',
     fields: [
       { key: 'intent', label: 'Primary Intent', options: ['Earning Rewards', 'Networking & Business', 'Content Creation', 'Building Communities', 'Making Friends', 'Exploring the Hub'] },
       { key: 'vibe', label: 'Personality Vibe', options: ['Introvert', 'Extrovert', 'Ambivert', 'Observer'] },

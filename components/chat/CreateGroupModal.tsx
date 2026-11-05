@@ -44,7 +44,7 @@ export default function CreateGroupModal({ isOpen, onClose, userId, onGroupCreat
                         name: u.username || u.name || 'User',
                         avatarInitials: (u.username || u.name || 'U').substring(0, 2).toUpperCase(),
                         avatarUrl: u.avatar_url,
-                        bio: u.bio || 'Earnmega user',
+                        bio: u.bio || 'HorPal user',
                         joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
                         tier: u.subscription_tier || 'FREE',
                         isOnline: false,

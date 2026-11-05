@@ -10,13 +10,23 @@ import { PwaInstallPrompt } from "../components/PwaInstallPrompt";
 import { ServiceWorkerRegister } from "../components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
-  title: "EarnMega",
-  description: "EarnMega",
+  openGraph: {
+    title: "HorPal — Make Friends, Go Live & Earn | horpal.com",
+    description: "HorPal",
+    url: "https://horpal.com",
+    siteName: "HorPal"
+  },
+  twitter: {
+    title: "HorPal — Make Friends, Go Live & Earn | horpal.com",
+    description: "HorPal"
+  },
+  title: "HorPal — Make Friends, Go Live & Earn | horpal.com",
+  description: "HorPal",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "EarnMega",
+    title: "HorPal — Make Friends, Go Live & Earn | horpal.com",
   },
   icons: {
     icon: "/icon.svg",

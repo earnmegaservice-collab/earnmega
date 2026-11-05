@@ -355,7 +355,7 @@ export default function GroupInfoDrawer({
           username,
           avatarInitials: displayName.substring(0, 2).toUpperCase(),
           avatarUrl: u.avatar_url || (Array.isArray(u.images) && u.images[0]) || undefined,
-          bio: u.bio || 'Available on EarnMega',
+          bio: u.bio || 'Available on HorPal',
           joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Member',
           tier: u.subscription_tier || 'FREE',
           isOnline: Boolean(u.is_online),
@@ -1596,7 +1596,7 @@ export default function GroupInfoDrawer({
               <div className="p-4 space-y-3 flex-1 overflow-y-auto">
                 <input
                   type="text"
-                  placeholder="Search EarnMega users by name or @username..."
+                  placeholder="Search HorPal users by name or @username..."
                   value={candidateQuery}
                   onChange={(e) => setCandidateQuery(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-white/40 focus:outline-none focus:border-fuchsia-500"

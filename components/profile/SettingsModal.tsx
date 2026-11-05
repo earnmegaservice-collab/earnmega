@@ -355,7 +355,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
             <div>
                <h4 className="text-sm font-bold text-white mb-2">Rules & Regulations</h4>
                <p className="text-xs text-white/60 mb-4 leading-relaxed">
-                 By using EarnMega, you agree to adhere to our community standards, fostering a safe and respectful environment.
+                 By using HorPal, you agree to adhere to our community standards, fostering a safe and respectful environment.
                </p>
                <a
                  href="https://drive.google.com/drive/folders/1ucsTJMPzgUVWj5dqeSyyBAgXVpWztXT6"
@@ -438,7 +438,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
             <h3 className="text-xs font-black tracking-[0.2em] text-gray-500 uppercase mb-4">24/7 Concierge</h3>
             <div className="space-y-4">
               <a
-                href="mailto:earnmegadesk@gmail.com"
+                href="mailto:horpalservice@gmail.com"
                 className="flex items-center justify-between w-full p-4 bg-[#111] hover:bg-[#1a1a1a] border border-white/5 rounded-xl transition-all group"
               >
                 <div className="flex items-center space-x-3">
@@ -447,7 +447,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                   </div>
                   <div className="text-left">
                     <h4 className="text-sm font-bold text-white">Email Support</h4>
-                    <p className="text-[10px] text-white/50">earnmegadesk@gmail.com</p>
+                    <p className="text-[10px] text-white/50">horpalservice@gmail.com</p>
                   </div>
                 </div>
                 <ExternalLink size={16} className="text-white/30 group-hover:text-white/70 transition-colors" />

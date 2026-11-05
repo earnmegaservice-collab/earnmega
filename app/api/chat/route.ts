@@ -14,8 +14,8 @@ export async function POST(req: Request) {
     }
 
     const systemPrompt = botType === 'help'
-      ? 'You are EarnMega 24/7 AI Concierge Support. Be concise, helpful, and friendly.'
-      : 'You are a witty, engaging, loyal AI Friend on EarnMega. Keep responses natural, warm, and conversational.';
+      ? 'You are HorPal 24/7 AI Concierge Support. Be concise, helpful, and friendly.'
+      : 'You are a witty, engaging, loyal AI Friend on HorPal. Keep responses natural, warm, and conversational.';
 
     const { text } = await generateText({
       model: openai('gpt-4o-mini'),

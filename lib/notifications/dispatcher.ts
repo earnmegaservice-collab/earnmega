@@ -19,7 +19,7 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 // Safely initialize web-push if keys are available
 if (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
-    'mailto:support@earnmega.com',
+    'mailto:horpalservice@gmail.com',
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
   );

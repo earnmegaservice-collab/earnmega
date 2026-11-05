@@ -752,7 +752,7 @@ export default function ChatList({
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">Report User</h3>
                 <p className="text-sm text-white/60 mb-6">
-                  This report will be sent to the EarnMega Trust & Safety team.
+                  This report will be sent to the HorPal Trust & Safety team.
                 </p>
               </div>
 

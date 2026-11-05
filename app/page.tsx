@@ -8,7 +8,7 @@ import { countries } from 'countries-list';
 import ChatInterface from '../components/chat/ChatInterface';
 import { AppShell } from '../components/layout/AppShell';
 import { ErrorBoundary } from '../components/ErrorBoundary';
-import { EarnMegaLandingGateway } from '../components/home/EarnMegaLandingGateway';
+import { HorPalLandingGateway } from '../components/home/HorPalLandingGateway';
 import { RadarActivationModal } from '../components/location/RadarActivationModal';
 import { useWallet } from '../context/WalletContext';
 import dynamic from 'next/dynamic';
@@ -219,7 +219,7 @@ if (!hasMounted) {
   }
 
   if (showGateway) {
-    return <EarnMegaLandingGateway onEnterPillar1={() => setShowGateway(false)} />;
+    return <HorPalLandingGateway onEnterPillar1={() => setShowGateway(false)} />;
   }
 
   if (isGateLoading || isLoading) {
@@ -252,7 +252,7 @@ if (!hasMounted) {
           EM
         </div>
 
-        <h1 className="text-3xl font-bold tracking-tight mb-2 z-10">Earnmega</h1>
+        <h1 className="text-3xl font-bold tracking-tight mb-2 z-10">HorPal</h1>
         <p className="text-sm text-zinc-400 mb-8 max-w-xs z-10">
           Global social hub. Real-time chat, secure connections, and rewarding experiences.
         </p>
@@ -307,7 +307,7 @@ if (!hasMounted) {
               </motion.button>
 
               <button type="button" onClick={() => { setStep(step === 'login' ? 'register' : 'login'); setToast(null); }} className="w-full text-sm text-zinc-400 hover:text-white transition-colors">
-                {step === 'login' ? "New to Earnmega? Create an account" : "Already have an account? Sign In"}
+                {step === 'login' ? "New to HorPal? Create an account" : "Already have an account? Sign In"}
               </button>
             </div>
           </motion.div>

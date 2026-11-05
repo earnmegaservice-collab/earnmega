@@ -194,10 +194,10 @@ export const AppShell: React.FC<AppShellProps> = ({
               className="flex items-center space-x-2 cursor-pointer group"
             >
               <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.4)] group-hover:scale-105 transition-transform">
-                <span className="text-black font-black text-sm tracking-tighter">EM</span>
+                <span className="text-black font-black text-sm tracking-tighter">HP</span>
               </div>
               <span className="text-lg font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-white/60">
-                EARNMEGA
+                HORPAL
               </span>
             </button>
             <button
