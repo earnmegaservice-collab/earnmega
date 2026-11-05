@@ -163,6 +163,10 @@ export default function GroupInfoDrawer({
     if (groupAvatar) setDisplayGroupAvatar(groupAvatar);
   }, [groupAvatar]);
 
+  useEffect(() => {
+     if (isOpen) fetchRoomInfo();
+  }, [isOpen, groupId]);
+
   // Fetch Group Metadata across chat_groups, rooms, and conversations
   const fetchRoomInfo = async () => {
     if (!groupId) return;
@@ -559,22 +563,30 @@ export default function GroupInfoDrawer({
 
     const uploadTask = async () => {
       let publicUrl = '';
-      const { error: avatarErr } = await supabase.storage.from('avatars').upload(fileName, file, { upsert: true });
-      if (!avatarErr) {
-        publicUrl = supabase.storage.from('avatars').getPublicUrl(fileName).data.publicUrl;
-      } else {
-        const { error: attachErr } = await supabase.storage.from('chat-attachments').upload(fileName, file, { upsert: true });
-        if (attachErr) throw attachErr;
-        publicUrl = supabase.storage.from('chat-attachments').getPublicUrl(fileName).data.publicUrl;
+      try {
+        const { error: avatarErr } = await supabase.storage.from('public-assets').upload('group-avatars/' + fileName, file, { upsert: true });
+        if (!avatarErr) {
+          publicUrl = supabase.storage.from('public-assets').getPublicUrl('group-avatars/' + fileName).data.publicUrl;
+        } else {
+          throw avatarErr;
+        }
+      } catch (e) {
+          // Fallback to Data URL if storage bucket fails
+          const reader = new FileReader();
+          publicUrl = await new Promise((resolve) => {
+              reader.onload = (e) => resolve(e.target?.result as string);
+              reader.readAsDataURL(file);
+          });
       }
 
-      await supabase.from('chat_groups').update({ icon_url: publicUrl, avatar_url: publicUrl }).eq('id', groupId);
-      await supabase.from('rooms').update({ avatar_url: publicUrl }).eq('id', groupId);
-      await supabase.from('conversations').update({ avatar_url: publicUrl }).eq('id', groupId);
+      try { await supabase.from('chat_groups').update({ icon_url: publicUrl, avatar_url: publicUrl }).eq('id', groupId); } catch(e){}
+      try { await supabase.from('rooms').update({ avatar_url: publicUrl, icon_url: publicUrl }).eq('id', groupId); } catch(e){}
+      try { await supabase.from('conversations').update({ avatar_url: publicUrl }).eq('id', groupId); } catch(e){}
 
       await saveGroupSettings({ groupId, ...permissions, avatar_url: publicUrl, name: displayGroupName, invite_code: inviteLink?.split('/').pop(), updated_at: Date.now() }, effectiveUserId);
 
       setDisplayGroupAvatar(publicUrl);
+      localStorage.setItem(`earnmega_group_avatar_${groupId}`, publicUrl);
       await fireSystemMessage(`${currentActorName} changed the group icon`, 'group_icon_changed');
       onGroupUpdated?.();
     };
@@ -851,7 +863,7 @@ export default function GroupInfoDrawer({
   const generateInviteLink = async (isReset = false) => {
     try {
       const shortCode = uuidv4().substring(0, 8);
-      const code = `${groupId}__${shortCode}`;
+      const code = groupId;
       await supabase.from('group_invites').insert({
         room_id: groupId,
         created_by: effectiveUserId,
@@ -869,7 +881,7 @@ export default function GroupInfoDrawer({
         toast.success('Invite link generated!');
       }
     } catch (err) {
-      const code = `${groupId}__${uuidv4().substring(0, 8)}`;
+      const code = groupId;
       await saveGroupSettings({ groupId, ...permissions, invite_code: code, name: displayGroupName, avatar_url: displayGroupAvatar, updated_at: Date.now() }, effectiveUserId);
       const fallbackLink = `${window.location.origin}/invite/${code}`;
       setInviteLink(fallbackLink);
