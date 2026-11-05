@@ -58,9 +58,8 @@ import {
 import { supabase } from '../../utils/supabase';
 
 
-const DrawerViewerList = ({ searchTerm, onViewerClick, hostId }: { searchTerm: string, onViewerClick: (v: any) => void, hostId: string }) => {
-  const participants = useParticipants();
-  const filtered = participants.filter((p) => {
+const DrawerViewerList = ({ searchTerm, onViewerClick, hostId, activeParticipants }: { searchTerm: string, onViewerClick: (v: any) => void, hostId: string, activeParticipants: any[] }) => {
+  const filtered = activeParticipants.filter((p) => {
     const id = p.identity || '';
     if (id === hostId || id === `host_${hostId}` || id.includes(hostId)) return false;
     const searchLower = searchTerm.toLowerCase();
@@ -833,6 +832,7 @@ const LiveKitRoomBridge = forwardRef<
     hostId?: string;
     hostUsername?: string;
     onViewerCountChange: (count: number) => void;
+    onParticipantsChange?: (participants: any[]) => void;
     onHostEnded: (duration?: string, peak?: number) => void;
     onPacketReceived: (packet: Record<string, any>) => void;
   }
@@ -847,6 +847,7 @@ const LiveKitRoomBridge = forwardRef<
       hostId,
       hostUsername,
       onViewerCountChange,
+      onParticipantsChange,
       onHostEnded,
       onPacketReceived
     },
@@ -906,7 +907,8 @@ const LiveKitRoomBridge = forwardRef<
         return true;
       });
       onViewerCountChange(viewers.length);
-    }, [participants, hostId, hostUsername, onViewerCountChange]);
+      if (onParticipantsChange) onParticipantsChange(participants);
+    }, [participants, hostId, hostUsername, onViewerCountChange, onParticipantsChange]);
 
     // Host HD 720p/1080p Video Track Publisher (3.0 Mbps, No Simulcast Blur)
     useEffect(() => {
@@ -1197,6 +1199,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // Gift Drawer & Instant Animation Ref
 
   const [showViewersDrawer, setShowViewersDrawer] = useState(false);
+  const [activeParticipants, setActiveParticipants] = useState<any[]>([]);
   const [viewerSearchTerm, setViewerSearchTerm] = useState('');
   const [isAudioBoostEnabled, setIsAudioBoostEnabled] = useState(false);
   const [isRoomLocked, setIsRoomLocked] = useState(false);
@@ -1294,6 +1297,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         return;
       }
 
+      if (packet.type === 'MUTE_USER' && packet.targetUserId === user.id) {
+        setIsMutedByHost(true);
+      }
+      if (packet.type === 'LOCK_CHAT') {
+        setIsRoomLocked(packet.locked);
+      }
       switch (packet.type) {
         case 'LIVE_LIKE': {
           if (role === 'host') {
@@ -2282,37 +2291,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
             try {
               if (isAudioBoostEnabled) {
-                // Audio Boost Processing Graph
-                const streamAudio = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const source = audioContext.createMediaStreamSource(streamAudio);
-                const compressor = audioContext.createDynamicsCompressor();
-                compressor.threshold.value = -24;
-                compressor.knee.value = 30;
-                compressor.ratio.value = 12;
-                compressor.attack.value = 0.003;
-                compressor.release.value = 0.25;
-                const filter = audioContext.createBiquadFilter();
-                filter.type = 'highpass';
-                filter.frequency.value = 80;
-                const gainNode = audioContext.createGain();
-                gainNode.gain.value = 1.5;
-
-                source.connect(filter);
-                filter.connect(compressor);
-                compressor.connect(gainNode);
-
-                const destination = audioContext.createMediaStreamDestination();
-                gainNode.connect(destination);
-                const boostedAudioTrack = destination.stream.getAudioTracks()[0];
-
-                // Remove existing audio tracks to prevent dual track echo
-                stream.getAudioTracks().forEach(track => {
-                    track.stop();
-                    stream.removeTrack(track);
-                });
-
-                stream.addTrack(boostedAudioTrack);
+                // Audio Boost processing removed to prevent feedback loop.
               }
             } catch (err) {
               console.warn("Audio boost failed:", err);
@@ -2786,7 +2765,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       {livekitToken ? (
         <LiveKitRoom
           video={false}
-          audio={false}
+          audio={{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }}
           options={{
             adaptiveStream: false,
             dynacast: false,
@@ -2830,6 +2809,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             hostId={currentStream?.host_id || user.id}
             hostUsername={currentStream?.host_username || user.username}
             onViewerCountChange={handleViewerCountChange}
+            onParticipantsChange={setActiveParticipants}
             onHostEnded={handleHostEnded}
             onPacketReceived={handleIncomingArenaPacket}
           />
@@ -3142,6 +3122,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 toast.error("🚫 Host muted you! You cannot send messages during this live stream.", { style: { background: '#333', color: '#fff' }});
                 return;
               }
+              if (isRoomLocked) {
+                e.preventDefault();
+                toast.error("🔒 Chat is currently locked by the host.", { style: { background: '#333', color: '#fff' }});
+                return;
+              }
               handleSendComment(e);
             }}
             className="relative flex-1">
@@ -3149,7 +3134,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔒 You have been muted by the host" : "Say something nice..."} disabled={isMutedByHost}
+              placeholder={isMutedByHost ? "🔒 You have been muted by the host" : (isRoomLocked ? "🔒 Chat is currently locked by the host." : "Say something nice...")} disabled={isMutedByHost || isRoomLocked}
               className="w-full rounded-full bg-black/55 backdrop-blur-2xl border border-white/15 pl-4 pr-10 py-2.5 text-xs font-medium text-white placeholder-white/50 focus:border-pink-500/60 focus:outline-none"
             />
             {commentInput.trim() && (
@@ -3254,6 +3239,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 toast.error("🚫 Host muted you! You cannot send messages during this live stream.", { style: { background: '#333', color: '#fff' }});
                 return;
               }
+              if (isRoomLocked) {
+                e.preventDefault();
+                toast.error("🔒 Chat is currently locked by the host.", { style: { background: '#333', color: '#fff' }});
+                return;
+              }
               handleSendComment(e);
             }}
             className="relative flex-1">
@@ -3339,6 +3329,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               if (currentStreamDbId || currentStream?.id) {
                 try {
                   await supabase.from('rooms').update({ is_locked: newLockedState }).eq('id', currentStreamDbId || currentStream?.id);
+                  await dispatchArenaPacket({ type: 'LOCK_CHAT', locked: newLockedState });
                   toast.success(newLockedState ? 'Room locked' : 'Room unlocked');
                 } catch (e) {
                   console.error(e);
@@ -3454,7 +3445,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   <span className="text-white font-bold text-sm">🚩 Report Viewer</span>
                 </button>
 
+
                 <button
+                  onClick={() => { dispatchArenaPacket({ type: 'MUTE_USER', targetUserId: selectedViewerForAction.userId }); setSelectedViewerForAction(null); toast.success('Viewer Muted'); }}
+                  className="w-full mb-2 flex items-center gap-3 px-4 py-3.5 bg-zinc-900 rounded-xl hover:bg-zinc-800 transition active:scale-[0.98]"
+                >
+                  <span className="text-orange-400 font-bold text-sm">🔇 Mute User</span>
+                </button>
+                <button
+                  onClick={() => { setReportModalTarget(selectedViewerForAction); setSelectedViewerForAction(null); }}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 bg-zinc-900 rounded-xl hover:bg-zinc-800 transition active:scale-[0.98]"
+                >
+                  <span className="text-red-500 font-bold text-sm">🚩 Report User</span>
+                </button>
+<button
                   onClick={() => setSelectedViewerForAction(null)}
                   className="w-full mt-2 py-3 rounded-xl bg-white/5 text-white/70 text-sm font-bold hover:bg-white/10"
                 >
@@ -3740,7 +3744,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 </div>
                 {/* Viewers list logic (dummy mapping over a custom hook we will write above) */}
                 {/* We'll handle this purely in React using LiveKit Participants */}
-                <DrawerViewerList searchTerm={viewerSearchTerm} onViewerClick={(v) => { if (role === 'host') setSelectedViewerForAction({ userId: v.identity, username: v.name || v.identity, avatar: undefined }); setShowViewersDrawer(false); }} hostId={currentStream?.host_id || user.id} />
+                <DrawerViewerList searchTerm={viewerSearchTerm} onViewerClick={(v) => { if (role === 'host') setSelectedViewerForAction({ userId: v.identity, username: v.name || v.identity, avatar: undefined }); setShowViewersDrawer(false); }} hostId={currentStream?.host_id || user.id} activeParticipants={activeParticipants} />
               </div>
             </motion.div>
           </>
