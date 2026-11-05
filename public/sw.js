@@ -118,12 +118,13 @@ self.addEventListener('notificationclick', function(event) {
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    self.registration.showNotification(event.data.title || 'HubPal', {
+    self.registration.showNotification(event.data.title || 'EarnMega', {
        body: event.data.body || 'You have a new notification',
        icon: '/favicon.ico',
        badge: '/favicon.ico',
        tag: event.data.tag || 'hubpal-notif-' + Date.now(),
        renotify: true,
+       silent: false,
        vibrate: [200, 100, 200],
        data: { url: event.data.url || '/' }
      });
