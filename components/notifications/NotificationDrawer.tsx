@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, BellOff, X, Eye, Radio, Flame, Heart, ShieldCheck, UserPlus, Users, AlertCircle, MessageCircle } from 'lucide-react';
+import { Bell, BellOff, X, Eye, Radio, Flame, Heart, ShieldCheck, UserPlus, Users, AlertCircle, MessageCircle, Trash2 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGlobalNotifications } from '../../context/NotificationContext';
@@ -120,7 +120,7 @@ const getNotificationUI = (type: string) => {
 
 export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boolean, onClose?: () => void }) {
   const { user } = useAuth();
-  const { notifications, unreadCount, markAllAsRead, markAsRead, refreshNotifications, requestPushPermission, permissionStatus } = useGlobalNotifications();
+  const { notifications, unreadCount, markAllAsRead, clearAllNotifications, markAsRead, refreshNotifications, requestPushPermission, permissionStatus } = useGlobalNotifications();
 
   const [isMuted, setIsMuted] = useState(false);
   const isMutedRef = useRef(false);
@@ -137,8 +137,9 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
   useEffect(() => {
     if (isOpen) {
       refreshNotifications?.();
+      markAllAsRead?.();
     }
-  }, [isOpen, refreshNotifications]);
+  }, [isOpen, refreshNotifications, markAllAsRead]);
 
   useEffect(() => {
     if (!user) return;
@@ -176,7 +177,7 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
             animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: -20, scale: 0.95, filter: "blur(10px)" }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="fixed top-16 right-3 left-3 sm:left-auto sm:right-4 sm:w-[360px] max-h-[75vh] overflow-y-auto bg-neutral-950/80 backdrop-blur-[60px] border border-white/10 rounded-[2rem] shadow-[0_40px_100px_rgba(0,0,0,0.9)] z-[9999] p-2 flex flex-col"
+            className="fixed top-16 right-3 left-3 sm:left-auto sm:right-4 sm:w-[360px] max-h-[75vh] bg-neutral-950/80 backdrop-blur-[60px] border border-white/10 rounded-[2rem] shadow-[0_40px_100px_rgba(0,0,0,0.9)] z-[9999] p-2 flex flex-col"
           >
             <div className="flex justify-between items-center px-5 py-4 border-b border-white/5 gap-2">
                <div className="flex items-center gap-2">
@@ -198,6 +199,9 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                     </button>
                   </div>
                   <button onClick={markAllAsRead} className="text-[11px] uppercase tracking-widest text-indigo-400 font-bold hover:text-indigo-300 transition-colors whitespace-nowrap">MARK READ</button>
+                  <button onClick={() => { clearAllNotifications?.(); toast.success('All notifications cleared'); }} className="text-red-400 hover:text-red-300 transition-colors" title="Clear All">
+                     <Trash2 size={13} />
+                  </button>
                   <button onClick={() => onClose?.()} className="text-white/60 hover:text-white flex-shrink-0"><X size={16}/></button>
                </div>
              </div>
@@ -215,7 +219,7 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
             )}
 
             <motion.div
-              className="flex-1 overflow-y-auto p-4 space-y-3"
+              className="flex-1 max-h-[400px] overflow-y-auto p-4 space-y-3"
               variants={{
                 hidden: { opacity: 0 },
                 show: { opacity: 1, transition: { staggerChildren: 0.1 } }
@@ -242,12 +246,18 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                         onClick={() => { markAsRead(notif.id); onClose?.(); }}
                         className={`relative flex items-start gap-4 p-4 rounded-2xl transition-all cursor-pointer bg-zinc-950/80 backdrop-blur-xl border-b border-white/5 overflow-hidden ${!notif.is_read ? 'before:absolute before:left-0 before:w-1 before:h-full before:bg-gradient-to-b before:from-amber-400 before:to-amber-600' : 'hover:bg-white/5'}`}
                       >
-                        <div className={`p-2 rounded-full ${ui.bgClass} flex items-center justify-center z-10`}>
-                          {ui.icon}
+                        <div className={`p-2 rounded-full ${ui.bgClass} flex items-center justify-center z-10 flex-shrink-0`}>
+                          {notif.actor_avatar_url ? (
+                             <img src={notif.actor_avatar_url} alt="" className="w-5 h-5 rounded-full object-cover" />
+                          ) : ui.icon}
                         </div>
-                        <div className="flex flex-col flex-1 z-10">
-                          <span className="text-sm text-zinc-400">
-                            {actorHandle && <span className="text-amber-100 font-semibold tracking-wide mr-1">@{actorHandle}</span>}
+                        <div className="flex flex-col flex-1 z-10 min-w-0">
+                          {notif.title && (
+                             <span className="text-sm text-white font-bold truncate">
+                               {notif.title}
+                             </span>
+                          )}
+                          <span className="text-xs text-zinc-400 break-words mt-0.5">
                             {displayMessage}
                           </span>
                           <span className="text-[10px] text-white/30 font-semibold uppercase tracking-wider mt-2">{new Date(notif.created_at).toLocaleString()}</span>

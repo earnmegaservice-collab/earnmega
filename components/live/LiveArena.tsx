@@ -1586,6 +1586,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     };
     setCurrentStream(activeHostStream);
 
+    // Broadcast LIVE_STARTED over real-time for immediate app-wide notifications
+    const globalChannel = supabase.channel('global-app-notifications');
+    globalChannel.send({
+      type: 'broadcast',
+      event: 'LIVE_STARTED',
+      payload: { hostId: activeUserId }
+    }).catch(() => {});
+
     try {
       const hostIdentity = `host_${activeUserId}`;
       const res = await fetch(

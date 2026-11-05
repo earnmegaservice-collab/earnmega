@@ -481,6 +481,14 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
 
       if (insertError) throw insertError;
 
+      // Broadcast new status to other app clients to update their feeds immediately
+      const channel = supabase.channel('global-app-notifications');
+      channel.send({
+        type: 'broadcast',
+        event: 'STATUS_POSTED',
+        payload: { userId: user.id }
+      }).catch(() => {});
+
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([15, 30, 15]);
       toast.success('4K Status Published!', { id: toastId });
       await fetchStatuses();
