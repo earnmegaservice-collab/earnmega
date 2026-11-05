@@ -558,6 +558,7 @@ export default function GroupInfoDrawer({
     const fileName = `group-${groupId}-${Date.now()}.${fileExt}`;
 
     const uploadTask = async () => {
+      if (permissions.only_admins_can_edit_info && !isAdminOrOwner) { toast.error('Only admins can edit group info'); return; }
       let publicUrl = '';
       const { error: avatarErr } = await supabase.storage.from('avatars').upload(fileName, file, { upsert: true });
       if (!avatarErr) {

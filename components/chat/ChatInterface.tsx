@@ -874,7 +874,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                             audioUrl: msg.audio_url,
                             isViewOnce: msg.is_view_once,
                             replyToId: msg.reply_to_id,
-                            isSystemMessage: msg.message_type === 'system' || msg.is_system_message || false,
+                            isSystemMessage: msg.message_type === 'system' || msg.is_system_message === true || false,
                             messageType: msg.message_type === 'system' ? 'system' : undefined,
                             systemEventType: msg.system_event_type || null,
                             senderName,
@@ -1125,11 +1125,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         }
 
         if (data && data.length > 0) {
+          const isGroupConfigRow = (text?: string | null) => Boolean(text && text.trim().startsWith('[GROUP_CONFIG_JSON]'));
           const formattedMessages: Message[] = data.filter(msg => {
              if (currentClearedAt) {
                  const msgTime = new Date(msg.created_at);
                  if (msgTime < currentClearedAt) return false;
              }
+             if (isGroupConfigRow(msg.content || msg.text)) return false;
              return true;
           }).map(msg => {
             let text = msg.content || '';
@@ -1167,7 +1169,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               replyToId,
               replyToSender,
               replyToText,
-              isSystemMessage: msg.message_type === 'system' || msg.is_system_message || false,
+              isSystemMessage: msg.message_type === 'system' || msg.is_system_message === true || false,
               messageType: msg.message_type === 'system' ? 'system' : undefined,
               systemEventType: msg.system_event_type || null,
               senderName,
@@ -2010,7 +2012,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -2022,27 +2024,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       return;
     }
 
-    const isVideo = typeof file.type === 'string' && (file.type.startsWith('video/') || /\.(mp4|mov|webm|mkv|m4v|avi)$/i.test(file.name));
-
-    if (isVideo) {
-        setMediaPreviewUrl(URL.createObjectURL(file));
-        setMediaFile(file);
-        setMediaCaption('');
-    } else {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-        if (event.target?.result) {
-            setMediaPreviewUrl(event.target.result as string);
-            setMediaFile(file);
-            setMediaCaption('');
-        }
-    };
-    reader.readAsDataURL(file);
-    }
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    await uploadMediaFile(file, file.type.startsWith('video/') ? 'video' : 'image', file.name);
   };
 
   const handleMediaSend = async () => {
@@ -3537,7 +3520,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             )}
           </div>
         </form>
-      )}
+          )}
+
         <p className="text-center text-[10px] text-gray-600 mt-2 font-medium tracking-wide">
           Double-tap a message to react
         </p>
