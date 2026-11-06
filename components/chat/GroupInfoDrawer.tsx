@@ -36,6 +36,14 @@ import { saveGroupSettings, fetchGroupSettings } from '../../utils/groupSettings
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 
+export interface GroupPermissionsConfig {
+  onlyAdminsCanSend: boolean;
+  onlyAdminsCanEditInfo: boolean;
+  onlyAdminsCanAddMembers: boolean;
+  approveNewMembers: boolean;
+  updatedAt: number;
+}
+
 export interface GroupInfoDrawerProps {
   isOpen: boolean;
   onClose: () => void;
