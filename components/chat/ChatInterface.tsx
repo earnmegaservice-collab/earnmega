@@ -387,7 +387,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
   useEffect(() => {
     const handleJoinCall = (e: CustomEvent) => {
        if (e.detail && e.detail.roomId) {
-           joinCall(e.detail.roomId, e.detail.type || 'video');
+           joinCall?.(e.detail.roomId, e.detail.type || 'video');
        }
     };
     window.addEventListener('join_call', handleJoinCall as EventListener);
@@ -4313,7 +4313,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }}
           onStartGroupCall={(callType) => {
             setIsGroupInfoDrawerOpen(false);
-            initiateCall(
+            initiateCall?.(
               currentOtherUserProfile.id,
               currentOtherUserProfile.name,
               currentOtherUserProfile.avatarUrl,
