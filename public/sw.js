@@ -8,70 +8,44 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    const payload = event.data.payload || {};
+    const title = payload.title || event.data.title || 'HorPal Alert';
+
+    const options = {
+       body: payload.body || event.data.body || '',
+       icon: payload.icon || '/favicon.ico',
+       badge: payload.badge || '/favicon.ico',
+       tag: (payload.tag || 'horpal-alert') + '-' + Date.now(),
+       renotify: true,
+       silent: false,
+       requireInteraction: true,
+       vibrate: [300, 120, 300, 120, 400],
+       data: payload.data || { url: '/' }
+     };
+
+    event.waitUntil(self.registration.showNotification(title, options));
+  }
+});
+
 self.addEventListener('push', function(event) {
   if (!event.data) return;
   
   try {
     const data = event.data.json();
-    
-    // Check if it's a VoIP Call
-    if (data.type === 'incoming_call') {
-      const options = {
-        body: `${data.callerName} is calling...`,
-        icon: data.callerAvatar || '/icon-192x192.png',
-        badge: '/badge.png',
-        vibrate: [1000, 500, 1000, 500, 1000, 500, 1000], // Heavy VoIP vibration
-        requireInteraction: true, // Notification stays on screen until answered
-        data: {
-          url: data.url || '/',
-          callerId: data.callerId
-        },
-        actions: [
-          { action: 'answer', title: 'Answer Call' },
-          { action: 'decline', title: 'Decline' }
-        ]
-      };
-
-      event.waitUntil(
-        self.registration.showNotification(`Incoming ${data.callType} Call`, options).then(() => {
-           return clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
-             clientList.forEach(client => {
-               client.postMessage({
-                 type: 'PLAY_AUDIO',
-                 payload: 'incoming_call'
-               });
-             });
-           });
-        })
-      );
-    } else {
-       // Other types of push notifications (e.g. stream start)
-       const options = {
-           body: data.body || 'New notification',
-           icon: '/favicon.ico',
-           badge: '/favicon.ico',
-           vibrate: [200, 100, 200],
-           renotify: true,
-           requireInteraction: false,
-           silent: false, // MANDATORY: Overrides silent delivery
-           data: {
-               url: data.url || '/'
-           }
-       };
-
-       event.waitUntil(
-           self.registration.showNotification(data.title || 'HorPal', options).then(() => {
-               return clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
-                   clientList.forEach(client => {
-                       client.postMessage({
-                           type: 'PLAY_AUDIO',
-                           payload: 'default'
-                       });
-                   });
-               });
-           })
-       );
-    }
+    const options = {
+        body: data.body || 'New notification',
+        icon: data.icon || '/favicon.ico',
+        badge: data.badge || '/favicon.ico',
+        tag: (data.tag || 'horpal-alert') + '-' + Date.now(),
+        renotify: true,
+        silent: false,
+        requireInteraction: true,
+        vibrate: [300, 120, 300, 120, 400],
+        data: data.data || { url: '/' }
+    };
+    event.waitUntil(self.registration.showNotification(data.title || 'HorPal', options));
   } catch (e) {
     try {
       const text = event.data.text();
@@ -79,9 +53,11 @@ self.addEventListener('push', function(event) {
         body: text || 'New notification',
         icon: '/favicon.ico',
         badge: '/favicon.ico',
-        vibrate: [200, 100, 200],
+        tag: 'horpal-alert-' + Date.now(),
         renotify: true,
-        requireInteraction: false,
+        silent: false,
+        requireInteraction: true,
+        vibrate: [300, 120, 300, 120, 400],
         data: { url: '/' }
       };
       event.waitUntil(self.registration.showNotification('HorPal', options));
@@ -94,12 +70,6 @@ self.addEventListener('push', function(event) {
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
   
-  if (event.action === 'decline') {
-    // Silently close
-    return;
-  }
-  
-  // If Answer tapped, open the app and route to the call
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
       if (clientList.length > 0) {
@@ -114,19 +84,4 @@ self.addEventListener('notificationclick', function(event) {
       return clients.openWindow(event.notification.data?.url || '/');
     })
   );
-});
-
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    self.registration.showNotification(event.data.title || 'HorPal', {
-       body: event.data.body || 'You have a new notification',
-       icon: '/favicon.ico',
-       badge: '/favicon.ico',
-       tag: event.data.tag || 'horpal-notif-' + Date.now(),
-       renotify: true,
-       silent: false,
-       vibrate: [200, 100, 200],
-       data: { url: event.data.url || '/' }
-     });
-  }
 });
