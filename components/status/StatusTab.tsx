@@ -476,7 +476,9 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
       const { error: insertError } = await supabase.from('statuses').insert({
         user_id: user.id,
         media_url: publicUrl,
-        media_type: isVideo ? 'video' : 'image'
+        media_type: isVideo ? 'video' : 'image',
+        text_content: '',
+        caption: ''
       });
 
       if (insertError) throw insertError;
@@ -726,14 +728,16 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
           {/* --- MY STATUS CARD --- */}
           <motion.div
             whileTap={{ scale: 0.96 }}
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               if (hasMyActiveStatus) {
                 onStatusClick(myStatusGroup.userId, myStatusGroup.statuses, myStatusGroup.profile);
               } else if (!isUploadingStatus) {
                 statusFileInputRef.current?.click();
               }
             }}
-            className="relative bg-gradient-to-b from-[#161922] to-[#090a0f] border border-white/15 hover:border-fuchsia-500/50 rounded-[28px] p-3.5 flex flex-col items-center justify-between shadow-[0_15px_35px_rgba(0,0,0,0.6)] cursor-pointer group aspect-[3/4] overflow-hidden transition-all"
+            className="relative z-50 pointer-events-auto bg-gradient-to-b from-[#161922] to-[#090a0f] border border-white/15 hover:border-fuchsia-500/50 rounded-[28px] p-3.5 flex flex-col items-center justify-between shadow-[0_15px_35px_rgba(0,0,0,0.6)] cursor-pointer group aspect-[3/4] overflow-hidden transition-all"
           >
             {/* Background Media Preview if Active */}
             {hasMyActiveStatus ? (
@@ -857,8 +861,12 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.9 }}
                     transition={{ duration: 0.3, delay: i * 0.04 }}
-                    onClick={() => onStatusClick(group.userId, group.statuses, group.profile)}
-                    className="relative bg-[#090a0f] border border-white/15 hover:border-fuchsia-500/60 rounded-[28px] p-3 flex flex-col items-center justify-between shadow-[0_15px_35px_rgba(0,0,0,0.7)] cursor-pointer group aspect-[3/4] overflow-hidden transition-all"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onStatusClick(group.userId, group.statuses, group.profile);
+                    }}
+                    className="relative z-50 pointer-events-auto bg-[#090a0f] border border-white/15 hover:border-fuchsia-500/60 rounded-[28px] p-3 flex flex-col items-center justify-between shadow-[0_15px_35px_rgba(0,0,0,0.7)] cursor-pointer group aspect-[3/4] overflow-hidden transition-all"
                   >
                     {/* 4K Story Media Preview */}
                     {isVideo ? (
@@ -961,8 +969,12 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                   className="bg-[#11141c]/90 border border-white/10 rounded-2xl p-4 flex items-center justify-between gap-4"
                 >
                   <div
-                    onClick={() => onStatusClick(group.userId, group.statuses, group.profile)}
-                    className="flex items-center gap-3.5 cursor-pointer min-w-0 flex-1"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onStatusClick(group.userId, group.statuses, group.profile);
+                    }}
+                    className="flex items-center gap-3.5 cursor-pointer min-w-0 flex-1 relative z-50 pointer-events-auto"
                   >
                     <div className="w-12 h-12 rounded-full border-2 border-white/20 overflow-hidden bg-black flex-shrink-0 flex items-center justify-center">
                       {avatarSrc ? (
