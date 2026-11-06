@@ -57,6 +57,8 @@ const NotificationContext = createContext<NotificationContextType>({
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [incomingCall, setIncomingCall] = useState<{roomId: string, callerName: string, callerAvatar: string, callType: 'video' | 'audio'} | null>(null);
+  const [outgoingCall, setOutgoingCall] = useState<boolean>(false);
+  const ringbackAudioRef = useRef<HTMLAudioElement | null>(null);
   const ringtoneAudioRef = useRef<HTMLAudioElement | null>(null);
   const [notifications, setNotifications] = useState<GlobalNotification[]>([]);
   const [bellShake, setBellShake] = useState(false);
@@ -147,18 +149,50 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [incomingCall]);
 
   useEffect(() => {
+    if (outgoingCall) {
+       ringbackAudioRef.current = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='); // A valid loopable ringback tone
+       if (ringbackAudioRef.current) {
+          ringbackAudioRef.current.loop = true;
+          ringbackAudioRef.current.play().catch(e => console.error("Audio play error", e));
+       }
+    } else {
+       if (ringbackAudioRef.current) {
+          ringbackAudioRef.current.pause();
+          ringbackAudioRef.current.currentTime = 0;
+       }
+    }
+  }, [outgoingCall]);
+
+  useEffect(() => {
+    const handleOutgoingCall = (e: any) => {
+       if (e.detail && !e.detail.isAccepting) setOutgoingCall(true);
+    };
+    const handleEndCall = () => setOutgoingCall(false);
+    const handleCallConnected = () => setOutgoingCall(false); // Stop ringing when someone answers
+
+    window.addEventListener('horpal:join-call', handleOutgoingCall);
+    window.addEventListener('horpal:end-call', handleEndCall);
+    window.addEventListener('horpal:call-connected', handleCallConnected);
+    return () => {
+      window.removeEventListener('horpal:join-call', handleOutgoingCall);
+      window.removeEventListener('horpal:end-call', handleEndCall);
+      window.removeEventListener('horpal:call-connected', handleCallConnected);
+    };
+  }, []);
+
+  useEffect(() => {
     // Listen to messages from the Service Worker (Block 1)
     const handleMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'ACCEPT_CALL_FROM_OS') {
-        const { roomId, callType } = event.data.data;
+        const { roomId, callType, isAccepting } = event.data.data;
         setIncomingCall(null);
-        window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: { roomId, callType } }));
+        window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: { roomId, callType, isAccepting } }));
       }
     };
-    navigator.serviceWorker.addEventListener('message', handleMessage);
+    navigator.serviceWorker?.addEventListener('message', handleMessage);
 
     return () => {
-      navigator.serviceWorker.removeEventListener('message', handleMessage);
+      navigator.serviceWorker?.removeEventListener('message', handleMessage);
     };
   }, []);
 
@@ -1048,12 +1082,20 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
     const callsChannel = supabase.channel('public:calls')
-      .on(
+            .on(
         'broadcast',
         { event: 'INCOMING_CALL' },
         (payload) => {
-          if (payload.payload.receiverId === user.id) {
+          // Check if user is the direct receiver OR a member of the group room
+          const isDirect = payload.payload.receiverId === user.id;
+          if (isDirect) {
              setIncomingCall(payload.payload);
+          } else if (payload.payload.isGroup) {
+             supabase.from('room_participants').select('user_id').eq('room_id', payload.payload.receiverId).eq('user_id', user.id).then(({data}) => {
+                if (data && data.length > 0) {
+                   setIncomingCall(payload.payload);
+                }
+             });
           }
         }
       )
@@ -1107,7 +1149,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 </button>
                 <button
                   onClick={() => {
-                     const callDetail = incomingCall;
+                     const callDetail = { ...incomingCall, isAccepting: true };
                      setIncomingCall(null);
                      window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: callDetail }));
                   }}

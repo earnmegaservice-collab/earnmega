@@ -48,11 +48,11 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { user } = useAuth();
-  const [activeCall, setActiveCall] = useState<{roomId: string, callType: 'video' | 'audio'} | null>(null);
+  const [activeCall, setActiveCall] = useState<{roomId: string, callType: 'video' | 'audio', isGroup?: boolean} | null>(null);
   useEffect(() => {
     const handleJoinCall = (e: CustomEvent) => {
        if (e.detail && e.detail.roomId) {
-           setActiveCall({ roomId: e.detail.roomId, callType: e.detail.callType || 'video' });
+           setActiveCall({ roomId: e.detail.roomId, callType: e.detail.callType || 'video', isGroup: e.detail.isGroup });
        }
     };
     window.addEventListener('horpal:join-call', handleJoinCall as EventListener);
@@ -345,11 +345,15 @@ export const AppShell: React.FC<AppShellProps> = ({
 
       <HelpBotModal isOpen={isHelpBotOpen} onClose={() => setIsHelpBotOpen(false)} />
 
-      {activeCall && (
+            {activeCall && (
          <CallScreen
             roomId={activeCall.roomId}
             callType={activeCall.callType}
-            onEndCall={() => setActiveCall(null)}
+            isGroup={activeCall.isGroup}
+            onEndCall={() => {
+                setActiveCall(null);
+                window.dispatchEvent(new Event('horpal:end-call'));
+            }}
          />
       )}
     </div>

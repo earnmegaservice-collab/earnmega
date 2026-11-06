@@ -100,7 +100,7 @@ self.addEventListener('notificationclick', function(event) {
         for (const client of clientList) {
           if (client.url === '/' && 'focus' in client) {
             client.focus();
-            client.postMessage({ type: 'ACCEPT_CALL_FROM_OS', data: event.notification.data });
+            client.postMessage({ type: 'ACCEPT_CALL_FROM_OS', data: { ...event.notification.data, isAccepting: true } });
             return;
           }
         }

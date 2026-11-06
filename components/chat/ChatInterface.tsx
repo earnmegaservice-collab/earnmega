@@ -2942,30 +2942,32 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             <>
               <button onClick={() => {
                 if (currentOtherUserProfile) {
-                  const roomId = `call_${uuidv4()}`;
+                  const isGroup = (currentOtherUserProfile as any).isGroup;
+                  const roomId = isGroup ? currentOtherUserProfile.id : `call_${uuidv4()}`;
                   // Broadcast to receivers
                   supabase.channel('public:calls').send({
                      type: 'broadcast',
                      event: 'INCOMING_CALL',
-                     payload: { roomId, callerName: currentUserProfile?.name, callerAvatar: currentUserProfile?.avatarUrl, callType: 'audio', receiverId: currentOtherUserProfile.id }
+                     payload: { roomId, callerName: currentUserProfile?.name, callerAvatar: currentUserProfile?.avatarUrl, callType: 'audio', receiverId: currentOtherUserProfile.id, isGroup }
                   });
                   // Local event
-                  window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: { roomId, callType: 'audio' } }));
+                  window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: { roomId, callType: 'audio', isGroup } }));
                 }
               }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10">
                  <Phone size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
               <button onClick={() => {
                 if (currentOtherUserProfile) {
-                  const roomId = `call_${uuidv4()}`;
+                  const isGroup = (currentOtherUserProfile as any).isGroup;
+                  const roomId = isGroup ? currentOtherUserProfile.id : `call_${uuidv4()}`;
                   // Broadcast to receivers
                   supabase.channel('public:calls').send({
                      type: 'broadcast',
                      event: 'INCOMING_CALL',
-                     payload: { roomId, callerName: currentUserProfile?.name, callerAvatar: currentUserProfile?.avatarUrl, callType: 'video', receiverId: currentOtherUserProfile.id }
+                     payload: { roomId, callerName: currentUserProfile?.name, callerAvatar: currentUserProfile?.avatarUrl, callType: 'video', receiverId: currentOtherUserProfile.id, isGroup }
                   });
                   // Local event
-                  window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: { roomId, callType: 'video' } }));
+                  window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: { roomId, callType: 'video', isGroup } }));
                 }
               }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10">
                  <Video size={20} className="sm:w-[22px] sm:h-[22px]" />
