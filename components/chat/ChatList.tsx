@@ -453,7 +453,8 @@ export default function ChatList({
     const bPinned = pinnedChats.has(b.id);
     if (aPinned && !bPinned) return -1;
     if (!aPinned && bPinned) return 1;
-    return 0;
+    // Fallback to strict chronological order from exploreUsers
+    return (b.lastMessageTime || 0) - (a.lastMessageTime || 0);
   });
 
   return (
