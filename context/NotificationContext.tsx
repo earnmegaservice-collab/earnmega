@@ -60,6 +60,71 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [permissionStatus, setPermissionStatus] = useState<string>('default');
   const [isMuted, setIsMuted] = useState(false);
   const isMutedRef = useRef(false);
+  const chimeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const notifiedIdsRef = useRef<Set<string>>(new Set());
+
+  const buildLoudChimeWavDataUri = () => {
+    // Generate a valid 44.1kHz 16-bit mono PCM WAV Data URI
+    // lasting 0.6 seconds with a crisp two-tone chime
+    // (784Hz for 0.0s-0.18s followed by 1174.66Hz for 0.18s-0.58s at 0.85 amplitude with smooth exponential decay).
+    const sampleRate = 44100;
+    const duration = 0.6;
+    const numSamples = Math.floor(sampleRate * duration);
+    const audioData = new Float32Array(numSamples);
+
+    for (let i = 0; i < numSamples; i++) {
+      const t = i / sampleRate;
+      let val = 0;
+      if (t < 0.18) {
+        val = 0.85 * Math.sin(2 * Math.PI * 784 * t) * Math.exp(-t * 15);
+      } else {
+        val = 0.85 * Math.sin(2 * Math.PI * 1174.66 * (t - 0.18)) * Math.exp(-(t - 0.18) * 10);
+      }
+      audioData[i] = val;
+    }
+
+    const wavBuffer = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(wavBuffer);
+
+    // RIFF chunk descriptor
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + numSamples * 2, true);
+    writeString(view, 8, 'WAVE');
+
+    // fmt sub-chunk
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+
+    // data sub-chunk
+    writeString(view, 36, 'data');
+    view.setUint32(40, numSamples * 2, true);
+
+    // Write audio data
+    let offset = 44;
+    for (let i = 0; i < numSamples; i++, offset += 2) {
+      let s = Math.max(-1, Math.min(1, audioData[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+
+    let binary = '';
+    const bytes = new Uint8Array(wavBuffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return 'data:audio/wav;base64,' + btoa(binary);
+  };
+
+  function writeString(view: DataView, offset: number, string: string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -108,34 +173,23 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if ('Notification' in window) {
       setPermissionStatus(Notification.permission);
     }
+    if (typeof window !== 'undefined' && !chimeAudioRef.current) {
+      chimeAudioRef.current = new Audio(buildLoudChimeWavDataUri());
+      chimeAudioRef.current.volume = 1.0;
+    }
   }, []);
 
-  // Helper for outside-app OS notifications
-  const triggerNativeNotification = async (title: string, body: string, tag?: string) => {
-    // Check if muted via localStorage
+  const playNotificationChime = () => {
     if (isMutedRef.current || (user && localStorage.getItem(`horpal_notif_muted_${user.id}`) === 'true')) return;
 
-    if ('Notification' in window && Notification.permission === 'granted') {
-      try {
-        const swReg = await navigator.serviceWorker.ready;
-        if (swReg) {
-          await swReg.showNotification(title, {
-            body,
-            icon: '/favicon.ico',
-            badge: '/favicon.ico',
-            tag: tag || 'horpal-' + Date.now(),
-            renotify: true,
-            silent: false,
-            requireInteraction: false,
-            vibrate: [250, 100, 250],
-            data: { url: '/' }
-          } as any);
-        } else {
-          new window.Notification(title, { body, icon: '/favicon.ico', tag: tag || 'hubpal-' + Date.now() });
-        }
-      } catch (e) {
-        new window.Notification(title, { body, icon: '/favicon.ico', tag: tag || 'hubpal-' + Date.now() });
-      }
+    if (chimeAudioRef.current) {
+      chimeAudioRef.current.currentTime = 0;
+      chimeAudioRef.current.volume = 1.0;
+      chimeAudioRef.current.play().catch(() => {});
+    }
+
+    if (navigator.vibrate) {
+      navigator.vibrate([300, 120, 300]);
     }
 
     // Play subtle audio if not muted
@@ -170,13 +224,50 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
        gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
        osc2.start(audioContext.currentTime + 0.15);
        osc2.stop(audioContext.currentTime + 0.4);
-    } catch(e) {
-       try {
-         // Valid fallback chime WAV base64
-         const fallbackAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAB/f39/f38=');
-         fallbackAudio.volume = 0.85;
-         fallbackAudio.play().catch(() => {});
-       } catch (fallbackError) {}
+    } catch(e) {}
+  };
+
+  // Helper for outside-app OS notifications
+  const triggerNativeNotification = async (title: string, body: string, tag?: string, iconUrl?: string, dataPayload?: any) => {
+    // Check if muted via localStorage
+    if (isMutedRef.current || (user && localStorage.getItem(`horpal_notif_muted_${user.id}`) === 'true')) return;
+
+    playNotificationChime();
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const uniqueTag = (tag || 'horpal-alert') + '-' + Date.now();
+      try {
+        const swReg = await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.register('/sw.js');
+        if (swReg && swReg.active) {
+          swReg.active.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            payload: {
+              title,
+              body,
+              icon: iconUrl || '/favicon.ico',
+              badge: '/favicon.ico',
+              tag: uniqueTag,
+              data: dataPayload || { url: '/' }
+            }
+          });
+        } else if (swReg) {
+          await swReg.showNotification(title, {
+            body,
+            icon: iconUrl || '/favicon.ico',
+            badge: '/favicon.ico',
+            tag: uniqueTag,
+            renotify: true,
+            silent: false,
+            requireInteraction: true,
+            vibrate: [300, 120, 300, 120, 400],
+            data: dataPayload || { url: '/' }
+          } as any);
+        } else {
+          new window.Notification(title, { body, icon: iconUrl || '/favicon.ico', tag: uniqueTag });
+        }
+      } catch (e) {
+        new window.Notification(title, { body, icon: iconUrl || '/favicon.ico', tag: uniqueTag });
+      }
     }
   };
 
@@ -189,17 +280,30 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       if ('Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission().then(status => setPermissionStatus(status));
       }
+
+      if (chimeAudioRef.current) {
+        chimeAudioRef.current.muted = true;
+        chimeAudioRef.current.play().then(() => {
+          chimeAudioRef.current!.pause();
+          chimeAudioRef.current!.currentTime = 0;
+          chimeAudioRef.current!.muted = false;
+        }).catch(() => {});
+      }
+
       document.removeEventListener('click', requestPerm);
       document.removeEventListener('pointerdown', requestPerm);
+      document.removeEventListener('touchstart', requestPerm);
     };
     if (typeof document !== 'undefined') {
        document.addEventListener('click', requestPerm);
        document.addEventListener('pointerdown', requestPerm);
+       document.addEventListener('touchstart', requestPerm);
     }
     return () => {
       if (typeof document !== 'undefined') {
          document.removeEventListener('click', requestPerm);
          document.removeEventListener('pointerdown', requestPerm);
+         document.removeEventListener('touchstart', requestPerm);
       }
     }
   }, []);
@@ -498,6 +602,129 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
        }
     }, 20000);
 
+    if (user) {
+      const storedAlertedIds = localStorage.getItem('horpal_alerted_status_live_' + user.id);
+      if (storedAlertedIds) {
+        try {
+          notifiedIdsRef.current = new Set(JSON.parse(storedAlertedIds));
+        } catch(e) {}
+      }
+    }
+
+    // Background polling worker
+    const workerBlob = new Blob(["setInterval(() => postMessage('tick'), 7000);"], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(workerBlob));
+
+    const checkAlerts = async () => {
+      if (!user) return;
+      const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
+      const { data: statuses } = await supabase
+        .from('statuses')
+        .select('*')
+        .neq('user_id', user.id)
+        .gte('created_at', fifteenMinsAgo)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (statuses) {
+        for (const status of statuses) {
+          const idKey = 'status-' + status.id;
+          if (!notifiedIdsRef.current.has(idKey)) {
+            notifiedIdsRef.current.add(idKey);
+            localStorage.setItem('horpal_alerted_status_live_' + user.id, JSON.stringify(Array.from(notifiedIdsRef.current)));
+
+            const { data: profile } = await supabase.from('profiles').select('full_name, username, avatar_url').eq('id', status.user_id).single();
+            const posterName = profile?.full_name || profile?.username || 'Someone';
+            const posterAvatar = profile?.avatar_url || undefined;
+
+            const notif: GlobalNotification = {
+              id: idKey,
+              user_id: user.id,
+              actor_id: status.user_id,
+              type: 'STATUS_POSTED',
+              content: status.text_content || status.caption || 'Tap to view their new status update on HorPal',
+              title: `${posterName} updated their status`,
+              is_read: false,
+              created_at: status.created_at || new Date().toISOString()
+            };
+
+            resolveProfilesAndRooms([notif]).then(resolved => {
+              const finalNotif = resolved[0];
+              setNotifications(prev => {
+                const clearedAt = Number(localStorage.getItem(`horpal_notif_cleared_at_${user.id}`) || 0);
+                if (new Date(finalNotif.created_at).getTime() <= clearedAt) return prev;
+                const exists = prev.find(n => n.id === finalNotif.id);
+                if (exists) return prev;
+                return [finalNotif, ...prev].slice(0, 50);
+              });
+              if (!isMutedRef.current) {
+                  setBellShake(true);
+                  setTimeout(() => setBellShake(false), 500);
+              }
+              triggerNativeNotification(posterName + ' updated their status', status.text_content || status.caption || 'Tap to view their new status update on HorPal', 'horpal-status-' + status.id, posterAvatar, { url: '/', type: 'STATUS_POSTED' });
+            });
+          }
+        }
+      }
+
+      const { data: streams } = await supabase
+        .from('live_streams')
+        .select('*')
+        .neq('host_id', user.id)
+        .gte('created_at', fifteenMinsAgo)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (streams) {
+        for (const stream of streams) {
+          if (stream.status === 'ended') continue;
+          const idKey = 'live-' + stream.id;
+          if (!notifiedIdsRef.current.has(idKey)) {
+            notifiedIdsRef.current.add(idKey);
+            localStorage.setItem('horpal_alerted_status_live_' + user.id, JSON.stringify(Array.from(notifiedIdsRef.current)));
+
+            const { data: profile } = await supabase.from('profiles').select('full_name, username, avatar_url').eq('id', stream.host_id).single();
+            const hostName = profile?.full_name || profile?.username || 'Someone';
+            const hostAvatar = profile?.avatar_url || undefined;
+
+            const notif: GlobalNotification = {
+              id: idKey,
+              user_id: user.id,
+              actor_id: stream.host_id,
+              type: 'LIVE_STARTED',
+              content: stream.title || 'Tap to join the live stream now',
+              title: `${hostName} is Live on HorPal!`,
+              is_read: false,
+              created_at: stream.created_at || new Date().toISOString()
+            };
+
+            resolveProfilesAndRooms([notif]).then(resolved => {
+              const finalNotif = resolved[0];
+              setNotifications(prev => {
+                const clearedAt = Number(localStorage.getItem(`horpal_notif_cleared_at_${user.id}`) || 0);
+                if (new Date(finalNotif.created_at).getTime() <= clearedAt) return prev;
+                const exists = prev.find(n => n.id === finalNotif.id);
+                if (exists) return prev;
+                return [finalNotif, ...prev].slice(0, 50);
+              });
+              if (!isMutedRef.current) {
+                  setBellShake(true);
+                  setTimeout(() => setBellShake(false), 500);
+              }
+              triggerNativeNotification(hostName + ' is Live on HorPal!', stream.title || 'Tap to join the live stream now', 'horpal-live-' + stream.id, hostAvatar, { url: '/', type: 'LIVE_STARTED' });
+            });
+          }
+        }
+      }
+    };
+
+    worker.onmessage = (e) => {
+      if (e.data === 'tick') {
+        checkAlerts();
+      }
+    };
+
     const broadcastChannel = supabase.channel('global-app-notifications')
       .on('broadcast', { event: 'status_posted' }, () => {
          fetchNotifications();
@@ -543,12 +770,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               return [finalNotif, ...prev].slice(0, 50);
             });
 
-            if (!isMutedRef.current) {
-                setBellShake(true);
-                setTimeout(() => setBellShake(false), 500);
-            }
-
-            triggerNativeNotification('HorPal Alert', finalNotif.title || 'New status update', `status-${status.id}`);
           });
         }
       )
@@ -587,12 +808,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               return [finalNotif, ...prev].slice(0, 50);
             });
 
-            if (!isMutedRef.current) {
-                setBellShake(true);
-                setTimeout(() => setBellShake(false), 500);
-            }
-
-            triggerNativeNotification('HorPal Live Arena', finalNotif.title || 'Someone is live', `live-${stream.id}`);
           });
         }
       )
@@ -734,6 +949,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', handleVisibilityAndFocus);
       window.removeEventListener('focus', handleVisibilityAndFocus);
       clearInterval(intervalId);
+      worker.terminate();
     };
   }, [user]);
 
