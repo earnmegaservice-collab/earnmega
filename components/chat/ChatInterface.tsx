@@ -466,10 +466,17 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
 
-
-
-
-
+  const [groupPermissions, setGroupPermissions] = useState<{
+    onlyAdminsCanSend: boolean;
+    onlyAdminsCanEditInfo: boolean;
+    onlyAdminsCanAddMembers: boolean;
+    approveNewMembers: boolean;
+  }>({
+    onlyAdminsCanSend: false,
+    onlyAdminsCanEditInfo: false,
+    onlyAdminsCanAddMembers: false,
+    approveNewMembers: false,
+  });
 
   const currentUserProfileRef = useRef(currentUserProfile);
 
@@ -560,6 +567,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [groupDetails, setGroupDetails] = useState<any>(null);
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.room_id);
+
 
   const isAdmin = isGroupChat && groupMembers.some(m => m.user_id === user?.id && (m.role === 'admin' || m.role === 'owner'));
 
@@ -903,6 +911,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     ...otherUserProfile,
     isOnline: onlineUsers.has(otherUserProfile.id)
   } : null;
+
+  const isGroupAdmin = Boolean(
+    isGroupChat && (
+      (currentOtherUserProfile as any)?.created_by === user?.id ||
+      (currentOtherUserProfile as any)?.owner_id === user?.id ||
+      groupMembers.some(m => (m.user_id === user?.id || m.profiles?.id === user?.id) && (m.role === 'admin' || m.role === 'owner'))
+    )
+  );
 
   useEffect(() => {
     if (currentOtherUserProfile === null) {
@@ -1418,8 +1434,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   const [inputValue, setInputValue] = useState('');
   const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
-  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
-  const [activeContextMenuId, setActiveContextMenuId] = useState<string | null>(null);
+    const [activeContextMenuId, setActiveContextMenuId] = useState<string | null>(null);
   const [adminDeleteMessageId, setAdminDeleteMessageId] = useState<string | null>(null);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -2158,10 +2173,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       const publicUrl = finalUrl;
 
+      const msgId = uuidv4();
       const newMessage: Message = {
-        id: uuidv4(),
-        text: '',
-        ...(type === 'image' ? { imageUrl: publicUrl } : { audioUrl: publicUrl }),
+        id: msgId,
+        text: caption || '',
+        imageUrl: (type === 'image' || type === 'video') ? finalUrl : undefined,
+        audioUrl: type === 'audio' ? finalUrl : undefined,
         sender: 'user',
         timestamp: new Date(),
         status: 'sent',
@@ -2196,33 +2213,32 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         channelRef.current?.send({
            type: 'broadcast',
            event: 'new_message',
-           payload: { messageId: newMessage.id, senderId: user.id, receiverId: currentOtherUserProfile.id }
+           payload: {
+             messageId: msgId,
+             id: msgId,
+             senderId: user.id,
+             senderName: currentUserProfile?.name,
+             senderAvatar: currentUserProfile?.avatarUrl,
+             receiverId: isGroupChat ? null : currentOtherUserProfile.id,
+             roomId: isGroupChat ? currentOtherUserProfile.id : null,
+             content: caption || '',
+             imageUrl: (type === 'image' || type === 'video') ? finalUrl : undefined,
+             audioUrl: type === 'audio' ? finalUrl : undefined,
+             createdAt: new Date().toISOString()
+           }
         });
       }
 
       setTimeout(() => {
         setMessages((prev) =>
           prev.map((msg) =>
-            msg.id === newMessage.id ? { ...msg, status: 'delivered' } : msg
+            msg.id === msgId ? { ...msg, status: 'delivered' } : msg
           )
         );
       }, 1000);
     } catch (error) {
       console.error(`Error uploading ${type}:`, error);
-      // Fallback: mock if bucket isn't correctly configured
-      const mockUrl = URL.createObjectURL(file as Blob);
-      const newMessage: Message = {
-        id: uuidv4(),
-        text: '',
-        ...(type === 'image' ? { imageUrl: mockUrl } : { audioUrl: mockUrl }),
-        sender: 'user',
-        timestamp: new Date(),
-        status: 'sent',
-        reactions: [],
-        isViewOnce: type === 'image' ? isViewOnceMode : false,
-        viewedBy: [],
-      };
-      setMessages((prev) => [...prev, newMessage]);
+      toast.error('Failed to upload file');
     } finally {
       setIsUploading(false);
       setIsViewOnceMode(false); // Reset toggle after upload
@@ -3581,78 +3597,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div className="w-full py-4 bg-black/60 backdrop-blur-xl rounded-3xl border border-white/10 relative z-20 text-center text-white/50 text-sm">
           🔒 Only admins can send messages to this group.
         </div>
+      ) : isGroupChat && groupPermissions.onlyAdminsCanSend && !isGroupAdmin ? (
+        <div className="w-full py-3.5 px-4 bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-amber-500/30 text-center text-amber-300 text-xs font-bold tracking-wide flex items-center justify-center gap-2">
+          <Lock className="text-amber-400 shrink-0" size={14} />
+          <span>Only admins can send messages in this group</span>
+        </div>
       ) : (
         <form
           onSubmit={handleSendMessage}
           className="flex items-end bg-white/5 backdrop-blur-2xl border border-white/10 rounded-3xl pr-1.5 pl-4 py-1.5 focus-within:ring-1 focus-within:ring-white/20 transition-shadow shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative z-10"
         >
-          {isGroupChat && (
-            <div className="flex items-center mr-2 mb-0.5 self-end">
-              <motion.button
-                 whileTap={{ scale: 0.9 }}
-                 type="button"
-                 onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
-                 className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-all backdrop-blur-sm shadow-sm ${isAttachmentMenuOpen ? 'bg-fuchsia-600 text-white rotate-45' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 border border-white/5'}`}
-              >
-                 <Plus size={22} className="transition-transform duration-300" />
-              </motion.button>
 
-              <AnimatePresence>
-                {isAttachmentMenuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsAttachmentMenuOpen(false)}></div>
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.9 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                      className="absolute bottom-[60px] left-2 z-[9999] bg-[#050505]/95 backdrop-blur-3xl border border-white/10 rounded-3xl p-3 w-[260px] shadow-[0_20px_40px_rgba(0,0,0,0.9)] flex flex-col gap-1.5"
-                    >
-                      <div className="grid grid-cols-3 gap-2">
-                         <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); fileInputRef.current?.click(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                             <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/30 group-hover:bg-blue-500 group-hover:border-blue-400 transition-all text-blue-400 group-hover:text-white"><ImageIcon size={22}/></div>
-                             <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Photos</span>
-                         </button>
-                         <button type="button" onClick={() => { setIsAttachmentMenuOpen(false); handleCameraClick(); }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                             <div className="w-12 h-12 rounded-full bg-rose-500/20 flex items-center justify-center border border-rose-500/30 group-hover:bg-rose-500 group-hover:border-rose-400 transition-all text-rose-400 group-hover:text-white"><Camera size={22}/></div>
-                             <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Camera</span>
-                         </button>
-                         <button type="button" onClick={() => setIsAttachmentMenuOpen(false)} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                             <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30 group-hover:bg-emerald-500 group-hover:border-emerald-400 transition-all text-emerald-400 group-hover:text-white"><FileText size={22}/></div>
-                             <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Document</span>
-                         </button>
-                         {isGroupChat && (
-                             <>
-                               <button type="button" onClick={() => {
-                                  setIsAttachmentMenuOpen(false);
-                                  const question = window.prompt('Enter Poll Question:');
-                                  if (question && question.trim()) {
-                                    setInputValue(`📊 POLL: ${question.trim()}\n👍 Yes\n👎 No`);
-                                  }
-                               }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                                   <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30 group-hover:bg-purple-500 group-hover:border-purple-400 transition-all text-purple-400 group-hover:text-white"><BarChart2 size={22}/></div>
-                                   <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Poll</span>
-                               </button>
-                               <button type="button" onClick={() => {
-                                  setIsAttachmentMenuOpen(false);
-                                  setInputValue((prev) => (prev.endsWith(" ") || !prev ? `${prev}@` : `${prev} @`));
-                                  inputRef.current?.focus();
-                               }} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl hover:bg-white/5 transition-colors group">
-                                   <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30 group-hover:bg-cyan-500 group-hover:border-cyan-400 transition-all text-cyan-400 group-hover:text-white"><AtSign size={22}/></div>
-                                   <span className="text-[10px] font-bold text-white/70 group-hover:text-white">Mention</span>
-                               </button>
-                             </>
-                         )}
-                      </div>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
 
           <input
             type="file"
-            accept="image/*,video/*,video/mp4,video/webm,video/quicktime"
+            accept="image/*,video/mp4,video/webm,video/quicktime,video/*"
             ref={fileInputRef}
             onChange={handleFileUpload}
             className="hidden"
