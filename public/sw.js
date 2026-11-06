@@ -34,6 +34,30 @@ self.addEventListener('push', function(event) {
   
   try {
     const data = event.data.json();
+
+    // Custom INCOMING_CALL handling
+    if (data.type === 'INCOMING_CALL' || (data.data && data.data.type === 'INCOMING_CALL')) {
+      const callData = data.type === 'INCOMING_CALL' ? data : data.data;
+      const callerName = callData.callerName || 'Someone';
+      const callType = callData.callType || 'video';
+      const roomId = callData.roomId;
+
+      const title = callType === 'video' ? `📹 Incoming Video Call from ${callerName}` : `📞 Incoming Voice Call from ${callerName}`;
+      event.waitUntil(
+        self.registration.showNotification(title, {
+          body: 'Tap to answer',
+          icon: '/icon-192x192.png',
+          tag: 'horpal-incoming-call',
+          renotify: true,
+          requireInteraction: true,
+          silent: false, // Force OS sound
+          vibrate: [500, 1000, 500, 1000, 500, 1000, 500], // Aggressive ringing vibration
+          data: { url: '/', roomId, type: 'INCOMING_CALL', callType }
+        })
+      );
+      return;
+    }
+
     const options = {
         body: data.body || 'New notification',
         icon: data.icon || '/favicon.ico',
@@ -69,6 +93,22 @@ self.addEventListener('push', function(event) {
 
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
+
+  if (event.notification.data && event.notification.data.type === 'INCOMING_CALL') {
+    event.waitUntil(
+      clients.matchAll({ type: 'window' }).then((clientList) => {
+        for (const client of clientList) {
+          if (client.url === '/' && 'focus' in client) {
+            client.focus();
+            client.postMessage({ type: 'ACCEPT_CALL_FROM_OS', data: event.notification.data });
+            return;
+          }
+        }
+        if (clients.openWindow) return clients.openWindow('/');
+      })
+    );
+    return;
+  }
   
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
