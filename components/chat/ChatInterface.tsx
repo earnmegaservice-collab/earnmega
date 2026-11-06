@@ -2120,13 +2120,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const uploadMediaFile = async (file: File | Blob, type: 'image' | 'audio' | 'video', caption?: string, originalName?: string) => {
     setIsUploading(true);
     try {
-      let fileName;
+      let fileExt = 'jpg';
       if (originalName) {
-        const fileExt = originalName.split('.').pop() || (type === 'audio' ? 'webm' : type === 'video' ? 'mp4' : 'jpg');
-        fileName = `${uuidv4()}.${fileExt}`;
+        fileExt = originalName.split('.').pop() || fileExt;
       } else {
-        fileName = `${uuidv4()}.${type === 'audio' ? 'webm' : type === 'video' ? 'mp4' : 'jpg'}`;
+        if (type === 'audio') fileExt = 'webm';
+        if (type === 'video') fileExt = 'mp4';
       }
+      let fileName = `${uuidv4()}.${fileExt}`;
 
       const filePath = `${fileName}`;
 
@@ -2195,7 +2196,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            id: newMessage.id,
            sender_id: user.id,
            content: caption || (type === 'video' ? '[VIDEO]' : '[IMAGE]'),
-           image_url: (type === 'image' || type === 'video') ? (type === 'video' && !publicUrl.includes('#video') ? publicUrl + '#video' : publicUrl) : null,
+           image_url: type === 'video' ? publicUrl + '#video' : (type === 'image' ? publicUrl : null),
            audio_url: type === 'audio' ? publicUrl : null,
            ...(isGroup ? { room_id: currentOtherUserProfile.id } : { receiver_id: currentOtherUserProfile.id })
         };
@@ -3049,6 +3050,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div className="absolute inset-0 bg-black/40 pointer-events-none z-0"></div>
 
         {messages.filter(m => !m.hiddenFor?.includes(user?.id || '')).map((message) => {
+          const isVideo = message.imageUrl?.includes('#video') || message.imageUrl?.match(/\.(mp4|webm|ogg)$/i);
           const msgText = typeof message?.text === 'string' ? message.text : typeof (message as any)?.content === 'string' ? (message as any).content : '';
 
           if (message.isSystemMessage || (msgText && msgText.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
@@ -3417,13 +3419,23 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            )
                         ) : (
                           <>
-                            <motion.img
-                              layoutId={`image-${message.imageUrl}`}
-                              src={message.imageUrl}
-                              alt="Uploaded media"
-                              className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
-                            />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                            {isVideo ? (
+                              <video
+                                src={message.imageUrl}
+                                controls
+                                playsInline
+                                className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <motion.img
+                                layoutId={`image-${message.imageUrl}`}
+                                src={message.imageUrl}
+                                alt="Uploaded media"
+                                className="max-w-[200px] w-full rounded-xl object-cover transition-transform duration-500 group-hover:scale-105"
+                              />
+                            )}
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
                           </>
                         )}
                       </div>
