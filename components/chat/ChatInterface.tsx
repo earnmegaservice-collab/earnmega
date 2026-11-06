@@ -1099,14 +1099,62 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }
 
           // 5. Unify and Sort WhatsApp Style (newest activity at the absolute top)
+
+          // 4.5 Fetch missing chat partners from recent activity
+          let localActivity2: Record<string, {text: string, timestamp: number}> = {};
+          try {
+             const actStr = localStorage.getItem('horpal_chat_activity_' + user.id);
+             if (actStr) localActivity2 = JSON.parse(actStr);
+          } catch(e) {}
+
+          const existingIds = new Set([...roomsFormatted.map(r => r.id), ...formattedProfiles.map(p => p.id)]);
+          const missingIds = Object.keys(localActivity2).filter(id => !existingIds.has(id));
+
+          if (missingIds.length > 0) {
+             const { data: missingProfiles } = await supabase
+                .from('profiles')
+                .select('*')
+                .in('id', missingIds);
+
+             if (missingProfiles) {
+                 const newFormatted = missingProfiles.map(u => ({
+                      id: u.id,
+                      name: u.username || u.name || 'User',
+                      avatarInitials: (u.username || u.name || 'U').substring(0, 2).toUpperCase(),
+                      avatarUrl: u.avatar_url,
+                      bio: u.bio || 'HorPal user',
+                      joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
+                      tier: u.subscription_tier || 'FREE',
+                      isOnline: onlineUsers.has(u.id),
+                      coinsGifted: u.coins_gifted || 0,
+                      isSelf: false,
+                      unreadCount: 0,
+                      lastMessageTime: 0,
+                      isVerified: u.is_verified || false
+                 }));
+                 formattedProfiles.push(...newFormatted);
+             }
+          }
+
           let allUsers = [...roomsFormatted, ...formattedProfiles];
+
+          let localActivity: Record<string, {text: string, timestamp: number}> = {};
+          try {
+             const actStr = localStorage.getItem('horpal_chat_activity_' + user.id);
+             if (actStr) localActivity = JSON.parse(actStr);
+          } catch(e) {}
 
           allUsers = allUsers.map(u => {
              const stats = statsMap.get(u.id);
-             if (stats) {
-               return { ...u, unreadCount: stats.unreadCount, lastMessageTime: stats.lastMessageTime };
+             const unreadCount = stats ? stats.unreadCount : 0;
+             let lastMessageTime = stats ? stats.lastMessageTime : 0;
+
+             // Merge with local activity if newer
+             if (localActivity[u.id] && localActivity[u.id].timestamp > lastMessageTime) {
+                lastMessageTime = localActivity[u.id].timestamp;
              }
-             return u;
+
+             return { ...u, unreadCount, lastMessageTime };
           });
 
           // Sort strictly by lastMessageTime DESCENDING
@@ -1129,7 +1177,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     async function fetchMessages() {
       if (!currentOtherUserProfile || !user) return;
       setIsLoadingMessages(true);
-      setMessages([]); // Clear stale messages
+
+      const cached = loadCachedChatMessages(user.id, currentOtherUserProfile.id);
+      if (cached.length > 0) {
+          setMessages(cached);
+      } else {
+          setMessages([]); // Clear stale messages if no cache
+      }
+
       try {
         let query = supabase.from('messages').select('*');
 
@@ -1234,7 +1289,31 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
              }
           }
 
-          setMessages(formattedMessages);
+
+
+          // Load deleted IDs
+          let deletedIds: string[] = [];
+          try {
+             deletedIds = JSON.parse(localStorage.getItem(`horpal_deleted_msgs_${user.id}`) || '[]');
+          } catch(e) {}
+
+          // Merge with cache (Deduplicate by ID or identical sender+text within 10s)
+          const merged = [...cached];
+          formattedMessages.forEach(fm => {
+             if (deletedIds.includes(fm.id) || fm.isDeleted) return; // Skip deleted
+
+             const isDuplicate = merged.some(m =>
+                 m.id === fm.id ||
+                 (m.senderId === fm.senderId && m.text === fm.text && Math.abs(m.timestamp.getTime() - fm.timestamp.getTime()) < 10000)
+             );
+
+             if (!isDuplicate) {
+                 merged.push(fm);
+             }
+          });
+          merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+          setMessages(merged);
+          saveCachedChatMessages(user.id, currentOtherUserProfile.id, merged);
 
           // Mark unread messages from the other user as read
           const unreadMessageIds = data
@@ -1274,10 +1353,85 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     fetchMessages();
   }, [currentOtherUserProfile?.id, user?.id]);
 
+
+
+  // Block 3: BUMP CHAT HELPER
+  const bumpChatToTop = (chatId: string, previewText: string, isIncoming = false) => {
+    if (!user) return;
+    const now = Date.now();
+    try {
+      const activityKey = 'horpal_chat_activity_' + user.id;
+      const activityStr = localStorage.getItem(activityKey);
+      const activity = activityStr ? JSON.parse(activityStr) : {};
+      activity[chatId] = { text: previewText, timestamp: now };
+      localStorage.setItem(activityKey, JSON.stringify(activity));
+    } catch(e) {}
+
+    setExploreUsers(prev => {
+      const updated = [...prev];
+      const idx = updated.findIndex(u => u.id === chatId);
+      let userToMove;
+      if (idx !== -1) {
+        userToMove = updated[idx];
+        updated.splice(idx, 1);
+      } else {
+        // We shouldn't strictly create a blank profile here, but we'll try to find it via profiles if needed later
+        // Just return prev for now if not found, since they should exist
+        return prev;
+      }
+      updated.unshift({
+        ...userToMove,
+        lastMessageTime: now,
+        unreadCount: isIncoming && currentOtherUserProfile?.id !== chatId ? (userToMove.unreadCount || 0) + 1 : (userToMove.unreadCount || 0)
+      });
+      return updated.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+    });
+  };
+
+
+  // Block 2: CACHE HELPERS
+  const loadCachedChatMessages = (userId: string, chatId: string): Message[] => {
+    try {
+      const stored = localStorage.getItem('horpal_chat_msgs_' + userId + '_' + chatId);
+      if (stored) {
+         const parsed = JSON.parse(stored);
+         return parsed.map((m: any) => ({
+            ...m,
+            timestamp: new Date(m.timestamp)
+         }));
+      }
+    } catch (e) {}
+    return [];
+  };
+
+  const saveCachedChatMessages = (userId: string, chatId: string, msgs: Message[]) => {
+    try {
+      // Filter out blobs unless permanent url exists
+      const safeMsgs = msgs.map(m => {
+        if (m.imageUrl?.startsWith('blob:')) {
+           return { ...m, imageUrl: undefined };
+        }
+        if (m.audioUrl?.startsWith('blob:')) {
+           return { ...m, audioUrl: undefined };
+        }
+        return m;
+      });
+      // Keep last 100
+      localStorage.setItem('horpal_chat_msgs_' + userId + '_' + chatId, JSON.stringify(safeMsgs.slice(-100)));
+    } catch (e) {}
+  };
+
   const openProfile = (userProfile: UserProfileDetails) => {
     setSelectedProfile(userProfile);
     setIsProfileOpen(true);
   };
+
+  useEffect(() => {
+    if (user?.id && currentOtherUserProfile?.id && messages.length > 0) {
+       saveCachedChatMessages(user.id, currentOtherUserProfile.id, messages);
+    }
+  }, [messages, user?.id, currentOtherUserProfile?.id]);
+
   const [inputValue, setInputValue] = useState('');
   const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
     const [activeContextMenuId, setActiveContextMenuId] = useState<string | null>(null);
@@ -1704,30 +1858,41 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
          finalChatId = existingChat ? existingChat.id : dmKey;
       }
 
-      const insertData: any = {
+      const isGroup = Boolean((currentOtherUserProfile as any)?.isGroup || (currentOtherUserProfile as any)?.is_group);
+
+      const coreInsertData: Record<string, any> = {
           id: optimisticMessage.id,
           sender_id: user.id,
           content: finalContentToSave,
-          status: 'sent',
-          conversation_id: finalChatId
       };
 
-      if ((currentOtherUserProfile as any).isGroup) {
-          insertData.room_id = currentOtherUserProfile.id;
-          // strictly no receiver_id for group chat
+      if (isGroup) {
+          coreInsertData.room_id = currentOtherUserProfile.id;
       } else {
-          insertData.receiver_id = currentOtherUserProfile.id;
+          coreInsertData.receiver_id = currentOtherUserProfile.id;
       }
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('messages')
-        .insert(insertData)
+        .insert(coreInsertData)
         .select()
         .single();
 
       if (error) {
-        throw error;
+        // Retry without client-generated id
+        const minimalPayload: Record<string, any> = {
+          sender_id: user.id,
+          content: finalContentToSave,
+          ...(isGroup ? { room_id: currentOtherUserProfile.id } : { receiver_id: currentOtherUserProfile.id })
+        };
+        const retry = await supabase.from('messages').insert(minimalPayload).select().single();
+        data = retry.data;
+        error = retry.error;
+        // Don't throw error to prevent message wiping!
+        if (error) console.error("Failed to insert message:", error);
       }
+
+      bumpChatToTop(currentOtherUserProfile.id, finalContentToSave, false);
 
       if (!(currentOtherUserProfile as any).isGroup) {
          try {
@@ -1832,8 +1997,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
     } catch (error) {
       console.error('Failed to send message:', error);
-      setMessages((prev) => prev.filter((msg) => msg.id !== optimisticMessage.id));
-      toast.error('Failed to send message.');
+      // Keep optimistic message in UI for permanent cache, do NOT filter out
+      setMessages((prev) => prev.map((msg) => msg.id === optimisticMessage.id ? { ...msg, status: 'sent' } : msg));
+      toast.error('Network issue, message saved locally.');
     }
   };
 
@@ -1964,57 +2130,48 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       const filePath = `${fileName}`;
 
+      let uploadErrorToThrow = null;
       let finalUrl = '';
-      const bucketsToTry = ['chat-media', 'public-assets', 'avatars', 'statuses'];
-      let uploadSuccess = false;
 
-      for (const bucket of bucketsToTry) {
-         const { error: uploadError } = await supabase.storage.from(bucket).upload((bucket === 'chat-media' ? filePath : `chat-media/${filePath}`), file);
-         if (!uploadError) {
-            const { data } = supabase.storage.from(bucket).getPublicUrl((bucket === 'chat-media' ? filePath : `chat-media/${filePath}`));
-            finalUrl = data.publicUrl;
-            uploadSuccess = true;
-            break;
-         }
-      }
-
-      if (!uploadSuccess) {
-         if (type === 'image') {
-            finalUrl = await new Promise<string>((resolve, reject) => {
-               const reader = new FileReader();
-               reader.onload = (e) => {
-                  const img = new Image();
-                  img.onload = () => {
-                     const canvas = document.createElement('canvas');
-                     let { width, height } = img;
-                     const maxSize = 900;
-                     if (width > height && width > maxSize) {
-                        height *= maxSize / width;
-                        width = maxSize;
-                     } else if (height > maxSize) {
-                        width *= maxSize / height;
-                        height = maxSize;
-                     }
-                     canvas.width = width;
-                     canvas.height = height;
-                     const ctx = canvas.getContext('2d');
-                     ctx?.drawImage(img, 0, 0, width, height);
-                     resolve(canvas.toDataURL('image/jpeg', 0.72));
-                  };
-                  img.onerror = reject;
-                  img.src = e.target?.result as string;
-               };
-               reader.onerror = reject;
-               reader.readAsDataURL(file as Blob);
-            });
+      const { error: uploadError1 } = await supabase.storage.from('chat-media').upload(filePath, file);
+      if (!uploadError1) {
+        finalUrl = supabase.storage.from('chat-media').getPublicUrl(filePath).data.publicUrl;
+      } else {
+         const { error: uploadError2 } = await supabase.storage.from('public-assets').upload('chat-media/' + filePath, file);
+         if (!uploadError2) {
+             finalUrl = supabase.storage.from('public-assets').getPublicUrl('chat-media/' + filePath).data.publicUrl;
          } else {
-             throw new Error("All upload buckets failed and no fallback available for this type.");
+             const { error: uploadError3 } = await supabase.storage.from('avatars').upload('chat-media/' + filePath, file);
+             if (!uploadError3) {
+                 finalUrl = supabase.storage.from('avatars').getPublicUrl('chat-media/' + filePath).data.publicUrl;
+             } else {
+                 // Try base64 fallback for images
+                 if (type === 'image') {
+                     finalUrl = await new Promise((resolve) => {
+                         const reader = new FileReader();
+                         reader.onload = (e) => {
+                            const img = new Image();
+                            img.onload = () => {
+                                const canvas = document.createElement('canvas');
+                                const MAX = 900;
+                                let w = img.width; let h = img.height;
+                                if (w > MAX) { h *= MAX/w; w = MAX; }
+                                canvas.width = w; canvas.height = h;
+                                canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
+                                resolve(canvas.toDataURL('image/jpeg', 0.72));
+                            };
+                            img.src = e.target?.result as string;
+                         };
+                         reader.readAsDataURL(file as Blob);
+                     });
+                 } else {
+                     throw new Error('All storage buckets failed');
+                 }
+             }
          }
       }
 
-      if (type === 'video' && !finalUrl.includes('#video')) {
-          finalUrl += '#video';
-      }
+      const publicUrl = finalUrl;
 
       const msgId = uuidv4();
       const newMessage: Message = {
@@ -2033,23 +2190,25 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       setMessages((prev) => [...prev, newMessage]);
 
       if (user && currentOtherUserProfile) {
-        if (isGroupChat && groupPermissions.onlyAdminsCanSend && !isGroupAdmin) {
-           toast.error('Only admins can send messages in this group');
-           return;
-        }
-
-        const msgPayload: any = {
-           id: msgId,
+        const isGroup = Boolean(isGroupChat || (currentOtherUserProfile as any)?.isGroup || (currentOtherUserProfile as any)?.is_group);
+        const mediaInsert: Record<string, any> = {
+           id: newMessage.id,
            sender_id: user.id,
-           content: caption || '',
-           image_url: (type === 'image' || type === 'video') ? finalUrl : null,
-           audio_url: type === 'audio' ? finalUrl : null,
-           status: 'sent',
-           is_view_once: type === 'image' ? isViewOnceMode : false,
-           receiver_id: isGroupChat ? null : currentOtherUserProfile.id,
-           room_id: isGroupChat ? currentOtherUserProfile.id : null,
+           content: caption || (type === 'video' ? '[VIDEO]' : '[IMAGE]'),
+           image_url: (type === 'image' || type === 'video') ? (type === 'video' && !publicUrl.includes('#video') ? publicUrl + '#video' : publicUrl) : null,
+           audio_url: type === 'audio' ? publicUrl : null,
+           ...(isGroup ? { room_id: currentOtherUserProfile.id } : { receiver_id: currentOtherUserProfile.id })
         };
-        await supabase.from('messages').insert(msgPayload);
+
+        let { error: mediaErr } = await supabase.from('messages').insert(mediaInsert);
+        if (mediaErr && mediaErr.message?.includes('image_url')) {
+           // Fallback to encode in content
+           mediaInsert.content = `[MEDIA_URL:${publicUrl}]${caption || ''}`;
+           mediaInsert.image_url = null;
+           mediaInsert.audio_url = null;
+           await supabase.from('messages').insert(mediaInsert);
+        }
+        bumpChatToTop(currentOtherUserProfile.id, mediaInsert.content || 'Media message', false);
 
         channelRef.current?.send({
            type: 'broadcast',
