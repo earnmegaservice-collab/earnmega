@@ -3200,12 +3200,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               }
               handleSendComment(e);
             }}
-            className="relative flex-1 min-w-[180px] sm:min-w-[260px]">
+            className="flex-1 min-w-0 flex items-center bg-white/5 border border-white/10 rounded-full px-3 relative z-10">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔇 Muted by host for this live stream" : (isRoomLocked ? "🔒 Host locked live" : "Say something nice...")}
+              placeholder={isMutedByHost ? "🔇 Muted by host" : (isRoomLocked ? "🔒 Host locked live" : "Say something nice...")}
               readOnly={isMutedByHost || isRoomLocked}
               onClick={(e) => {
                 if (isMutedByHost || isRoomLocked) {
@@ -3218,7 +3218,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   e.currentTarget.blur();
                 }
               }}
-              className="w-full pl-4 pr-10 py-2.5 rounded-full bg-black/65 border border-white/20 text-white text-sm placeholder:text-white/50 focus:outline-none focus:border-pink-500/60"
+              className="flex-1 w-full bg-transparent border-none focus:ring-0 text-white placeholder-white/50 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32 px-2"
             />
             {commentInput.trim() && (
               <button
@@ -3266,19 +3266,28 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             </span>
           </button>
 
-          {/* 1-Tap Quick Rose Combo Button (Free) */}
-          <button
-            onClick={handleQuickRoseGift}
-            className="relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-rose-600/80 to-pink-500/80 backdrop-blur-xl border border-pink-300/40 shadow-[0_0_15px_rgba(244,63,94,0.5)] active:scale-90 transition"
-            title="Send Quick Rose (Free)"
-          >
-            <span className="text-lg">🌹</span>
-            {quickRoseCombo > 0 && (
-              <span className="absolute -top-1.5 -right-1 rounded-full bg-amber-400 px-1.5 text-[9px] font-black text-black">
-                x{quickRoseCombo}
-              </span>
-            )}
-          </button>
+          {/* QUICK GIFT CONTROLS - MUST BE VISIBLE ON MAIN UI */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => handleDispatchGift(LUXURY_GIFT_CATALOG[0], 1)}
+              className="relative p-2 bg-pink-500/20 hover:bg-pink-500/40 border border-pink-500/50 rounded-full transition-all active:scale-95"
+            >
+              <span className="text-xl">🌹</span>
+            </button>
+
+            {/* COMBO MULTIPLIERS FOR THE ROSE */}
+            <div className="flex items-center gap-1 bg-black/40 backdrop-blur-md rounded-full px-2 py-1 border border-white/10">
+              {[2, 3, 4].map(multiplier => (
+                <button
+                  key={`combo-${multiplier}`}
+                  onClick={() => handleDispatchGift(LUXURY_GIFT_CATALOG[0], multiplier)}
+                  className="px-2 py-1 text-xs font-black text-pink-300 hover:bg-white/10 rounded-full transition-colors active:scale-95"
+                >
+                  x{multiplier}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Luxury Gift Box Trigger */}
           <button
@@ -3329,12 +3338,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               }
               handleSendComment(e);
             }}
-            className="relative flex-1 min-w-[180px] sm:min-w-[260px]">
+            className="flex-1 min-w-0 flex items-center bg-white/5 border border-white/10 rounded-full px-3 relative z-10">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
-              placeholder={isMutedByHost ? "🔇 Muted by host for this live stream" : (isRoomLocked ? "🔒 Host locked live" : "Chat with your viewers...")}
+              placeholder={isMutedByHost ? "🔇 Muted by host" : (isRoomLocked ? "🔒 Host locked live" : "Chat with your viewers...")}
               readOnly={isMutedByHost || isRoomLocked}
               onClick={(e) => {
                 if (isMutedByHost || isRoomLocked) {
@@ -3347,7 +3356,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   e.currentTarget.blur();
                 }
               }}
-              className="w-full pl-4 pr-10 py-2.5 rounded-full bg-black/65 border border-white/20 text-white text-sm placeholder:text-white/50 focus:outline-none focus:border-pink-500/60"
+              className="flex-1 w-full bg-transparent border-none focus:ring-0 text-white placeholder-white/50 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32 px-2"
             />
             {commentInput.trim() && (
               <button
