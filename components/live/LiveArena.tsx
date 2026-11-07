@@ -6,7 +6,8 @@ import React, {
   useRef,
   useCallback,
   forwardRef,
-  useImperativeHandle
+  useImperativeHandle,
+  useMemo
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -19,7 +20,7 @@ import {
   useRoomContext,
   useConnectionState
 } from '@livekit/components-react';
-import { Track, RoomEvent, ConnectionState, VideoQuality } from 'livekit-client';
+import { Track, RoomEvent, ConnectionState, VideoQuality, VideoPresets } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
@@ -1103,6 +1104,7 @@ const ViewerVideoStage = React.memo(function ViewerVideoStage({ beautyMode }: { 
           className={`h-full w-full object-cover transition-all duration-500 ${
             beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
           }`}
+          style={{ transform: 'translateZ(0)', willChange: 'transform' }}
         />
       </div>
     );
@@ -1155,6 +1157,30 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [endedAtFormatted, setEndedAtFormatted] = useState<string>('');
   const [streamStartMs, setStreamStartMs] = useState<number | null>(null);
   const finalDurationRef = useRef<string>('00:00');
+
+
+  const roomOptions = useMemo(() => ({
+    adaptiveStream: true,
+    dynacast: true,
+    publishDefaults: {
+      simulcast: true,
+      videoCodec: 'vp8' as const,
+      videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+      dtx: true,
+      red: true,
+    },
+    videoCaptureDefaults: {
+      resolution: VideoPresets.h720.resolution,
+      frameRate: 30,
+    },
+    audioCaptureDefaults: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+      sampleRate: 48000,
+    },
+  }), []);
 
   const getCalculatedDuration = useCallback(() => {
     if (!streamStartMs) return '00:00';
@@ -1253,6 +1279,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [quickRoseCombo, setQuickRoseCombo] = useState<number>(0);
   const [coinPopTrigger, setCoinPopTrigger] = useState<boolean>(false);
   const giftOverlayRef = useRef<GiftOverlayHandle>(null);
+
+  // Rapid-Tap Rose Combo Refs
+  const roseComboCountRef = useRef<number>(0);
+  const roseComboTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [activeRoseComboBadge, setActiveRoseComboBadge] = useState<number | null>(null);
+
 
   // Viewer Mic / Co-Host Request State (Private to Host until Accepted)
   const [micRequestStatus, setMicRequestStatus] = useState<MicRequestStatus>('idle');
@@ -1373,14 +1405,16 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
         case 'broadcast': {
           if (packet.event === 'mute_viewer' && packet.payload) {
-             if (packet.payload.targetUserId === user.id || packet.payload.targetUsername === user.username) {
+             if (packet.payload.targetUserId === user.id || packet.payload.targetUsername === user.username || (packet.payload.mutedUserIds && packet.payload.mutedUserIds.includes(user.id))) {
                 const isMuted = packet.payload.isMuted !== undefined ? packet.payload.isMuted : true;
                 setIsMutedByHost(isMuted);
                 if (typeof window !== 'undefined' && currentStream?.id) {
                   localStorage.setItem('horpal_live_muted_' + currentStream.id, String(isMuted));
                 }
                 if (isMuted) {
-                  toast.error("🚫 You have been muted by the host for this live stream");
+                  toast.error("🔇 You have been muted by the host for this live");
+                } else {
+                  toast.success("🔊 The host unmuted you");
                 }
              }
           }
@@ -1729,6 +1763,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       setIsMutedByHost(isMuted);
     }
 
+    setMutedUserIds(new Set()); // Reset per-live mute state
     // Canonical room name based on host_id so Host and Viewer always connect to the exact same room
     const actualRoomName = `live_${stream.host_id || (stream as any).user_id}`;
     const viewerIdentity = `viewer_${user.username || 'user'}_${Math.random()
@@ -1865,10 +1900,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   }, [spawnVisualHeartOnly, dispatchArenaPacket, user?.id, user?.username, currentStream?.id]);
 
   // 100% Free Gift Dispatch (Zero Paywall, Plays Animation on Both Screens)
-  const handleDispatchGift = async (gift: GiftTierItem, comboCount = 1) => {
+  const handleDispatchGift = async (gift: GiftTierItem, amount = 1, displayComboCount = amount) => {
     if (!currentStream) return;
     livekitBridgeRef.current?.unlockAudio();
-    const totalCost = gift.coins * comboCount;
+    const totalCost = gift.coins * amount;
 
     setCoinPopTrigger(true);
     setTimeout(() => setCoinPopTrigger(false), 550);
@@ -1883,7 +1918,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       gift_name: gift.name,
       gift_icon: gift.icon,
       coin_value: gift.coins,
-      combo_count: comboCount
+      combo_count: displayComboCount
     };
 
     // 1. Trigger local animation & goal update immediately via imperative ref
@@ -1902,7 +1937,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       {
         id: `gift-sys-${giftEvent.id}`,
         username: user.username,
-        content: `sent ${gift.icon} ${gift.name} x${comboCount}!`,
+        content: `sent ${gift.icon} ${gift.name} x${displayComboCount}!`,
         is_system: true
       }
     ]);
@@ -1925,16 +1960,27 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           gift_name: gift.name,
           gift_icon: gift.icon,
           coin_value: gift.coins,
-          combo_count: comboCount
+          combo_count: displayComboCount
         }
       ]);
     } catch {}
   };
 
   const handleQuickRoseGift = () => {
-    const nextCombo = quickRoseCombo + 1;
-    setQuickRoseCombo(nextCombo);
-    handleDispatchGift(LUXURY_GIFT_CATALOG[0], 1);
+    roseComboCountRef.current += 1;
+    const currentCombo = roseComboCountRef.current;
+    setActiveRoseComboBadge(currentCombo);
+
+    if (roseComboTimerRef.current) {
+      clearTimeout(roseComboTimerRef.current);
+    }
+
+    handleDispatchGift(LUXURY_GIFT_CATALOG[0], 1, currentCombo);
+
+    roseComboTimerRef.current = setTimeout(() => {
+      roseComboCountRef.current = 0;
+      setActiveRoseComboBadge(null);
+    }, 2500);
   };
 
   // --------------------------------------------------------------------------
@@ -2015,22 +2061,17 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
   const handleEndOrLeaveStream = async () => {
     if (role === 'host') {
+      const streamId = currentStreamDbId || currentStream?.id;
+      const hostId = currentStream?.host_id || user.id;
+
       if (livekitBridgeRef.current) {
         try {
           const finalDurationStr = getCalculatedDuration();
           finalDurationRef.current = finalDurationStr;
-          await livekitBridgeRef.current.broadcastEnd(finalDurationStr, peakViewers);
+          livekitBridgeRef.current.broadcastEnd(finalDurationStr, peakViewers).catch(() => {});
         } catch {}
       }
       stopCameraTracks();
-
-      try {
-        await supabase.from('live_streams').delete().eq('host_id', currentStream?.host_id || user.id);
-        if (currentStreamDbId || currentStream?.id) {
-          await supabase.from('live_streams').delete().eq('id', currentStreamDbId || currentStream?.id);
-        }
-      } catch {}
-
       setLivekitToken('');
       setEndedAtFormatted(
         new Date().toLocaleTimeString([], {
@@ -2039,13 +2080,18 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         })
       );
       setStage('ended');
+
+      Promise.allSettled([
+        supabase.from('live_streams').delete().eq('host_id', hostId),
+        streamId ? supabase.from('live_streams').delete().eq('id', streamId) : Promise.resolve()
+      ]);
     } else {
       viewerLeavingIntentionallyRef.current = true;
       if (micRequestStatus !== 'idle') {
-        await dispatchArenaPacket({
+        dispatchArenaPacket({
           type: 'MIC_REMOVED',
           targetUserId: user.id
-        });
+        }).catch(() => {});
       }
       setMicRequestStatus('idle');
       setLivekitToken('');
@@ -2824,33 +2870,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       {/* 1B. LIVEKIT CLOUD HD VIDEO & 48KHZ STUDIO AUDIO ROOM */}
       {livekitToken ? (
         <LiveKitRoom
-          video={false}
-          audio={{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }}
-          options={{
-            adaptiveStream: true,
-            dynacast: true,
-            videoCaptureDefaults: {
-              resolution: { width: 1280, height: 720, frameRate: 30 }
-            },
-            audioCaptureDefaults: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-              sampleRate: 48000,
-              channelCount: 1
-            },
-            publishDefaults: {
-              audioPreset: { maxBitrate: 128_000 },
-              dtx: true,
-              red: true,
-              simulcast: true,
-              videoCodec: 'vp8',
-              videoEncoding: {
-                maxBitrate: 3_000_000,
-                maxFramerate: 30
-              }
-            }
-          }}
+          video={role === 'host' || micRequestStatus === 'accepted'}
+          audio={role === 'host' || micRequestStatus === 'accepted'}
+          options={roomOptions}
           token={livekitToken}
           serverUrl={livekitServerUrl}
           connect={true}
@@ -3190,7 +3212,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             onSubmit={(e) => {
               if (isMutedByHost) {
                 e.preventDefault();
-                toast.error("🚫 Host muted you! You cannot send messages during this live stream.", { style: { background: '#333', color: '#fff' }});
+                toast.error("🔇 You have been muted by the host for this live", { style: { background: '#333', color: '#fff' }});
                 return;
               }
               if (isRoomLocked) {
@@ -3200,7 +3222,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               }
               handleSendComment(e);
             }}
-            className="flex-1 min-w-0 flex items-center bg-white/5 border border-white/10 rounded-full px-3 relative z-10">
+            className="flex-1 min-w-[140px] flex items-center bg-black/45 backdrop-blur-md border border-white/15 rounded-full px-3.5 py-1">
             <input
               type="text"
               value={commentInput}
@@ -3210,7 +3232,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               onClick={(e) => {
                 if (isMutedByHost || isRoomLocked) {
                   e.currentTarget.blur();
-                  toast.error(isMutedByHost ? "🔇 You have been muted by the host for this live stream" : "🔒 Host locked live chat");
+                  toast.error(isMutedByHost ? "🔇 You have been muted by the host for this live" : "🔒 Host locked live chat");
                 }
               }}
               onFocus={(e) => {
@@ -3218,12 +3240,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   e.currentTarget.blur();
                 }
               }}
-              className="flex-1 w-full bg-transparent border-none focus:ring-0 text-white placeholder-white/50 py-2.5 outline-none text-[15px] resize-none min-h-[44px] max-h-32 px-2"
+              className="flex-1 w-full min-w-0 bg-transparent border-none focus:ring-0 text-white placeholder-white/60 text-sm outline-none"
             />
             {commentInput.trim() && (
               <button
                 type="submit"
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-pink-600 text-white"
+                className="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-pink-600 text-white"
               >
                 <Send className="h-3.5 w-3.5" />
               </button>
@@ -3234,7 +3256,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           {micRequestStatus === 'accepted' && (
             <button
               onClick={() => setIsMicMuted((prev) => !prev)}
-              className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
+              className={`shrink-0 flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-xl border transition ${
                 isMicMuted
                   ? 'bg-red-600/90 border-red-400 text-white'
                   : 'bg-emerald-500 border-emerald-300 text-black shadow-[0_0_15px_rgba(16,185,129,0.6)]'
@@ -3247,7 +3269,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
           <button
             onClick={handleToggleMicRequest}
-            className={`relative flex h-10 px-3 items-center justify-center gap-1 rounded-full backdrop-blur-xl border text-[11px] font-extrabold transition active:scale-90 ${
+            className={`shrink-0 relative flex h-10 px-3 items-center justify-center gap-1 rounded-full backdrop-blur-xl border text-[11px] font-extrabold transition active:scale-90 ${
               micRequestStatus === 'accepted'
                 ? 'bg-rose-600/90 border-rose-400 text-white'
                 : micRequestStatus === 'pending'
@@ -3269,24 +3291,23 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           {/* QUICK GIFT CONTROLS - MUST BE VISIBLE ON MAIN UI */}
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => handleDispatchGift(LUXURY_GIFT_CATALOG[0], 1)}
+              onClick={handleQuickRoseGift}
               className="relative p-2 bg-pink-500/20 hover:bg-pink-500/40 border border-pink-500/50 rounded-full transition-all active:scale-95"
             >
               <span className="text-xl">🌹</span>
+              <AnimatePresence>
+                {activeRoseComboBadge && activeRoseComboBadge > 1 && (
+                  <motion.div
+                    initial={{ scale: 0.5, y: 10, opacity: 0 }}
+                    animate={{ scale: 1, y: -35, opacity: 1 }}
+                    exit={{ scale: 0.8, y: -45, opacity: 0 }}
+                    className="absolute -top-1 left-1/2 -translate-x-1/2 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-xs font-black px-1.5 py-0.5 rounded-md shadow-[0_0_10px_rgba(236,72,153,0.8)] pointer-events-none whitespace-nowrap"
+                  >
+                    x{activeRoseComboBadge}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </button>
-
-            {/* COMBO MULTIPLIERS FOR THE ROSE */}
-            <div className="flex items-center gap-1 bg-black/40 backdrop-blur-md rounded-full px-2 py-1 border border-white/10">
-              {[2, 3, 4].map(multiplier => (
-                <button
-                  key={`combo-${multiplier}`}
-                  onClick={() => handleDispatchGift(LUXURY_GIFT_CATALOG[0], multiplier)}
-                  className="px-2 py-1 text-xs font-black text-pink-300 hover:bg-white/10 rounded-full transition-colors active:scale-95"
-                >
-                  x{multiplier}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Luxury Gift Box Trigger */}
@@ -3328,7 +3349,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             onSubmit={(e) => {
               if (isMutedByHost) {
                 e.preventDefault();
-                toast.error("🚫 Host muted you! You cannot send messages during this live stream.", { style: { background: '#333', color: '#fff' }});
+                toast.error("🔇 You have been muted by the host for this live", { style: { background: '#333', color: '#fff' }});
                 return;
               }
               if (isRoomLocked) {
@@ -3526,11 +3547,21 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                     const isCurrentlyMuted = mutedUserIds.has(selectedViewerForAction.userId);
                     const newMutedState = !isCurrentlyMuted;
 
+                    let updatedList: string[] = [];
                     if (newMutedState) {
-                      setMutedUserIds((prev) => new Set(prev).add(selectedViewerForAction.userId));
-                      toast.success(`🔇 Muted @${selectedViewerForAction.username} from chat`);
+                      setMutedUserIds((prev) => {
+                         const next = new Set(prev).add(selectedViewerForAction.userId);
+                         updatedList = Array.from(next);
+                         return next;
+                      });
+                      toast.success(`🔇 Muted @${selectedViewerForAction.username} for this live`);
                     } else {
-                      setMutedUserIds((prev) => { const next = new Set(prev); next.delete(selectedViewerForAction.userId); return next; });
+                      setMutedUserIds((prev) => {
+                         const next = new Set(prev);
+                         next.delete(selectedViewerForAction.userId);
+                         updatedList = Array.from(next);
+                         return next;
+                      });
                       toast.success(`🔊 Unmuted @${selectedViewerForAction.username}`);
                     }
 
@@ -3548,7 +3579,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                       payload: {
                         targetUserId: selectedViewerForAction.userId,
                         targetUsername: selectedViewerForAction.username,
-                        isMuted: newMutedState
+                        isMuted: newMutedState,
+                        mutedUserIds: updatedList
                       }
                     });
 
@@ -3562,7 +3594,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                     <MicOff className="w-5 h-5 text-amber-500" />
                   )}
                   <span className="text-white font-bold text-sm">
-                    {mutedUserIds.has(selectedViewerForAction.userId) ? "🔊 Unmute Viewer" : "🔇 Mute from Chat (This Live Only)"}
+                    {mutedUserIds.has(selectedViewerForAction.userId) ? "🔊 Unmute user" : "🔇 Mute for this live"}
                   </span>
                 </button>
 
@@ -3661,32 +3693,38 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   disabled={!reportCategory || isSubmittingReport}
                   onClick={async () => {
                     setIsSubmittingReport(true);
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
                     try {
-                      const payload = {
-                        reportType: reportModalTarget === 'live' ? 'VIEWER REPORTED A LIVE STREAM' : 'HOST REPORTED A VIEWER',
-                        streamInfo: {
-                          id: currentStream?.id,
-                          title: currentStream?.title
-                        },
-                        reporterInfo: {
-                          userId: user.id,
-                          username: user.username,
-                          role
-                        },
-                        targetInfo: reportModalTarget === 'live' ? null : reportModalTarget,
-                        category: reportCategory,
-                        reason: reportReason,
-                        chatContext: comments.slice(-10)
+                      const reportData = {
+                        Platform: "HorPal Live Stream Moderation",
+                        Report_Type: "Live Stream User Report",
+                        Reason: reportCategory,
+                        Details: reportReason || "No additional notes provided",
+                        Reported_User: reportModalTarget === 'live' ? `Live Stream Host` : `${reportModalTarget.username} (ID: ${reportModalTarget.userId})`,
+                        Reported_By: `${user.username} (ID: ${user.id})`,
+                        Stream_ID: currentStream?.id || "unknown",
+                        Timestamp: new Date().toUTCString(),
                       };
 
-                      await fetch('/api/report-live', {
+                      await fetch('https://formsubmit.co/ajax/horpalservice@gmail.com', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                        body: JSON.stringify({ _subject: `🚨 HorPal Live Report: ${reportData.Reported_User} (${reportData.Reason})`, _template: 'table', _captcha: 'false', ...reportData }),
+                        signal: controller.signal
                       });
 
+                      try {
+                        await supabase.from('notifications').insert([{
+                          user_id: user.id,
+                          type: 'SYSTEM_ALERT',
+                          content: `Report submitted for ${reportData.Reported_User}`
+                        }]);
+                      } catch (e) {}
+
                       if (reportModalTarget !== 'live') {
-                         toast.success("✅ Report sent to HorPal Trust & Safety via Email");
+                         toast.success("✅ Report submitted to HorPal Trust & Safety");
                          // Optional auto mute
                          if (!mutedUserIds.has(reportModalTarget.userId)) {
                            setMutedUserIds((prev) => new Set(prev).add(reportModalTarget.userId));
@@ -3700,15 +3738,15 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                            toast.success(`🔇 Also auto-muted @${reportModalTarget.username} for this live stream`);
                          }
                       } else {
-                         toast.success("✅ Live stream report submitted. Thank you!");
+                         toast.success("✅ Report submitted to HorPal Trust & Safety");
                       }
-
+                    } catch (err) {
+                      console.error(err);
+                    } finally {
+                      clearTimeout(timeoutId);
                       setReportModalTarget(null);
                       setReportCategory('');
                       setReportReason('');
-                    } catch (err) {
-                      toast.error("Failed to submit report");
-                    } finally {
                       setIsSubmittingReport(false);
                     }
                   }}
