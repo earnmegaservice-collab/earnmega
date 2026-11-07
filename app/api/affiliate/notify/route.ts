@@ -1,91 +1,68 @@
-// app/api/affiliate/notify/route.ts
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { type, payload } = body;
+    const { type, data } = body;
 
-    const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const ADMIN_EMAIL = 'horpalservice@gmail.com';
-
-    if (!RESEND_API_KEY) {
-      console.warn('RESEND_API_KEY not set. Dispatching email payload to log:');
-      console.log('Payload:', JSON.stringify(payload, null, 2));
-      return NextResponse.json({ 
-        success: true, 
-        mocked: true, 
-        message: 'Notification logged successfully (Resend API Key missing).' 
-      });
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+      return NextResponse.json({ error: 'RESEND_API_KEY missing' }, { status: 500 });
     }
 
     let subject = '';
     let htmlContent = '';
 
-    if (type === 'PAYOUT_REQUEST') {
-      subject = `[HorPal Payout Request] GH₵ ${payload.amount} - ${payload.affiliateName}`;
+    if (type === 'FRIDAY_PAYOUT_REQUEST') {
+      subject = `🚨 New Friday Payout Request: GHS ${data.amount_ghs} by ${data.account_name}`;
       htmlContent = `
-        <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #0d0d0d; color: #f5f5f5;">
-          <h2 style="color: #d4af37; border-bottom: 1px solid #d4af37; padding-bottom: 10px;">
-            HorPal Pillar 2: Friday Payout Request
-          </h2>
-          <p>A new payout request has been queued for Friday settlement.</p>
-          <table style="width: 100%; color: #f5f5f5; border-collapse: collapse; margin-top: 15px;">
-            <tr><td style="padding: 8px; border-bottom: 1px solid #333;"><strong>Affiliate:</strong></td><td style="padding: 8px; border-bottom: 1px solid #333;">${payload.affiliateName} (${payload.affiliateEmail})</td></tr>
-            <tr><td style="padding: 8px; border-bottom: 1px solid #333;"><strong>Amount:</strong></td><td style="padding: 8px; border-bottom: 1px solid #333; color: #d4af37;"><strong>GH₵ ${payload.amount}</strong></td></tr>
-            <tr><td style="padding: 8px; border-bottom: 1px solid #333;"><strong>Channel:</strong></td><td style="padding: 8px; border-bottom: 1px solid #333;">${payload.payoutChannel}</td></tr>
-            <tr><td style="padding: 8px; border-bottom: 1px solid #333;"><strong>Account Details:</strong></td><td style="padding: 8px; border-bottom: 1px solid #333;">${payload.accountDetails}</td></tr>
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #111;">
+          <h2>HorPal Affiliate Payout Request</h2>
+          <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">User ID</th><td style="padding: 8px; border: 1px solid #ddd;">${data.user_id}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Requested Amount</th><td style="padding: 8px; border: 1px solid #ddd;"><strong>GHS ${data.amount_ghs}</strong></td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Method</th><td style="padding: 8px; border: 1px solid #ddd;">${data.payout_method}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Network / Bank</th><td style="padding: 8px; border: 1px solid #ddd;">${data.bank_or_network}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Account Name</th><td style="padding: 8px; border: 1px solid #ddd;">${data.account_name}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Account Number</th><td style="padding: 8px; border: 1px solid #ddd;">${data.account_number}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Time (UTC)</th><td style="padding: 8px; border: 1px solid #ddd;">${new Date().toUTCString()}</td></tr>
           </table>
-          <p style="margin-top: 20px; font-size: 12px; color: #888;">HorPal Luxury Affiliate Marketing Engine • Automated Governance Service</p>
+          <p>Please review and disburse via Paystack Transfer with OTP confirmation.</p>
         </div>
       `;
     } else if (type === 'VENDOR_APPLICATION') {
-      subject = `[HorPal Vendor Whitelist] New Submission: ${payload.productName}`;
+      subject = `📋 New Vendor Whitelist Request: ${data.creator_name}`;
       htmlContent = `
-        <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #0d0d0d; color: #f5f5f5;">
-          <h2 style="color: #d4af37; border-bottom: 1px solid #d4af37; padding-bottom: 10px;">
-            New Digitstem-Style Vendor Whitelist Application
-          </h2>
-          <p>A seller has submitted a product for marketplace approval.</p>
-          <ul style="line-height: 1.8;">
-            <li><strong>Vendor:</strong> ${payload.userName} (${payload.userEmail})</li>
-            <li><strong>Product Title:</strong> ${payload.productName}</li>
-            <li><strong>Proposed Price:</strong> GH₵ ${payload.proposedPrice}</li>
-            <li><strong>Access/Proof Link:</strong> <a href="${payload.proofUrl}" style="color: #d4af37;">${payload.proofUrl}</a></li>
-          </ul>
-          <p><strong>Description:</strong></p>
-          <blockquote style="background: #1a1a1a; padding: 10px; border-left: 3px solid #d4af37;">${payload.description}</blockquote>
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #111;">
+          <h2>New Creator / Vendor Application</h2>
+          <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Creator Name</th><td style="padding: 8px; border: 1px solid #ddd;">${data.creator_name}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Email</th><td style="padding: 8px; border: 1px solid #ddd;">${data.email}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Product Title</th><td style="padding: 8px; border: 1px solid #ddd;">${data.product_title}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Proposed Price & Split</th><td style="padding: 8px; border: 1px solid #ddd;">${data.pricing_details}</td></tr>
+            <tr><th style="padding: 8px; border: 1px solid #ddd;">Sales Page / Portfolio</th><td style="padding: 8px; border: 1px solid #ddd;">${data.sales_page_url}</td></tr>
+          </table>
         </div>
       `;
-    } else {
-
-      subject = `[HorPal Concierge Notification] ${payload.subject || 'System Notification'}`;
-|---|= `<pre style="font-family: sans-serif;">${JSON.stringify(payload, null, 2)}</pre>`;
     }
 
-    const resendResponse = await fetch('https://api.resend.com/emails', {
+    const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${RESEND_API_KEY}`,
+        Authorization: `Bearer ${resendApiKey}`,
       },
       body: JSON.stringify({
-        from: 'HorPal Platform <notifications@horpal.com>',
-        to: [ADMIN_EMAIL],
-        subject: subject,
+        from: 'HorPal Affiliate <onboarding@resend.dev>',
+        to: ['horpalservice@gmail.com'],
+        subject,
         html: htmlContent,
       }),
     });
 
-    const resendData = await resendResponse.json();
-
-    return NextResponse.json({ success: true, data: resendData });
-  } catch (error: any) {
-    console.error('Error in affiliate notification API route:', error);
-    return NextResponse.json(
-      { success: false, error: error.message || 'Internal server error' },
-      { status: 500 }
-    );
+    const resData = await res.json();
+    return NextResponse.json({ success: true, resData });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Failed to dispatch email' }, { status: 500 });
   }
 }
-
