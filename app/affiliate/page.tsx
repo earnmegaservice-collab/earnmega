@@ -80,7 +80,7 @@ function AffiliatePageContent() {
 
     return (
       <div className="min-h-screen bg-[#050508] relative">
-        <div className="absolute top-4 left-4 z-50">
+        <div className="hidden absolute top-4 left-4 z-50">
           <button
             onClick={() => {
               localStorage.removeItem('horpal_target_pillar');
@@ -106,7 +106,7 @@ function AffiliatePageContent() {
   if (false && !session) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-[#050508] p-6 font-sans relative text-zinc-100">
-        <div className="absolute top-4 left-4 z-50">
+        <div className="hidden absolute top-4 left-4 z-50">
           <button
             onClick={() => {
               localStorage.removeItem('horpal_target_pillar');
@@ -136,7 +136,7 @@ function AffiliatePageContent() {
 
   return (
     <div className="min-h-screen bg-[#050508] relative">
-      <div className="absolute top-4 left-4 z-50">
+      <div className="hidden absolute top-4 left-4 z-50">
         <button
           onClick={() => {
             localStorage.removeItem('horpal_target_pillar');
