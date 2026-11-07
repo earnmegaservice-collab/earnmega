@@ -476,16 +476,19 @@ export default function HorPalAffiliatePillar({
     | 'dashboard'
     | 'marketplace'
     | 'links'
-    | 'lms'
+    | 'exam'
     | 'contests'
     | 'payouts'
     | 'ledger'
-    | 'swipe_vault'
+    | 'vault'
     | 'ai_tools'
     | 'leads_crm'
     | 'calculator'
-    | 'creator_site'
-    | 'rules_site';
+    | 'creator'
+    | 'rules'
+    | 'profile'
+    | 'notifications'
+    | 'support';
 
   const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('GHS');
@@ -1400,6 +1403,15 @@ export default function HorPalAffiliatePillar({
           {/* Left: 3-Line Hamburger Menu Button + Brand */}
           <div className="flex items-center gap-2.5">
             <button
+              onClick={() => {
+                localStorage.removeItem("horpal_target_pillar");
+                window.location.href = "/";
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white text-xs transition-all"
+            >
+              ← Hub
+            </button>
+            <button
               onClick={() => setIsDrawerOpen(true)}
               className="p-2.5 rounded-xl bg-[#141d30] hover:bg-[#1c2842] border border-white/10 text-white transition-all"
               aria-label="Open All Features Menu"
@@ -1470,6 +1482,15 @@ export default function HorPalAffiliatePillar({
             <div>
               <div className="flex items-center justify-between pb-4 border-b border-white/10">
                 <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem("horpal_target_pillar");
+                      window.location.href = "/";
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white text-xs transition-all mr-2"
+                  >
+                    ← Hub
+                  </button>
                   <div className="w-8 h-8 rounded-lg bg-emerald-500 text-black font-black flex items-center justify-center">
                     H
                   </div>
@@ -1503,7 +1524,7 @@ export default function HorPalAffiliatePillar({
                   {[
                     { id: 'dashboard', label: 'Performance Hub', icon: BarChart3 },
                     { id: 'contests', label: 'Milestones & Contests (100K Views)', icon: Trophy },
-                    { id: 'lms', label: '5-Step Exam & Certificate', icon: Award },
+                    { id: 'exam', label: '5-Step Exam & Certificate', icon: Award },
                   ].map((item) => {
                     const Icon = item.icon;
                     return (
@@ -1534,7 +1555,7 @@ export default function HorPalAffiliatePillar({
                     { id: 'marketplace', label: 'Affiliate Marketplace', icon: ShoppingBag },
                     { id: 'links', label: 'Link Manager & Shortener', icon: Share2 },
                     { id: 'ai_tools', label: 'WhatsApp Closer & Bio-Link', icon: Zap },
-                    { id: 'swipe_vault', label: 'TikTok & WhatsApp Swipe Vault', icon: MessageSquare },
+                    { id: 'vault', label: 'TikTok & WhatsApp Swipe Vault', icon: MessageSquare },
                     { id: 'leads_crm', label: 'Abandoned Checkout Leads CRM', icon: Users },
                     { id: 'calculator', label: 'Profit Simulator', icon: Calculator },
                   ].map((item) => {
@@ -1566,8 +1587,8 @@ export default function HorPalAffiliatePillar({
                   {[
                     { id: 'payouts', label: 'Friday Wallet & Withdrawals', icon: DollarSign },
                     { id: 'ledger', label: 'Financial Sales Ledger', icon: FileText },
-                    { id: 'creator_site', label: 'Creator Whitelist Requirements Site', icon: Briefcase },
-                    { id: 'rules_site', label: 'Official Rules & Regulations Site', icon: ShieldCheck },
+                    { id: 'creator', label: 'Creator Whitelist Requirements Site', icon: Briefcase },
+                    { id: 'rules', label: 'Official Rules & Regulations Site', icon: ShieldCheck },
                   ].map((item) => {
                     const Icon = item.icon;
                     return (
@@ -1786,7 +1807,384 @@ export default function HorPalAffiliatePillar({
             </div>
           </div>
         )}
+
+        {/* ================================================================== */}
+        {/* SECTION 2: MARKETPLACE */}
+        {/* ================================================================== */}
+        {activeSection === "marketplace" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Affiliate Marketplace</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {INITIAL_PRODUCTS.map((p) => (
+                <div key={p.id} className="bg-[#0f172a] border border-white/10 rounded-3xl p-5 hover:border-emerald-500/50 transition-all">
+                  <h3 className="text-lg font-bold text-white mb-1">{p.title}</h3>
+                  <span className="text-xs text-emerald-400 font-mono mb-4 block">by {p.creator}</span>
+                  <div className="flex justify-between items-center text-sm mb-4">
+                    <span className="text-gray-400">Price</span>
+                    <span className="font-bold text-white">{formatAmount(p.priceGHS)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm mb-4">
+                    <span className="text-gray-400">Commission</span>
+                    <span className="font-bold text-emerald-400">{p.commissionPercent}%</span>
+                  </div>
+                  <button onClick={() => openDigitstemCheckoutForProduct(p)} className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all mb-2">
+                    Checkout Now
+                  </button>
+                  <button onClick={() => setActiveSection("links")} className="w-full py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-black text-xs transition-all">
+                    Promote Product
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 3: LINKS */}
+        {/* ================================================================== */}
+        {activeSection === "links" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Link Shortener & QR Manager</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+               <p className="text-gray-400 mb-4">Select a product to generate your unique affiliate link.</p>
+               <div className="space-y-4">
+                 {INITIAL_PRODUCTS.map(p => (
+                   <div key={p.id} className="p-4 bg-[#141d30] rounded-xl flex items-center justify-between gap-4">
+                     <div>
+                       <span className="text-sm font-bold block">{p.title}</span>
+                       <span className="text-xs text-emerald-400 font-mono mt-1 break-all">
+                         https://www.horpal.com/affiliate?prod={p.id}&ref={userAffiliateCode}
+                       </span>
+                     </div>
+                     <button className="p-3 bg-white/10 rounded-lg hover:bg-white/20 transition-all">
+                       <Copy className="w-4 h-4" />
+                     </button>
+                   </div>
+                 ))}
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 4: SWIPE VAULT */}
+        {/* ================================================================== */}
+        {activeSection === "vault" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Swipe Vault (TikTok, IG & WA)</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+              {INITIAL_PRODUCTS.map(p => (
+                <div key={p.id} className="mb-8 last:mb-0">
+                  <h3 className="text-lg font-bold text-emerald-400 mb-3">{p.title} Scripts</h3>
+                  <div className="space-y-4">
+                    <div className="p-4 bg-[#141d30] rounded-xl">
+                      <span className="text-xs font-bold uppercase text-gray-500 mb-2 block">TikTok Hook</span>
+                      <p className="text-sm text-gray-300">{p.swipeCopy.tiktok[0]}</p>
+                    </div>
+                    <div className="p-4 bg-[#141d30] rounded-xl">
+                      <span className="text-xs font-bold uppercase text-gray-500 mb-2 block">WhatsApp Status</span>
+                      <p className="text-sm text-gray-300">
+                        {p.swipeCopy.whatsapp[0].replace("{LINK}", `https://www.horpal.com/affiliate?prod=${p.id}&ref=${userAffiliateCode}`)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 5: EXAM */}
+        {/* ================================================================== */}
+        {activeSection === "exam" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">5-Step Certification Exam</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 text-center py-12">
+               <Award className="w-16 h-16 text-emerald-500 mx-auto mb-4 opacity-50" />
+               <h3 className="text-xl font-bold mb-2">Exam Portal Online</h3>
+               <p className="text-gray-400 mb-6 max-w-md mx-auto">Score 90% or higher to earn your HorPal Certificate of Completion.</p>
+               <button className="px-6 py-3 bg-emerald-500 text-black font-bold rounded-xl hover:bg-emerald-400 transition-all">Start Step 1 Exam</button>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 6: CONTESTS */}
+        {/* ================================================================== */}
+        {activeSection === "contests" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Contests & 100K Challenge</h2>
+            <div className="bg-gradient-to-br from-amber-600 to-amber-900 border border-amber-500/30 rounded-3xl p-6 shadow-xl">
+              <h3 className="text-xl font-black mb-2 flex items-center gap-2">
+                <Trophy className="text-amber-300 w-6 h-6" /> GH₵ 10,000 TikTok Challenge
+              </h3>
+              <p className="text-sm text-amber-100/80 mb-6">Hit 100,000+ views on TikTok or Instagram with a HorPal promo video to win {formatAmount(10000)}.</p>
+              <button className="px-6 py-3 bg-amber-400 text-amber-950 font-bold rounded-xl hover:bg-amber-300 transition-all w-full sm:w-auto">Submit Video URL</button>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 7: PAYOUTS */}
+        {/* ================================================================== */}
+        {activeSection === "payouts" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Friday Payout Desk</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+              <div className="mb-6 p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl">
+                 <span className="text-xs text-indigo-300 font-bold uppercase tracking-wider block mb-1">Available for Withdrawal</span>
+                 <span className="text-3xl font-black text-white">{formatAmount(availableBalanceGHS)}</span>
+              </div>
+              <p className="text-sm text-gray-400 mb-6">Payouts are processed every Friday via Mobile Money (MTN, Telecel, AT), Bank Transfer, or USDT (TRC20).</p>
+              <button className="w-full py-4 bg-white hover:bg-gray-100 text-black font-black rounded-xl transition-all">Request Payout to {payoutChannel}</button>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 8: CALCULATOR */}
+        {/* ================================================================== */}
+        {activeSection === "calculator" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Profit Simulator</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 text-center py-12">
+               <Calculator className="w-16 h-16 text-indigo-500 mx-auto mb-4 opacity-50" />
+               <h3 className="text-xl font-bold mb-2">Income Calculator</h3>
+               <p className="text-gray-400 mb-6 max-w-md mx-auto">Calculate your potential daily, monthly, and annual income based on your projected daily sales volume.</p>
+               <input type="range" min="1" max="100" defaultValue="10" className="w-full max-w-md accent-indigo-500 mb-4" />
+               <div className="text-2xl font-black text-indigo-400">10 Sales/Day = {formatAmount(240 * 10 * 30)} / Month</div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 9: CREATOR */}
+        {/* ================================================================== */}
+        {activeSection === "creator" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Creator / Vendor Whitelist</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+               <p className="text-sm text-gray-400 mb-6">Learn how to list your digital products on the HorPal Affiliate Marketplace and tap into our army of active affiliates.</p>
+               <ul className="space-y-3 text-sm text-gray-300 mb-8">
+                 <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" /> Minimum 50% commission required for all products.</li>
+                 <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" /> Product must be high quality and hosted on Google Drive or external LMS.</li>
+                 <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" /> Clean sales page with a clear value proposition.</li>
+               </ul>
+               <button className="px-6 py-3 bg-emerald-500 text-black font-bold rounded-xl hover:bg-emerald-400 transition-all">Submit Whitelist Application</button>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 10: RULES */}
+        {/* ================================================================== */}
+        {activeSection === "rules" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Rules & Regulations</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+               <h3 className="text-lg font-bold mb-4">Official Governance Guide</h3>
+               <div className="space-y-4 text-sm text-gray-300">
+                 <p><strong>1. Link Attribution:</strong> Sales are tracked via the last-click attribution model. The affiliate link clicked last will receive the commission.</p>
+                 <p><strong>2. 50% Commission Split Rules:</strong> All marketplace products guarantee a 50% commission split, deposited directly into your Friday Wallet.</p>
+                 <p><strong>3. Friday Payout Schedule:</strong> Payout requests must be submitted by Thursday 11:59 PM to be processed on Friday.</p>
+                 <p><strong>4. Anti-Spam Rules:</strong> Affiliates found spamming links in unauthorized platforms will face immediate account termination without payout.</p>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 11: PROFILE */}
+        {/* ================================================================== */}
+        {activeSection === "profile" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Pillar 2 Profile & KYC</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+               <p className="text-gray-400 mb-6">Manage your HorPal Affiliate profile details, contact information, and payout preferences.</p>
+               <div className="space-y-6">
+                 <div>
+                   <h3 className="text-lg font-bold mb-3">Profile Details</h3>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <div>
+                       <label className="block text-xs font-bold text-gray-500 mb-1">First Name</label>
+                       <input type="text" value={firstName} className="w-full px-4 py-3 bg-[#141d30] border border-white/10 rounded-xl text-white" readOnly />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-bold text-gray-500 mb-1">Last Name</label>
+                       <input type="text" value={lastName} className="w-full px-4 py-3 bg-[#141d30] border border-white/10 rounded-xl text-white" readOnly />
+                     </div>
+                   </div>
+                 </div>
+                 <div>
+                   <h3 className="text-lg font-bold mb-3">Contact Information</h3>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <div>
+                       <label className="block text-xs font-bold text-gray-500 mb-1">Email Address</label>
+                       <input type="email" value={pillar2Email} className="w-full px-4 py-3 bg-[#141d30] border border-white/10 rounded-xl text-white" readOnly />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
+                       <input type="tel" value={pillar2Phone} className="w-full px-4 py-3 bg-[#141d30] border border-white/10 rounded-xl text-white" readOnly />
+                     </div>
+                   </div>
+                 </div>
+                 <button className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all">Edit Profile Information</button>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 12: NOTIFICATIONS */}
+        {/* ================================================================== */}
+        {activeSection === "notifications" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Notifications Center</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+               <div className="flex items-center justify-between mb-6">
+                 <h3 className="text-lg font-bold">Recent Alerts</h3>
+                 <button className="text-xs font-bold text-emerald-400 hover:text-emerald-300">Mark All as Read</button>
+               </div>
+               <div className="space-y-4">
+                 <div className="p-4 bg-[#141d30] rounded-xl flex gap-4 items-start">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                      <DollarSign className="w-5 h-5 text-emerald-500" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm mb-1">New Commission Earned!</h4>
+                      <p className="text-xs text-gray-400">You just earned {formatAmount(120)} from a sale of "The AI Faceless Video Engine".</p>
+                      <span className="text-[10px] text-gray-500 block mt-2">2 hours ago</span>
+                    </div>
+                 </div>
+                 <div className="p-4 bg-[#141d30] rounded-xl flex gap-4 items-start">
+                    <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
+                      <Trophy className="w-5 h-5 text-amber-500" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm mb-1">Milestone Approaching</h4>
+                      <p className="text-xs text-gray-400">You are only 5 sales away from the Bronze Excellence Award.</p>
+                      <span className="text-[10px] text-gray-500 block mt-2">1 day ago</span>
+                    </div>
+                 </div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================== */}
+        {/* SECTION 13: SUPPORT */}
+        {/* ================================================================== */}
+        {activeSection === "support" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black text-white mb-2">Help & Support Desk</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+               <p className="text-gray-400 mb-8">Need assistance? Our support agents are available 24/7 to help you with your affiliate account.</p>
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                 <a href="mailto:horpalservice@gmail.com" className="p-6 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-white/10 transition-all">
+                   <Mail className="w-8 h-8 text-indigo-400 mb-3" />
+                   <span className="font-bold text-sm mb-1">Email Support</span>
+                   <span className="text-xs text-gray-400">horpalservice@gmail.com</span>
+                 </a>
+                 <a href="mailto:geestablish@gmail.com" className="p-6 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-white/10 transition-all">
+                   <Mail className="w-8 h-8 text-rose-400 mb-3" />
+                   <span className="font-bold text-sm mb-1">Creator Desk</span>
+                   <span className="text-xs text-gray-400">geestablish@gmail.com</span>
+                 </a>
+                 <a href="https://wa.me/233534671381" target="_blank" rel="noopener noreferrer" className="p-6 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-white/10 transition-all">
+                   <Phone className="w-8 h-8 text-emerald-400 mb-3" />
+                   <span className="font-bold text-sm mb-1">WhatsApp Chat</span>
+                   <span className="text-xs text-gray-400">Tap to chat with agent</span>
+                 </a>
+               </div>
+            </div>
+          </div>
+        )}
       </main>
+      {/* ==================================================================== */}
+      {/* FIXED BOTTOM NAVIGATION BAR */}
+      {/* ==================================================================== */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0b111e]/95 backdrop-blur-md border-t border-white/10 h-16 px-2 flex items-center overflow-x-auto no-scrollbar gap-1">
+         {[
+            { id: "dashboard", label: "Home", icon: BarChart3 },
+            { id: "marketplace", label: "Market", icon: ShoppingBag },
+            { id: "links", label: "Links", icon: Share2 },
+            { id: "vault", label: "Vault", icon: MessageSquare },
+            { id: "exam", label: "Exam", icon: Award },
+            { id: "contests", label: "Contests", icon: Trophy },
+            { id: "payouts", label: "Payouts", icon: DollarSign },
+            { id: "creator", label: "Creator", icon: Briefcase },
+            { id: "calculator", label: "Calc", icon: Calculator },
+            { id: "rules", label: "Rules", icon: ShieldCheck },
+         ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeSection === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSection(tab.id as ActiveSection)}
+                className={`flex flex-col items-center justify-center min-w-[64px] h-full gap-1 transition-all ${isActive ? "text-emerald-400" : "text-gray-500 hover:text-gray-300"}`}
+              >
+                <Icon className={`w-5 h-5 ${isActive ? "scale-110" : ""}`} />
+                <span className={`text-[10px] font-medium ${isActive ? "font-bold" : ""}`}>{tab.label}</span>
+              </button>
+            )
+         })}
+      </nav>
+
+      {/* Profile Sheet Modal */}
+      {isProfileSheetOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-white/10 animate-in slide-in-from-bottom-4">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center">
+               <h3 className="text-lg font-bold text-white">Account Menu</h3>
+               <button onClick={() => setIsProfileSheetOpen(false)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+            <div className="p-2 space-y-1">
+               <button onClick={() => { setIsProfileSheetOpen(false); setActiveSettingsModal("profile"); }} className="w-full p-4 flex items-center gap-3 hover:bg-white/5 rounded-2xl transition-all">
+                  <User className="w-5 h-5 text-emerald-400" />
+                  <span className="font-semibold text-sm">Profile & Details</span>
+               </button>
+               <button onClick={() => { setIsProfileSheetOpen(false); setActiveSettingsModal("kyc"); }} className="w-full p-4 flex items-center gap-3 hover:bg-white/5 rounded-2xl transition-all">
+                  <FileText className="w-5 h-5 text-emerald-400" />
+                  <span className="font-semibold text-sm">Account Information / KYC</span>
+               </button>
+               <button onClick={() => { setIsProfileSheetOpen(false); setIsNotificationsOpen(true); }} className="w-full p-4 flex items-center gap-3 hover:bg-white/5 rounded-2xl transition-all">
+                  <Bell className="w-5 h-5 text-emerald-400" />
+                  <span className="font-semibold text-sm">Notifications</span>
+               </button>
+               <button onClick={() => { setIsProfileSheetOpen(false); setActiveSettingsModal("security"); }} className="w-full p-4 flex items-center gap-3 hover:bg-white/5 rounded-2xl transition-all">
+                  <Key className="w-5 h-5 text-emerald-400" />
+                  <span className="font-semibold text-sm">Security & Password</span>
+               </button>
+               <button onClick={() => { setIsProfileSheetOpen(false); setActiveSettingsModal("2fa"); }} className="w-full p-4 flex items-center gap-3 hover:bg-white/5 rounded-2xl transition-all">
+                  <Smartphone className="w-5 h-5 text-emerald-400" />
+                  <span className="font-semibold text-sm">2FA Authentication</span>
+               </button>
+               <button onClick={() => { setIsProfileSheetOpen(false); setActiveSettingsModal("support"); }} className="w-full p-4 flex items-center gap-3 hover:bg-white/5 rounded-2xl transition-all">
+                  <HelpCircle className="w-5 h-5 text-emerald-400" />
+                  <span className="font-semibold text-sm">Help & Support</span>
+               </button>
+               <div className="h-px bg-white/10 my-2 mx-2"></div>
+               <button onClick={() => { localStorage.removeItem("horpal_target_pillar"); window.location.href = "/"; }} className="w-full p-4 flex items-center gap-3 hover:bg-rose-500/10 rounded-2xl transition-all text-rose-400">
+                  <LogOut className="w-5 h-5" />
+                  <span className="font-semibold text-sm">Sign Out / Exit to Hub</span>
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating AI Bot */}
+      <button
+        onClick={() => setActiveSettingsModal("support")}
+        className="fixed bottom-20 left-4 z-[9999] w-12 h-12 rounded-full bg-[#020202]/90 backdrop-blur-xl border border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center hover:scale-110 transition-transform"
+      >
+        🤖
+      </button>
+
     </div>
   );
 }
