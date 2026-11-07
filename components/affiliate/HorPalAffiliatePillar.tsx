@@ -216,7 +216,7 @@ export default function HorPalAffiliatePillar({
   const [userEmail, setUserEmail] = useState<string>(currentProfile?.email || '');
   const [userName, setUserName] = useState<string>(currentProfile?.name || currentProfile?.username || 'HorPal Affiliate');
   const [userAffiliateCode, setUserAffiliateCode] = useState<string>(currentProfile?.affiliate_code || 'HP-LOADING');
-  const [isPillar2Paid, setIsPillar2Paid] = useState<boolean>(Boolean(currentProfile?.is_pillar2_paid));
+  const [isPillar2Paid, setIsPillar2Paid] = useState<boolean>(true); // TEST MODE BYPASS
   const [unlockedProducts, setUnlockedProducts] = useState<string[]>([]);
 
   // Referral / Bundle checkout query state (if buyer clicked an affiliate product link)
@@ -713,6 +713,12 @@ export default function HorPalAffiliatePillar({
               <div className="flex items-center space-x-2">
                 <span className="font-serif text-lg font-bold tracking-wider text-white">HORPAL</span>
                 <span className="text-[10px] font-mono uppercase bg-[#D4AF37]/10 text-[#D4AF37] px-2 py-0.5 rounded border border-[#D4AF37]/30">Pillar 2</span>
+                <button
+                  onClick={() => setIsPillar2Paid(!isPillar2Paid)}
+                  className="ml-4 text-[10px] font-mono bg-red-900/50 text-red-200 px-2 py-0.5 rounded border border-red-500/50 hover:bg-red-800/80 transition-colors"
+                >
+                  [Test Mode: Toggle Paid Status]
+                </button>
               </div>
               <p className="text-xs text-[#8C8275] tracking-widest uppercase">Luxury Affiliate Marketing Engine</p>
             </div>
