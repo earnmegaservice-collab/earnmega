@@ -82,8 +82,6 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 }) => {
   const [showMembers, setShowMembers] = useState(false);
 
-  if (callState === 'idle' || callState === 'ended') return null;
-
   const displayAvatar = avatarUrl || 'https://ui-avatars.com/api/?name=V+I+P&background=000&color=fff';
 
   const formatDuration = (seconds: number) => {
@@ -103,10 +101,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-        className="fixed inset-0 z-[9999999] flex flex-col justify-between bg-black overflow-hidden pointer-events-auto font-sans"
+        className={`fixed inset-0 z-[9999999] flex flex-col justify-between overflow-hidden font-sans ${callState === 'idle' || callState === 'ended' ? 'pointer-events-none hidden' : (isIncoming && callState === 'ringing' ? 'pointer-events-none bg-transparent' : 'pointer-events-auto bg-black')}`}
       >
         {/* Cinematic Full-Screen Background Blur */}
-        <div className="absolute inset-0 z-0">
+        <div className={`absolute inset-0 z-0 ${isIncoming && callState === 'ringing' ? 'hidden' : ''}`}>
            <div className="absolute inset-0 bg-black/70 z-10 backdrop-blur-3xl" />
            <img 
              src={displayAvatar} 
@@ -212,7 +210,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         )}
 
         {/* Action Footer Controls */}
-        <div className="relative z-40 flex flex-col w-full px-6 pb-10 pointer-events-auto bg-gradient-to-t from-black via-black/80 to-transparent pt-10">
+        <div className={`relative z-40 flex flex-col w-full px-6 pb-10 pointer-events-auto pt-10 ${isIncoming && callState === 'ringing' ? '' : 'bg-gradient-to-t from-black via-black/80 to-transparent'}`}>
           {isIncoming && callState === 'ringing' ? (
             <div className="flex justify-between items-center w-full max-w-xs mx-auto">
               <button onClick={onDecline} className="flex flex-col items-center gap-2 group">

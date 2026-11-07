@@ -519,7 +519,7 @@ export default function ChatList({
                 className={`w-full relative z-10 bg-[#050505] ${localBlockedUserIds.has(u.id) ? 'opacity-50 grayscale transition-all' : ''}`}
               >
                 <div
-                  className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto border-b border-white/5 relative select-none ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] z-10 rounded-2xl my-1 shadow-inner' : ''}`}
+                  className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto relative z-10 border-b border-white/5 select-none ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] rounded-2xl my-1 shadow-inner' : ''}`}
                   style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
                   onTouchStart={() => handleTouchStart(u.id)}
                   onTouchMove={handleTouchMove}
