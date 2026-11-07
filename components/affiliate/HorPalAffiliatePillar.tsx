@@ -1767,4 +1767,26 @@ export default function HorPalAffiliatePillar({
                 {[
                   { label: 'Marketplace', sub: '6 Verified Offers', icon: ShoppingBag, target: 'marketplace', color: 'text-emerald-400' },
                   { label: 'Link Shortener', sub: 'Unique Links & QR', icon: Share2, target: 'links', color: 'text-indigo-400' },
-                  { label: 'Withdraw Funds', sub: 'Friday Payout Desk', icon: DollarSign, target:
+                  { label: 'Withdraw Funds', sub: 'Friday Payout Desk', icon: DollarSign, target: 'payouts', color: 'text-rose-400' },
+                  { label: 'Help / Support', sub: '24/7 Agent Desk', icon: HelpCircle, target: 'support', color: 'text-sky-400' },
+                ].map((action, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveSection(action.target as any)}
+                    className="flex flex-col items-center justify-center p-4 bg-[#141d30] border border-white/5 rounded-2xl hover:bg-[#1b263f] hover:border-white/10 transition-all text-center group"
+                  >
+                    <div className={`w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform ${action.color}`}>
+                      <action.icon className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-bold text-white mb-0.5">{action.label}</span>
+                    <span className="text-[10px] text-gray-500">{action.sub}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
