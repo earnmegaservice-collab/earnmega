@@ -479,6 +479,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   });
 
   const currentUserProfileRef = useRef(currentUserProfile);
+  const currentOtherUserRef = useRef<UserProfileDetails | null>(null);
 
 
 
@@ -557,6 +558,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
   const [otherUserProfile, setOtherUserProfile] = useState<UserProfileDetails | null>(null);
+
+  useEffect(() => {
+    currentOtherUserRef.current = otherUserProfile;
+  }, [otherUserProfile]);
 
   useEffect(() => {
     if (activeTab !== 'chats') {
@@ -1224,6 +1229,18 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }).map(msg => {
             let text = msg.content || '';
             let replyToId, replyToSender, replyToText;
+            let messageType = msg.message_type === 'system' ? 'system' : undefined;
+            let giftName, giftCost;
+
+            const giftMatch = text.match(/^\[GIFT:(.*?):(.*?):(\d+)\](.*)/);
+            if (giftMatch) {
+               messageType = 'gift';
+               giftName = giftMatch[2];
+               giftCost = Number(giftMatch[3]);
+               text = msg.sender_id === user.id
+                 ? `Sent a ${giftName} (${giftCost} Coins)`
+                 : `Received a ${giftName} (${giftCost} Coins)`;
+            }
 
             const replyMatch = text.match(/^\[REPLY:(.*?):(user|other):(.*?)\]\n\n/);
             if (replyMatch) {
@@ -1258,7 +1275,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               replyToSender,
               replyToText,
               isSystemMessage: msg.message_type === 'system' || msg.is_system_message === true || false,
-              messageType: msg.message_type === 'system' ? 'system' : undefined,
+              messageType: messageType as any,
+              giftName,
+              giftCost,
               systemEventType: msg.system_event_type || null,
               senderName,
                             senderId: msg.sender_id,
@@ -1483,8 +1502,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           };
 
           // Only add to chat feed if the current active chat is with the sender
-          if (currentOtherUserProfile?.id === payload.payload.senderId) {
-             setMessages((prev) => [...prev, newMessage]);
+        if (currentOtherUserRef.current?.id === payload.payload.senderId) {
+           setMessages((prev) => {
+             // Deduplicate by ID just in case
+             if (prev.some(m => m.id === newMessage.id)) return prev;
+             return [...prev, newMessage];
+           });
           }
         }
       })
@@ -1508,6 +1531,16 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           if (!error && data) {
              let text = data.content || data.text || '';
              let replyToId, replyToSender, replyToText;
+             let messageType = data.message_type === 'system' ? 'system' : undefined;
+             let giftName, giftCost;
+
+             const giftMatch = text.match(/^\[GIFT:(.*?):(.*?):(\d+)\](.*)/);
+             if (giftMatch) {
+               messageType = 'gift';
+               giftName = giftMatch[2];
+               giftCost = Number(giftMatch[3]);
+               text = `Received a ${giftName} (${giftCost} Coins)`;
+             }
 
              const replyMatch = text.match(/^\[REPLY:(.*?):(user|other):([\s\S]*?)\]\n\n/);
              if (replyMatch) {
@@ -1529,9 +1562,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                audioUrl: data.audio_url,
                replyToId,
                replyToSender,
-               replyToText
+               replyToText,
+               messageType: messageType as any,
+               giftName,
+               giftCost
              };
-             setMessages((prev) => [...prev, newMessage]);
+             setMessages((prev) => {
+               if (prev.some(m => m.id === newMessage.id)) return prev;
+               return [...prev, newMessage];
+             });
 
              // Bump sender to top in exploreUsers
              const senderIdToUpdate = payload.payload.roomId || payload.payload.senderId;
@@ -2051,11 +2090,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       id: newMessage.id,
       sender_id: user?.id,
       receiver_id: currentOtherUserProfile?.id,
-      content: `GIFT:${giftData.name}:${giftData.cost}`,
+      content: `[GIFT:${giftData.id}:${giftData.name}:${giftData.cost}] Sent a ${giftData.name} (${giftData.cost} Coins)`,
       message_type: 'gift',
       status: 'sent'
     }).then(({ error }) => {
        if (error) console.error("Error inserting gift message", error);
+    });
+
+    supabase.from('notifications').insert({
+       user_id: currentOtherUserProfile?.id,
+       actor_id: user?.id,
+       type: 'chat_gift',
+       content: `🎁 Sent you a ${giftData.name} (${giftData.cost} Coins)`,
+       title: `${currentUserProfile?.name || 'Someone'} sent you a gift in DM`,
+       metadata: { gift_id: giftData.id, gift_name: giftData.name, gift_cost: giftData.cost, sender_id: user?.id, sender_name: currentUserProfile?.name }
+    }).then(({ error }) => {
+       if (error) console.error("Error inserting gift notification", error);
     });
 
     // Trigger local animation via custom event for sender
@@ -2067,7 +2117,17 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       channelRef.current.send({
         type: 'broadcast',
         event: 'gift_received',
-        payload: { gift_type: giftData, senderId: currentUserProfile?.id, receiverId: currentOtherUserProfile?.id }
+        payload: { messageId: newMessage.id, gift_type: giftData, senderId: currentUserProfile?.id, senderName: currentUserProfile?.name, senderAvatar: currentUserProfile?.avatarUrl, receiverId: currentOtherUserProfile?.id }
+      });
+
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'new_message',
+        payload: {
+           messageId: newMessage.id,
+           senderId: user?.id,
+           receiverId: currentOtherUserProfile?.id
+        }
       });
     }
 
@@ -3720,7 +3780,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                 </motion.button>
             )}
 
-            {!(currentOtherUserProfile as any)?.isGroup && !currentOtherUserProfile.is_bot && !inputValue.trim() && (
+            {!isGroupChat && !currentOtherUserProfile.is_bot && !inputValue.trim() && (
             <motion.button
               whileTap={{ scale: 0.9 }}
               type="button"

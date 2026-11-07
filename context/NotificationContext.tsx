@@ -904,6 +904,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                  console.error("Error parsing gift notification", e);
                }
             }
+
+            // Native outside-app alert for DM Gifts
+            if (finalNewNotification.type === 'chat_gift' || finalNewNotification.type === 'GIFT') {
+                const title = finalNewNotification.title || `🎁 New Gift!`;
+                const body = finalNewNotification.content || finalNewNotification.message || `You received a gift in DM!`;
+                const tag = `horpal-gift-${finalNewNotification.id}`;
+                triggerNativeNotification(title, body, tag, finalNewNotification.actor_avatar_url, { url: '/', type: 'chat_gift' });
+            }
           });
 
         }
