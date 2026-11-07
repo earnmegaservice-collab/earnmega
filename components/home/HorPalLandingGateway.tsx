@@ -258,10 +258,10 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
             <div className="relative z-10">
               <div className="flex flex-wrap gap-2 mb-6">
                 <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold border border-emerald-500/20">
-                  PILLAR 2 • COMING SOON
+                  PILLAR 2 • LIVE NOW
                 </span>
                 <span className="px-3 py-1 rounded-full bg-zinc-800 text-zinc-400 text-xs font-bold border border-zinc-700">
-                  LOCKED PHASE
+                  ACTIVE ECOSYSTEM
                 </span>
               </div>
 
@@ -280,8 +280,14 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
               </ul>
             </div>
 
-            <button className="relative z-10 w-full py-4 rounded-2xl bg-zinc-900 text-zinc-500 font-bold border border-zinc-800 flex items-center justify-center gap-2 cursor-default pointer-events-none select-none">
-              <Lock size={16} /> Coming Soon — In Development
+            <button
+              onClick={() => {
+                localStorage.setItem('horpal_target_pillar', '2');
+                window.location.href = '/affiliate';
+              }}
+              className="relative z-10 w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-black border border-amber-400/50 flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.4)] hover:scale-105 transition-transform"
+            >
+              Enter Pillar 2 &rarr;
             </button>
           </div>
         </div>

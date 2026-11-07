@@ -202,7 +202,8 @@ function HomeContent() {
     setIsSubmitting(true);
     setToast(null);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+      const target = typeof window !== 'undefined' && localStorage.getItem('horpal_target_pillar') === '2' ? window.location.origin + '/affiliate' : window.location.origin;
+      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: target } });
       if (error) throw error;
     } catch (error: any) {
       showToast(error.message || 'Google sign in failed.', 'error');
