@@ -40,6 +40,46 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: 'Warning email sent' });
     }
 
+import { supabase } from '../../../../utils/supabase';
+
+    if (action === 'SUBMIT_LIVE_REPORT') {
+      const { Platform, Report_Type, Reason, Details, Reported_User, Reported_By, Stream_ID, Timestamp } = payload;
+
+      try {
+        await supabase.from('reports').insert([{
+          type: Report_Type,
+          reason: Reason,
+          details: Details,
+          target_user: Reported_User,
+          reporter: Reported_By,
+          stream_id: Stream_ID
+        }]);
+      } catch (err) {}
+
+      if (resend) {
+        await resend.emails.send({
+          from: 'HorPal Trust & Safety <safety@horpal.com>',
+          to: 'horpalservice@gmail.com',
+          subject: `🚨 HorPal Live Report: ${Reported_User} (${Reason})`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #050811; color: #fff; padding: 20px; border: 1px solid #ef4444; border-radius: 8px;">
+              <h2 style="color: #ef4444; text-align: center; text-transform: uppercase;">🚨 NEW TRUST & SAFETY REPORT</h2>
+              <div style="background-color: #1a0f14; padding: 15px; border-left: 4px solid #ef4444; margin: 20px 0;">
+                <p><strong>Reported User:</strong> ${Reported_User}</p>
+                <p><strong>Reason:</strong> ${Reason}</p>
+                <p><strong>Details:</strong> ${Details}</p>
+                <p><strong>Reported By:</strong> ${Reported_By}</p>
+                <p><strong>Stream ID:</strong> ${Stream_ID}</p>
+                <p><strong>Timestamp:</strong> ${Timestamp}</p>
+                <p><strong>Platform:</strong> ${Platform} (${Report_Type})</p>
+              </div>
+            </div>
+          `
+        });
+      }
+      return NextResponse.json({ success: true, message: 'Report submitted successfully' });
+    }
+
     if (action === 'SEND_PAYOUT_OTP') {
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
