@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       if (resend) {
         await resend.emails.send({
           from: 'HorPal Trust & Safety <safety@horpal.com>',
-          to: 'horpalservice@gmail.com',
+          to: process.env.ADMIN_CONTACT_EMAIL || 'earnmegaservice@gmail.com',
           subject: `🚨 HorPal Live Report: ${Reported_User} (${Reason})`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #050811; color: #fff; padding: 20px; border: 1px solid #ef4444; border-radius: 8px;">
