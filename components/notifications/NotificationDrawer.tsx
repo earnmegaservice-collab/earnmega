@@ -3,7 +3,7 @@ import { formatDistanceToNow } from 'date-fns';
 
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, BellOff, X, Eye, Radio, Flame, Heart, ShieldCheck, UserPlus, Users, AlertCircle, MessageCircle, Trash2 } from 'lucide-react';
+import { Bell, BellOff, X, Eye, Radio, Flame, Heart, ShieldCheck, UserPlus, Users, AlertCircle, MessageCircle, Trash2, Gift } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGlobalNotifications } from '../../context/NotificationContext';
@@ -106,6 +106,16 @@ const getNotificationUI = (type: string) => {
         shadowClass: 'shadow-[0_0_30px_rgba(59,130,246,0.1)]',
         pulseClass: 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]'
       };
+    case 'chat_gift':
+    case 'GIFT':
+      return {
+        icon: <Gift size={18} className="text-amber-400" />,
+        colorClass: 'amber',
+        bgClass: 'bg-amber-500/10',
+        borderClass: 'border-amber-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(251,191,36,0.1)]',
+        pulseClass: 'bg-amber-500 shadow-[0_0_10px_rgba(251,191,36,0.8)]'
+      };
     case 'system':
     default:
       return {
@@ -122,7 +132,7 @@ const getNotificationUI = (type: string) => {
 export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boolean, onClose?: () => void }) {
   const { user } = useAuth();
   const { notifications, unreadCount, markAllAsRead, clearAllNotifications, markAsRead, refreshNotifications, requestPushPermission, permissionStatus, isMuted, toggleMute } = useGlobalNotifications();
-  const [filter, setFilter] = useState<'ALL' | 'LIVE' | 'STATUS' | 'GROUPS' | 'DMS'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'LIVE' | 'STATUS' | 'GROUPS' | 'DMS' | 'CHAT_GIFTS'>('ALL');
 
   useEffect(() => {
     if (isOpen) {
@@ -178,6 +188,7 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                   <button onClick={() => setFilter('STATUS')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'STATUS' ? 'bg-sky-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>Status 📸</button>
                   <button onClick={() => setFilter('GROUPS')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'GROUPS' ? 'bg-violet-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>Groups 👥</button>
                   <button onClick={() => setFilter('DMS')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'DMS' ? 'bg-blue-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>DMs 💬</button>
+                  <button onClick={() => setFilter('CHAT_GIFTS')} className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${filter === 'CHAT_GIFTS' ? 'bg-amber-500 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>Chat Gifts 🎁</button>
                </div>
              </div>
 
@@ -208,6 +219,7 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                  if (filter === 'STATUS') return n.type === 'STATUS_POSTED' || n.type === 'STATUS_LIKED';
                  if (filter === 'GROUPS') return n.type === 'MESSAGE' && n.room_id;
                  if (filter === 'DMS') return n.type === 'MESSAGE' && !n.room_id;
+                 if (filter === 'CHAT_GIFTS') return n.type === 'chat_gift' || n.type === 'GIFT';
                  return true;
               }).length === 0 ? (
                 <p className="text-white/50 text-center mt-10">No notifications yet</p>
@@ -219,6 +231,7 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
                      if (filter === 'STATUS') return n.type === 'STATUS_POSTED' || n.type === 'STATUS_LIKED';
                      if (filter === 'GROUPS') return n.type === 'MESSAGE' && n.room_id;
                      if (filter === 'DMS') return n.type === 'MESSAGE' && !n.room_id;
+                     if (filter === 'CHAT_GIFTS') return n.type === 'chat_gift' || n.type === 'GIFT';
                      return true;
                   }).map((notif, idx) => {
                     const ui = getNotificationUI(notif.type);
