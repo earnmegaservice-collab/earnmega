@@ -1,9 +1,9 @@
 "use client";
 
+import Link from 'next/link';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../utils/supabase';
-import {
-  ShieldCheck,
+import { ShieldCheck,
   Sparkles,
   TrendingUp,
   DollarSign,
@@ -51,7 +51,7 @@ import {
   Eye,
   Layers,
   Briefcase
-} from 'lucide-react';
+, CreditCard, ArrowRight, Folder, RefreshCcw, CalendarDays, Upload, LifeBuoy, Rocket } from 'lucide-react';
 
 // ============================================================================
 // PLATFORM CONFIGURATION & CONSTANTS (PAYWALLS DISABLED FOR TESTING)
@@ -136,6 +136,8 @@ const COUNTRY_DIAL_CODES = [
 // MARKETPLACE PRODUCTS (OWNED BY GEE MINGS (CREATOR))
 // ============================================================================
 export interface MarketplaceProduct {
+  epc?: string;
+  conversionRate?: string;
   id: string;
   shortCode: string;
   title: string;
@@ -488,7 +490,7 @@ export default function HorPalAffiliatePillar({
     | 'rules'
     | 'profile'
     | 'notifications'
-    | 'support';
+    | 'support' | 'my_courses' | 'ai_tools' | 'leads_crm' | 'ledger';
 
   const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('GHS');
@@ -534,11 +536,13 @@ export default function HorPalAffiliatePillar({
   );
   const [pendingEscrowGHS, setPendingEscrowGHS] = useState<number>(0);
   const [totalSalesCount, setTotalSalesCount] = useState<number>(0);
+  const [unlockedProductIds, setUnlockedProductIds] = useState<string[]>([]);
   const [totalClicksCount, setTotalClicksCount] = useState<number>(48);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Marketplace Search, Filter & Modals
   const [products, setProducts] = useState<MarketplaceProduct[]>(INITIAL_PRODUCTS);
+  const [linkTags, setLinkTags] = useState<Record<string, string>>({});
   const [marketSearch, setMarketSearch] = useState<string>('');
   const [marketFilter, setMarketFilter] = useState<string>('All Offers');
   const [promoteModalProduct, setPromoteModalProduct] = useState<MarketplaceProduct | null>(null);
@@ -634,7 +638,7 @@ export default function HorPalAffiliatePillar({
 
   // Contests & 100K Views TikTok/IG Challenge State
   const [registeredContests, setRegisteredContests] = useState<string[]>([]);
-  const [contestModalOpen, setContestModalOpen] = useState<null | 'register_sales' | 'viral_100k'>(null);
+  const [contestModalOpen, setContestModalOpen] = useState<null | 'register_sales' | 'viral_100k' | 'sales_50' | 'sales_100'>(null);
   const [contestFullName, setContestFullName] = useState<string>('');
   const [contestPhone, setContestPhone] = useState<string>('');
   const [contestSocialHandle, setContestSocialHandle] = useState<string>('');
@@ -1243,6 +1247,44 @@ export default function HorPalAffiliatePillar({
     }
   };
 
+
+  // ============================================================================
+  // BLOCK 2: LOCALSTORAGE PERSISTENCE
+  // ============================================================================
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('horpal_p2_state_v3');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.availableBalanceGHS !== undefined) setAvailableBalanceGHS(parsed.availableBalanceGHS);
+        if (parsed.totalEarningsGHS !== undefined) setTotalEarningsGHS(parsed.totalEarningsGHS);
+        if (parsed.withdrawnBalanceGHS !== undefined) setWithdrawnBalanceGHS(parsed.withdrawnBalanceGHS);
+        if (parsed.totalSalesCount !== undefined) setTotalSalesCount(parsed.totalSalesCount);
+        if (parsed.totalClicksCount !== undefined) setTotalClicksCount(parsed.totalClicksCount);
+        if (parsed.transactions !== undefined) setTransactions(parsed.transactions);
+        if (parsed.unlockedProductIds !== undefined) setUnlockedProductIds(parsed.unlockedProductIds);
+        if (parsed.notificationsList !== undefined) setNotificationsList(parsed.notificationsList);
+        if (parsed.abandonedLeads !== undefined) setAbandonedLeads(parsed.abandonedLeads);
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('horpal_p2_state_v3', JSON.stringify({
+        availableBalanceGHS,
+        totalEarningsGHS,
+        withdrawnBalanceGHS,
+        totalSalesCount,
+        totalClicksCount,
+        transactions,
+        unlockedProductIds,
+        notificationsList,
+        abandonedLeads
+      }));
+    } catch (_) {}
+  }, [availableBalanceGHS, totalEarningsGHS, withdrawnBalanceGHS, totalSalesCount, totalClicksCount, transactions, unlockedProductIds, notificationsList, abandonedLeads]);
+
   // ============================================================================
   // HORPAL AI BUSINESS BRAIN BOT HANDLER ("1-CLICK ORDER BUMP" FALLBACK)
   // ============================================================================
@@ -1283,9 +1325,21 @@ export default function HorPalAffiliatePillar({
   const unreadNotifCount = notificationsList.filter((n) => !n.read).length;
   const userInitials = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || 'GM';
 
+
   // Milestone Progress Math
-  const milestoneGoalGHS = 10000;
+  const milestoneTiers = [
+    { name: 'Starter', min: 0, max: 999, label: 'Starter' },
+    { name: 'Bronze Excellence', min: 1000, max: 4999, label: 'Bronze Excellence' },
+    { name: 'Silver Executive', min: 5000, max: 9999, label: 'Silver Executive' },
+    { name: 'Gold Partner', min: 10000, max: 24999, label: 'Gold Partner' },
+    { name: 'Diamond Ambassador', min: 25000, max: Infinity, label: 'Diamond Ambassador' }
+  ];
+  const reversedTiers = [...milestoneTiers].reverse();
+  const currentTier = reversedTiers.find(t => totalEarningsGHS >= t.min) || milestoneTiers[0];
+  const nextTier = milestoneTiers[milestoneTiers.indexOf(currentTier) + 1] || currentTier;
+  const milestoneGoalGHS = nextTier.min || currentTier.max;
   const milestonePercent = Math.min(100, Math.round((totalEarningsGHS / milestoneGoalGHS) * 100));
+
 
   // ============================================================================
   // IF BUYER OPENED AN AFFILIATE PRODUCT LINK (?prod=...), SHOW SALES PAGE + CHECKOUT
@@ -1694,7 +1748,7 @@ export default function HorPalAffiliatePillar({
                   AFFILIATE MILESTONE PROGRESS
                 </span>
                 <span className="text-xs font-bold bg-emerald-500/15 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/30">
-                  🚀 {totalEarningsGHS >= 10000 ? 'Bronze Excellence' : 'Starter'}
+                  🚀 {currentTier.label}
                 </span>
               </div>
               <div className="flex items-center gap-4 mb-3">
@@ -1702,8 +1756,8 @@ export default function HorPalAffiliatePillar({
                   🚀
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-white">Starter</h3>
-                  <p className="text-xs text-gray-400">Next: Bronze Excellence Award</p>
+                  <h3 className="text-lg font-black text-white">{currentTier.label}</h3>
+                  <p className="text-xs text-gray-400">Next: {nextTier.label}</p>
                 </div>
               </div>
               <div className="flex justify-between text-xs text-gray-400 mb-1.5">
@@ -1752,26 +1806,26 @@ export default function HorPalAffiliatePillar({
 
             {/* 4 Key Metric Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-[#0f172a] border border-white/10 rounded-2xl p-4">
+              <div onClick={() => setActiveSection("ledger")} className="bg-[#0f172a] border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-emerald-500/50 transition-all">
                 <span className="text-xs text-gray-400 block">Total Earnings</span>
                 <span className="text-xl font-black text-white mt-1 block">
                   {formatAmount(totalEarningsGHS)}
                 </span>
                 <span className="text-[11px] text-emerald-400 mt-1 block">↑ Instant 50% Split</span>
               </div>
-              <div className="bg-[#0f172a] border border-white/10 rounded-2xl p-4">
+              <div onClick={() => setActiveSection("ledger")} className="bg-[#0f172a] border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-emerald-500/50 transition-all">
                 <span className="text-xs text-gray-400 block">Total Sales</span>
                 <span className="text-xl font-black text-white mt-1 block">{totalSalesCount}</span>
                 <span className="text-[11px] text-indigo-400 mt-1 block">Verified Paystack</span>
               </div>
-              <div className="bg-[#0f172a] border border-white/10 rounded-2xl p-4">
+              <div onClick={() => setActiveSection("payouts")} className="bg-[#0f172a] border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-emerald-500/50 transition-all">
                 <span className="text-xs text-gray-400 block">Withdrawn Earnings</span>
                 <span className="text-xl font-black text-white mt-1 block">
                   {formatAmount(withdrawnBalanceGHS)}
                 </span>
                 <span className="text-[11px] text-gray-400 mt-1 block">↓ Friday Transfers</span>
               </div>
-              <div className="bg-[#0f172a] border border-white/10 rounded-2xl p-4">
+              <div onClick={() => setActiveSection("links")} className="bg-[#0f172a] border border-white/10 rounded-2xl p-4 cursor-pointer hover:border-emerald-500/50 transition-all">
                 <span className="text-xs text-gray-400 block">Link Clicks</span>
                 <span className="text-xl font-black text-white mt-1 block">{totalClicksCount}</span>
                 <span className="text-[11px] text-amber-400 mt-1 block">Active Tracking</span>
@@ -1813,26 +1867,109 @@ export default function HorPalAffiliatePillar({
         {/* ================================================================== */}
         {activeSection === "marketplace" && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Affiliate Marketplace</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {INITIAL_PRODUCTS.map((p) => (
-                <div key={p.id} className="bg-[#0f172a] border border-white/10 rounded-3xl p-5 hover:border-emerald-500/50 transition-all">
-                  <h3 className="text-lg font-bold text-white mb-1">{p.title}</h3>
-                  <span className="text-xs text-emerald-400 font-mono mb-4 block">by {p.creator}</span>
-                  <div className="flex justify-between items-center text-sm mb-4">
-                    <span className="text-gray-400">Price</span>
-                    <span className="font-bold text-white">{formatAmount(p.priceGHS)}</span>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+              <h2 className="text-2xl font-black text-white">Affiliate Marketplace</h2>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Search products..."
+                  value={marketSearch}
+                  onChange={(e) => setMarketSearch(e.target.value)}
+                  className="px-4 py-2 bg-[#141d30] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                />
+                <select
+                  value={marketFilter}
+                  onChange={(e) => setMarketFilter(e.target.value)}
+                  className="px-4 py-2 bg-[#141d30] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                >
+                  {["All Offers", "Top Pick", "High Converting", "Wealth & Finance", "Business & Marketing"].map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {filteredMarketplaceProducts.map((p) => (
+                <div key={p.id} className="bg-[#0f172a] border border-white/10 rounded-3xl p-5 hover:border-emerald-500/50 transition-all flex flex-col h-full group relative overflow-hidden">
+                  {/* Background Glow */}
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-[50px] group-hover:bg-emerald-500/10 transition-colors pointer-events-none" />
+
+                  {/* Badges */}
+                  <div className="flex flex-wrap gap-2 mb-4 relative z-10">
+                    {p.badges.map((badge, idx) => (
+                      <span key={idx} className={`text-[10px] font-black px-2 py-1 rounded-md ${
+                        badge.includes('TOP PICK') ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                        badge.includes('HIGH CONVERTING') ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                        'bg-white/10 text-gray-300 border border-white/10'
+                      }`}>
+                        {badge.includes('TOP PICK') && '★ '}
+                        {badge.includes('HIGH CONVERTING') && '🔥 '}
+                        {badge}
+                      </span>
+                    ))}
+                    <span className="text-[10px] font-black px-2 py-1 rounded-md bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 flex items-center gap-1">
+                      {p.rating} ★
+                    </span>
                   </div>
-                  <div className="flex justify-between items-center text-sm mb-4">
-                    <span className="text-gray-400">Commission</span>
-                    <span className="font-bold text-emerald-400">{p.commissionPercent}%</span>
+
+                  <h3 className="text-lg font-bold text-white leading-tight mb-1 relative z-10">{p.title}</h3>
+                  <span className="text-xs text-gray-400 mb-6 block relative z-10">By <span className="text-emerald-400 font-mono font-medium">{p.creator}</span></span>
+
+                  {/* Metrics Row */}
+                  <div className="grid grid-cols-2 gap-3 mb-6 relative z-10">
+                    <div className="bg-[#141d30] rounded-xl p-3 border border-white/5">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Price</span>
+                      <span className="text-sm font-black text-white">{formatAmount(p.priceGHS)}</span>
+                    </div>
+                    <div className="bg-emerald-500/10 rounded-xl p-3 border border-emerald-500/20">
+                      <span className="text-[10px] text-emerald-500 uppercase font-bold block mb-1">{p.commissionPercent}% Commission</span>
+                      <span className="text-sm font-black text-emerald-400">{formatAmount(p.priceGHS * (p.commissionPercent / 100))}</span>
+                    </div>
+                    <div className="bg-[#141d30] rounded-xl p-3 border border-white/5">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Est. EPC</span>
+                      <span className="text-sm font-bold text-gray-300">{p.epc}</span>
+                    </div>
+                    <div className="bg-[#141d30] rounded-xl p-3 border border-white/5">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Conv. Rate</span>
+                      <span className="text-sm font-bold text-gray-300">{p.conversionRate}</span>
+                    </div>
                   </div>
-                  <button onClick={() => openDigitstemCheckoutForProduct(p)} className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all mb-2">
-                    Checkout Now
-                  </button>
-                  <button onClick={() => setActiveSection("links")} className="w-full py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-black text-xs transition-all">
-                    Promote Product
-                  </button>
+
+                  {/* Affiliate Link Input */}
+                  <div className="mb-6 relative z-10">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1.5 block">Your Unique Link</label>
+                    <div className="flex bg-[#141d30] border border-white/10 rounded-xl overflow-hidden">
+                      <input
+                        type="text"
+                        readOnly
+                        value={getUniqueProductAffiliateLink(p)}
+                        className="flex-1 bg-transparent px-3 py-2.5 text-xs text-gray-300 font-mono outline-none"
+                      />
+                      <button
+                        onClick={() => handleCopy(getUniqueProductAffiliateLink(p), p.id)}
+                        className={`px-4 flex items-center justify-center transition-colors border-l border-white/10 ${copiedKey === p.id ? 'bg-emerald-500 text-black' : 'bg-white/5 hover:bg-white/10 text-white'}`}
+                      >
+                        {copiedKey === p.id ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3 Action Buttons */}
+                  <div className="mt-auto space-y-2 relative z-10">
+                    <button onClick={() => setPromoteModalProduct(p)} className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs transition-all shadow-[0_0_15px_rgba(79,70,229,0.2)]">
+                      Promote Studio 🚀
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => setActiveSalesPageProduct(p)} className="py-2.5 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5" /> Sales Page
+                      </button>
+                      <button onClick={() => openDigitstemCheckoutForProduct(p)} className="py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] flex items-center justify-center gap-1.5">
+                        {unlockedProductIds.includes(p.id) ? <Folder className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
+                        {unlockedProductIds.includes(p.id) ? 'Open Drive' : 'Checkout'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1840,27 +1977,68 @@ export default function HorPalAffiliatePillar({
         )}
 
         {/* ================================================================== */}
-        {/* SECTION 3: LINKS */}
+        {/* SECTION 3: LINKS & QR MANAGER */}
         {/* ================================================================== */}
         {activeSection === "links" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Link Shortener & QR Manager</h2>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
+                <Share2 className="w-5 h-5 text-indigo-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-white">Link Manager & Traffic Tagging</h2>
+                <p className="text-sm text-gray-400">Generate unique tracking links, add Sub-IDs, and download QR codes.</p>
+              </div>
+            </div>
+
             <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
-               <p className="text-gray-400 mb-4">Select a product to generate your unique affiliate link.</p>
-               <div className="space-y-4">
-                 {INITIAL_PRODUCTS.map(p => (
-                   <div key={p.id} className="p-4 bg-[#141d30] rounded-xl flex items-center justify-between gap-4">
-                     <div>
-                       <span className="text-sm font-bold block">{p.title}</span>
-                       <span className="text-xs text-emerald-400 font-mono mt-1 break-all">
-                         https://www.horpal.com/affiliate?prod={p.id}&ref={userAffiliateCode}
-                       </span>
-                     </div>
-                     <button className="p-3 bg-white/10 rounded-lg hover:bg-white/20 transition-all">
-                       <Copy className="w-4 h-4" />
-                     </button>
-                   </div>
-                 ))}
+               <div className="space-y-6">
+                 {INITIAL_PRODUCTS.map(p => {
+                    const baseLink = getUniqueProductAffiliateLink(p);
+                    const tagId = `tag-${p.id}`;
+                    const tagVal = linkTags[tagId] || '';
+                    const finalLink = tagVal ? `${baseLink}&sub=${encodeURIComponent(tagVal)}` : baseLink;
+
+                    return (
+                      <div key={p.id} className="p-5 bg-[#141d30] border border-white/5 hover:border-indigo-500/30 rounded-2xl transition-all">
+                        <div className="flex flex-col sm:flex-row justify-between gap-4 mb-4">
+                          <div>
+                            <span className="text-sm font-black text-white block mb-1">{p.title}</span>
+                            <span className="text-xs text-emerald-400 font-mono flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Auto-tracked to {userAffiliateCode}
+                            </span>
+                          </div>
+                          <button onClick={() => setPromoteModalProduct(p)} className="self-start text-xs font-bold bg-indigo-500/10 text-indigo-400 px-3 py-1.5 rounded-lg border border-indigo-500/20 hover:bg-indigo-500/20">
+                            Open Promote Studio
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_200px] gap-3 mb-3">
+                           <div className="flex bg-[#0b111e] border border-white/10 rounded-xl overflow-hidden">
+                             <input
+                               type="text"
+                               readOnly
+                               value={finalLink}
+                               className="flex-1 bg-transparent px-3 py-2.5 text-xs text-gray-300 font-mono outline-none"
+                             />
+                             <button
+                               onClick={() => handleCopy(finalLink, p.id)}
+                               className={`px-4 flex items-center justify-center transition-colors border-l border-white/10 ${copiedKey === p.id ? 'bg-indigo-500 text-white' : 'bg-white/5 hover:bg-white/10 text-white'}`}
+                             >
+                               {copiedKey === p.id ? 'Copied!' : <Copy className="w-4 h-4" />}
+                             </button>
+                           </div>
+                           <input
+                             type="text"
+                             placeholder="Sub-ID Tag (e.g. tiktok_bio)"
+                             value={tagVal}
+                             onChange={(e) => setLinkTags(prev => ({...prev, [tagId]: e.target.value}))}
+                             className="w-full bg-[#0b111e] border border-white/10 px-3 py-2.5 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50"
+                           />
+                        </div>
+                      </div>
+                    )
+                 })}
                </div>
             </div>
           </div>
@@ -1870,22 +2048,53 @@ export default function HorPalAffiliatePillar({
         {/* SECTION 4: SWIPE VAULT */}
         {/* ================================================================== */}
         {activeSection === "vault" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Swipe Vault (TikTok, IG & WA)</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center">
+                <MessageSquare className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-white">Promotional Swipe Vault</h2>
+                <p className="text-sm text-gray-400">High-converting copy for WhatsApp, TikTok & IG.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6">
               {INITIAL_PRODUCTS.map(p => (
-                <div key={p.id} className="mb-8 last:mb-0">
-                  <h3 className="text-lg font-bold text-emerald-400 mb-3">{p.title} Scripts</h3>
-                  <div className="space-y-4">
-                    <div className="p-4 bg-[#141d30] rounded-xl">
-                      <span className="text-xs font-bold uppercase text-gray-500 mb-2 block">TikTok Hook</span>
-                      <p className="text-sm text-gray-300">{p.swipeCopy.tiktok[0]}</p>
+                <div key={p.id} className="bg-[#0f172a] border border-white/10 rounded-3xl overflow-hidden group">
+                  <div className="bg-[#141d30] px-6 py-4 border-b border-white/5 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-emerald-400">{p.title} Scripts</h3>
+                    <span className="text-xs font-mono bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded-md">Tested & Proven</span>
+                  </div>
+                  <div className="p-6 space-y-6">
+                    {/* TikTok/IG */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-rose-400 flex items-center gap-2"><Video className="w-3.5 h-3.5" /> TikTok / Reels Hook</span>
+                        <button onClick={() => handleCopy(p.swipeCopy.tiktok[0], `tk-${p.id}`)} className="text-[10px] font-bold text-gray-400 hover:text-white flex items-center gap-1">
+                          {copiedKey === `tk-${p.id}` ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />} Copy
+                        </button>
+                      </div>
+                      <div className="p-4 bg-[#0b111e] rounded-xl border border-white/5 relative">
+                        <p className="text-sm text-gray-300 italic">"{p.swipeCopy.tiktok[0]}"</p>
+                      </div>
                     </div>
-                    <div className="p-4 bg-[#141d30] rounded-xl">
-                      <span className="text-xs font-bold uppercase text-gray-500 mb-2 block">WhatsApp Status</span>
-                      <p className="text-sm text-gray-300">
-                        {p.swipeCopy.whatsapp[0].replace("{LINK}", `https://www.horpal.com/affiliate?prod=${p.id}&ref=${userAffiliateCode}`)}
-                      </p>
+                    {/* WhatsApp */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-[#25D366] flex items-center gap-2"><MessageSquare className="w-3.5 h-3.5" /> WhatsApp Status / DM</span>
+                        <button
+                          onClick={() => handleCopy(p.swipeCopy.whatsapp[0].replace("{LINK}", getUniqueProductAffiliateLink(p)), `wa-${p.id}`)}
+                          className="text-[10px] font-bold text-gray-400 hover:text-white flex items-center gap-1"
+                        >
+                          {copiedKey === `wa-${p.id}` ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />} Copy
+                        </button>
+                      </div>
+                      <div className="p-4 bg-[#0b111e] rounded-xl border border-white/5">
+                        <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                          {p.swipeCopy.whatsapp[0].replace("{LINK}", getUniqueProductAffiliateLink(p))}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1895,17 +2104,226 @@ export default function HorPalAffiliatePillar({
         )}
 
         {/* ================================================================== */}
-        {/* SECTION 5: EXAM */}
+        {/* SECTION 5: EXAM & CERTIFICATION */}
         {/* ================================================================== */}
         {activeSection === "exam" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">5-Step Certification Exam</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 text-center py-12">
-               <Award className="w-16 h-16 text-emerald-500 mx-auto mb-4 opacity-50" />
-               <h3 className="text-xl font-bold mb-2">Exam Portal Online</h3>
-               <p className="text-gray-400 mb-6 max-w-md mx-auto">Score 90% or higher to earn your HorPal Certificate of Completion.</p>
-               <button className="px-6 py-3 bg-emerald-500 text-black font-bold rounded-xl hover:bg-emerald-400 transition-all">Start Step 1 Exam</button>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+                <Award className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-white">Certification Academy</h2>
+                <p className="text-sm text-gray-400">Pass the 5-Step Exam (90% required) to earn your Official Certificate.</p>
+              </div>
             </div>
+
+            {/* Top Product Selector */}
+            <div className="bg-[#0f172a] border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Select Certification Course</label>
+                <select
+                  value={examProductId}
+                  onChange={(e) => {
+                    setExamProductId(e.target.value);
+                    setCurrentExamStep(1);
+                    setUnlockedExamStep(1);
+                    setExamAnswers({});
+                    setExamStepResult(null);
+                    setCertificateUnlocked(false);
+                  }}
+                  className="bg-[#141d30] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none min-w-[250px]"
+                >
+                  {INITIAL_PRODUCTS.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                </select>
+              </div>
+              <button
+                onClick={() => setCertificateUnlocked(true)}
+                className="text-xs font-bold text-amber-400 bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/20 hover:bg-amber-500/20"
+              >
+                Preview Certificate
+              </button>
+            </div>
+
+            {certificateUnlocked ? (
+              // Official Certificate View
+              <div className="bg-gradient-to-br from-[#1a1f3c] to-[#0f172a] border-2 border-amber-500/40 rounded-3xl p-8 md:p-16 text-center relative overflow-hidden shadow-[0_0_50px_rgba(245,158,11,0.15)]">
+                <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10 pointer-events-none"></div>
+
+                <div className="w-24 h-24 mx-auto bg-amber-500/10 rounded-full flex items-center justify-center border-4 border-amber-500/30 mb-8 relative z-10">
+                  <Award className="w-12 h-12 text-amber-400" />
+                </div>
+
+                <h1 className="text-4xl md:text-5xl font-serif italic text-amber-400 mb-4 relative z-10 font-bold">Certificate of Completion</h1>
+                <p className="text-gray-300 uppercase tracking-widest text-sm mb-10 relative z-10">Official HorPal Certification</p>
+
+                <p className="text-gray-400 mb-2 relative z-10">This certifies that</p>
+                <input
+                  type="text"
+                  value={certificateStudentName}
+                  onChange={(e) => setCertificateStudentName(e.target.value)}
+                  className="text-3xl md:text-5xl font-black text-white bg-transparent border-b-2 border-white/20 text-center focus:outline-none focus:border-amber-400 pb-2 mb-10 w-full max-w-lg relative z-10"
+                />
+
+                <p className="text-gray-400 mb-2 relative z-10">has successfully completed the 5-Step Examination for</p>
+                <h2 className="text-xl md:text-2xl font-bold text-white mb-16 relative z-10">
+                  {INITIAL_PRODUCTS.find(p => p.id === examProductId)?.title || "Digital Marketing Academy"}
+                </h2>
+
+                <div className="flex flex-col md:flex-row items-center justify-between gap-8 max-w-2xl mx-auto relative z-10">
+                  <div className="text-center">
+                    <div className="border-b border-gray-500 pb-2 mb-2 px-8">
+                      <span className="font-script text-2xl text-gray-300">Gee Mings</span>
+                    </div>
+                    <p className="text-xs text-gray-400 uppercase tracking-wider">Founder, HorPal</p>
+                  </div>
+
+                  <div className="w-24 h-24 rounded-full bg-amber-500/5 border border-amber-500/20 flex flex-col items-center justify-center">
+                    <span className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">Score</span>
+                    <span className="text-2xl font-black text-amber-400">100%</span>
+                  </div>
+
+                  <div className="text-center">
+                    <div className="border-b border-gray-500 pb-2 mb-2 px-8">
+                      <span className="text-sm font-mono text-gray-300">{new Date().toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 uppercase tracking-wider">Date Issued</p>
+                  </div>
+                </div>
+
+                <div className="mt-12 text-[10px] text-gray-500 font-mono relative z-10">
+                  Certificate ID: {certificateCode || `HP-CERT-${Math.floor(100000 + Math.random() * 900000)}`}
+                </div>
+
+                <div className="mt-16 flex flex-col sm:flex-row justify-center gap-4 relative z-10">
+                  <button className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black flex items-center justify-center gap-2">
+                    <Download className="w-4 h-4" /> Download / Print Official Certificate
+                  </button>
+                  <button onClick={() => window.location.href = "mailto:horpalservice@gmail.com?subject=Certificate%20Verification"} className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center gap-2 border border-white/10">
+                    <Upload className="w-4 h-4" /> Submit Proof to Admin
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // 5-Step Stepper & Questions Engine
+              <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 md:p-8">
+                {/* Stepper Progress */}
+                <div className="flex justify-between items-center mb-8 relative">
+                  <div className="absolute top-1/2 left-0 w-full h-1 bg-white/5 -translate-y-1/2 z-0"></div>
+                  <div className="absolute top-1/2 left-0 h-1 bg-emerald-500 -translate-y-1/2 z-0 transition-all" style={{ width: `${(currentExamStep - 1) * 25}%` }}></div>
+
+                  {[1, 2, 3, 4, 5].map(step => (
+                    <button
+                      key={step}
+                      disabled={step > unlockedExamStep}
+                      onClick={() => {
+                        setCurrentExamStep(step as any);
+                        setExamAnswers({});
+                        setExamStepResult(null);
+                      }}
+                      className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all border-4 border-[#0f172a] ${
+                        step === currentExamStep ? 'bg-emerald-500 text-black scale-110 shadow-[0_0_15px_rgba(16,185,129,0.5)]' :
+                        step < currentExamStep ? 'bg-emerald-400 text-black' :
+                        step <= unlockedExamStep ? 'bg-[#141d30] text-emerald-400 border-emerald-500/30' :
+                        'bg-[#141d30] text-gray-600 border-white/5 cursor-not-allowed'
+                      }`}
+                    >
+                      {step < currentExamStep ? <CheckCircle2 className="w-5 h-5" /> : step <= unlockedExamStep ? step : <Lock className="w-4 h-4" />}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="text-center mb-8">
+                  <h3 className="text-2xl font-black text-emerald-400 mb-2">{FIVE_STEP_EXAM_BANK[currentExamStep].title}</h3>
+                  <p className="text-sm text-gray-400">{FIVE_STEP_EXAM_BANK[currentExamStep].subtitle}</p>
+                </div>
+
+                {examStepResult && (
+                  <div className={`p-6 rounded-2xl border mb-8 text-center ${examStepResult.passed ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                    <h4 className="text-xl font-black mb-2">
+                      {examStepResult.passed ? '🎉 Step Passed!' : '❌ Score Below 90%'}
+                    </h4>
+                    <p className="text-sm font-bold mb-1">Score: {examStepResult.correctCount}/{examStepResult.total} — {examStepResult.scorePercent}%</p>
+                    {!examStepResult.passed ? (
+                      <p className="text-xs opacity-80 mt-2">You must score 90% or higher to unlock the next step. Please review and retake.</p>
+                    ) : currentExamStep === 5 ? (
+                      <p className="text-xs opacity-80 mt-2">Congratulations! You have passed all 5 steps and unlocked your certificate!</p>
+                    ) : (
+                      <p className="text-xs opacity-80 mt-2">Excellent! You may now proceed to Step {currentExamStep + 1}.</p>
+                    )}
+                  </div>
+                )}
+
+                <form onSubmit={handleGradeExamStep} className="space-y-8">
+                  {FIVE_STEP_EXAM_BANK[currentExamStep].questions.map((q, idx) => (
+                    <div key={idx} className="bg-[#141d30] p-5 rounded-2xl border border-white/5">
+                      <p className="font-bold text-white mb-4 text-sm md:text-base"><span className="text-emerald-400 mr-2">{idx + 1}.</span>{q.q}</p>
+                      <div className="space-y-2">
+                        {q.options.map((opt, optIdx) => (
+                          <label
+                            key={optIdx}
+                            className={`flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all border ${
+                              examAnswers[idx] === optIdx
+                                ? 'bg-emerald-500/10 border-emerald-500/50'
+                                : 'bg-[#0b111e] border-white/5 hover:border-white/20'
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
+                              examAnswers[idx] === optIdx ? 'border-emerald-500 bg-emerald-500' : 'border-gray-600'
+                            }`}>
+                              {examAnswers[idx] === optIdx && <div className="w-2 h-2 bg-white rounded-full"></div>}
+                            </div>
+                            <span className={`text-sm ${examAnswers[idx] === optIdx ? 'text-emerald-300 font-medium' : 'text-gray-300'}`}>{opt}</span>
+                            <input
+                              type="radio"
+                              name={`q-${currentExamStep}-${idx}`}
+                              className="hidden"
+                              checked={examAnswers[idx] === optIdx}
+                              onChange={() => {
+                                setExamAnswers(prev => ({...prev, [idx]: optIdx}));
+                                setExamStepResult(null); // Clear result on new answer
+                              }}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  {!examStepResult?.passed && (
+                     <button
+                       type="submit"
+                       disabled={Object.keys(examAnswers).length < 10}
+                       className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-black transition-all text-lg shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+                     >
+                       {examStepResult ? 'Retake Step' : `Submit Step ${currentExamStep} Answers for Instant Grading`}
+                     </button>
+                  )}
+                  {examStepResult?.passed && currentExamStep < 5 && (
+                     <button
+                       type="button"
+                       onClick={() => {
+                         setCurrentExamStep((currentExamStep + 1) as any);
+                         setExamAnswers({});
+                         setExamStepResult(null);
+                       }}
+                       className="w-full py-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black transition-all text-lg shadow-[0_0_20px_rgba(79,70,229,0.3)]"
+                     >
+                       Proceed to Step {currentExamStep + 1} →
+                     </button>
+                  )}
+                  {examStepResult?.passed && currentExamStep === 5 && (
+                     <button
+                       type="button"
+                       onClick={() => setCertificateUnlocked(true)}
+                       className="w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black transition-all text-lg shadow-[0_0_20px_rgba(245,158,11,0.3)] flex items-center justify-center gap-2"
+                     >
+                       <Award className="w-5 h-5" /> Claim Official HorPal Certificate
+                     </button>
+                  )}
+                </form>
+              </div>
+            )}
           </div>
         )}
 
@@ -1913,161 +2331,692 @@ export default function HorPalAffiliatePillar({
         {/* SECTION 6: CONTESTS */}
         {/* ================================================================== */}
         {activeSection === "contests" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Contests & 100K Challenge</h2>
-            <div className="bg-gradient-to-br from-amber-600 to-amber-900 border border-amber-500/30 rounded-3xl p-6 shadow-xl">
-              <h3 className="text-xl font-black mb-2 flex items-center gap-2">
-                <Trophy className="text-amber-300 w-6 h-6" /> GH₵ 10,000 TikTok Challenge
-              </h3>
-              <p className="text-sm text-amber-100/80 mb-6">Hit 100,000+ views on TikTok or Instagram with a HorPal promo video to win {formatAmount(10000)}.</p>
-              <button className="px-6 py-3 bg-amber-400 text-amber-950 font-bold rounded-xl hover:bg-amber-300 transition-all w-full sm:w-auto">Submit Video URL</button>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                <Trophy className="w-5 h-5 text-cyan-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-white">Contests Arena</h2>
+                <p className="text-sm text-gray-400">Win cash, gadgets, and exclusive bonuses.</p>
+              </div>
+            </div>
+
+            {contestStatusBanner && (
+              <div className="bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 p-4 rounded-2xl text-sm font-bold flex justify-between items-center">
+                <span>{contestStatusBanner}</span>
+                <button onClick={() => setContestStatusBanner(null)}><X className="w-4 h-4"/></button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Contest 1: 100K Views Viral Video */}
+              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-cyan-500/30 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(6,182,212,0.1)]">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 blur-[50px]"></div>
+                <div className="inline-block px-3 py-1 bg-cyan-500/20 text-cyan-400 text-xs font-black rounded-full mb-4 border border-cyan-500/30">
+                  CASH BOUNTY
+                </div>
+                <h3 className="text-2xl font-black text-white mb-2">TikTok & IG 100K Views Challenge</h3>
+                <p className="text-sm text-gray-400 mb-6">Create a promotional video for HorPal. If it hits 100,000 views, you win!</p>
+
+                <div className="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
+                  <span className="text-xs text-gray-500 uppercase font-bold block mb-1">Grand Prize</span>
+                  <span className="text-3xl font-black text-cyan-400">{formatAmount(10000)}</span>
+                </div>
+
+                <button
+                  onClick={() => setContestModalOpen('viral_100k')}
+                  className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-black transition-all flex items-center justify-center gap-2"
+                >
+                  <Video className="w-4 h-4" /> Register & Submit 100K Video
+                </button>
+              </div>
+
+              {/* Contest 2: 50-Sales Sprint */}
+              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-amber-500/30 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(245,158,11,0.1)]">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-[50px]"></div>
+                <div className="inline-block px-3 py-1 bg-amber-500/20 text-amber-400 text-xs font-black rounded-full mb-4 border border-amber-500/30">
+                  VELOCITY SPRINT
+                </div>
+                <h3 className="text-2xl font-black text-white mb-2">50-Sales Executive Sprint</h3>
+                <p className="text-sm text-gray-400 mb-6">Hit 50 confirmed sales to unlock the bonus and Executive Trophy.</p>
+
+                <div className="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
+                  <div className="flex justify-between items-end mb-2">
+                    <div>
+                       <span className="text-xs text-gray-500 uppercase font-bold block mb-1">Bonus Prize</span>
+                       <span className="text-2xl font-black text-amber-400">{formatAmount(3500)}</span>
+                    </div>
+                    <div className="text-right">
+                       <span className="text-lg font-black text-white">{totalSalesCount} / 50</span>
+                       <span className="text-xs text-gray-500 block">Sales</span>
+                    </div>
+                  </div>
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-amber-600 to-amber-400" style={{ width: `${Math.min(100, (totalSalesCount / 50) * 100)}%` }}></div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  {!registeredContests.includes('sales_50') ? (
+                    <button
+                      onClick={() => setContestModalOpen('sales_50')}
+                      className="flex-1 py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-black transition-all"
+                    >
+                      Register for 50-Sales Sprint
+                    </button>
+                  ) : totalSalesCount >= 50 ? (
+                    <button
+                      onClick={triggerAdminMilestoneAlert}
+                      disabled={adminMilestoneAlertSent}
+                      className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black transition-all animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.4)] disabled:animate-none disabled:bg-gray-600 disabled:text-gray-400 flex items-center justify-center gap-2"
+                    >
+                      {adminMilestoneAlertSent ? 'Alert Dispatched ✓' : '🚨 Goal Reached! Alert Admin Command Centre'}
+                    </button>
+                  ) : (
+                    <button disabled className="flex-1 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-black cursor-not-allowed">
+                      Registered! Keep Selling.
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setTotalSalesCount(prev => prev + 1)}
+                    className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-gray-400 border border-white/5"
+                  >
+                    +1 Demo Sale
+                  </button>
+                </div>
+              </div>
+
+
+              {/* Contest 3: 100-Sales Grand Producer */}
+              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-emerald-500/30 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(16,185,129,0.1)]">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[50px]"></div>
+                <div className="inline-block px-3 py-1 bg-emerald-500/20 text-emerald-400 text-xs font-black rounded-full mb-4 border border-emerald-500/30">
+                  GRAND PRODUCER
+                </div>
+                <h3 className="text-2xl font-black text-white mb-2">100-Sales Grand Producer Challenge</h3>
+                <p className="text-sm text-gray-400 mb-6">Hit 100 sales to win a MacBook Pro M3 + Cash.</p>
+
+                <div className="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
+                  <div className="flex justify-between items-end mb-2">
+                    <div>
+                       <span className="text-xs text-gray-500 uppercase font-bold block mb-1">Grand Prize</span>
+                       <span className="text-lg font-black text-emerald-400">MacBook Pro + {formatAmount(10000)}</span>
+                    </div>
+                    <div className="text-right">
+                       <span className="text-lg font-black text-white">{totalSalesCount} / 100</span>
+                       <span className="text-xs text-gray-500 block">Sales</span>
+                    </div>
+                  </div>
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400" style={{ width: `${Math.min(100, (totalSalesCount / 100) * 100)}%` }}></div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setContestModalOpen('sales_100')}
+                  className="w-full py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-black transition-all"
+                >
+                  Register for 100-Sales Challenge
+                </button>
+              </div>
+
+              {/* Contest 4: Friday Fast-Start Top 3 Pool */}
+              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-purple-500/30 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(168,85,247,0.1)]">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[50px]"></div>
+                <div className="inline-block px-3 py-1 bg-purple-500/20 text-purple-400 text-xs font-black rounded-full mb-4 border border-purple-500/30">
+                  WEEKLY POOL
+                </div>
+                <h3 className="text-2xl font-black text-white mb-2">Weekly Friday Fast-Start Top 3 Pool</h3>
+                <p className="text-sm text-gray-400 mb-6">Hit 15 sales this week to enter the GH₵ 2,000 pool.</p>
+
+                <div className="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
+                  <div className="flex justify-between items-end mb-2">
+                    <div>
+                       <span className="text-xs text-gray-500 uppercase font-bold block mb-1">Pool Prize</span>
+                       <span className="text-xl font-black text-purple-400">{formatAmount(2000)} / Week</span>
+                    </div>
+                    <div className="text-right">
+                       <span className="text-lg font-black text-white">{totalSalesCount} / 15</span>
+                       <span className="text-xs text-gray-500 block">Weekly</span>
+                    </div>
+                  </div>
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-purple-600 to-purple-400" style={{ width: `${Math.min(100, (totalSalesCount / 15) * 100)}%` }}></div>
+                  </div>
+                </div>
+
+                <div className="text-center text-xs text-gray-400 italic">
+                  Top 10 Affiliates Leaderboard refreshes every Monday.
+                </div>
+              </div>
             </div>
           </div>
         )}
 
         {/* ================================================================== */}
-        {/* SECTION 7: PAYOUTS */}
+        {/* SECTION 7: PAYOUTS (FRIDAY DESK) */}
         {/* ================================================================== */}
         {activeSection === "payouts" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Friday Payout Desk</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
-              <div className="mb-6 p-4 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl">
-                 <span className="text-xs text-indigo-300 font-bold uppercase tracking-wider block mb-1">Available for Withdrawal</span>
-                 <span className="text-3xl font-black text-white">{formatAmount(availableBalanceGHS)}</span>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                  <DollarSign className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-white">Friday Payout Desk</h2>
+                  <p className="text-sm text-gray-400">Withdraw your commissions (Minimum GH₵ 90).</p>
+                </div>
               </div>
-              <p className="text-sm text-gray-400 mb-6">Payouts are processed every Friday via Mobile Money (MTN, Telecel, AT), Bank Transfer, or USDT (TRC20).</p>
-              <button className="w-full py-4 bg-white hover:bg-gray-100 text-black font-black rounded-xl transition-all">Request Payout to {payoutChannel}</button>
+              <div className={`px-3 py-1.5 rounded-full border text-xs font-bold ${isFridayGMT ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                {isFridayGMT ? '🟢 Window Open' : '🔴 Opens Friday GMT'}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Balances */}
+              <div className="space-y-4">
+                <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-800 rounded-3xl p-6 md:p-8 shadow-xl">
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-100 block mb-2">AVAILABLE BALANCE</span>
+                  <div className="text-4xl md:text-5xl font-black text-white mb-6">
+                    {formatAmount(availableBalanceGHS)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 border-t border-white/20 pt-6">
+                    <div>
+                      <span className="text-[10px] text-indigo-200 block uppercase font-bold mb-1">Total Earned</span>
+                      <span className="text-lg font-bold text-white">{formatAmount(totalEarningsGHS)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-indigo-200 block uppercase font-bold mb-1">Total Withdrawn</span>
+                      <span className="text-lg font-bold text-white">{formatAmount(withdrawnBalanceGHS)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-[#0f172a] border border-white/10 rounded-2xl p-5">
+                  <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" /> Payout Rules
+                  </h3>
+                  <ul className="text-xs text-gray-400 space-y-2">
+                    <li>• Payouts are processed manually every Friday via Paystack Transfer.</li>
+                    <li>• Ensure your Name matches your Mobile Money / Bank account exactly.</li>
+                    <li>• Minimum withdrawal is GH₵ 90.00.</li>
+                    <li>• USDT TRC20 withdrawals are settled at live market rates.</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Form */}
+              <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 md:p-8">
+                {payoutFeedback && (
+                  <div className={`p-4 rounded-xl mb-6 text-sm font-bold border ${payoutFeedback.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                    {payoutFeedback.text}
+                  </div>
+                )}
+
+                <form onSubmit={handleFridayPayoutSubmit} className="space-y-5">
+                  <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Amount to Withdraw (GH₵)</label>
+                    <input
+                      type="number"
+                      min="90"
+                      step="0.01"
+                      required
+                      value={payoutAmountGHS}
+                      onChange={(e) => setPayoutAmountGHS(e.target.value)}
+                      placeholder="e.g. 1500"
+                      className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-lg text-white font-black placeholder-gray-600 focus:outline-none focus:border-emerald-500/50"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Payout Channel</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'MOBILE_MONEY', label: 'MoMo' },
+                        { id: 'BANK_TRANSFER', label: 'Bank' },
+                        { id: 'USDT_TRC20', label: 'USDT' }
+                      ].map(chan => (
+                        <button
+                          key={chan.id}
+                          type="button"
+                          onClick={() => setPayoutChannel(chan.id as any)}
+                          className={`py-3 rounded-xl text-xs font-bold border transition-all ${
+                            payoutChannel === chan.id
+                              ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400'
+                              : 'bg-[#141d30] border-white/10 text-gray-400 hover:bg-white/5'
+                          }`}
+                        >
+                          {chan.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Account Holder Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={accountHolderName}
+                      onChange={(e) => setAccountHolderName(e.target.value)}
+                      placeholder="Name registered on the account"
+                      className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                    />
+                  </div>
+
+                  {payoutChannel === 'MOBILE_MONEY' && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Network</label>
+                        <select
+                          value={momoNetwork}
+                          onChange={(e) => setMomoNetwork(e.target.value)}
+                          className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                        >
+                          <option>MTN MoMo</option>
+                          <option>Telecel Cash</option>
+                          <option>AT Money</option>
+                          <option>MPesa</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Phone Number</label>
+                        <input
+                          type="text"
+                          required
+                          value={momoNumber}
+                          onChange={(e) => setMomoNumber(e.target.value)}
+                          placeholder="024XXXXXXX"
+                          className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {payoutChannel === 'BANK_TRANSFER' && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Bank Name</label>
+                        <input
+                          type="text"
+                          required
+                          value={bankName}
+                          onChange={(e) => setBankName(e.target.value)}
+                          placeholder="e.g. GTBank, Zenith"
+                          className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Account Number</label>
+                        <input
+                          type="text"
+                          required
+                          value={bankAccount}
+                          onChange={(e) => setBankAccount(e.target.value)}
+                          placeholder="Account Number"
+                          className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {payoutChannel === 'CRYPTO_USDT' && (
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">USDT TRC20 Address</label>
+                      <input
+                        type="text"
+                        required
+                        value={usdtAddress}
+                        onChange={(e) => setUsdtAddress(e.target.value)}
+                        placeholder="T..."
+                        className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white font-mono focus:outline-none focus:border-emerald-500/50"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={isSubmittingPayout}
+                    className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all text-lg shadow-[0_0_20px_rgba(16,185,129,0.2)] disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSubmittingPayout ? (
+                       <RefreshCcw className="w-5 h-5 animate-spin" />
+                    ) : (
+                       <DollarSign className="w-5 h-5" />
+                    )}
+                    {isSubmittingPayout ? 'Processing...' : 'Submit Payout Request'}
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
         )}
 
         {/* ================================================================== */}
-        {/* SECTION 8: CALCULATOR */}
+        {/* SECTION 8: CALCULATOR (PROFIT SIMULATOR) */}
         {/* ================================================================== */}
         {activeSection === "calculator" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Profit Simulator</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 text-center py-12">
-               <Calculator className="w-16 h-16 text-indigo-500 mx-auto mb-4 opacity-50" />
-               <h3 className="text-xl font-bold mb-2">Income Calculator</h3>
-               <p className="text-gray-400 mb-6 max-w-md mx-auto">Calculate your potential daily, monthly, and annual income based on your projected daily sales volume.</p>
-               <input type="range" min="1" max="100" defaultValue="10" className="w-full max-w-md accent-indigo-500 mb-4" />
-               <div className="text-2xl font-black text-indigo-400">10 Sales/Day = {formatAmount(240 * 10 * 30)} / Month</div>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                <Calculator className="w-5 h-5 text-blue-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-white">Income Simulator</h2>
+                <p className="text-sm text-gray-400">Calculate your potential earnings.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 md:p-8">
+                <div className="space-y-6">
+                  <div>
+                    <label className="text-xs font-bold text-gray-400 uppercase block mb-2">Select Product to Simulate</label>
+                    <select
+                      value={calcProductId}
+                      onChange={(e) => setCalcProductId(e.target.value)}
+                      className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500/50"
+                    >
+                      {INITIAL_PRODUCTS.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                     <div className="flex justify-between items-center mb-2">
+                       <label className="text-xs font-bold text-gray-400 uppercase">Sales per Day</label>
+                       <span className="text-xl font-black text-blue-400">{calcDailySales}</span>
+                     </div>
+                     <input
+                       type="range"
+                       min="1"
+                       max="50"
+                       value={calcDailySales}
+                       onChange={(e) => setCalcDailySales(Number(e.target.value))}
+                       className="w-full accent-blue-500 h-2 bg-[#141d30] rounded-lg appearance-none cursor-pointer"
+                     />
+                     <div className="flex justify-between mt-2 text-[10px] text-gray-500 font-mono">
+                       <span>1</span>
+                       <span>50</span>
+                     </div>
+                  </div>
+
+                  <div className="p-4 bg-[#141d30] rounded-2xl border border-white/5">
+                     <div className="flex justify-between items-center text-sm">
+                       <span className="text-gray-400">Commission per Sale:</span>
+                       <span className="font-bold text-white">
+                         {formatAmount(INITIAL_PRODUCTS.find(p => p.id === calcProductId)?.priceGHS! * (INITIAL_PRODUCTS.find(p => p.id === calcProductId)?.commissionPercent! / 100))}
+                       </span>
+                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-blue-500/30 rounded-3xl p-6 md:p-8 shadow-[0_0_30px_rgba(59,130,246,0.1)] flex flex-col justify-center">
+                 <h3 className="text-lg font-bold text-white mb-6 text-center">Projected Income</h3>
+
+                 <div className="space-y-4">
+                   <div className="bg-black/30 rounded-2xl p-4 flex justify-between items-center border border-white/5">
+                     <span className="text-sm text-gray-400 font-bold uppercase tracking-wider">Daily</span>
+                     <span className="text-xl font-black text-white">
+                       {formatAmount(calcDailySales * (INITIAL_PRODUCTS.find(p => p.id === calcProductId)?.priceGHS! * (INITIAL_PRODUCTS.find(p => p.id === calcProductId)?.commissionPercent! / 100)))}
+                     </span>
+                   </div>
+                   <div className="bg-blue-500/10 rounded-2xl p-5 flex justify-between items-center border border-blue-500/30 transform scale-[1.02] shadow-lg">
+                     <span className="text-sm text-blue-300 font-bold uppercase tracking-wider flex items-center gap-2"><CalendarDays className="w-4 h-4"/> Monthly (30 days)</span>
+                     <span className="text-3xl font-black text-blue-400">
+                       {formatAmount(calcDailySales * 30 * (INITIAL_PRODUCTS.find(p => p.id === calcProductId)?.priceGHS! * (INITIAL_PRODUCTS.find(p => p.id === calcProductId)?.commissionPercent! / 100)))}
+                     </span>
+                   </div>
+                   <div className="bg-black/30 rounded-2xl p-4 flex justify-between items-center border border-white/5">
+                     <span className="text-sm text-gray-400 font-bold uppercase tracking-wider">Annually</span>
+                     <span className="text-xl font-black text-white">
+                       {formatAmount(calcDailySales * 365 * (INITIAL_PRODUCTS.find(p => p.id === calcProductId)?.priceGHS! * (INITIAL_PRODUCTS.find(p => p.id === calcProductId)?.commissionPercent! / 100)))}
+                     </span>
+                   </div>
+                 </div>
+              </div>
             </div>
           </div>
         )}
 
         {/* ================================================================== */}
-        {/* SECTION 9: CREATOR */}
+        {/* SECTION 9: CREATOR WHITELIST & MY COURSES & AI TOOLS & CRM & LEDGER */}
         {/* ================================================================== */}
         {activeSection === "creator" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Creator / Vendor Whitelist</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
-               <p className="text-sm text-gray-400 mb-6">Learn how to list your digital products on the HorPal Affiliate Marketplace and tap into our army of active affiliates.</p>
-               <ul className="space-y-3 text-sm text-gray-300 mb-8">
-                 <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" /> Minimum 50% commission required for all products.</li>
-                 <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" /> Product must be high quality and hosted on Google Drive or external LMS.</li>
-                 <li className="flex gap-3 items-start"><CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" /> Clean sales page with a clear value proposition.</li>
-               </ul>
-               <button className="px-6 py-3 bg-emerald-500 text-black font-bold rounded-xl hover:bg-emerald-400 transition-all">Submit Whitelist Application</button>
-            </div>
-          </div>
-        )}
-
-        {/* ================================================================== */}
-        {/* SECTION 10: RULES */}
-        {/* ================================================================== */}
-        {activeSection === "rules" && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Rules & Regulations</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
-               <h3 className="text-lg font-bold mb-4">Official Governance Guide</h3>
-               <div className="space-y-4 text-sm text-gray-300">
-                 <p><strong>1. Link Attribution:</strong> Sales are tracked via the last-click attribution model. The affiliate link clicked last will receive the commission.</p>
-                 <p><strong>2. 50% Commission Split Rules:</strong> All marketplace products guarantee a 50% commission split, deposited directly into your Friday Wallet.</p>
-                 <p><strong>3. Friday Payout Schedule:</strong> Payout requests must be submitted by Thursday 11:59 PM to be processed on Friday.</p>
-                 <p><strong>4. Anti-Spam Rules:</strong> Affiliates found spamming links in unauthorized platforms will face immediate account termination without payout.</p>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="bg-gradient-to-br from-[#141d30] to-[#0f172a] border border-fuchsia-500/30 rounded-3xl p-8 md:p-12 text-center relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-500/10 blur-[80px]"></div>
+               <Briefcase className="w-12 h-12 text-fuchsia-400 mx-auto mb-6 relative z-10" />
+               <h2 className="text-3xl font-black text-white mb-4 relative z-10">Creator Whitelist Portal</h2>
+               <p className="text-gray-400 max-w-2xl mx-auto mb-8 relative z-10">
+                 Want to list your own high-converting digital product on the HorPal Marketplace? Read the strict QA requirements and submit your application to our board.
+               </p>
+               <div className="flex flex-col sm:flex-row justify-center gap-4 relative z-10">
+                 <Link href="/whitelist" className="px-8 py-4 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-black transition-all shadow-[0_0_20px_rgba(192,38,211,0.3)]">
+                   Open Official Creator Whitelist Site (/whitelist) ↗
+                 </Link>
+                 <a href="mailto:horpalservice@gmail.com?subject=Creator%20Whitelist%20Submission" className="px-8 py-4 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-bold transition-all">
+                   Submit Application via Email
+                 </a>
                </div>
             </div>
           </div>
         )}
 
+        {activeSection === "rules" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="bg-gradient-to-br from-[#141d30] to-[#0f172a] border border-emerald-500/30 rounded-3xl p-8 md:p-12 text-center relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-[80px]"></div>
+               <ShieldCheck className="w-12 h-12 text-emerald-400 mx-auto mb-6 relative z-10" />
+               <h2 className="text-3xl font-black text-white mb-4 relative z-10">Official Rules & Regulations</h2>
+               <p className="text-gray-400 max-w-2xl mx-auto mb-8 relative z-10">
+                 Review the complete governance, payout policies, unique link attribution rules, and anti-spam code.
+               </p>
+               <Link href="/rules" className="px-8 py-4 rounded-xl inline-block bg-white hover:bg-gray-200 text-black font-black transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)] relative z-10">
+                 Read Full Official Rules & Regulations Site (/rules) ↗
+               </Link>
+            </div>
+          </div>
+        )}
+
+        {activeSection === "my_courses" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <h2 className="text-2xl font-black text-white mb-2">My Unlocked Courses & Drive Vault</h2>
+            {unlockedProductIds.length === 0 ? (
+              <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-12 text-center">
+                <Folder className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                <p className="text-gray-400">You haven't unlocked any courses yet.</p>
+                <button onClick={() => setActiveSection("marketplace")} className="mt-4 px-6 py-2 rounded-xl bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/30">Browse Marketplace</button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {INITIAL_PRODUCTS.filter(p => unlockedProductIds.includes(p.id)).map(p => (
+                  <div key={p.id} className="bg-[#0f172a] border border-emerald-500/30 rounded-3xl p-6 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 blur-[40px]"></div>
+                    <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center mb-4 border border-emerald-500/30">
+                      <Folder className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">{p.title}</h3>
+                    <p className="text-sm text-gray-400 mb-6">Full Google Drive Access Granted.</p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <a href={p.deliveryUrl} target="_blank" rel="noopener noreferrer" className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all text-center flex items-center justify-center gap-2">
+                        <Folder className="w-4 h-4"/> Open Drive Folder ↗
+                      </a>
+                      <button onClick={() => { setActiveSection("exam"); setExamProductId(p.id); }} className="flex-1 py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-bold text-xs transition-all text-center flex items-center justify-center gap-2">
+                        <Award className="w-4 h-4"/> Take Certification Exam
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeSection === "ai_tools" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <h2 className="text-2xl font-black text-white mb-2 flex items-center gap-3"><Sparkles className="w-6 h-6 text-purple-400"/> AI Tools & Generators</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+                <h3 className="text-lg font-bold text-white mb-2">WhatsApp Auto-Closer Link</h3>
+                <p className="text-xs text-gray-400 mb-4">Generate a wa.me link with a pre-filled message for your leads.</p>
+                <button onClick={() => alert('Feature coming soon in next update!')} className="w-full py-3 rounded-xl bg-[#141d30] border border-white/10 text-white font-bold text-xs">Open Generator</button>
+              </div>
+              <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+                <h3 className="text-lg font-bold text-white mb-2">Bio-Link Storefront</h3>
+                <p className="text-xs text-gray-400 mb-4">Your single URL showcasing all 6 products with your affiliate code.</p>
+                <div className="flex bg-[#141d30] border border-white/10 rounded-xl overflow-hidden mb-2">
+                   <input type="text" readOnly value={`https://horpal.com/store?ref=${userAffiliateCode}`} className="flex-1 bg-transparent px-3 py-2 text-xs text-gray-300 font-mono outline-none" />
+                   <button onClick={() => handleCopy(`https://horpal.com/store?ref=${userAffiliateCode}`, 'store')} className="px-3 bg-white/5 hover:bg-white/10 border-l border-white/10"><Copy className="w-3.5 h-3.5"/></button>
+                </div>
+              </div>
+              <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
+                <h3 className="text-lg font-bold text-white mb-2">Social Proof Flyer</h3>
+                <p className="text-xs text-gray-400 mb-4">Generate an official HorPal Earnings Flyer for your WhatsApp Status.</p>
+                <button onClick={() => alert('Feature coming soon in next update!')} className="w-full py-3 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 font-bold text-xs">Create Flyer</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeSection === "leads_crm" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
+                <Users className="w-5 h-5 text-orange-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-white">Abandoned Checkout Leads CRM</h2>
+                <p className="text-sm text-gray-400">Follow up with buyers who filled Step 1 but didn't complete payment.</p>
+              </div>
+            </div>
+
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl overflow-hidden">
+              {abandonedLeads.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">No abandoned leads yet.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-[#141d30] border-b border-white/10 text-gray-400 text-xs uppercase font-bold">
+                      <tr>
+                        <th className="px-6 py-4">Date</th>
+                        <th className="px-6 py-4">Lead Info</th>
+                        <th className="px-6 py-4">Product Target</th>
+                        <th className="px-6 py-4">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {abandonedLeads.map(lead => (
+                        <tr key={lead.id} className="hover:bg-white/5 transition-colors">
+                          <td className="px-6 py-4 text-xs font-mono text-gray-400 whitespace-nowrap">{lead.createdAt}</td>
+                          <td className="px-6 py-4">
+                            <div className="font-bold text-white">{lead.fullName}</div>
+                            <div className="text-xs text-gray-400">{lead.email}</div>
+                            <div className="text-xs text-gray-400">{lead.phone}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-emerald-400 font-bold max-w-[200px] truncate">{lead.productTitle}</div>
+                            <div className="text-xs text-gray-500">{formatAmount(lead.amountGHS)}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <a
+                              href={`https://wa.me/${lead.phone.replace('+', '')}?text=${encodeURIComponent(`Hello ${lead.fullName}, I noticed you started the checkout process for ${lead.productTitle} but didn't complete it. Do you need any help with the payment?`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-4 py-2 bg-[#25D366]/20 text-[#25D366] border border-[#25D366]/30 rounded-lg text-xs font-bold flex items-center justify-center gap-2 whitespace-nowrap hover:bg-[#25D366]/30"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5"/> Recover Lead
+                            </a>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeSection === "ledger" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
+                <BarChart3 className="w-5 h-5 text-indigo-400" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black text-white">Financial Sales Ledger</h2>
+                <p className="text-sm text-gray-400">Complete record of your verified commissions.</p>
+              </div>
+            </div>
+
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl overflow-hidden">
+              {transactions.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">No verified sales yet.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-[#141d30] border-b border-white/10 text-gray-400 text-xs uppercase font-bold">
+                      <tr>
+                        <th className="px-6 py-4">Date / UID</th>
+                        <th className="px-6 py-4">Buyer</th>
+                        <th className="px-6 py-4">Product</th>
+                        <th className="px-6 py-4 text-right">Commission (50%)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {transactions.map(tx => (
+                        <tr key={tx.id} className="hover:bg-white/5 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-xs text-gray-400 mb-1">{tx.date}</div>
+                            <div className="text-xs font-mono bg-white/5 px-2 py-0.5 rounded inline-block text-gray-300">{tx.orderUid}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="font-bold text-white">{tx.buyerName}</div>
+                            <div className="text-xs text-gray-400">{tx.buyerEmail}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-300 max-w-[200px] truncate">{tx.productTitle}</div>
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 mt-1 inline-block">Paystack Verified</span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="text-lg font-black text-emerald-400">{formatAmount(tx.commissionGHS)}</div>
+                            <div className="text-[10px] text-gray-500 line-through">{formatAmount(tx.amountGHS)} Gross</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ================================================================== */}
-        {/* SECTION 11: PROFILE */}
+        {/* SECTION 11: PROFILE & SETTINGS (FALLBACK IF MODAL NOT USED) */}
         {/* ================================================================== */}
         {activeSection === "profile" && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-black text-white mb-2">Pillar 2 Profile & KYC</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
-               <p className="text-gray-400 mb-6">Manage your HorPal Affiliate profile details, contact information, and payout preferences.</p>
-               <div className="space-y-6">
-                 <div>
-                   <h3 className="text-lg font-bold mb-3">Profile Details</h3>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <div>
-                       <label className="block text-xs font-bold text-gray-500 mb-1">First Name</label>
-                       <input type="text" value={firstName} className="w-full px-4 py-3 bg-[#141d30] border border-white/10 rounded-xl text-white" readOnly />
-                     </div>
-                     <div>
-                       <label className="block text-xs font-bold text-gray-500 mb-1">Last Name</label>
-                       <input type="text" value={lastName} className="w-full px-4 py-3 bg-[#141d30] border border-white/10 rounded-xl text-white" readOnly />
-                     </div>
-                   </div>
-                 </div>
-                 <div>
-                   <h3 className="text-lg font-bold mb-3">Contact Information</h3>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <div>
-                       <label className="block text-xs font-bold text-gray-500 mb-1">Email Address</label>
-                       <input type="email" value={pillar2Email} className="w-full px-4 py-3 bg-[#141d30] border border-white/10 rounded-xl text-white" readOnly />
-                     </div>
-                     <div>
-                       <label className="block text-xs font-bold text-gray-500 mb-1">Phone Number</label>
-                       <input type="tel" value={pillar2Phone} className="w-full px-4 py-3 bg-[#141d30] border border-white/10 rounded-xl text-white" readOnly />
-                     </div>
-                   </div>
-                 </div>
-                 <button className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl transition-all">Edit Profile Information</button>
-               </div>
+            <h2 className="text-2xl font-black text-white mb-2">Account Details</h2>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 text-center">
+              <p className="text-gray-400 mb-4">Please use the Settings Modal to edit your profile.</p>
+              <button onClick={() => setActiveSettingsModal('profile')} className="px-6 py-3 rounded-xl bg-[#141d30] border border-white/10 text-white font-bold text-sm">Open Settings Modal</button>
             </div>
           </div>
         )}
 
         {/* ================================================================== */}
-        {/* SECTION 12: NOTIFICATIONS */}
+        {/* SECTION 12: NOTIFICATIONS (FALLBACK IF DRAWER NOT USED) */}
         {/* ================================================================== */}
         {activeSection === "notifications" && (
           <div className="space-y-6">
             <h2 className="text-2xl font-black text-white mb-2">Notifications Center</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
-               <div className="flex items-center justify-between mb-6">
-                 <h3 className="text-lg font-bold">Recent Alerts</h3>
-                 <button className="text-xs font-bold text-emerald-400 hover:text-emerald-300">Mark All as Read</button>
-               </div>
-               <div className="space-y-4">
-                 <div className="p-4 bg-[#141d30] rounded-xl flex gap-4 items-start">
-                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-                      <DollarSign className="w-5 h-5 text-emerald-500" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-sm mb-1">New Commission Earned!</h4>
-                      <p className="text-xs text-gray-400">You just earned {formatAmount(120)} from a sale of "The AI Faceless Video Engine".</p>
-                      <span className="text-[10px] text-gray-500 block mt-2">2 hours ago</span>
-                    </div>
-                 </div>
-                 <div className="p-4 bg-[#141d30] rounded-xl flex gap-4 items-start">
-                    <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
-                      <Trophy className="w-5 h-5 text-amber-500" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-sm mb-1">Milestone Approaching</h4>
-                      <p className="text-xs text-gray-400">You are only 5 sales away from the Bronze Excellence Award.</p>
-                      <span className="text-[10px] text-gray-500 block mt-2">1 day ago</span>
-                    </div>
-                 </div>
-               </div>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 text-center">
+              <p className="text-gray-400 mb-4">Please use the Notifications Drawer from the top right.</p>
+              <button onClick={() => setIsNotificationsOpen(true)} className="px-6 py-3 rounded-xl bg-[#141d30] border border-white/10 text-white font-bold text-sm">Open Notifications</button>
             </div>
           </div>
         )}
@@ -2076,31 +3025,556 @@ export default function HorPalAffiliatePillar({
         {/* SECTION 13: SUPPORT */}
         {/* ================================================================== */}
         {activeSection === "support" && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <h2 className="text-2xl font-black text-white mb-2">Help & Support Desk</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6">
-               <p className="text-gray-400 mb-8">Need assistance? Our support agents are available 24/7 to help you with your affiliate account.</p>
-               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                 <a href="mailto:horpalservice@gmail.com" className="p-6 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-white/10 transition-all">
-                   <Mail className="w-8 h-8 text-indigo-400 mb-3" />
-                   <span className="font-bold text-sm mb-1">Email Support</span>
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 md:p-8">
+               <p className="text-gray-400 mb-8 max-w-xl">Need assistance? Our support agents are available 24/7 to help you with your affiliate account, payouts, or technical issues.</p>
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                 <a href="mailto:horpalservice@gmail.com" className="p-8 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-indigo-500/30 transition-all group">
+                   <div className="w-16 h-16 rounded-full bg-indigo-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                     <Mail className="w-8 h-8 text-indigo-400" />
+                   </div>
+                   <span className="font-bold text-white mb-1">Email Support</span>
                    <span className="text-xs text-gray-400">horpalservice@gmail.com</span>
                  </a>
-                 <a href="mailto:geestablish@gmail.com" className="p-6 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-white/10 transition-all">
-                   <Mail className="w-8 h-8 text-rose-400 mb-3" />
-                   <span className="font-bold text-sm mb-1">Creator Desk</span>
+                 <a href="mailto:geestablish@gmail.com" className="p-8 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-rose-500/30 transition-all group">
+                   <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                     <Briefcase className="w-8 h-8 text-rose-400" />
+                   </div>
+                   <span className="font-bold text-white mb-1">Creator Desk</span>
                    <span className="text-xs text-gray-400">geestablish@gmail.com</span>
                  </a>
-                 <a href="https://wa.me/233534671381" target="_blank" rel="noopener noreferrer" className="p-6 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-white/10 transition-all">
-                   <Phone className="w-8 h-8 text-emerald-400 mb-3" />
-                   <span className="font-bold text-sm mb-1">WhatsApp Chat</span>
-                   <span className="text-xs text-gray-400">Tap to chat with agent</span>
+                 <a href="https://wa.me/233534671381" target="_blank" rel="noopener noreferrer" className="p-8 bg-[#141d30] rounded-2xl flex flex-col items-center justify-center text-center hover:bg-[#1c2842] border border-white/5 hover:border-[#25D366]/30 transition-all group">
+                   <div className="w-16 h-16 rounded-full bg-[#25D366]/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                     <MessageSquare className="w-8 h-8 text-[#25D366]" />
+                   </div>
+                   <span className="font-bold text-white mb-1">WhatsApp Chat</span>
+                   <span className="text-xs text-gray-400">0534671381</span>
                  </a>
                </div>
             </div>
           </div>
         )}
       </main>
+      {/* ==================================================================== */}
+      {/* MODALS (RENDERED ON TOP) */}
+      {/* ==================================================================== */}
+
+      {/* Checkout Step 1 Modal */}
+      {checkoutStep === 1 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-white/10 animate-in zoom-in-95">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
+               <h3 className="text-lg font-bold text-white flex items-center gap-2"><CreditCard className="w-5 h-5 text-emerald-400"/> Secure Checkout</h3>
+               <button onClick={() => { setCheckoutStep(null); setActiveSalesPageProduct(null); }} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+            <div className="p-6">
+               <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl mb-6">
+                 <h4 className="text-amber-400 font-bold text-xs mb-1">⚠️ Important Instructions</h4>
+                 <p className="text-xs text-amber-200/80">1. Please ensure to use your correct details for checkout.<br/>2. Make sure your EMAIL ADDRESS is CORRECT, ACTIVE and ACCESSIBLE, otherwise you will NOT receive access.</p>
+               </div>
+
+               <form onSubmit={handleCheckoutStep1Next} className="space-y-4">
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Full Name</label>
+                   <input type="text" required value={buyerFullName} onChange={(e) => setBuyerFullName(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
+                 </div>
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Email Address</label>
+                   <input type="email" required value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
+                 </div>
+                 <div className="grid grid-cols-3 gap-3">
+                   <div className="col-span-1">
+                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Code</label>
+                     <select value={buyerDialCode} onChange={(e) => setBuyerDialCode(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-2 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50">
+                       <option value="+233">+233 (GH)</option>
+                       <option value="+234">+234 (NG)</option>
+                       <option value="+254">+254 (KE)</option>
+                       <option value="+27">+27 (ZA)</option>
+                       <option value="+1">+1 (US/CA)</option>
+                       <option value="+44">+44 (UK)</option>
+                       <option value="+91">+91 (IN)</option>
+                       <option value="+971">+971 (UAE)</option>
+                     </select>
+                   </div>
+                   <div className="col-span-2">
+                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Phone Number</label>
+                     <input type="text" required value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
+                   </div>
+                 </div>
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Country</label>
+                   <select value={buyerCountry} onChange={(e) => setBuyerCountry(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50">
+                     {["Ghana", "Nigeria", "Kenya", "South Africa", "United States", "United Kingdom", "India", "UAE", "Other"].map(c => <option key={c} value={c}>{c}</option>)}
+                   </select>
+                 </div>
+
+                 <button type="submit" className="w-full py-4 mt-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all flex items-center justify-center gap-2">
+                   Continue to Payment <ArrowRight className="w-4 h-4" />
+                 </button>
+               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Checkout Step 2 Modal */}
+      {checkoutStep === 2 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-white/10 animate-in zoom-in-95">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
+               <h3 className="text-lg font-bold text-white">Payment Selection</h3>
+               <button onClick={() => setCheckoutStep(1)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+            <div className="p-6 space-y-6">
+               <div className="flex justify-between items-center bg-[#141d30] p-4 rounded-xl border border-white/5">
+                 <span className="text-sm text-gray-400">Preview Currency</span>
+                 <select value={selectedCurrency} onChange={(e) => setSelectedCurrency(e.target.value)} className="bg-[#0b111e] border border-white/10 px-3 py-1.5 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/50">
+                   {["GHS", "NGN", "KES", "ZAR", "USD", "GBP", "EUR", "INR", "AED"].map(c => <option key={c} value={c}>{c}</option>)}
+                 </select>
+               </div>
+
+               <div className="bg-[#141d30] p-5 rounded-2xl border border-white/5">
+                 <h4 className="text-sm font-bold text-white mb-1">
+                   {isDirectEnrollmentCheckout ? "HorPal Pillar 2 Direct Access" : activeSalesPageProduct?.title}
+                 </h4>
+                 <p className="text-xs text-gray-400 mb-4 border-b border-white/10 pb-4">
+                   {isDirectEnrollmentCheckout ? "One-time Direct Enrollment Fee." : "Instant Lifetime Access to Course + Affiliate Platform."}
+                 </p>
+
+                 {!isDirectEnrollmentCheckout && (
+                   <label className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-4 cursor-pointer">
+                     <input type="checkbox" checked={includeOrderBump} onChange={(e) => setIncludeOrderBump(e.target.checked)} className="mt-1" />
+                     <div>
+                       <span className="text-xs font-bold text-amber-400 block">Yes, Add Viral Hook & Closing Script Pack (+GH₵ 80)</span>
+                       <span className="text-[10px] text-amber-200/70">Highly Recommended 1-Click Order Bump.</span>
+                     </div>
+                   </label>
+                 )}
+
+                 <div className="flex justify-between items-end">
+                   <span className="text-sm text-gray-400 uppercase font-bold">Total Payable</span>
+                   <div className="text-right">
+                     <span className="text-2xl font-black text-white block">
+                       {selectedCurrency !== "GHS" && "≈ "}
+                       {selectedCurrency === "GHS"
+                         ? formatAmount((isDirectEnrollmentCheckout ? DIRECT_ENROLLMENT_GHS : (activeSalesPageProduct?.priceGHS || 0)) + (includeOrderBump ? 80 : 0))
+                         : `${selectedCurrency} ` + (((isDirectEnrollmentCheckout ? DIRECT_ENROLLMENT_GHS : (activeSalesPageProduct?.priceGHS || 0)) + (includeOrderBump ? 80 : 0)) * (selectedCurrency === 'NGN' ? 100 : selectedCurrency === 'KES' ? 10 : selectedCurrency === 'ZAR' ? 1.5 : selectedCurrency === 'USD' ? 0.08 : 0.08)).toFixed(2)
+                       }
+                     </span>
+                     {selectedCurrency !== "GHS" && (
+                       <span className="text-xs text-gray-500">Settled in GH₵</span>
+                     )}
+                   </div>
+                 </div>
+               </div>
+
+               <button onClick={launchPaystackFromStep2} className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all text-lg shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+                 Pay Now via Paystack (GH₵ {(isDirectEnrollmentCheckout ? DIRECT_ENROLLMENT_GHS : (activeSalesPageProduct?.priceGHS || 0)) + (includeOrderBump ? 80 : 0)})
+               </button>
+
+               <button onClick={() => completeVerifiedPurchaseRecord(`HP_TEST_${Date.now()}`)} className="w-full py-3 rounded-xl bg-[#141d30] border border-white/10 text-white font-bold text-xs hover:bg-[#1b263f]">
+                 Instant Verify / Test Purchase
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Promote Studio Modal */}
+      {promoteModalProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] w-full max-w-2xl rounded-3xl overflow-hidden border border-indigo-500/30 animate-in zoom-in-95 shadow-[0_0_50px_rgba(79,70,229,0.15)] flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-white/10 flex justify-between items-center bg-gradient-to-r from-indigo-900/40 to-transparent">
+               <div>
+                 <h3 className="text-xl font-black text-white flex items-center gap-2"><Rocket className="w-5 h-5 text-indigo-400"/> Promote Studio</h3>
+                 <span className="text-xs text-indigo-300 font-medium">{promoteModalProduct.title}</span>
+               </div>
+               <button onClick={() => setPromoteModalProduct(null)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-8">
+               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                 <div className="bg-[#141d30] rounded-xl p-3 border border-white/5 text-center">
+                   <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Est. EPC</span>
+                   <span className="text-sm font-black text-white">{promoteModalProduct.epc}</span>
+                 </div>
+                 <div className="bg-[#141d30] rounded-xl p-3 border border-white/5 text-center">
+                   <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Conv. Rate</span>
+                   <span className="text-sm font-black text-white">{promoteModalProduct.conversionRate}</span>
+                 </div>
+                 <div className="bg-[#141d30] rounded-xl p-3 border border-white/5 text-center">
+                   <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Refund Rate</span>
+                   <span className="text-sm font-black text-white">1.2%</span>
+                 </div>
+                 <div className="bg-emerald-500/10 rounded-xl p-3 border border-emerald-500/20 text-center">
+                   <span className="text-[10px] text-emerald-500 uppercase font-bold block mb-1">Avg Payout</span>
+                   <span className="text-sm font-black text-emerald-400">{formatAmount(promoteModalProduct.priceGHS * (promoteModalProduct.commissionPercent / 100))}</span>
+                 </div>
+               </div>
+
+               <div className="space-y-4">
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-2">1. Your Unique Tracking Link</label>
+                   <div className="flex bg-[#141d30] border border-white/10 rounded-xl overflow-hidden shadow-inner">
+                     <input
+                       type="text"
+                       readOnly
+                       value={getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-${promoteModalProduct.id}`] || undefined)}
+                       className="flex-1 bg-transparent px-4 py-3.5 text-sm text-emerald-400 font-mono outline-none selection:bg-emerald-500/30"
+                     />
+                     <button
+                       onClick={() => handleCopy(getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-${promoteModalProduct.id}`] || undefined), `modal-${promoteModalProduct.id}`)}
+                       className={`px-6 flex items-center justify-center transition-colors border-l border-white/10 font-bold text-sm ${copiedKey === `modal-${promoteModalProduct.id}` ? 'bg-indigo-500 text-white' : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400'}`}
+                     >
+                       {copiedKey === `modal-${promoteModalProduct.id}` ? 'Copied ✓' : 'Copy'}
+                     </button>
+                   </div>
+                 </div>
+
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                   <div>
+                     <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1.5">Traffic Tag (Sub-ID)</label>
+                     <input
+                       type="text"
+                       placeholder="e.g. tiktok_bio"
+                       value={linkTags[`tag-${promoteModalProduct.id}`] || ''}
+                       onChange={(e) => setLinkTags(prev => ({...prev, [`tag-${promoteModalProduct.id}`]: e.target.value}))}
+                       className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/50"
+                     />
+                   </div>
+                   <div>
+                     <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1.5">Custom Slug (Optional)</label>
+                     <div className="flex bg-[#141d30] border border-white/10 rounded-xl overflow-hidden">
+                       <span className="px-3 py-3 bg-white/5 text-gray-500 text-xs border-r border-white/10 flex items-center">horpal.com/</span>
+                       <input type="text" placeholder="my-slug" className="flex-1 bg-transparent px-3 py-3 text-sm text-white focus:outline-none" />
+                     </div>
+                   </div>
+                 </div>
+               </div>
+
+               <div className="flex flex-col sm:flex-row gap-6 bg-[#0b111e] p-6 rounded-2xl border border-white/5">
+                 <div className="shrink-0 mx-auto sm:mx-0">
+                   <div className="w-32 h-32 bg-white rounded-xl p-2 mx-auto">
+                     <img
+                       src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-${promoteModalProduct.id}`] || undefined))}`}
+                       alt="QR Code"
+                       className="w-full h-full object-contain"
+                     />
+                   </div>
+                   <button onClick={() => alert('Downloaded QR Code!')} className="w-full mt-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 border border-white/10">
+                     <Download className="w-3.5 h-3.5" /> Download QR
+                   </button>
+                 </div>
+
+                 <div className="flex-1 flex flex-col justify-center space-y-3">
+                   <h4 className="text-sm font-bold text-white">2. 1-Tap Quick Share</h4>
+                   <a
+                     href={`https://wa.me/?text=${encodeURIComponent(`Check out ${promoteModalProduct.title}!
+
+Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-${promoteModalProduct.id}`] || undefined)}`)}`}
+                     target="_blank" rel="noopener noreferrer"
+                     className="w-full py-3 rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 text-[#25D366] font-bold text-sm transition-all flex items-center justify-center gap-2"
+                   >
+                     <MessageSquare className="w-4 h-4" /> Share to WhatsApp
+                   </a>
+                   <a
+                     href={`https://t.me/share/url?url=${encodeURIComponent(getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-${promoteModalProduct.id}`] || undefined))}&text=${encodeURIComponent(`Check out ${promoteModalProduct.title}!`)}`}
+                     target="_blank" rel="noopener noreferrer"
+                     className="w-full py-3 rounded-xl bg-[#229ED9]/10 hover:bg-[#229ED9]/20 border border-[#229ED9]/30 text-[#229ED9] font-bold text-sm transition-all flex items-center justify-center gap-2"
+                   >
+                     <Share2 className="w-4 h-4" /> Share to Telegram
+                   </a>
+                 </div>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal (Profile, KYC, Security, 2FA, Support) */}
+      {activeSettingsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-white/10 animate-in zoom-in-95">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
+               <h3 className="text-lg font-bold text-white capitalize">{activeSettingsModal.replace('_', ' ')} Settings</h3>
+               <button onClick={() => setActiveSettingsModal(null)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              <form onSubmit={handleSavePillar2Profile} className="space-y-5">
+                {(activeSettingsModal === 'profile' || activeSettingsModal === 'pillar2_onboarding') && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-bold text-gray-400 block mb-1.5">First Name</label>
+                        <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-gray-400 block mb-1.5">Last Name</label>
+                        <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">Pillar 2 Email</label>
+                      <input type="email" value={pillar2Email} onChange={(e) => setPillar2Email(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">Phone Number</label>
+                      <input type="text" value={pillar2Phone} onChange={(e) => setPillar2Phone(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">Country</label>
+                      <input type="text" value={pillar2Country} onChange={(e) => setPillar2Country(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                  </>
+                )}
+
+                {activeSettingsModal === 'kyc' && (
+                  <>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">City</label>
+                      <input type="text" value={pillar2City} onChange={(e) => setPillar2City(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">Address / Street</label>
+                      <input type="text" value={pillar2Address} onChange={(e) => setPillar2Address(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">KYC ID Type</label>
+                      <select value={kycIdType} onChange={(e) => setKycIdType(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none">
+                        <option>Ghana Card</option>
+                        <option>National ID</option>
+                        <option>Passport</option>
+                        <option>Driver's License</option>
+                        <option>Voter's ID</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">KYC ID Number</label>
+                      <input type="text" value={kycIdNumber} onChange={(e) => setKycIdNumber(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                  </>
+                )}
+
+                {activeSettingsModal === 'security' && (
+                  <>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">Current Password</label>
+                      <input type="password" placeholder="••••••••" className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">New Password</label>
+                      <input type="password" placeholder="••••••••" className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-400 block mb-1.5">Confirm New Password</label>
+                      <input type="password" placeholder="••••••••" className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                    </div>
+                  </>
+                )}
+
+                {activeSettingsModal === '2fa' && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-300">Enable Two-Factor Authentication (2FA) to secure your affiliate payouts and account access.</p>
+                    <label className="flex items-center justify-between p-4 bg-[#141d30] rounded-xl border border-white/10 cursor-pointer">
+                      <span className="text-sm font-bold text-white">Enable Email OTP for Payouts</span>
+                      <input type="checkbox" checked={twoFactorEnabled} onChange={(e) => setTwoFactorEnabled(e.target.checked)} className="w-5 h-5 accent-emerald-500" />
+                    </label>
+                    {twoFactorEnabled && (
+                       <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-xl">
+                         <span className="text-emerald-400 text-xs font-bold">2FA is currently active for withdrawals.</span>
+                       </div>
+                    )}
+                  </div>
+                )}
+
+                {activeSettingsModal !== 'support' && (
+                  <button type="submit" onClick={() => setActiveSettingsModal(null)} className="w-full py-4 mt-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all flex items-center justify-center gap-2">
+                    Save Changes
+                  </button>
+                )}
+              </form>
+
+              {activeSettingsModal === 'support' && (
+                <div className="space-y-4 text-center">
+                  <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-4">
+                    <LifeBuoy className="w-8 h-8 text-emerald-400" />
+                  </div>
+                  <h4 className="text-lg font-bold text-white mb-2">How can we help?</h4>
+                  <p className="text-sm text-gray-400 mb-6">Our 24/7 support team is ready to assist you.</p>
+                  <a href="mailto:horpalservice@gmail.com" className="w-full py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-bold transition-all flex items-center justify-center gap-2 mb-3">
+                    <Mail className="w-4 h-4"/> Email: horpalservice@gmail.com
+                  </a>
+                  <a href="https://wa.me/233534671381" target="_blank" rel="noopener noreferrer" className="w-full py-3 rounded-xl bg-[#25D366]/20 hover:bg-[#25D366]/30 border border-[#25D366]/30 text-[#25D366] font-bold transition-all flex items-center justify-center gap-2">
+                    <MessageSquare className="w-4 h-4"/> Chat on WhatsApp (0534671381)
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications Drawer Slide-over */}
+      {isNotificationsOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-[#0f172a] h-full border-l border-white/10 animate-in slide-in-from-right shadow-2xl flex flex-col">
+            <div className="p-6 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
+               <h3 className="text-lg font-black text-white flex items-center gap-2"><Bell className="w-5 h-5 text-emerald-400"/> Notifications</h3>
+               <button onClick={() => setIsNotificationsOpen(false)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {notificationsList.length === 0 ? (
+                <div className="text-center text-gray-500 py-12">No notifications yet.</div>
+              ) : (
+                notificationsList.map(notif => (
+                  <div key={notif.id} className={`p-4 rounded-xl border transition-all ${!notif.read ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-[#141d30] border-white/5'}`}>
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="font-bold text-sm text-white">{notif.title}</span>
+                      <span className="text-[10px] text-gray-500">{notif.timeAgo}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mb-2">{notif.subtitle}</p>
+                    {notif.amountGHS && (
+                      <span className="text-xs font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        + {formatAmount(notif.amountGHS)}
+                      </span>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-4 border-t border-white/10 bg-[#0b111e] grid grid-cols-2 gap-3">
+               <button
+                 onClick={() => setNotificationsList(prev => prev.map(n => ({...n, read: true})))}
+                 className="py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-white border border-white/10"
+               >
+                 Mark All Read
+               </button>
+               <button
+                 onClick={() => setNotificationsList([])}
+                 className="py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-xs font-bold text-rose-400 border border-rose-500/20"
+               >
+                 Clear All
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating AI Help Bot Window */}
+      {isAiBotOpen && (
+        <div className="fixed bottom-24 left-4 z-50 w-[340px] max-w-[calc(100vw-32px)] bg-[#0f172a] rounded-3xl overflow-hidden border border-emerald-500/30 shadow-[0_0_40px_rgba(16,185,129,0.15)] animate-in slide-in-from-bottom-8">
+           <div className="p-4 bg-gradient-to-r from-[#141d30] to-emerald-950/40 border-b border-white/10 flex justify-between items-center">
+             <div className="flex items-center gap-2">
+               <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/40 text-lg">🤖</div>
+               <div>
+                 <span className="text-sm font-bold text-white block">HorPal AI Brain</span>
+                 <span className="text-[10px] text-emerald-400 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div> Online</span>
+               </div>
+             </div>
+             <button onClick={() => setIsAiBotOpen(false)} className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-4 h-4 text-gray-400" />
+             </button>
+           </div>
+
+           <div className="h-64 overflow-y-auto p-4 space-y-4 bg-[#0b111e]">
+             {aiMessages.map((msg, i) => (
+               <div key={i} className={`flex ${msg.sender === 'bot' ? 'justify-start' : 'justify-end'}`}>
+                 <div className={`max-w-[85%] rounded-2xl p-3 text-sm ${msg.sender === 'bot' ? 'bg-[#141d30] border border-white/10 text-gray-200 rounded-tl-sm' : 'bg-emerald-600 text-white rounded-tr-sm'}`}>
+                   {msg.text}
+                 </div>
+               </div>
+             ))}
+           </div>
+
+           <div className="p-3 border-t border-white/10 bg-[#141d30]">
+             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-3 mb-1">
+               {["Analyze my sales", "How do Friday payouts work?", "Write WhatsApp status hook", "1-Click Order Bump strategy"].map(chip => (
+                 <button key={chip} onClick={() => handleAiBotSend(chip)} className="shrink-0 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-emerald-300 hover:bg-white/10 transition-colors whitespace-nowrap">
+                   {chip}
+                 </button>
+               ))}
+             </div>
+             <form onSubmit={(e) => { e.preventDefault(); handleAiBotSend(); }} className="flex gap-2 relative">
+               <input
+                 type="text"
+                 value={aiInput}
+                 onChange={(e) => setAiInput(e.target.value)}
+                 placeholder="Ask HorPal AI..."
+                 className="flex-1 bg-[#0b111e] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500/50"
+               />
+               <button type="submit" disabled={!aiInput.trim()} className="w-10 flex items-center justify-center rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                 <ArrowRight className="w-4 h-4" />
+               </button>
+             </form>
+           </div>
+        </div>
+      )}
+
+      {/* Contest Modals */}
+      {contestModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-cyan-500/30 animate-in zoom-in-95">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
+               <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                 {contestModalOpen === 'viral_100k' ? <><Video className="w-5 h-5 text-cyan-400"/> 100K Views Application</> : <><Trophy className="w-5 h-5 text-amber-400"/> Sales Sprint Entry</>}
+               </h3>
+               <button onClick={() => setContestModalOpen(null)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+
+            <div className="p-6">
+              <form onSubmit={handleContestSubmit} className="space-y-4">
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Full Name</label>
+                   <input type="text" required value={contestFullName} onChange={(e) => setContestFullName(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
+                 </div>
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Phone Number (with code)</label>
+                   <input type="text" required value={contestPhone} onChange={(e) => setContestPhone(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
+                 </div>
+
+                 {contestModalOpen === 'viral_100k' && (
+                   <>
+                     <div>
+                       <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">TikTok / Instagram Handle (@)</label>
+                       <input type="text" required value={contestSocialHandle} onChange={(e) => setContestSocialHandle(e.target.value)} placeholder="@yourusername" className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
+                     </div>
+                     <div>
+                       <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Direct Video URL</label>
+                       <input type="url" required value={contestVideoUrl} onChange={(e) => setContestVideoUrl(e.target.value)} placeholder="https://tiktok.com/@..." className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
+                     </div>
+                   </>
+                 )}
+
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Bank / Mobile Money Account Details</label>
+                   <input type="text" required value={contestBankMomoDetails} onChange={(e) => setContestBankMomoDetails(e.target.value)} placeholder="e.g. MTN MoMo - 024XXXXXXX" className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
+                 </div>
+
+                 <button type="submit" className={`w-full py-4 mt-2 rounded-xl text-black font-black transition-all flex items-center justify-center gap-2 ${contestModalOpen === 'viral_100k' ? 'bg-cyan-500 hover:bg-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)]' : 'bg-amber-500 hover:bg-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]'}`}>
+                   {contestModalOpen === 'viral_100k' ? 'Submit Application' : 'Register for Sprint'} <ArrowRight className="w-4 h-4" />
+                 </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ==================================================================== */}
       {/* FIXED BOTTOM NAVIGATION BAR */}
       {/* ==================================================================== */}
