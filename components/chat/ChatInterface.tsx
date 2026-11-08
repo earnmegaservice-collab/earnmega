@@ -467,10 +467,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
 
   const [groupPermissions, setGroupPermissions] = useState<{
-    onlyAdminsCanSend: boolean;
-    onlyAdminsCanEditInfo: boolean;
-    onlyAdminsCanAddMembers: boolean;
-    approveNewMembers: boolean;
+    onlyAdminsCanSend?: boolean;
+    onlyAdminsCanEditInfo?: boolean;
+    onlyAdminsCanAddMembers?: boolean;
+    approveNewMembers?: boolean;
+    only_admins_can_send?: boolean;
+    only_admins_can_edit_info?: boolean;
+    only_admins_can_add_members?: boolean;
+    approve_new_members?: boolean;
+    [key: string]: any;
   }>({
     onlyAdminsCanSend: false,
     onlyAdminsCanEditInfo: false,
