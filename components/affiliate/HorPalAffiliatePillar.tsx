@@ -525,6 +525,7 @@ export default function HorPalAffiliatePillar({
   const [kycVerified, setKycVerified] = useState<boolean>(true);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean>(false);
   const [settingsSavedBanner, setSettingsSavedBanner] = useState<string | null>(null);
+  const [downloadSuccessBanner, setDownloadSuccessBanner] = useState<string | null>(null);
 
   // Financial & Sales State
   const [availableBalanceGHS, setAvailableBalanceGHS] = useState<number>(
@@ -1042,7 +1043,7 @@ export default function HorPalAffiliatePillar({
           .update({
             pillar2_first_name: firstName,
             pillar2_last_name: lastName,
-            pillar2_email: pillar2Email,
+            pillar2_email: currentProfile?.email || pillar2Email,
             pillar2_phone: pillar2Phone,
             pillar2_country: pillar2Country,
             pillar2_city: pillar2City,
@@ -1057,6 +1058,213 @@ export default function HorPalAffiliatePillar({
     }
     setSettingsSavedBanner('✅ Pillar 2 Profile & Settings saved independently of Pillar 1!');
     setTimeout(() => setSettingsSavedBanner(null), 3500);
+  };
+
+  // ============================================================================
+  // HIGH-RES DOWNLOAD HELPERS (CERTIFICATE & QR CODE)
+  // ============================================================================
+  const handleDownloadCertificate = async () => {
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      canvas.width = 2000;
+      canvas.height = 1414; // ISO A-series aspect ratio for landscape
+
+      // 1. Deep obsidian-navy background
+      ctx.fillStyle = '#060A14';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 2. Double metallic gold borders
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 12;
+      ctx.strokeRect(40, 40, canvas.width - 80, canvas.height - 80);
+
+      ctx.strokeStyle = '#FDE68A';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(60, 60, canvas.width - 120, canvas.height - 120);
+
+      // Corner Ornaments
+      const cornerSize = 80;
+      ctx.fillStyle = '#F59E0B';
+      // Top-Left
+      ctx.beginPath(); ctx.moveTo(40, 40); ctx.lineTo(40 + cornerSize, 40); ctx.lineTo(40, 40 + cornerSize); ctx.fill();
+      // Top-Right
+      ctx.beginPath(); ctx.moveTo(canvas.width - 40, 40); ctx.lineTo(canvas.width - 40 - cornerSize, 40); ctx.lineTo(canvas.width - 40, 40 + cornerSize); ctx.fill();
+      // Bottom-Left
+      ctx.beginPath(); ctx.moveTo(40, canvas.height - 40); ctx.lineTo(40 + cornerSize, canvas.height - 40); ctx.lineTo(40, canvas.height - 40 - cornerSize); ctx.fill();
+      // Bottom-Right
+      ctx.beginPath(); ctx.moveTo(canvas.width - 40, canvas.height - 40); ctx.lineTo(canvas.width - 40 - cornerSize, canvas.height - 40); ctx.lineTo(canvas.width - 40, canvas.height - 40 - cornerSize); ctx.fill();
+
+      // 3. Top Header
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = 'bold 60px serif';
+      ctx.fillText('HORPAL EXECUTIVE ACADEMY', canvas.width / 2, 200);
+
+      ctx.fillStyle = '#9CA3AF';
+      ctx.font = '30px sans-serif';
+      ctx.letterSpacing = '5px';
+      ctx.fillText('OFFICIAL CHARTER OF DIGITAL & AFFILIATE MASTERY', canvas.width / 2, 260);
+      ctx.letterSpacing = '0px';
+
+      // 4. Recipient Banner
+      ctx.fillStyle = '#9CA3AF';
+      ctx.font = '40px serif';
+      ctx.fillText('THIS PROUDLY CERTIFIES THAT', canvas.width / 2, 420);
+
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = 'bold italic 100px serif';
+      const formattedName = certificateStudentName.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+      ctx.fillText(formattedName, canvas.width / 2, 550);
+
+      // Name Underline
+      const nameWidth = ctx.measureText(formattedName).width;
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo((canvas.width - nameWidth) / 2 - 40, 580);
+      ctx.lineTo((canvas.width + nameWidth) / 2 + 40, 580);
+      ctx.stroke();
+
+      // 5. Course Statement
+      ctx.fillStyle = '#9CA3AF';
+      ctx.font = '36px sans-serif';
+      ctx.fillText('has successfully mastered all 5 rigorous examination modules with', canvas.width / 2, 680);
+      ctx.fillText('Distinction (90%+ Standard) in', canvas.width / 2, 740);
+
+      const courseTitle = INITIAL_PRODUCTS.find(p => p.id === examProductId)?.title || "Digital Marketing Academy";
+      ctx.fillStyle = '#34D399'; // Emerald-400
+      ctx.font = 'bold 50px sans-serif';
+      ctx.fillText(courseTitle, canvas.width / 2, 820);
+
+      // 6. Verified Competency Pillars
+      ctx.fillStyle = '#D1D5DB';
+      ctx.font = '28px sans-serif';
+      ctx.textAlign = 'left';
+      const pillarsX = canvas.width / 2 - 450;
+      ctx.fillText('✓ Attribution & Funnel Architecture', pillarsX, 940);
+      ctx.fillText('✓ High-Converting Traffic Engineering', pillarsX, 1000);
+
+      const pillarsRightX = canvas.width / 2 + 100;
+      ctx.fillText('✓ WhatsApp & Social Closing Mastery', pillarsRightX, 940);
+      ctx.fillText('✓ Ethical Governance & Compliance', pillarsRightX, 1000);
+
+      // 7. 3-Column Footer
+      // Left - Signature
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = 'italic 50px serif';
+      ctx.fillText('Gee Mings', 400, 1180);
+      ctx.strokeStyle = '#6B7280';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(250, 1200); ctx.lineTo(550, 1200); ctx.stroke();
+      ctx.fillStyle = '#9CA3AF';
+      ctx.font = '20px sans-serif';
+      ctx.fillText('GEE MINGS • FOUNDER & CEO, HORPAL', 400, 1230);
+
+      // Center - 3D Gold Seal
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2, 1180, 80, 0, Math.PI * 2);
+      const gradient = ctx.createRadialGradient(canvas.width / 2, 1180, 10, canvas.width / 2, 1180, 80);
+      gradient.addColorStop(0, '#FDE68A');
+      gradient.addColorStop(1, '#B45309');
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      ctx.strokeStyle = '#FEF3C7';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillText('100% VERIFIED', canvas.width / 2, 1165);
+      ctx.fillText('DISTINCTION', canvas.width / 2, 1195);
+      ctx.font = '16px sans-serif';
+      ctx.fillText('SEAL • HORPAL', canvas.width / 2, 1220);
+
+      // Right - QR & Metadata
+      const qrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent('https://www.horpal.com/affiliate?verify=' + certificateCode)}`;
+
+      const drawRightFooter = (qrImg?: HTMLImageElement) => {
+        if (qrImg) {
+          ctx.drawImage(qrImg, canvas.width - 460, 1110, 120, 120);
+        }
+        ctx.fillStyle = '#9CA3AF';
+        ctx.font = '24px monospace';
+        ctx.fillText(`DATE ISSUED: ${new Date().toLocaleDateString()}`, canvas.width - 400, 1260);
+        ctx.fillText(`CREDENTIAL ID: ${certificateCode}`, canvas.width - 400, 1290);
+
+        // Finally, save and download
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `HorPal-Certificate-${certificateCode}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          setDownloadSuccessBanner('Official High-Res Certificate downloaded!');
+          setTimeout(() => setDownloadSuccessBanner(null), 4000);
+        }, 'image/png');
+      };
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => drawRightFooter(img);
+      img.onerror = () => drawRightFooter();
+      img.src = qrDataUrl;
+
+    } catch (e) {
+      console.error('Error generating certificate:', e);
+    }
+  };
+
+  const handleDownloadQrCode = async (linkUrl: string, labelName?: string) => {
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=16&data=${encodeURIComponent(linkUrl)}`;
+    const filename = `HorPal-QR-${(labelName || 'link').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`;
+
+    try {
+      const res = await fetch(qrApiUrl);
+      if (!res.ok) throw new Error('Network response was not ok');
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+      setDownloadSuccessBanner('✓ QR Code saved to your device!');
+      setTimeout(() => setDownloadSuccessBanner(null), 4000);
+    } catch (e) {
+      // Fallback
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 600;
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        if (ctx) ctx.drawImage(img, 0, 0, 600, 600);
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          setDownloadSuccessBanner('✓ QR Code saved to your device!');
+          setTimeout(() => setDownloadSuccessBanner(null), 4000);
+        }, 'image/png');
+      };
+      img.src = qrApiUrl;
+    }
   };
 
   // ============================================================================
@@ -1704,6 +1912,12 @@ export default function HorPalAffiliatePillar({
             <button onClick={() => setSettingsSavedBanner(null)}>✕</button>
           </div>
         )}
+        {downloadSuccessBanner && (
+          <div className="mb-4 bg-emerald-950/90 border border-emerald-500/40 text-emerald-300 px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-between">
+            <span>{downloadSuccessBanner}</span>
+            <button onClick={() => setDownloadSuccessBanner(null)}>✕</button>
+          </div>
+        )}
 
         {/* ================================================================== */}
         {/* SECTION 1: PERFORMANCE HUB / DASHBOARD (DIGITSTEM VISUAL LAYOUT) */}
@@ -2147,59 +2361,95 @@ export default function HorPalAffiliatePillar({
 
             {certificateUnlocked ? (
               // Official Certificate View
-              <div className="bg-gradient-to-br from-[#1a1f3c] to-[#0f172a] border-2 border-amber-500/40 rounded-3xl p-8 md:p-16 text-center relative overflow-hidden shadow-[0_0_50px_rgba(245,158,11,0.15)]">
-                <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10 pointer-events-none"></div>
+              <div className="bg-[#060A14] border-2 border-amber-400/80 rounded-3xl p-8 md:p-16 text-center relative overflow-hidden shadow-[0_0_50px_rgba(245,158,11,0.15)]">
+                <div className="absolute inset-0 border-[4px] border-amber-500/30 m-3 pointer-events-none rounded-2xl"></div>
+                <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-500/10 via-transparent to-transparent opacity-50 pointer-events-none"></div>
 
-                <div className="w-24 h-24 mx-auto bg-amber-500/10 rounded-full flex items-center justify-center border-4 border-amber-500/30 mb-8 relative z-10">
-                  <Award className="w-12 h-12 text-amber-400" />
+                <div className="flex justify-center mb-6 relative z-10">
+                  <div className="w-16 h-16 bg-amber-500/10 rounded-full border-2 border-amber-500/50 flex items-center justify-center">
+                    <Award className="w-8 h-8 text-amber-400" />
+                  </div>
                 </div>
 
-                <h1 className="text-4xl md:text-5xl font-serif italic text-amber-400 mb-4 relative z-10 font-bold">Certificate of Completion</h1>
-                <p className="text-gray-300 uppercase tracking-widest text-sm mb-10 relative z-10">Official HorPal Certification</p>
+                <h1 className="text-3xl md:text-5xl font-serif text-amber-400 mb-2 relative z-10 font-bold uppercase tracking-widest">HorPal Executive Academy</h1>
+                <p className="text-gray-400 uppercase tracking-[0.2em] text-xs md:text-sm mb-10 relative z-10 font-medium">Official Charter of Digital & Affiliate Mastery</p>
 
-                <p className="text-gray-400 mb-2 relative z-10">This certifies that</p>
-                <input
-                  type="text"
-                  value={certificateStudentName}
-                  onChange={(e) => setCertificateStudentName(e.target.value)}
-                  className="text-3xl md:text-5xl font-black text-white bg-transparent border-b-2 border-white/20 text-center focus:outline-none focus:border-amber-400 pb-2 mb-10 w-full max-w-lg relative z-10"
-                />
+                <p className="text-gray-400 mb-4 relative z-10 text-sm tracking-widest uppercase">This proudly certifies that</p>
+                <div className="relative inline-block mb-10 z-10">
+                  <input
+                    type="text"
+                    value={certificateStudentName.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase())}
+                    onChange={(e) => setCertificateStudentName(e.target.value)}
+                    className="text-4xl md:text-6xl font-serif italic font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 text-center focus:outline-none w-full max-w-2xl px-8 pb-2"
+                  />
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-70"></div>
+                </div>
 
-                <p className="text-gray-400 mb-2 relative z-10">has successfully completed the 5-Step Examination for</p>
-                <h2 className="text-xl md:text-2xl font-bold text-white mb-16 relative z-10">
+                <p className="text-gray-400 mb-2 relative z-10 text-sm md:text-base">has successfully mastered all 5 rigorous examination modules with</p>
+                <p className="text-gray-400 mb-6 relative z-10 text-sm md:text-base">Distinction (90%+ Standard) in</p>
+
+                <h2 className="text-2xl md:text-4xl font-bold text-emerald-400 mb-12 relative z-10 drop-shadow-md">
                   {INITIAL_PRODUCTS.find(p => p.id === examProductId)?.title || "Digital Marketing Academy"}
                 </h2>
 
-                <div className="flex flex-col md:flex-row items-center justify-between gap-8 max-w-2xl mx-auto relative z-10">
-                  <div className="text-center">
-                    <div className="border-b border-gray-500 pb-2 mb-2 px-8">
-                      <span className="font-script text-2xl text-gray-300">Gee Mings</span>
-                    </div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wider">Founder, HorPal</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto mb-16 relative z-10 text-left px-8">
+                  <div className="bg-black/30 border border-white/5 rounded-xl p-3 flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
+                    <span className="text-sm text-gray-300">Attribution & Funnel Architecture</span>
                   </div>
-
-                  <div className="w-24 h-24 rounded-full bg-amber-500/5 border border-amber-500/20 flex flex-col items-center justify-center">
-                    <span className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">Score</span>
-                    <span className="text-2xl font-black text-amber-400">100%</span>
+                  <div className="bg-black/30 border border-white/5 rounded-xl p-3 flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
+                    <span className="text-sm text-gray-300">High-Converting Traffic Engineering</span>
                   </div>
-
-                  <div className="text-center">
-                    <div className="border-b border-gray-500 pb-2 mb-2 px-8">
-                      <span className="text-sm font-mono text-gray-300">{new Date().toLocaleDateString()}</span>
-                    </div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wider">Date Issued</p>
+                  <div className="bg-black/30 border border-white/5 rounded-xl p-3 flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
+                    <span className="text-sm text-gray-300">WhatsApp & Social Closing Mastery</span>
+                  </div>
+                  <div className="bg-black/30 border border-white/5 rounded-xl p-3 flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-amber-400 shrink-0" />
+                    <span className="text-sm text-gray-300">Ethical Governance & Compliance</span>
                   </div>
                 </div>
 
-                <div className="mt-12 text-[10px] text-gray-500 font-mono relative z-10">
-                  Certificate ID: {certificateCode || `HP-CERT-${Math.floor(100000 + Math.random() * 900000)}`}
+                <div className="flex flex-col md:flex-row items-center justify-between gap-8 max-w-4xl mx-auto relative z-10 px-8">
+                  {/* Left: Signature */}
+                  <div className="text-center w-48">
+                    <div className="border-b-2 border-gray-600 pb-2 mb-2">
+                      <span className="font-serif italic text-3xl text-amber-200 block -mb-1">Gee Mings</span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Gee Mings • Founder & CEO, HorPal</p>
+                  </div>
+
+                  {/* Center: 3D Gold Seal */}
+                  <div className="relative w-32 h-32 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-300 via-amber-500 to-amber-700 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.5)] border-2 border-amber-200 flex items-center justify-center">
+                       <div className="w-28 h-28 border border-amber-900/30 rounded-full flex flex-col items-center justify-center p-2 text-center bg-gradient-to-br from-amber-400 to-amber-600">
+                         <span className="text-[10px] font-black text-amber-950 uppercase tracking-widest block mb-0.5">100% Verified</span>
+                         <span className="text-xs font-black text-amber-950 uppercase tracking-widest block mb-1">Distinction</span>
+                         <span className="text-[8px] font-bold text-amber-900 uppercase tracking-widest">Seal • HorPal</span>
+                       </div>
+                    </div>
+                  </div>
+
+                  {/* Right: QR Code & Metadata */}
+                  <div className="text-center md:text-right flex flex-col items-center md:items-end w-48">
+                    <div className="w-20 h-20 bg-white p-1 rounded mb-2">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent('https://www.horpal.com/affiliate?verify=' + (certificateCode || 'HP-CERT'))}`}
+                        alt="Verification QR"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-mono">Date Issued: {new Date().toLocaleDateString()}</p>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-mono">Credential ID: {certificateCode || `HP-CERT-${Math.floor(100000 + Math.random() * 900000)}`}</p>
+                  </div>
                 </div>
 
                 <div className="mt-16 flex flex-col sm:flex-row justify-center gap-4 relative z-10">
-                  <button className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black flex items-center justify-center gap-2">
+                  <button onClick={handleDownloadCertificate} className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.3)]">
                     <Download className="w-4 h-4" /> Download / Print Official Certificate
                   </button>
-                  <button onClick={() => window.location.href = "mailto:horpalservice@gmail.com?subject=Certificate%20Verification"} className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center gap-2 border border-white/10">
+                  <button onClick={() => window.location.href = "mailto:horpalservice@gmail.com?subject=Certificate%20Verification"} className="px-6 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold flex items-center justify-center gap-2 border border-white/10">
                     <Upload className="w-4 h-4" /> Submit Proof to Admin
                   </button>
                 </div>
@@ -3268,7 +3518,7 @@ export default function HorPalAffiliatePillar({
                        className="w-full h-full object-contain"
                      />
                    </div>
-                   <button onClick={() => alert('Downloaded QR Code!')} className="w-full mt-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 border border-white/10">
+                   <button onClick={() => handleDownloadQrCode(getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-${promoteModalProduct.id}`] || undefined), promoteModalProduct.id)} className="w-full mt-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 border border-white/10">
                      <Download className="w-3.5 h-3.5" /> Download QR
                    </button>
                  </div>
@@ -3324,8 +3574,12 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
                       </div>
                     </div>
                     <div>
-                      <label className="text-xs font-bold text-gray-400 block mb-1.5">Pillar 2 Email</label>
-                      <input type="email" value={pillar2Email} onChange={(e) => setPillar2Email(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-gray-400 block">Pillar 2 Email</label>
+                        <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">🔒 Locked (Verified Paid Email)</span>
+                      </div>
+                      <input type="email" value={currentProfile?.email || pillar2Email} readOnly disabled className="w-full bg-slate-900/90 text-slate-400 border border-amber-500/30 cursor-not-allowed select-none opacity-85 px-4 py-2.5 rounded-xl text-sm focus:outline-none" />
+                      <p className="text-[10px] text-gray-500 mt-1">🔒 Your email is permanently bound to your paid HorPal Affiliate license and cannot be changed.</p>
                     </div>
                     <div>
                       <label className="text-xs font-bold text-gray-400 block mb-1.5">Phone Number</label>
