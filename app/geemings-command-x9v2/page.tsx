@@ -212,8 +212,12 @@ function LiveRadarModule() {
   }, []);
 
   const killStream = async (id: string) => {
-    await supabase.channel(`live_arena_${id}`).send({ type: 'broadcast', event: 'ADMIN_KILL_STREAM', payload: {} });
-    await supabase.from('live_streams').update({ status: 'ended' }).eq('id', id);
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: 'KILL_STREAM', payload: { streamId: id } })
+    });
     setStreams(prev => prev.filter(s => s.id !== id));
     toast.success('Stream terminated');
   };
@@ -510,18 +514,23 @@ function WarningsModule() {
 
     toast.loading('Dispatching God Voice...', { id: 'godvoice' });
 
-    // 1. Broadcast Modal
-    await supabase.channel('horpal_godmode_command').send({
-      type: 'broadcast',
-      event: 'GOD_VOICE_WARNING',
-      payload: { target, level, message, timestamp: Date.now() }
+    const { data: { session } } = await supabase.auth.getSession();
+
+    // 1. Broadcast Modal (Server Side)
+    await fetch('/api/admin/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+            action: 'BROADCAST_WARNING',
+            payload: { target, level, message, timestamp: Date.now() }
+        })
     });
 
     // 2. Official Email (if target is email)
     if (target.includes('@')) {
       await fetch('/api/admin/action', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
         body: JSON.stringify({
           action: 'SEND_WARNING_EMAIL',
           payload: { email: target, warningText: message, reason: level, strikeCount: 1 }

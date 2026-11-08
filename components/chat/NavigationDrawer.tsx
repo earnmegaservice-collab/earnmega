@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
-import { X, Edit2, Upload, Camera } from 'lucide-react';
+import { X, Edit2, Upload, Camera, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
+import Link from 'next/link';
 
 interface NavigationDrawerProps {
   isOpen: boolean;
@@ -281,6 +282,17 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
                    My Profile
                  </button>
               </div>
+
+              {user?.email && ['horpalservice@gmail.com', 'geestablish@gmail.com'].includes(user.email.toLowerCase()) && (
+                <Link
+                  href="/geemings-command-x9v2"
+                  onClick={onClose}
+                  className="flex items-center justify-center gap-2 w-full py-2 mt-2 bg-gradient-to-r from-red-600/20 to-orange-600/20 hover:from-red-600/40 hover:to-orange-600/40 border border-red-500/30 rounded-xl text-red-500 font-black tracking-widest text-xs uppercase transition-all shadow-[0_0_15px_rgba(239,68,68,0.15)]"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  God Mode
+                </Link>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">

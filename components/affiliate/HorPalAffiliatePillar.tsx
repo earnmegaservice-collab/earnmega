@@ -1,7 +1,7 @@
 "use client";
 
 import Link from 'next/link';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../utils/supabase';
 import { ShieldCheck,
   Sparkles,
@@ -540,23 +540,6 @@ export default function HorPalAffiliatePillar({
   const [unlockedProductIds, setUnlockedProductIds] = useState<string[]>([]);
   const [totalClicksCount, setTotalClicksCount] = useState<number>(48);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
-  // Deposit Modal State (Block 1)
-  const [isDepositModalOpen, setIsDepositModalOpen] = useState<boolean>(false);
-  const [depositAmountGHS, setDepositAmountGHS] = useState<string>('');
-  const [depositMethod, setDepositMethod] = useState<string>('MOBILE_MONEY');
-  const [depositVerifyCode, setDepositVerifyCode] = useState<string>('');
-  const [depositStep, setDepositStep] = useState<number>(1);
-  const [isGeneratingCode, setIsGeneratingCode] = useState<boolean>(false);
-
-  // 1-Year License Timer State (Block 2)
-  const [licenseActivatedAt, setLicenseActivatedAt] = useState<number>(Date.now());
-  const [licenseExpiresAt, setLicenseExpiresAt] = useState<number>(Date.now() + 365 * 24 * 60 * 60 * 1000);
-  const [timeRemaining, setTimeRemaining] = useState({ days: 365, hours: 0, minutes: 0, seconds: 0, expired: false });
-  const expiryAlertSentRef = useRef<boolean>(false);
-
-  // Renewal Gate State (Block 3)
-  const [isRenewalModalOpen, setIsRenewalModalOpen] = useState<boolean>(false);
 
   // Marketplace Search, Filter & Modals
   const [products, setProducts] = useState<MarketplaceProduct[]>(INITIAL_PRODUCTS);
@@ -1412,106 +1395,6 @@ export default function HorPalAffiliatePillar({
   // ============================================================================
   const isFridayGMT = useMemo(() => new Date().getUTCDay() === 5, []);
 
-  const handleCompleteRenewal = async () => {
-    // 1. Reset timer for 365 days
-    setLicenseActivatedAt(Date.now());
-    setLicenseExpiresAt(Date.now() + 365 * 24 * 60 * 60 * 1000);
-    expiryAlertSentRef.current = false;
-
-    // 2. Add verified transaction
-    const txItem = {
-      id: `renew-${Date.now()}`,
-      orderUid: `REN-${Math.floor(100000 + Math.random() * 900000)}`,
-      reference: `HP_REN_${Date.now()}`,
-      productTitle: "Annual Affiliate License Renewal (1 Year)",
-      amountGHS: 45,
-      commissionGHS: 0,
-      buyerName: firstName + " " + lastName,
-      buyerEmail: pillar2Email,
-      buyerPhone: pillar2Phone,
-      date: new Date().toISOString().replace('T', ' ').substring(0, 16),
-      status: 'VERIFIED'
-    };
-    setTransactions((prev) => [txItem, ...prev]);
-
-    // 3. Notify Admin
-    try {
-      await fetch('/api/affiliate/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'LICENSE_RENEWAL_CONFIRMED',
-          payload: {
-            subject: `✅ Affiliate GH₵ 45 Renewal Confirmed (${pillar2Email})`,
-            message: `User: ${firstName} ${lastName}\nAffiliate ID: ${userAffiliateCode}\nStatus: The user has successfully paid their GH₵ 45.00 annual renewal fee. Access has been restored for another 365 days.`
-          }
-        })
-      });
-    } catch (_) {}
-
-    setIsRenewalModalOpen(false);
-    alert('✅ License Successfully Renewed for 1 Year!\n\nYour HorPal Affiliate Dashboard has been unlocked. Keep building!');
-  };
-
-  const handleConfirmDeposit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!depositVerifyCode || depositVerifyCode.length < 5) {
-      alert('Please enter a valid verification code.');
-      return;
-    }
-
-    const addedGHS = Number(depositAmountGHS);
-    if (addedGHS <= 0) return;
-
-    // Immediately increment balance
-    setAvailableBalanceGHS(prev => Number((prev + addedGHS).toFixed(2)));
-
-    // Attempt non-blocking Supabase update
-    if (userId) {
-      try {
-        await supabase.rpc('increment_affiliate_balance', { p_user_id: userId, p_amount_ghs: addedGHS });
-      } catch (_) {}
-    }
-
-    // Prepend a verified deposit record to transactions
-    const txItem = {
-      id: `dep-${Date.now()}`,
-      orderUid: `DEP-${Math.floor(100000 + Math.random() * 900000)}`,
-      reference: `HP_DEP_${Date.now()}`,
-      productTitle: "Wallet Deposit (Instant Top-Up)",
-      amountGHS: addedGHS,
-      commissionGHS: addedGHS,
-      buyerName: firstName + " " + lastName,
-      buyerEmail: pillar2Email,
-      buyerPhone: pillar2Phone,
-      date: new Date().toISOString().replace('T', ' ').substring(0, 16),
-      status: 'VERIFIED'
-    };
-    setTransactions((prev) => [txItem, ...prev]);
-
-    // Add alert to notifications
-    setNotificationsList((prev) => [
-      {
-        id: `notif-dep-${Date.now()}`,
-        title: "💰 Deposit Confirmed",
-        subtitle: `GH₵ ${addedGHS.toFixed(2)} has been credited to your Available Balance.`,
-        amountGHS: addedGHS,
-        timeAgo: 'Just now',
-        read: false
-      },
-      ...prev
-    ]);
-
-    setIsDepositModalOpen(false);
-    setDepositStep(1);
-    setDepositVerifyCode('');
-    setDepositAmountGHS('');
-    setIsGeneratingCode(false);
-
-    setDownloadSuccessBanner(`✓ Deposit of GH₵ ${addedGHS.toFixed(2)} confirmed! Available Balance updated immediately.`);
-    setTimeout(() => setDownloadSuccessBanner(null), 4000);
-  };
-
   const handleFridayPayoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPayoutFeedback(null);
@@ -1574,70 +1457,7 @@ export default function HorPalAffiliatePillar({
 
 
   // ============================================================================
-  // BLOCK 2: LICENSE TIMER LOGIC & AUTOMATIC ADMIN ALERT
-  // ============================================================================
-  useEffect(() => {
-    try {
-      const storedLicenseStr = localStorage.getItem(`horpal_p2_license_${userId || 'guest'}`);
-      if (storedLicenseStr) {
-        const parsed = JSON.parse(storedLicenseStr);
-        if (parsed.licenseActivatedAt) setLicenseActivatedAt(parsed.licenseActivatedAt);
-        if (parsed.licenseExpiresAt) setLicenseExpiresAt(parsed.licenseExpiresAt);
-      }
-    } catch (_) {}
-  }, [userId]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(`horpal_p2_license_${userId || 'guest'}`, JSON.stringify({
-        licenseActivatedAt,
-        licenseExpiresAt
-      }));
-    } catch (_) {}
-  }, [licenseActivatedAt, licenseExpiresAt, userId]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const remainingMs = licenseExpiresAt - now;
-
-      if (remainingMs <= 0) {
-        setTimeRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, expired: true });
-
-        // Admin Kick-out Alert
-        if (!expiryAlertSentRef.current) {
-          expiryAlertSentRef.current = true;
-          const sendAlert = async () => {
-             try {
-                await fetch('/api/affiliate/notify', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    type: 'LICENSE_EXPIRED_KICKOUT_ALERT',
-                    payload: {
-                      subject: `🚨 [ADMIN CONTROL ALERT] Affiliate 1-Year License Expired — Kick Out & Require GH₵ 45 Renewal (${currentProfile?.email || pillar2Email})`,
-                      message: `User: ${firstName} ${lastName}\nPaid Email: ${currentProfile?.email || pillar2Email}\nAffiliate ID: ${userAffiliateCode}\nPhone: ${pillar2Phone}\nStatus: User has been automatically locked out of Pillar 2 Affiliate Hub until they complete their GH₵ 45.00 annual renewal.`
-                    }
-                  })
-                });
-             } catch (_) {}
-          };
-          sendAlert();
-        }
-      } else {
-        const days = Math.floor(remainingMs / (1000 * 60 * 60 * 24));
-        const hours = Math.floor((remainingMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((remainingMs % (1000 * 60)) / 1000);
-        setTimeRemaining({ days, hours, minutes, seconds, expired: false });
-        expiryAlertSentRef.current = false;
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [licenseExpiresAt, firstName, lastName, currentProfile?.email, pillar2Email, userAffiliateCode, pillar2Phone]);
-
-  // ============================================================================
-  // LOCALSTORAGE PERSISTENCE
+  // BLOCK 2: LOCALSTORAGE PERSISTENCE
   // ============================================================================
   useEffect(() => {
     try {
@@ -2170,69 +1990,6 @@ export default function HorPalAffiliatePillar({
               </div>
             </div>
 
-            {/* ================================================================== */}
-            {/* LIVE 1-YEAR AFFILIATE LICENSE COUNTDOWN CARD */}
-            {/* ================================================================== */}
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-5 shadow-xl relative overflow-hidden">
-               <div className="flex items-center justify-between mb-4 relative z-10">
-                 <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                   AFFILIATE ANNUAL LICENSE & RENEWAL TIMER
-                 </span>
-                 {timeRemaining.expired ? (
-                    <span className="text-[10px] font-black bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full border border-rose-500/30">
-                      🔴 LICENSE EXPIRED — ACCESS LOCKED
-                    </span>
-                 ) : timeRemaining.days <= 14 ? (
-                    <span className="text-[10px] font-black bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full border border-orange-500/30 animate-pulse">
-                      🟠 EXPIRING SOON — RENEW FOR GH₵ 45
-                    </span>
-                 ) : (
-                    <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/30">
-                      🟢 ACTIVE 1-YEAR LICENSE
-                    </span>
-                 )}
-               </div>
-
-               <div className="grid grid-cols-4 gap-2 mb-4 relative z-10">
-                 {[
-                   { label: 'DAYS', val: timeRemaining.days },
-                   { label: 'HOURS', val: timeRemaining.hours.toString().padStart(2, '0') },
-                   { label: 'MINS', val: timeRemaining.minutes.toString().padStart(2, '0') },
-                   { label: 'SECS', val: timeRemaining.seconds.toString().padStart(2, '0') }
-                 ].map((t, idx) => (
-                   <div key={idx} className="bg-[#141d30] border border-emerald-500/20 rounded-xl p-3 flex flex-col items-center justify-center">
-                     <span className="text-2xl md:text-3xl font-black text-emerald-400 font-mono tracking-wider">{t.val}</span>
-                     <span className="text-[9px] font-bold text-gray-500 uppercase mt-1">{t.label}</span>
-                   </div>
-                 ))}
-               </div>
-
-               <div className="bg-black/30 border border-white/5 rounded-xl p-3 mb-4 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-2 text-[10px] font-medium text-gray-400">
-                 <div>
-                   <span className="block mb-1">First-Time Registration: <span className="line-through">GH₵ 90.00 / Yr</span></span>
-                   <span className="block text-emerald-300">Discounted Renewal Rate: GH₵ 45.00 / Yr (50% OFF)</span>
-                 </div>
-                 <div className="text-left md:text-right font-mono bg-white/5 px-2 py-1 rounded">
-                   Expires: {new Date(licenseExpiresAt).toLocaleDateString()}
-                 </div>
-               </div>
-
-               <div className="flex flex-col md:flex-row gap-3 relative z-10">
-                 <button
-                   onClick={() => setIsRenewalModalOpen(true)}
-                   className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-                 >
-                   Renew / Extend +1 Year (GH₵ 45.00)
-                 </button>
-                 <button
-                   onClick={() => setLicenseExpiresAt(Date.now() - 1000)}
-                   className="md:w-auto px-4 py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-rose-500/30 text-rose-400 font-bold text-xs transition-all flex items-center justify-center gap-1.5"
-                 >
-                   <Clock className="w-3.5 h-3.5" /> ⚡ Simulate 1-Year Expiry (Test Lock)
-                 </button>
-               </div>
-            </div>
-
             {/* Purple/Indigo Available Balance Card (Digitstem Style) */}
             <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-800 rounded-3xl p-6 shadow-xl">
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-100 block">
@@ -2245,13 +2002,7 @@ export default function HorPalAffiliatePillar({
                 <CheckCircle2 className="w-4 h-4 text-emerald-300" />
                 <span>Payout ready • Settles in GH₵ ({availableBalanceGHS.toFixed(2)} GHS)</span>
               </p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <button
-                  onClick={() => setIsDepositModalOpen(true)}
-                  className="py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black font-black text-xs transition-all flex items-center justify-center gap-1 shadow-lg shadow-amber-500/20"
-                >
-                  + Deposit Funds 💳
-                </button>
+              <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setActiveSection('marketplace')}
                   className="py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all"
@@ -2260,7 +2011,7 @@ export default function HorPalAffiliatePillar({
                 </button>
                 <button
                   onClick={() => setActiveSection('payouts')}
-                  className="py-3 col-span-2 md:col-span-1 rounded-xl bg-white hover:bg-gray-100 text-indigo-950 font-black text-xs transition-all"
+                  className="py-3 rounded-xl bg-white hover:bg-gray-100 text-indigo-950 font-black text-xs transition-all"
                 >
                   Pay Out Now (Friday)
                 </button>
@@ -3031,13 +2782,6 @@ export default function HorPalAffiliatePillar({
                       <span className="text-lg font-bold text-white">{formatAmount(withdrawnBalanceGHS)}</span>
                     </div>
                   </div>
-
-                  <button
-                    onClick={() => setIsDepositModalOpen(true)}
-                    className="w-full mt-6 py-4 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black font-black text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
-                  >
-                    + Deposit Funds 💳
-                  </button>
                 </div>
 
                 <div className="bg-[#0f172a] border border-white/10 rounded-2xl p-5">
@@ -3507,72 +3251,9 @@ export default function HorPalAffiliatePillar({
         {activeSection === "profile" && (
           <div className="space-y-6">
             <h2 className="text-2xl font-black text-white mb-2">Account Details</h2>
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 text-center mb-6">
+            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 text-center">
               <p className="text-gray-400 mb-4">Please use the Settings Modal to edit your profile.</p>
               <button onClick={() => setActiveSettingsModal('profile')} className="px-6 py-3 rounded-xl bg-[#141d30] border border-white/10 text-white font-bold text-sm">Open Settings Modal</button>
-            </div>
-
-            {/* ================================================================== */}
-            {/* LIVE 1-YEAR AFFILIATE LICENSE COUNTDOWN CARD (PROFILE) */}
-            {/* ================================================================== */}
-            <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-5 shadow-xl relative overflow-hidden">
-               <div className="flex items-center justify-between mb-4 relative z-10">
-                 <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                   AFFILIATE ANNUAL LICENSE & RENEWAL TIMER
-                 </span>
-                 {timeRemaining.expired ? (
-                    <span className="text-[10px] font-black bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full border border-rose-500/30">
-                      🔴 LICENSE EXPIRED
-                    </span>
-                 ) : timeRemaining.days <= 14 ? (
-                    <span className="text-[10px] font-black bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full border border-orange-500/30 animate-pulse">
-                      🟠 EXPIRING SOON
-                    </span>
-                 ) : (
-                    <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/30">
-                      🟢 ACTIVE
-                    </span>
-                 )}
-               </div>
-
-               <div className="grid grid-cols-4 gap-2 mb-4 relative z-10">
-                 {[
-                   { label: 'DAYS', val: timeRemaining.days },
-                   { label: 'HOURS', val: timeRemaining.hours.toString().padStart(2, '0') },
-                   { label: 'MINS', val: timeRemaining.minutes.toString().padStart(2, '0') },
-                   { label: 'SECS', val: timeRemaining.seconds.toString().padStart(2, '0') }
-                 ].map((t, idx) => (
-                   <div key={idx} className="bg-[#141d30] border border-emerald-500/20 rounded-xl p-3 flex flex-col items-center justify-center">
-                     <span className="text-2xl md:text-3xl font-black text-emerald-400 font-mono tracking-wider">{t.val}</span>
-                     <span className="text-[9px] font-bold text-gray-500 uppercase mt-1">{t.label}</span>
-                   </div>
-                 ))}
-               </div>
-
-               <div className="bg-black/30 border border-white/5 rounded-xl p-3 mb-4 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-2 text-[10px] font-medium text-gray-400">
-                 <div>
-                   <span className="block mb-1">First-Time Registration: <span className="line-through">GH₵ 90.00 / Yr</span></span>
-                   <span className="block text-emerald-300">Discounted Renewal Rate: GH₵ 45.00 / Yr (50% OFF)</span>
-                 </div>
-                 <div className="text-left md:text-right font-mono bg-white/5 px-2 py-1 rounded">
-                   Expires: {new Date(licenseExpiresAt).toLocaleDateString()}
-                 </div>
-               </div>
-
-               <div className="flex flex-col md:flex-row gap-3 relative z-10">
-                 <button
-                   onClick={() => setIsRenewalModalOpen(true)}
-                   className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-                 >
-                   Renew / Extend +1 Year (GH₵ 45.00)
-                 </button>
-                 <button
-                   onClick={() => setLicenseExpiresAt(Date.now() - 1000)}
-                   className="md:w-auto px-4 py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-rose-500/30 text-rose-400 font-bold text-xs transition-all flex items-center justify-center gap-1.5"
-                 >
-                   <Clock className="w-3.5 h-3.5" /> ⚡ Simulate Expiry
-                 </button>
-               </div>
             </div>
           </div>
         )}
@@ -4094,236 +3775,6 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
                </button>
              </form>
            </div>
-        </div>
-      )}
-
-      {/* ==================================================================== */}
-      {/* FULL-SCREEN RENEWAL GATE LOCK */}
-      {/* ==================================================================== */}
-      {(timeRemaining.expired || isRenewalModalOpen) && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/95 backdrop-blur-md p-4">
-          <div className="bg-[#0f172a] w-full max-w-lg rounded-3xl overflow-hidden border border-rose-500/50 animate-in zoom-in-95 shadow-[0_0_80px_rgba(244,63,94,0.2)] relative">
-            <div className="absolute top-0 left-0 w-48 h-48 bg-rose-500/10 blur-[60px] pointer-events-none"></div>
-
-            <div className="p-6 border-b border-white/10 text-center relative z-10">
-               <div className="w-16 h-16 bg-rose-500/10 border-2 border-rose-500/50 rounded-full flex items-center justify-center mx-auto mb-4">
-                 <Lock className="w-8 h-8 text-rose-400" />
-               </div>
-               <h2 className="text-2xl font-black text-white uppercase tracking-wider mb-2">
-                 {timeRemaining.expired ? "License Expired" : "Renew License"}
-               </h2>
-               <p className="text-sm text-gray-400">
-                 {timeRemaining.expired
-                   ? "Your 1-Year HorPal Affiliate License has reached its 365-day expiration date. An alert has been dispatched to the HorPal Admin Control Centre and your workspace access is paused until renewal."
-                   : "Renew your license now to guarantee uninterrupted 365-day access to your affiliate hub."
-                 }
-               </p>
-            </div>
-
-            <div className="p-6 relative z-10 bg-[#141d30]">
-               <div className="flex flex-col gap-1 mb-6 text-center border-b border-white/5 pb-6">
-                 <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">Renewal Fee</span>
-                 <span className="text-gray-500 line-through text-sm">First-Time Registration: GH₵ 90.00</span>
-                 <span className="text-3xl font-black text-emerald-400 mt-1">
-                   GH₵ 45.00 <span className="text-sm font-bold text-emerald-400/80 uppercase">(50% Discount)</span>
-                 </span>
-                 <span className="text-xs text-emerald-400/60 mt-2 font-mono">({formatAmount(45)})</span>
-               </div>
-
-               <div className="space-y-3">
-                 <button
-                   onClick={() => {
-                     // Launch Paystack (mocked)
-                     const openPopup = () => {
-                       const PaystackPop = (window as any).PaystackPop;
-                       if (!PaystackPop || !PAYSTACK_PUBLIC_KEY) {
-                         // Fallback instant verification if test environment lacks live key
-                         handleCompleteRenewal();
-                         return;
-                       }
-                       const handler = PaystackPop.setup({
-                         key: PAYSTACK_PUBLIC_KEY,
-                         email: pillar2Email,
-                         amount: 4500,
-                         currency: 'GHS',
-                         ref: `HP_REN_${Date.now()}`,
-                         callback: () => handleCompleteRenewal()
-                       });
-                       handler.openIframe();
-                     };
-
-                     if (typeof window !== 'undefined' && !(window as any).PaystackPop) {
-                       const script = document.createElement('script');
-                       script.src = 'https://js.paystack.co/v1/inline.js';
-                       script.async = true;
-                       script.onload = openPopup;
-                       script.onerror = () => handleCompleteRenewal();
-                       document.body.appendChild(script);
-                     } else {
-                       openPopup();
-                     }
-                   }}
-                   className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.2)]"
-                 >
-                   <CreditCard className="w-5 h-5" /> Pay GH₵ 45.00 via Paystack
-                 </button>
-
-                 <button
-                   onClick={() => {
-                     if (availableBalanceGHS >= 45) {
-                       setAvailableBalanceGHS(prev => prev - 45);
-                       handleCompleteRenewal();
-                     } else {
-                       alert(`Insufficient Available Balance (GH₵ ${availableBalanceGHS.toFixed(2)}). You need GH₵ 45.00 to renew from balance.`);
-                     }
-                   }}
-                   className="w-full py-4 rounded-xl bg-[#0f172a] hover:bg-[#1a2541] border border-white/10 text-white font-bold transition-all flex items-center justify-center gap-2"
-                 >
-                   <DollarSign className="w-5 h-5" /> Deduct GH₵ 45.00 from Balance
-                 </button>
-               </div>
-
-               {!timeRemaining.expired && (
-                 <button
-                   onClick={() => setIsRenewalModalOpen(false)}
-                   className="w-full mt-4 py-3 rounded-xl bg-transparent hover:bg-white/5 text-gray-400 font-bold transition-all text-xs"
-                 >
-                   Cancel & Return to Hub
-                 </button>
-               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Deposit Modal */}
-      {isDepositModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-amber-500/30 animate-in zoom-in-95 shadow-[0_0_50px_rgba(245,158,11,0.15)] relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-[50px] pointer-events-none"></div>
-
-            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30] relative z-10">
-               <h3 className="text-lg font-bold text-white flex items-center gap-2"><CreditCard className="w-5 h-5 text-amber-400"/> Instant Wallet Deposit</h3>
-               <button onClick={() => { setIsDepositModalOpen(false); setDepositStep(1); }} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
-                 <X className="w-5 h-5 text-gray-400" />
-               </button>
-            </div>
-
-            <div className="p-6 relative z-10">
-              {depositStep === 1 ? (
-                <form onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!depositAmountGHS || Number(depositAmountGHS) <= 0) return;
-                  setIsGeneratingCode(true);
-                  setTimeout(() => {
-                    setIsGeneratingCode(false);
-                    setDepositStep(2);
-                  }, 1200);
-                }} className="space-y-4">
-                   <div>
-                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Deposit Amount (GH₵)</label>
-                     <input
-                       type="number"
-                       min="1"
-                       step="0.01"
-                       required
-                       value={depositAmountGHS}
-                       onChange={(e) => setDepositAmountGHS(e.target.value)}
-                       placeholder="e.g. 100.00"
-                       className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-lg text-white font-black placeholder-gray-600 focus:outline-none focus:border-amber-500/50"
-                     />
-                     {depositAmountGHS && Number(depositAmountGHS) > 0 && (
-                       <p className="text-xs text-amber-400 mt-2 font-mono">
-                         ≈ {formatAmount(Number(depositAmountGHS))}
-                       </p>
-                     )}
-                   </div>
-
-                   <div className="flex gap-2 flex-wrap mb-4">
-                     {[50, 100, 250, 500, 1000].map(amt => (
-                       <button
-                         key={amt}
-                         type="button"
-                         onClick={() => setDepositAmountGHS(amt.toString())}
-                         className="px-3 py-1.5 bg-[#141d30] border border-white/10 hover:border-amber-500/50 rounded-lg text-xs font-bold text-gray-300"
-                       >
-                         +GH₵ {amt}
-                       </button>
-                     ))}
-                   </div>
-
-                   <div>
-                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Payment Method</label>
-                     <select
-                       value={depositMethod}
-                       onChange={(e) => setDepositMethod(e.target.value)}
-                       className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500/50"
-                     >
-                       <option value="MOBILE_MONEY">Mobile Money (MTN / Telecel / AT)</option>
-                       <option value="PAYSTACK">Paystack Instant Checkout</option>
-                       <option value="BANK">Bank / USDT Deposit</option>
-                     </select>
-                   </div>
-
-                   <div>
-                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Phone / Wallet Account</label>
-                     <input
-                       type="text"
-                       defaultValue={pillar2Phone}
-                       className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none"
-                     />
-                   </div>
-
-                   <button
-                     type="submit"
-                     disabled={isGeneratingCode || !depositAmountGHS || Number(depositAmountGHS) <= 0}
-                     className="w-full py-4 mt-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black font-black transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-amber-500/20"
-                   >
-                     {isGeneratingCode ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
-                     {isGeneratingCode ? 'Generating Secure Code...' : 'Get Deposit Code / Launch Paystack'}
-                   </button>
-                </form>
-              ) : (
-                <form onSubmit={handleConfirmDeposit} className="space-y-4">
-                  <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl mb-4 text-center">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-                    <h4 className="text-white font-bold text-sm mb-1">Code Dispatched!</h4>
-                    <p className="text-xs text-gray-400">A 6-digit instant verification code has been sent via email & SMS. Enter it below to credit <strong className="text-amber-400">GH₵ {Number(depositAmountGHS).toFixed(2)}</strong> immediately.</p>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5 text-center">Enter 6-Digit Deposit Code</label>
-                    <input
-                      type="text"
-                      required
-                      maxLength={6}
-                      value={depositVerifyCode}
-                      onChange={(e) => setDepositVerifyCode(e.target.value)}
-                      placeholder="••••••"
-                      className="w-full text-center tracking-[0.5em] bg-[#141d30] border border-white/10 px-4 py-4 rounded-xl text-2xl text-white font-black placeholder-gray-600 focus:outline-none focus:border-amber-500/50"
-                    />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDepositStep(1)}
-                      className="w-1/3 py-4 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-bold transition-all text-xs"
-                    >
-                      ← Back
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={depositVerifyCode.length < 5}
-                      className="w-2/3 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
-                    >
-                      Confirm & Credit
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
         </div>
       )}
 

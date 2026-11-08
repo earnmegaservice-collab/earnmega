@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith('/geemings-command-x9v2')) {
+  if (request.nextUrl.pathname.startsWith('/geemings-command-x9v2') || request.nextUrl.pathname.startsWith('/api/admin/action')) {
     let supabaseResponse = NextResponse.next({
       request,
     });
@@ -52,5 +52,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/geemings-command-x9v2/:path*',
+    '/api/admin/action',
   ],
 };

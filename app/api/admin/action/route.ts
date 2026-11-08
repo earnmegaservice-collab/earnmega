@@ -1,9 +1,44 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
+import { createServerClient } from '@supabase/ssr';
+
 export async function POST(request: Request) {
   try {
+    // SECURITY: Authenticate request on the server to prevent open email relay / unauthenticated admin actions.
     const resendApiKey = process.env.RESEND_API_KEY || process.env.RESEND_API_KEY_MAIN || process.env.RESEND_API_KEY_AFFILIATE;
+
+    // Validate session
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+    let isAuthorized = false;
+
+    try {
+      const authHeader = request.headers.get('Authorization');
+      let token = '';
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+         token = authHeader.split(' ')[1];
+      }
+
+      const supabase = createServerClient(supabaseUrl, supabaseKey, { cookies: { getAll: () => [], setAll: () => {} } });
+      const { data: { user } } = await supabase.auth.getUser(token || undefined);
+
+      if (user && user.email) {
+          const email = user.email.toLowerCase();
+          if (email === 'horpalservice@gmail.com' || email === 'geestablish@gmail.com') {
+              isAuthorized = true;
+          }
+      }
+    } catch (e) {
+      console.error('Auth verification failed in admin route:', e);
+    }
+
+    if (!isAuthorized) {
+       // Although middleware blocks `/api/admin/action`, having an extra layer of defense here is crucial
+       return NextResponse.json({ success: false, error: 'Unauthorized Access' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { action, payload } = body;
 
@@ -68,6 +103,28 @@ export async function POST(request: Request) {
         });
       }
       return NextResponse.json({ success: true, message: 'Alert sent' });
+    }
+
+    // Server-side secure dispatch of broadcasts
+    if (action === 'BROADCAST_WARNING') {
+       const supabase = createServerClient(supabaseUrl, supabaseKey, { cookies: { getAll: () => [], setAll: () => {} } });
+       await supabase.channel('horpal_godmode_command').send({
+           type: 'broadcast',
+           event: 'GOD_VOICE_WARNING',
+           payload: payload
+       });
+       return NextResponse.json({ success: true, message: 'Warning Broadcasted' });
+    }
+
+    if (action === 'KILL_STREAM') {
+       const supabase = createServerClient(supabaseUrl, supabaseKey, { cookies: { getAll: () => [], setAll: () => {} } });
+       await supabase.channel(`live_arena_${payload.streamId}`).send({
+           type: 'broadcast',
+           event: 'ADMIN_KILL_STREAM',
+           payload: {}
+       });
+       await supabase.from('live_streams').update({ status: 'ended' }).eq('id', payload.streamId);
+       return NextResponse.json({ success: true, message: 'Stream Terminated' });
     }
 
     return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });
