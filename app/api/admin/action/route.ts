@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { supabase } from '../../../../utils/supabase';
 
 export async function POST(request: Request) {
   try {
@@ -40,8 +41,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: 'Warning email sent' });
     }
 
-import { supabase } from '../../../../utils/supabase';
-
     if (action === 'SUBMIT_LIVE_REPORT') {
       const { Platform, Report_Type, Reason, Details, Reported_User, Reported_By, Stream_ID, Timestamp } = payload;
 
@@ -59,7 +58,7 @@ import { supabase } from '../../../../utils/supabase';
       if (resend) {
         await resend.emails.send({
           from: 'HorPal Trust & Safety <safety@horpal.com>',
-          to: 'horpalservice@gmail.com',
+          to: process.env.ADMIN_CONTACT_EMAIL || 'earnmegaservice@gmail.com',
           subject: `🚨 HorPal Live Report: ${Reported_User} (${Reason})`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #050811; color: #fff; padding: 20px; border: 1px solid #ef4444; border-radius: 8px;">

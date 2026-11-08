@@ -3451,18 +3451,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
                   <button
                     onClick={() => {
-              const newVal = !isAudioBoostEnabled;
-              setIsAudioBoostEnabled(newVal);
-                      setShowHostMoreMenu(false);
-                    }}
-                    className={`flex items-center gap-2 w-full px-3 py-2 rounded-xl transition ${isAudioBoostEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-white/10 text-white'}`}
-                  >
-                    <Volume2 className="w-4 h-4" />
-                    <span className="text-sm font-semibold">Audio Boost: {isAudioBoostEnabled ? 'ON' : 'OFF'}</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
                       setBeautyMode(!beautyMode);
                       setShowHostMoreMenu(false);
                     }}
