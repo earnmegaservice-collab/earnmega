@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { supabase } from '../../../../utils/supabase';
 
 export async function POST(request: Request) {
   try {
@@ -39,8 +40,6 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ success: true, message: 'Warning email sent' });
     }
-
-import { supabase } from '../../../../utils/supabase';
 
     if (action === 'SUBMIT_LIVE_REPORT') {
       const { Platform, Report_Type, Reason, Details, Reported_User, Reported_By, Stream_ID, Timestamp } = payload;
