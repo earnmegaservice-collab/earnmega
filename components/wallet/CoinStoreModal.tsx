@@ -133,13 +133,23 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
       console.error("Paystack Key Missing");
     }
 
+    const metadata: any = {
+      user_id: user?.id,
+      email: user?.email || "user@example.com",
+      payment_type: type === 'UPGRADE' ? 'P1_REGISTRATION' : 'COIN_PURCHASE',
+    };
+    if (type === 'COIN') {
+      metadata.coins_amount = payload;
+    }
+
     setPaymentConfig({
       reference: (new Date()).getTime().toString(),
       email: user?.email || "user@example.com",
       amount: baseAmount,
       currency: 'GHS', // Force currency to 'GHS'
       publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY,
-      meta: { type, payload } // pass custom data to handle in onSuccess
+      metadata: metadata, // standardize metadata for webhook processing
+      meta: { type, payload } // pass custom data to handle in onSuccess client side
     });
   };
 
