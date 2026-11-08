@@ -489,7 +489,28 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       fetchCurrentUserProfile();
     };
     window.addEventListener('verification_complete', handleVerificationComplete);
-    return () => window.removeEventListener('verification_complete', handleVerificationComplete);
+
+    const handlePermissionsUpdated = (e: any) => {
+      if (e.detail?.permissions) {
+        // Prevent bleed if multiple group chats are open (syncs correctly with the active open drawer context)
+        if (e.detail.groupId) {
+          const stored = localStorage.getItem(`horpal_group_perms_${e.detail.groupId}`);
+          if (stored) {
+             try { setGroupPermissions(JSON.parse(stored)); } catch(err){}
+          } else {
+             setGroupPermissions(e.detail.permissions);
+          }
+        } else {
+          setGroupPermissions(e.detail.permissions);
+        }
+      }
+    };
+    window.addEventListener('horpal-group-permissions-updated', handlePermissionsUpdated);
+
+    return () => {
+      window.removeEventListener('verification_complete', handleVerificationComplete);
+      window.removeEventListener('horpal-group-permissions-updated', handlePermissionsUpdated);
+    }
   }, []);
 
   const fetchCurrentUserProfile = async () => {
@@ -581,6 +602,50 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         console.info("[RBAC] User Authority Evaluated:", { isAdmin });
     }
   }, [isGroupChat, isAdmin]);
+
+  const onlyAdminsCanSend = Boolean(
+    groupPermissions?.only_admins_can_send ??
+    (groupPermissions as any)?.onlyAdminsCanSend ??
+    groupDetails?.only_admins_can_send ??
+    groupDetails?.only_admins_message ??
+    false
+  );
+
+  const isMessagingLockedForMember = Boolean(isGroupChat && onlyAdminsCanSend && !isAdmin);
+
+  useEffect(() => {
+    if (isGroupChat && groupDetails?.id) {
+      const stored = localStorage.getItem(`horpal_group_perms_${groupDetails.id}`);
+      if (stored) {
+        try { setGroupPermissions(JSON.parse(stored)); } catch(e){}
+      }
+
+      const channel = supabase.channel(`group_perms_${groupDetails.id}`)
+        .on('broadcast', { event: 'permissions_updated' }, (payload) => {
+          if (payload.payload?.permissions) {
+             setGroupPermissions(payload.payload.permissions);
+          }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_groups', filter: `id=eq.${groupDetails.id}` }, (payload) => {
+           if (payload.new) {
+             setGroupPermissions(prev => ({
+               ...prev,
+               only_admins_can_send: Boolean(payload.new.only_admins_can_send),
+               only_admins_can_edit_info: Boolean(payload.new.only_admins_can_edit_info),
+               only_admins_can_add_members: Boolean(payload.new.only_admins_can_add_members),
+               approve_new_members: Boolean(payload.new.approve_new_members),
+               onlyAdminsCanSend: Boolean(payload.new.only_admins_can_send),
+               onlyAdminsCanEditInfo: Boolean(payload.new.only_admins_can_edit_info),
+               onlyAdminsCanAddMembers: Boolean(payload.new.only_admins_can_add_members),
+               approveNewMembers: Boolean(payload.new.approve_new_members)
+             }));
+           }
+        })
+        .subscribe();
+
+      return () => { supabase.removeChannel(channel); };
+    }
+  }, [isGroupChat, groupDetails?.id]);
 
   useEffect(() => {
     if (!otherUserProfile) return;
@@ -921,7 +986,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     isGroupChat && (
       (currentOtherUserProfile as any)?.created_by === user?.id ||
       (currentOtherUserProfile as any)?.owner_id === user?.id ||
-      groupMembers.some(m => (m.user_id === user?.id || m.profiles?.id === user?.id) && (m.role === 'admin' || m.role === 'owner'))
+      (currentOtherUserProfile as any)?.creator_id === user?.id ||
+      groupDetails?.created_by === user?.id ||
+      groupDetails?.owner_id === user?.id ||
+      groupDetails?.creator_id === user?.id ||
+      groupMembers.some(m => (m.user_id === user?.id || m.profiles?.id === user?.id) && (m.role === 'admin' || m.role === 'owner' || m.is_admin === true))
     )
   );
 
@@ -1847,6 +1916,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     e.preventDefault();
     if (!inputValue.trim() || !user || !currentOtherUserProfile) return;
 
+    if (isMessagingLockedForMember) {
+      toast.error('Only admins can send messages in this group');
+      return;
+    }
+
     let textContent = inputValue.trim();
 
     // Format reply prefix if replying
@@ -2064,6 +2138,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
 
   const handleGiftSent = (giftData: any) => {
+    if (isMessagingLockedForMember) {
+      toast.error('Only admins can send messages in this group');
+      return;
+    }
+
     // We will let the GiftOverlay listen to 'public:notifications' for local animation to avoid duplicate
     // But memory specifies we need to use broadcast for real-time. We'll fire both or rely on the broadcast.
     // The instruction: "Ensure the sendGift bypass instantly fires channel.send({ type: 'broadcast', event: 'gift_received', payload: { gift_type: selectedGift } })"
@@ -2143,6 +2222,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   const toggleRecording = async () => {
     if (!handleMediaClick()) return;
+    if (isMessagingLockedForMember) {
+      toast.error('Only admins can send messages in this group');
+      return;
+    }
 
     if (isRecording) {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -2178,6 +2261,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
 
   const uploadMediaFile = async (file: File | Blob, type: 'image' | 'audio' | 'video', caption?: string, originalName?: string) => {
+    if (isMessagingLockedForMember) {
+      toast.error('Only admins can send messages in this group');
+      return;
+    }
     setIsUploading(true);
     try {
       let fileExt = 'jpg';
@@ -2309,6 +2396,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (isMessagingLockedForMember) {
+      toast.error('Only admins can send messages in this group');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     if (file.size > 50 * 1024 * 1024) {
       toast.error('File must be under 50MB');
@@ -3689,14 +3782,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            </div>
         </div>
       )}
-{(groupDetails?.only_admins_message || groupDetails?.only_admins_can_send) && !groupMembers.some(m => m.user_id === user?.id && (m.role === 'admin' || m.role === 'owner')) ? (
+{isMessagingLockedForMember ? (
         <div className="w-full py-4 bg-black/60 backdrop-blur-xl rounded-3xl border border-white/10 relative z-20 text-center text-white/50 text-sm">
-          🔒 Only admins can send messages to this group.
-        </div>
-      ) : isGroupChat && groupPermissions.onlyAdminsCanSend && !isGroupAdmin ? (
-        <div className="w-full py-3.5 px-4 bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-amber-500/30 text-center text-amber-300 text-xs font-bold tracking-wide flex items-center justify-center gap-2">
-          <Lock className="text-amber-400 shrink-0" size={14} />
-          <span>Only admins can send messages in this group</span>
+          🔒 Only admins can send messages in this group.
         </div>
       ) : (
         <form
