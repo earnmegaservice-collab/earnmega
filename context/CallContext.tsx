@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
+import { Room, RoomEvent, Track } from 'livekit-client';
 import { supabase } from '../utils/supabase';
 import { useAuth } from './AuthContext';
 import { CallOverlay } from '../components/chat/CallOverlay';
@@ -10,53 +11,59 @@ import { AnimatePresence } from 'framer-motion';
 import { DevicePermissionsModal } from '../components/chat/DevicePermissionsModal';
 import { v4 as uuidv4 } from 'uuid';
 
+type CallStatus = 'idle' | 'calling' | 'ringing' | 'connected' | 'reconnecting' | 'ended';
+type MediaCallType = 'audio' | 'video';
+
 interface CallContextType {
   initiateCall: (
     receiverId: string,
     receiverName: string,
     receiverAvatar: string | undefined,
-    type: 'audio' | 'video',
+    type: MediaCallType,
     isGroup?: boolean
   ) => void;
-  joinCall: (roomId: string, callType: 'audio' | 'video') => void;
+  joinCall: (roomId: string, callType: MediaCallType) => void;
   isCallActive: boolean;
   isInCall: boolean;
 }
 
-const CallContext = createContext<CallContextType>({
+const DEFAULT_LIVEKIT_URL =
+  process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://earnmega-mbwh7c26.livekit.cloud';
+
+const CallContext = createContext({
   initiateCall: () => {},
   joinCall: () => {},
   isCallActive: false,
   isInCall: false,
-});
+} as CallContextType);
 
 export const useCall = () => useContext(CallContext);
 
-export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const CallProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
-  const [callState, setCallState] = useState<'idle' | 'calling' | 'ringing' | 'connected' | 'reconnecting' | 'ended'>('idle');
+
+  const [callState, setCallState] = useState('idle' as CallStatus);
   const [isIncoming, setIsIncoming] = useState(false);
-  const [callerInfo, setCallerInfo] = useState<{ id: string; name: string; avatar: string }>({
+  const [callerInfo, setCallerInfo] = useState({
     id: '',
     name: '',
     avatar: '',
   });
-  const [callType, setCallType] = useState<'audio' | 'video'>('audio');
+  const [callType, setCallType] = useState('audio' as MediaCallType);
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-  const [permissionsError, setPermissionsError] = useState(false);
-  const [pendingCallType, setPendingCallType] = useState<'audio' | 'video' | null>(null);
-  const [pendingIsGroup, setPendingIsGroup] = useState<boolean>(false);
+  const [pendingCallType, setPendingCallType] = useState(null as MediaCallType | null);
+  const [pendingIsGroup, setPendingIsGroup] = useState(false);
 
-  // Group & Peer Call State
-  const [activeMembers, setActiveMembers] = useState<any[]>([]);
-  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
+  // Active participants & speaker state for CallOverlay
+  const [activeMembers, setActiveMembers] = useState([] as any[]);
+  const [activeSpeakerId, setActiveSpeakerId] = useState(null as string | null);
 
-  // Always-fresh refs to avoid stale closures inside Supabase listeners
+  // Refs without nested angle brackets so mobile copy-paste never corrupts TypeScript
   const callStateRef = useRef(callState);
   callStateRef.current = callState;
 
@@ -66,52 +73,33 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const callerInfoRef = useRef(callerInfo);
   callerInfoRef.current = callerInfo;
 
-  const isGroupCallRef = useRef<boolean>(false);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const isGroupCallRef = useRef(false);
+  const localStreamRef = useRef(null as MediaStream | null);
+  const livekitRoomRef = useRef(null as Room | null);
+  const remoteStreamsRef = useRef(new Map());
+  const remoteAudioElementsRef = useRef(new Map());
 
-  // WebRTC Mesh Network & Audio Output Refs
-  const peerConnectionsRef = useRef>(new Map());
-  const remoteStreamsRef = useRef>(new Map());
-  const pendingCandidatesRef = useRef>(new Map());
-  const remoteAudioElementsRef = useRef>(new Map());
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analysersRef = useRef>(new Map());
-
-  // DOM Refs
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-
-  // Signaling Refs
-  const callChannelRef = useRef<any>(null);
-  const presenceChannelRef = useRef<any>(null);
-  const currentRoomIdRef = useRef<string | null>(null);
-  const ringTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const localVideoRef = useRef(null as HTMLVideoElement | null);
+  const callChannelRef = useRef(null as any);
+  const currentRoomIdRef = useRef(null as string | null);
+  const ringTimeoutRef = useRef(null as any);
 
   const durationRef = useRef(0);
   durationRef.current = duration;
 
-  // Sound Refs (MP3 + Web Audio Synthesizer Fallback so sounds ALWAYS work)
-  const ringbackToneRef = useRef<HTMLAudioElement | null>(null);
-  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
-  const toneSynthCtxRef = useRef<AudioContext | null>(null);
-  const toneIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const ICE_SERVERS: RTCConfiguration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
-    ],
-  };
+  // Audio tone refs
+  const ringbackToneRef = useRef(null as HTMLAudioElement | null);
+  const ringtoneRef = useRef(null as HTMLAudioElement | null);
+  const toneSynthCtxRef = useRef(null as AudioContext | null);
+  const toneIntervalRef = useRef(null as any);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // ============================================================================
-  // GUARANTEED SOUND ENGINE (WEB AUDIO SYNTH + MP3 SUPPORT)
-  // ============================================================================
+  // ==========================================================================
+  // CALLING & RINGING SOUND ENGINE (WEB AUDIO SYNTH + MP3 FALLBACK)
+  // ==========================================================================
   const stopSounds = useCallback(() => {
     if (toneIntervalRef.current) {
       clearInterval(toneIntervalRef.current);
@@ -144,7 +132,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const triggerBeep = () => {
         if (!toneSynthCtxRef.current || toneSynthCtxRef.current.state === 'closed') return;
-        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
 
         const now = ctx.currentTime;
         const osc1 = ctx.createOscillator();
@@ -152,7 +142,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const gain = ctx.createGain();
 
         if (mode === 'ringback') {
-          // Standard WhatsApp/Telecom outbound calling tone (440Hz + 480Hz)
           osc1.frequency.setValueAtTime(440, now);
           osc2.frequency.setValueAtTime(480, now);
           gain.gain.setValueAtTime(0.001, now);
@@ -169,7 +158,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           osc1.stop(now + 1.3);
           osc2.stop(now + 1.3);
         } else {
-          // Classic dual-pulse incoming phone ringtone (523.25Hz C5 + 659.25Hz E5)
           osc1.type = 'sine';
           osc2.type = 'triangle';
           osc1.frequency.setValueAtTime(523.25, now);
@@ -180,7 +168,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           gain.gain.setValueAtTime(0.25, now + 0.35);
           gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
 
-          // Second pulse
           gain.gain.exponentialRampToValueAtTime(0.25, now + 0.5);
           gain.gain.setValueAtTime(0.25, now + 0.85);
           gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.95);
@@ -199,15 +186,13 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       triggerBeep();
       toneIntervalRef.current = setInterval(triggerBeep, mode === 'ringback' ? 3000 : 2200);
     } catch (e) {
-      console.warn('WebAudio synth tone fallback error:', e);
+      console.warn('WebAudio synth tone error:', e);
     }
   }, []);
 
   const startDialTone = useCallback(() => {
     stopSounds();
-    // Play WebAudio ringback immediately so caller ALWAYS hears calling sound
     playSynthPattern('ringback');
-    // Also try playing /sounds/ringback.mp3 if present
     try {
       if (!ringbackToneRef.current) {
         ringbackToneRef.current = new Audio('/sounds/ringback.mp3');
@@ -219,7 +204,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const startRingtone = useCallback(() => {
     stopSounds();
-    // Play WebAudio ringtone immediately so receiver ALWAYS hears incoming call ring
     playSynthPattern('ringtone');
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate([400, 200, 400, 200, 400]);
@@ -233,37 +217,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
   }, [playSynthPattern, stopSounds]);
 
-  // ============================================================================
-  // REMOTE AUDIO ATTACHMENT (GUARANTEES VOICE AUDIO PLAYBACK)
-  // ============================================================================
-  const attachRemoteAudioStream = useCallback((peerId: string, stream: MediaStream) => {
-    if (typeof document === 'undefined') return;
-    let audioEl = remoteAudioElementsRef.current.get(peerId);
-    if (!audioEl) {
-      audioEl = document.createElement('audio');
-      audioEl.autoplay = true;
-      (audioEl as any).playsInline = true;
-      audioEl.style.display = 'none';
-      document.body.appendChild(audioEl);
-      remoteAudioElementsRef.current.set(peerId, audioEl);
-    }
-    if (audioEl.srcObject !== stream) {
-      audioEl.srcObject = stream;
-      audioEl.play().catch(() => {});
-    }
-  }, []);
-
-  const removeRemoteAudioStream = useCallback((peerId: string) => {
-    const audioEl = remoteAudioElementsRef.current.get(peerId);
-    if (audioEl) {
-      audioEl.pause();
-      audioEl.srcObject = null;
-      audioEl.remove();
-      remoteAudioElementsRef.current.delete(peerId);
-    }
-  }, []);
-
-  // Keep localVideoRef synced whenever callState or activeMembers changes
+  // Keep local camera preview attached whenever overlay state updates
   useEffect(() => {
     if (localVideoRef.current && localStreamRef.current && callType === 'video') {
       if (localVideoRef.current.srcObject !== localStreamRef.current) {
@@ -272,9 +226,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [callState, callType, activeMembers, isPiP]);
 
-  // ============================================================================
-  // CLEANUP / END CALL SESSION
-  // ============================================================================
+  // ==========================================================================
+  // CLEANUP & END CALL SESSION
+  // ==========================================================================
   const endCallSession = useCallback(
     (notifyRemote: boolean = false) => {
       stopSounds();
@@ -296,44 +250,29 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             senderId: user.id,
           },
         });
-        presenceChannelRef.current?.send({
-          type: 'broadcast',
-          event: 'call_ended',
-          payload: {
-            targetId,
-            roomId,
-            senderId: user.id,
-          },
-        });
+      }
+
+      if (livekitRoomRef.current) {
+        try {
+          livekitRoomRef.current.disconnect();
+        } catch {}
+        livekitRoomRef.current = null;
       }
 
       if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current.getTracks().forEach((t: MediaStreamTrack) => t.stop());
         localStreamRef.current = null;
       }
 
-      peerConnectionsRef.current.forEach((pc) => pc.close());
-      peerConnectionsRef.current.clear();
-      pendingCandidatesRef.current.clear();
-      remoteStreamsRef.current.clear();
-      analysersRef.current.clear();
-
-      remoteAudioElementsRef.current.forEach((el) => {
-        el.pause();
-        el.srcObject = null;
-        el.remove();
+      remoteAudioElementsRef.current.forEach((el: any) => {
+        try {
+          el.pause();
+          el.srcObject = null;
+          el.remove();
+        } catch {}
       });
       remoteAudioElementsRef.current.clear();
-
-      if (audioContextRef.current) {
-        audioContextRef.current.close().catch(() => {});
-        audioContextRef.current = null;
-      }
-
-      if (presenceChannelRef.current) {
-        supabase.removeChannel(presenceChannelRef.current);
-        presenceChannelRef.current = null;
-      }
+      remoteStreamsRef.current.clear();
 
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = null;
@@ -356,9 +295,155 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [stopSounds, user]
   );
 
-  // ============================================================================
-  // GLOBAL SIGNALING CHANNEL (PERSISTENT — DOES NOT RE-SUBSCRIBE ON STATE CHANGE)
-  // ============================================================================
+  // ==========================================================================
+  // LIVEKIT SFU ROOM ENGINE (1-ON-1 & GROUP AUDIO/VIDEO CALLS)
+  // ==========================================================================
+  const syncRemoteParticipantsToOverlay = useCallback((room: Room) => {
+    const membersList: any[] = [];
+    room.remoteParticipants.forEach((participant) => {
+      const identity = participant.identity;
+      const tracks: MediaStreamTrack[] = [];
+
+      participant.trackPublications.forEach((pub) => {
+        if (pub.track && pub.track.mediaStreamTrack) {
+          tracks.push(pub.track.mediaStreamTrack);
+        }
+      });
+
+      const stream =
+        tracks.length > 0
+          ? new MediaStream(tracks)
+          : remoteStreamsRef.current.get(identity) || new MediaStream();
+
+      remoteStreamsRef.current.set(identity, stream);
+      membersList.push({
+        id: identity,
+        name: participant.name || identity,
+        stream,
+      });
+    });
+
+    setActiveMembers(membersList);
+  }, []);
+
+  const connectToLiveKitCallRoom = useCallback(
+    async (roomId: string, mode: MediaCallType) => {
+      if (!user) return;
+
+      if (livekitRoomRef.current) {
+        try {
+          await livekitRoomRef.current.disconnect();
+        } catch {}
+        livekitRoomRef.current = null;
+      }
+
+      const cleanRoomName = `call_${roomId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const res = await fetch(
+        `/api/livekit?room=${encodeURIComponent(cleanRoomName)}&username=${encodeURIComponent(
+          user.id
+        )}&role=host`
+      );
+      const data = await res.json();
+
+      if (!res.ok || !data?.token) {
+        throw new Error(data?.error || 'Could not fetch LiveKit call token');
+      }
+
+      const wsUrl = data.wsUrl || data.url || DEFAULT_LIVEKIT_URL;
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+
+      livekitRoomRef.current = room;
+
+      room
+        .on(RoomEvent.ParticipantConnected, () => {
+          stopSounds();
+          if (ringTimeoutRef.current) {
+            clearTimeout(ringTimeoutRef.current);
+            ringTimeoutRef.current = null;
+          }
+          setCallState('connected');
+          syncRemoteParticipantsToOverlay(room);
+        })
+        .on(RoomEvent.ParticipantDisconnected, (participant) => {
+          const audioEl = remoteAudioElementsRef.current.get(participant.identity);
+          if (audioEl) {
+            audioEl.pause();
+            audioEl.srcObject = null;
+            audioEl.remove();
+            remoteAudioElementsRef.current.delete(participant.identity);
+          }
+          remoteStreamsRef.current.delete(participant.identity);
+          syncRemoteParticipantsToOverlay(room);
+
+          if (!isGroupCallRef.current && room.remoteParticipants.size === 0 && callStateRef.current === 'connected') {
+            endCallSession(false);
+          }
+        })
+        .on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+          stopSounds();
+          if (ringTimeoutRef.current) {
+            clearTimeout(ringTimeoutRef.current);
+            ringTimeoutRef.current = null;
+          }
+          setCallState('connected');
+
+          if (track.kind === Track.Kind.Audio) {
+            const existingEl = remoteAudioElementsRef.current.get(participant.identity);
+            if (existingEl) {
+              existingEl.remove();
+            }
+            const audioEl = track.attach();
+            audioEl.autoplay = true;
+            (audioEl as any).playsInline = true;
+            audioEl.style.display = 'none';
+            document.body.appendChild(audioEl);
+            audioEl.play().catch(() => {});
+            remoteAudioElementsRef.current.set(participant.identity, audioEl);
+          }
+
+          syncRemoteParticipantsToOverlay(room);
+        })
+        .on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
+          track.detach();
+          if (track.kind === Track.Kind.Audio) {
+            const audioEl = remoteAudioElementsRef.current.get(participant.identity);
+            if (audioEl) {
+              audioEl.remove();
+              remoteAudioElementsRef.current.delete(participant.identity);
+            }
+          }
+          syncRemoteParticipantsToOverlay(room);
+        })
+        .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+          if (speakers && speakers.length > 0) {
+            setActiveSpeakerId(speakers[0].identity);
+          } else {
+            setActiveSpeakerId(null);
+          }
+        });
+
+      await room.connect(wsUrl, data.token);
+
+      await room.localParticipant.setMicrophoneEnabled(true);
+      if (mode === 'video') {
+        await room.localParticipant.setCameraEnabled(true);
+      }
+
+      if (room.remoteParticipants.size > 0) {
+        stopSounds();
+        setCallState('connected');
+        syncRemoteParticipantsToOverlay(room);
+      }
+    },
+    [user, stopSounds, syncRemoteParticipantsToOverlay, endCallSession]
+  );
+
+  // ==========================================================================
+  // GLOBAL SIGNALING CHANNEL (INCOMING CALLS, ACCEPT, HANGUP)
+  // ==========================================================================
   useEffect(() => {
     if (!user) return;
 
@@ -368,7 +453,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       callerAvatar?: string;
       receiverId?: string;
       roomId?: string;
-      callType?: 'audio' | 'video';
+      callType?: MediaCallType;
       isGroup?: boolean;
     }) => {
       if (data.callerId === user.id) return;
@@ -389,7 +474,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCallState('ringing');
       startRingtone();
 
-      // Auto-stop ringing after 45s if unanswered
       if (ringTimeoutRef.current) clearTimeout(ringTimeoutRef.current);
       ringTimeoutRef.current = setTimeout(() => {
         if (callStateRef.current === 'ringing') {
@@ -404,16 +488,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
       .on('broadcast', { event: 'incoming_call' }, (payload: any) => {
         const data = payload?.payload;
-        if (!data) return;
-        handleIncomingSignal(data);
+        if (data) handleIncomingSignal(data);
       })
       .on('broadcast', { event: 'call_accepted' }, (payload: any) => {
         const data = payload?.payload;
         if (!data || data.senderId === user.id) return;
-        if (
-          data.roomId === currentRoomIdRef.current ||
-          data.targetId === user.id
-        ) {
+        if (data.roomId === currentRoomIdRef.current || data.targetId === user.id) {
           stopSounds();
           if (ringTimeoutRef.current) {
             clearTimeout(ringTimeoutRef.current);
@@ -432,7 +512,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           endCallSession(false);
         }
       })
-      // Database Postgres Fallback: If a 1-on-1 `call_started` message is inserted for this user, ring!
       .on(
         'postgres_changes',
         {
@@ -446,8 +525,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!msg || msg.sender_id === user.id) return;
           if (msg.message_type === 'call_started' || msg.content?.startsWith('call_started')) {
             if (callStateRef.current !== 'idle') return;
-            const parsedType: 'audio' | 'video' =
-              msg.content?.includes('video') ? 'video' : 'audio';
+            const parsedType: MediaCallType = msg.content?.includes('video') ? 'video' : 'audio';
             const { data: senderProfile } = await supabase
               .from('profiles')
               .select('name, username, avatar_url')
@@ -456,13 +534,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             handleIncomingSignal({
               callerId: msg.sender_id,
-              callerName:
-                senderProfile?.name ||
-                senderProfile?.username ||
-                'Incoming Caller',
+              callerName: senderProfile?.name || senderProfile?.username || 'Incoming Caller',
               callerAvatar: senderProfile?.avatar_url || '',
               receiverId: user.id,
-              roomId: msg.room_id || msg.sender_id,
+              roomId: msg.room_id || `dm_${[user.id, msg.sender_id].sort().join('_')}`,
               callType: parsedType,
               isGroup: Boolean(msg.room_id),
             });
@@ -482,12 +557,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user, startRingtone, stopSounds, endCallSession]);
 
-  // ============================================================================
-  // MEDIA STREAM & WEBRTC PEER CONNECTION ENGINE
-  // ============================================================================
-  const initLocalStream = async (type: 'audio' | 'video') => {
+  // ==========================================================================
+  // LOCAL CAMERA PREVIEW & CALL WORKFLOWS
+  // ==========================================================================
+  const initLocalPreviewStream = async (type: MediaCallType) => {
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop());
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -495,11 +570,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type === 'video'
             ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' }
             : false,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       localStreamRef.current = stream;
       if (localVideoRef.current && type === 'video') {
@@ -507,342 +578,21 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return stream;
     } catch (err: any) {
-      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-        setPermissionsError(true);
-        toast.error('Microphone/Camera permission denied. Please allow access in browser settings.');
-      } else {
-        toast.error('Could not access microphone or camera.');
-      }
+      toast.error('Please allow microphone/camera access to place calls.');
       throw err;
     }
   };
 
-  const setupActiveSpeakerDetection = (userId: string, stream: MediaStream) => {
-    if (stream.getAudioTracks().length === 0) return;
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-        audioContextRef.current = new AudioCtx();
-      }
-      const audioCtx = audioContextRef.current;
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume().catch(() => {});
-      }
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.4;
-      source.connect(analyser);
-      analysersRef.current.set(userId, analyser);
-    } catch (e) {
-      console.warn('Audio speaker detection error:', e);
-    }
-  };
-
-  const flushPendingCandidates = async (peerId: string, pc: RTCPeerConnection) => {
-    const queue = pendingCandidatesRef.current.get(peerId) || [];
-    if (queue.length === 0) return;
-    pendingCandidatesRef.current.set(peerId, []);
-    for (const candidate of queue) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.warn('Failed to add queued ICE candidate:', e);
-      }
-    }
-  };
-
-  const createPeerConnection = (targetUserId: string) => {
-    const existing = peerConnectionsRef.current.get(targetUserId);
-    if (existing) {
-      existing.close();
-    }
-
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && presenceChannelRef.current && user) {
-        presenceChannelRef.current.send({
-          type: 'broadcast',
-          event: 'ice_candidate',
-          payload: {
-            candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate,
-            targetId: targetUserId,
-            sourceId: user.id,
-          },
-        });
-      }
-    };
-
-    pc.ontrack = (event) => {
-      const remoteStream = event.streams?.[0] || new MediaStream([event.track]);
-      remoteStreamsRef.current.set(targetUserId, remoteStream);
-
-      // Stop dial/ring tone and mark call connected as soon as remote media arrives
-      stopSounds();
-      setCallState('connected');
-
-      // Guarantee remote voice audio is audible even in audio-only or avatar mode
-      attachRemoteAudioStream(targetUserId, remoteStream);
-      setupActiveSpeakerDetection(targetUserId, remoteStream);
-
-      setActiveMembers((prev) => [
-        ...prev.filter((p) => p.id !== targetUserId),
-        { id: targetUserId, stream: remoteStream },
-      ]);
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') {
-        stopSounds();
-        setCallState('connected');
-      } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        if (!isGroupCallRef.current && peerConnectionsRef.current.size <= 1) {
-          // Allow brief recovery window before ending
-        }
-      }
-    };
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current!);
-      });
-    }
-
-    peerConnectionsRef.current.set(targetUserId, pc);
-    return pc;
-  };
-
-  // Active speaker loop
-  useEffect(() => {
-    if (callState !== 'connected') return;
-
-    let animationFrameId: number;
-    const checkAudioLevels = () => {
-      let maxVolume = -Infinity;
-      let loudestSpeaker: string | null = null;
-
-      analysersRef.current.forEach((analyser, userId) => {
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(dataArray);
-
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
-        }
-        const average = sum / dataArray.length;
-
-        if (average > maxVolume && average > 10) {
-          maxVolume = average;
-          loudestSpeaker = userId;
-        }
-      });
-
-      if (loudestSpeaker) {
-        setActiveSpeakerId(loudestSpeaker);
-      }
-
-      animationFrameId = requestAnimationFrame(checkAudioLevels);
-    };
-
-    animationFrameId = requestAnimationFrame(checkAudioLevels);
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [callState]);
-
-  // ============================================================================
-  // ROOM SIGNALING & MESH NEGOTIATION
-  // ============================================================================
-  const joinCallRoom = async (roomId: string) => {
-    if (!user) return;
-
-    if (presenceChannelRef.current) {
-      await supabase.removeChannel(presenceChannelRef.current);
-      presenceChannelRef.current = null;
-    }
-
-    const roomChannel = supabase.channel(`call_room_${roomId}`, {
-      config: {
-        presence: { key: user.id },
-        broadcast: { self: false },
-      },
-    });
-
-    presenceChannelRef.current = roomChannel;
-
-    const sendOfferToPeer = async (peerId: string) => {
-      if (!user || peerId === user.id) return;
-      try {
-        const pc = createPeerConnection(peerId);
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: callTypeRef.current === 'video',
-        });
-        await pc.setLocalDescription(offer);
-
-        roomChannel.send({
-          type: 'broadcast',
-          event: 'offer',
-          payload: { offer, targetId: peerId, sourceId: user.id },
-        });
-      } catch (e) {
-        console.error('Error creating offer:', e);
-      }
-    };
-
-    roomChannel
-      .on('presence', { event: 'sync' }, () => {
-        const state = roomChannel.presenceState();
-        const membersInRoom = Object.keys(state);
-        setActiveMembers((prev) =>
-          prev.filter((m) => membersInRoom.includes(m.id) || m.id === user.id)
-        );
-      })
-      .on('presence', { event: 'join' }, async ({ key }) => {
-        if (key === user.id) return;
-        // Another user joined the call room! Stop ringing and connect
-        stopSounds();
-        setCallState('connected');
-        await sendOfferToPeer(key);
-      })
-      .on('presence', { event: 'leave' }, ({ key }) => {
-        const pc = peerConnectionsRef.current.get(key);
-        if (pc) {
-          pc.close();
-          peerConnectionsRef.current.delete(key);
-        }
-        remoteStreamsRef.current.delete(key);
-        analysersRef.current.delete(key);
-        removeRemoteAudioStream(key);
-        setActiveMembers((prev) => prev.filter((m) => m.id !== key));
-        if (activeSpeakerId === key) setActiveSpeakerId(null);
-
-        if (!isGroupCallRef.current && peerConnectionsRef.current.size === 0 && callStateRef.current === 'connected') {
-          endCallSession(false);
-        }
-      })
-      .on('broadcast', { event: 'peer_ready' }, async (payload: any) => {
-        const peerId = payload?.payload?.sourceId;
-        if (!peerId || peerId === user.id) return;
-        stopSounds();
-        setCallState('connected');
-        if (!peerConnectionsRef.current.has(peerId)) {
-          await sendOfferToPeer(peerId);
-        }
-      })
-      .on('broadcast', { event: 'offer' }, async (payload: any) => {
-        const data = payload?.payload;
-        if (!data || data.targetId !== user.id) return;
-
-        const sourceId = data.sourceId;
-        stopSounds();
-        setCallState('connected');
-
-        try {
-          const pc = createPeerConnection(sourceId);
-          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-          await flushPendingCandidates(sourceId, pc);
-
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-
-          roomChannel.send({
-            type: 'broadcast',
-            event: 'answer',
-            payload: { answer, targetId: sourceId, sourceId: user.id },
-          });
-        } catch (e) {
-          console.error('Error handling WebRTC offer:', e);
-        }
-      })
-      .on('broadcast', { event: 'answer' }, async (payload: any) => {
-        const data = payload?.payload;
-        if (!data || data.targetId !== user.id) return;
-
-        stopSounds();
-        setCallState('connected');
-
-        const pc = peerConnectionsRef.current.get(data.sourceId);
-        if (pc && pc.signalingState !== 'stable') {
-          try {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-            await flushPendingCandidates(data.sourceId, pc);
-          } catch (e) {
-            console.error('Error setting remote answer:', e);
-          }
-        }
-      })
-      .on('broadcast', { event: 'ice_candidate' }, async (payload: any) => {
-        const data = payload?.payload;
-        if (!data || data.targetId !== user.id || !data.candidate) return;
-
-        const pc = peerConnectionsRef.current.get(data.sourceId);
-        if (pc && pc.remoteDescription && pc.remoteDescription.type) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-          } catch (e) {
-            console.warn('ICE candidate error:', e);
-          }
-        } else {
-          // Queue candidate until remoteDescription is set
-          const existingQueue = pendingCandidatesRef.current.get(data.sourceId) || [];
-          existingQueue.push(data.candidate);
-          pendingCandidatesRef.current.set(data.sourceId, existingQueue);
-        }
-      })
-      .on('broadcast', { event: 'call_ended' }, (payload: any) => {
-        const data = payload?.payload;
-        if (!data || data.senderId === user.id) return;
-        if (!isGroupCallRef.current) {
-          endCallSession(false);
-        }
-      });
-
-    await new Promise<void>((resolve) => {
-      roomChannel.subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await roomChannel.track({
-            user_id: user.id,
-            online_at: new Date().toISOString(),
-          });
-          roomChannel.send({
-            type: 'broadcast',
-            event: 'peer_ready',
-            payload: { sourceId: user.id },
-          });
-          resolve();
-        }
-      });
-    });
-  };
-
-  // ============================================================================
-  // INITIATE, ACCEPT & DECLINE CALLS (1-ON-1 DM & GROUP CHATS)
-  // ============================================================================
   const fetchGroupMemberIds = async (groupId: string): Promise<string[]> => {
     const memberSet = new Set<string>();
     try {
-      const { data: gm } = await supabase
-        .from('group_members')
-        .select('user_id')
-        .eq('group_id', groupId);
+      const { data: gm } = await supabase.from('group_members').select('user_id').eq('group_id', groupId);
       gm?.forEach((r: any) => r.user_id && memberSet.add(r.user_id));
     } catch {}
 
     try {
-      const { data: rp } = await supabase
-        .from('room_participants')
-        .select('user_id')
-        .eq('room_id', groupId);
+      const { data: rp } = await supabase.from('room_participants').select('user_id').eq('room_id', groupId);
       rp?.forEach((r: any) => r.user_id && memberSet.add(r.user_id));
-    } catch {}
-
-    try {
-      const { data: cp } = await supabase
-        .from('chat_participants')
-        .select('user_id')
-        .eq('conversation_id', groupId);
-      cp?.forEach((r: any) => r.user_id && memberSet.add(r.user_id));
     } catch {}
 
     if (user?.id) memberSet.delete(user.id);
@@ -853,7 +603,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     receiverId: string,
     receiverName: string,
     receiverAvatar: string | undefined,
-    type: 'audio' | 'video',
+    type: MediaCallType,
     isGroup?: boolean
   ) => {
     if (!user) return;
@@ -866,17 +616,17 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const roomId = isGroup ? receiverId : `dm_${[user.id, receiverId].sort().join('_')}`;
       currentRoomIdRef.current = roomId;
 
-      // 1. Start calling state & play outbound calling ringback tone IMMEDIATELY
+      // 1. Enter calling state and play calling ringback sound immediately
       setCallState('calling');
       startDialTone();
 
-      // 2. Initialize microphone/camera stream
-      await initLocalStream(type);
+      // 2. Start local camera/mic preview
+      await initLocalPreviewStream(type);
 
-      // 3. Join the WebRTC room channel and wait for receiver(s)
-      await joinCallRoom(roomId);
+      // 3. Connect caller to LiveKit Room
+      await connectToLiveKitCallRoom(roomId, type);
 
-      // 4. Fetch caller display info so receiver sees real name & avatar
+      // 4. Fetch caller profile name & avatar
       const { data: myProfile } = await supabase
         .from('profiles')
         .select('name, username, avatar_url')
@@ -887,7 +637,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         myProfile?.name || myProfile?.username || user.email?.split('@')[0] || 'HorPal User';
       const callerDisplayAvatar = myProfile?.avatar_url || '';
 
-      // 5. Insert call_started system message (also triggers DB fallback ring for receiver)
+      // 5. Insert call_started system message
       try {
         await supabase.from('messages').insert({
           id: uuidv4(),
@@ -901,7 +651,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       } catch {}
 
-      // 6. Broadcast incoming_call to receiver(s)
+      // 6. Ring receiver(s)
       if (isGroup) {
         const memberIds = await fetchGroupMemberIds(receiverId);
         memberIds.forEach((memberId) => {
@@ -935,9 +685,6 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      // IMPORTANT: Do NOT call stopSounds() or setCallState('connected') here!
-      // Keep playing the calling ringback tone until the receiver accepts & joins the room,
-      // or end after 45 seconds if unanswered.
       if (ringTimeoutRef.current) clearTimeout(ringTimeoutRef.current);
       ringTimeoutRef.current = setTimeout(() => {
         if (callStateRef.current === 'calling') {
@@ -955,7 +702,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     receiverId: string,
     receiverName: string,
     receiverAvatar: string | undefined,
-    type: 'audio' | 'video',
+    type: MediaCallType,
     isGroup?: boolean
   ) => {
     if (!user) return;
@@ -972,7 +719,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     executeInitiateCall(receiverId, receiverName, receiverAvatar, type, isGroup);
   };
 
-  const executeAcceptCall = async (overrideType?: 'audio' | 'video') => {
+  const executeAcceptCall = async (overrideType?: MediaCallType) => {
     if (!user) return;
     try {
       stopSounds();
@@ -982,10 +729,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const activeType = overrideType || callTypeRef.current;
-      await initLocalStream(activeType);
+      await initLocalPreviewStream(activeType);
       setCallState('connected');
 
-      // Notify caller immediately that call was accepted so their ringback tone stops
       callChannelRef.current?.send({
         type: 'broadcast',
         event: 'call_accepted',
@@ -997,7 +743,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (currentRoomIdRef.current) {
-        await joinCallRoom(currentRoomIdRef.current);
+        await connectToLiveKitCallRoom(currentRoomIdRef.current, activeType);
       }
     } catch (e) {
       console.error('Error accepting call:', e);
@@ -1005,7 +751,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const joinCall = (roomId: string, type: 'audio' | 'video') => {
+  const joinCall = (roomId: string, type: MediaCallType) => {
     setCallType(type);
     callTypeRef.current = type;
     currentRoomIdRef.current = roomId;
@@ -1039,9 +785,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     endCallSession(false);
   };
 
-  // Call duration timer
+  // Call timer
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: any;
     if (callState === 'connected') {
       interval = setInterval(() => {
         setDuration((prev) => prev + 1);
@@ -1052,21 +798,28 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const toggleMute = () => {
     setIsMuted((prev) => {
-      const newState = !prev;
+      const nextMuted = !prev;
       if (localStreamRef.current) {
-        localStreamRef.current.getAudioTracks().forEach((t) => {
-          t.enabled = !newState;
+        localStreamRef.current.getAudioTracks().forEach((t: MediaStreamTrack) => {
+          t.enabled = !nextMuted;
         });
       }
-      return newState;
+      if (livekitRoomRef.current) {
+        livekitRoomRef.current.localParticipant.setMicrophoneEnabled(!nextMuted).catch(() => {});
+      }
+      return nextMuted;
     });
   };
 
   const toggleVideo = () => {
     if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach((t) => {
+      localStreamRef.current.getVideoTracks().forEach((t: MediaStreamTrack) => {
         t.enabled = !t.enabled;
       });
+    }
+    if (livekitRoomRef.current) {
+      const isCamEnabled = livekitRoomRef.current.localParticipant.isCameraEnabled;
+      livekitRoomRef.current.localParticipant.setCameraEnabled(!isCamEnabled).catch(() => {});
     }
   };
 
