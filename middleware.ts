@@ -2,11 +2,16 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith('/geemings-command-x9v2')) {
+  // Let /hq99 and /geemings-command-x9v2 pass through to client for client-side SupremeAdminGate auth
+  if (
+    request.nextUrl.pathname.startsWith('/geemings-command-x9v2') ||
+    request.nextUrl.pathname.startsWith('/hq99')
+  ) {
     let supabaseResponse = NextResponse.next({
       request,
     });
 
+    // We still try to refresh the session if we can, but we DON'T block on failure
     try {
       const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,22 +33,13 @@ export async function middleware(request: NextRequest) {
           },
         }
       );
-
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        return NextResponse.redirect(new URL('/', request.url));
-      }
-
-      const email = user.email?.toLowerCase();
-      if (email !== 'horpalservice@gmail.com' && email !== 'geestablish@gmail.com') {
-        return NextResponse.redirect(new URL('/', request.url));
-      }
-
-      return supabaseResponse;
+      // Just ping to keep it alive if it's there
+      await supabase.auth.getUser();
     } catch (e) {
-      return NextResponse.redirect(new URL('/', request.url));
+      // Ignore errors so we always let the user see the client-side terminal to login
     }
+
+    return supabaseResponse;
   }
 
   return NextResponse.next();
@@ -52,5 +48,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/geemings-command-x9v2/:path*',
+    '/hq99/:path*'
   ],
 };
