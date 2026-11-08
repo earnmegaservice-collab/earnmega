@@ -65,7 +65,7 @@ const DrawerViewerList = ({ searchTerm, onViewerClick, hostId, activeParticipant
     const id = p.identity || '';
     if (id === hostId || id === `host_${hostId}` || id.includes(hostId)) return false;
     const searchLower = searchTerm.toLowerCase();
-    const nameLower = (p.name || id).toLowerCase();
+    const nameLower = (p.name || id.replace('viewer__', '').split('__')[1] || id.replace('viewer_', '').split('_')[0]).toLowerCase();
     return nameLower.includes(searchLower);
   });
 
@@ -82,7 +82,7 @@ const DrawerViewerList = ({ searchTerm, onViewerClick, hostId, activeParticipant
             </div>
             <div className="flex flex-col">
               <span className="text-white font-bold text-sm flex items-center gap-1">
-                @{p.name || p.identity.replace('viewer_', '').split('_')[0]}
+                @{p.name || p.identity.replace('viewer__', '').split('__')[1] || p.identity.replace('viewer_', '').split('_')[0]}
               </span>
             </div>
           </div>
@@ -168,6 +168,7 @@ interface LiveGiftEvent {
   gift_icon: string;
   coin_value: number;
   combo_count: number;
+  coin_delta?: number;
 }
 
 interface LiveStreamRecord {
@@ -699,11 +700,25 @@ const MasterLiveGiftOverlay = forwardRef<
     if (activeMega) return;
     if (activeTrackA.length < 4 && trackAQueue.length > 0) {
       const nextGift = trackAQueue[0];
-      setTrackAQueue((prev) => prev.slice(1));
-      setActiveTrackA((prev) => [...prev, nextGift]);
-      setTimeout(() => {
-        setActiveTrackA((prev) => prev.filter((item) => item.id !== nextGift.id));
-      }, 3000);
+      const activeIdx = activeTrackA.findIndex(g => g.sender_id === nextGift.sender_id && g.gift_id === nextGift.gift_id);
+
+      if (activeIdx !== -1) {
+        setActiveTrackA(prev => {
+          const updated = [...prev];
+          updated[activeIdx] = { ...updated[activeIdx], combo_count: (updated[activeIdx].combo_count || 1) + (nextGift.combo_count || 1) };
+          return updated;
+        });
+        setTrackAQueue(prev => prev.slice(1));
+
+        // Reset timeout (we trigger a dummy timeout re-render or just let the main UI tick it)
+        // Best approach here is to just rely on the queue clearing out duplicate items immediately so lag stops.
+      } else {
+        setTrackAQueue((prev) => prev.slice(1));
+        setActiveTrackA((prev) => [...prev, nextGift]);
+        setTimeout(() => {
+          setActiveTrackA((prev) => prev.filter((item) => item.id !== nextGift.id));
+        }, 3000);
+      }
     }
   }, [activeTrackA, trackAQueue, activeMega]);
 
@@ -743,7 +758,7 @@ const MasterLiveGiftOverlay = forwardRef<
                     stiffness: 220,
                     damping: 16
                   }}
-                  className={`relative flex items-center justify-between rounded-full p-1.5 pr-4 backdrop-blur-2xl border transform-gpu ${
+                  className={`relative flex items-center justify-between rounded-full p-1.5 pr-4 backdrop-blur-sm border transform-gpu ${
                     isDiamond
                       ? 'bg-cyan-950/60 border-cyan-300/70 shadow-[0_0_30px_rgba(34,211,238,0.65)]'
                       : 'bg-white/10 border-white/25 shadow-[0_8px_32px_rgba(255,46,147,0.3)]'
@@ -929,7 +944,7 @@ const LiveKitRoomBridge = forwardRef<
           const videoTrack = localStream?.getVideoTracks()?.[0];
           if (videoTrack && videoTrack.readyState === 'live') {
             try {
-              videoTrack.contentHint = 'detail';
+              videoTrack.contentHint = 'motion';
             } catch {}
 
             if (
@@ -949,9 +964,10 @@ const LiveKitRoomBridge = forwardRef<
               await localParticipant.publishTrack(videoTrack, {
                 name: 'camera',
                 source: Track.Source.Camera,
-                simulcast: false,
+                simulcast: true,
+                videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360, VideoPresets.h720],
                 videoEncoding: {
-                  maxBitrate: 3_000_000,
+                  maxBitrate: 1_800_000,
                   maxFramerate: 30
                 }
               });
@@ -1006,6 +1022,7 @@ const LiveKitRoomBridge = forwardRef<
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          voiceIsolation: true,
           sampleRate: 48000,
           channelCount: 1
         })
@@ -1124,12 +1141,6 @@ const ViewerVideoStage = React.memo(function ViewerVideoStage({ beautyMode }: { 
 });
 
 // ============================================================================
-// AUDIO BOOST SHARED STATE
-// ============================================================================
-const sharedAudioCtx = typeof window !== 'undefined' ? new (window.AudioContext || (window as any).webkitAudioContext)() : null;
-const audioBoostMap = new WeakMap<HTMLMediaElement, { gainNode: GainNode }>();
-
-// ============================================================================
 // MAIN LIVE ARENA COMPONENT
 // ============================================================================
 export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaProps) {
@@ -1156,6 +1167,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   );
   const [endedAtFormatted, setEndedAtFormatted] = useState<string>('');
   const [streamStartMs, setStreamStartMs] = useState<number | null>(null);
+  const streamStartMsRef = useRef<number | null>(null);
   const finalDurationRef = useRef<string>('00:00');
 
 
@@ -1183,8 +1195,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   }), []);
 
   const getCalculatedDuration = useCallback(() => {
-    if (!streamStartMs) return '00:00';
-    const diff = Math.max(0, Math.floor((Date.now() - streamStartMs) / 1000));
+    const start = streamStartMs || streamStartMsRef.current;
+    if (!start) return '00:00';
+    const diff = Math.max(0, Math.floor((Date.now() - start) / 1000));
     const minutes = Math.floor(diff / 60).toString().padStart(2, '0');
     const seconds = (diff % 60).toString().padStart(2, '0');
     return `${minutes}:${seconds}`;
@@ -1221,6 +1234,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [likeCount, setLikeCount] = useState<number>(0);
   const likeCountRef = useRef<number>(0);
       const [mutedUserIds, setMutedUserIds] = useState<Set<string>>(new Set());
+      const mutedUsernamesRef = useRef<Set<string>>(new Set());
       const [isMutedByHost, setIsMutedByHost] = useState(false);
       const [selectedViewerForAction, setSelectedViewerForAction] = useState<{userId: string, username: string, avatar?: string} | null>(null);
       const [reportModalTarget, setReportModalTarget] = useState<any>(null);
@@ -1235,42 +1249,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [showViewersDrawer, setShowViewersDrawer] = useState(false);
   const [activeParticipants, setActiveParticipants] = useState<any[]>([]);
   const [viewerSearchTerm, setViewerSearchTerm] = useState('');
-  const [isAudioBoostEnabled, setIsAudioBoostEnabled] = useState(false);
-
-  const applyAudioBoost = useCallback((enabled: boolean) => {
-    try {
-      if (!sharedAudioCtx) return;
-      const elements = document.querySelectorAll('audio, video');
-      elements.forEach((el) => {
-        const mediaEl = el as HTMLMediaElement;
-        // Host should never hear their own voice through the local stream elements
-        if (mediaEl.muted && (mediaEl === previewVideoRef.current || mediaEl === liveHostVideoRef.current)) return;
-
-        let state = audioBoostMap.get(mediaEl);
-        if (!state) {
-          const source = sharedAudioCtx.createMediaElementSource(mediaEl);
-          const gainNode = sharedAudioCtx.createGain();
-          source.connect(gainNode);
-          gainNode.connect(sharedAudioCtx.destination);
-          state = { gainNode };
-          audioBoostMap.set(mediaEl, state);
-        }
-        state.gainNode.gain.value = enabled ? 1.6 : 1.0;
-
-        // Ensure volume is strictly between 0 and 1 to prevent IndexSizeError
-        if (mediaEl.volume > 1.0 || mediaEl.volume < 0.0) {
-          mediaEl.volume = Math.min(1.0, Math.max(0.0, mediaEl.volume));
-        }
-      });
-      toast.success(enabled ? 'Audio Boost ON' : 'Audio Boost OFF');
-    } catch (e) {
-      console.error('Audio Boost Error:', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    applyAudioBoost(isAudioBoostEnabled);
-  }, [isAudioBoostEnabled, applyAudioBoost]);
   const [isRoomLocked, setIsRoomLocked] = useState(false);
   const [showHostMoreMenu, setShowHostMoreMenu] = useState(false);
 
@@ -1372,14 +1350,21 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       ) {
         return;
       }
+      if (roleRef.current === 'host' && (packet.type === 'LIVE_COMMENT' || packet.type === 'MIC_REQUEST')) {
+        if (packet.senderId && mutedUserIds.has(packet.senderId)) return;
+        if (packet.comment?.username && mutedUsernamesRef.current.has(packet.comment.username.toLowerCase())) return;
+        if (packet.requester?.username && mutedUsernamesRef.current.has(packet.requester.username.toLowerCase())) return;
+      }
 
-      if (packet.type === 'MUTE_VIEWER' && (packet.targetUserId === user.id || packet.targetUsername === user.username)) {
+      if ((packet.type === 'MUTE_VIEWER' || packet.type === 'UNMUTE_VIEWER') && (packet.targetUserId === user.id || packet.targetUsername?.toLowerCase() === user.username?.toLowerCase() || packet.targetUserId?.toLowerCase().includes(user.username?.toLowerCase() || ''))) {
         setIsMutedByHost(packet.isMuted);
         if (typeof window !== 'undefined' && currentStream?.id) {
           localStorage.setItem('horpal_live_muted_' + currentStream.id, String(packet.isMuted));
         }
         if (packet.isMuted) {
           toast.error("🚫 You have been muted by the host for this live stream");
+          setMicRequestStatus('idle');
+          setIsMicMuted(true);
         }
       }
       if (packet.type === 'LOCK_CHAT') {
@@ -1424,7 +1409,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           const giftEvt = packet.gift as LiveGiftEvent;
           if (giftEvt) {
             giftOverlayRef.current?.triggerGift(giftEvt);
-            const totalCost = (giftEvt.coin_value || 1) * (giftEvt.combo_count || 1);
+            const totalCost = Number(giftEvt.coin_delta ?? giftEvt.coin_value);
             setCurrentStream((prev) =>
               prev
                 ? {
@@ -1687,7 +1672,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       const res = await fetch(
         `/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(
           hostIdentity
-        )}&role=host`
+        )}&role=host&name=${encodeURIComponent(user.username || 'user')}`
       );
       const data = await res.json();
       if (!res.ok || !data.token) {
@@ -1752,11 +1737,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     finalDurationRef.current = '00:00';
     setViewerCount(stream.viewer_count || 1);
     setPeakViewers(stream.viewer_count || 1);
-    setStreamStartMs(
-      stream.started_at || stream.created_at
+    const startMs = stream.started_at || stream.created_at
         ? new Date((stream.started_at || stream.created_at) as string).getTime()
-        : Date.now()
-    );
+        : Date.now();
+    setStreamStartMs(startMs);
+    streamStartMsRef.current = startMs;
 
     if (typeof window !== 'undefined') {
       const isMuted = localStorage.getItem('horpal_live_muted_' + stream.id) === 'true';
@@ -1766,9 +1751,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setMutedUserIds(new Set()); // Reset per-live mute state
     // Canonical room name based on host_id so Host and Viewer always connect to the exact same room
     const actualRoomName = `live_${stream.host_id || (stream as any).user_id}`;
-    const viewerIdentity = `viewer_${user.username || 'user'}_${Math.random()
-      .toString(36)
-      .substring(2, 7)}`;
+    const viewerIdentity = `viewer__${user.id}__${user.username || 'user'}`;
 
     try {
       // Request with role=host on the token endpoint so the viewer has permission to publish DataPackets & Co-Host Audio when accepted
@@ -1817,13 +1800,17 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // INTERACTIVE ACTIONS (CHAT, SYNCED LIKES, FREE GIFTS, MIC REQUESTS)
   // --------------------------------------------------------------------------
   const handleSendComment = async (e: React.FormEvent) => {
-    if (isMutedByHost) return;
+    if (isMutedByHost) {
+      toast.error('You are muted by the host and cannot send comments.');
+      return;
+    }
     e.preventDefault();
     if (!commentInput.trim() || !currentStream) return;
     const text = commentInput.trim();
     setCommentInput('');
     const tempMsg: LiveComment = {
       id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      sender_id: user.id,
       username: user.username,
       avatar_url: user.avatar_url,
       content: text,
@@ -1905,6 +1892,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     livekitBridgeRef.current?.unlockAudio();
     const totalCost = gift.coins * amount;
 
+    if ((user.coin_balance || 0) < totalCost) {
+      toast.error('Insufficient coins to send this gift!');
+      return;
+    }
+
     setCoinPopTrigger(true);
     setTimeout(() => setCoinPopTrigger(false), 550);
 
@@ -1918,7 +1910,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       gift_name: gift.name,
       gift_icon: gift.icon,
       coin_value: gift.coins,
-      combo_count: displayComboCount
+      combo_count: displayComboCount,
+      coin_delta: totalCost
     };
 
     // 1. Trigger local animation & goal update immediately via imperative ref
@@ -1948,8 +1941,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       gift: giftEvent
     });
 
-    // 3. Best-effort DB persistence (never blocks animation)
+    // 3. Real Coin Deduction & Best-effort DB persistence
     try {
+      await supabase.rpc('process_live_gift', {
+        p_sender_id: user.id,
+        p_host_id: currentStream.host_id,
+        p_stream_id: currentStream.id,
+        p_amount: totalCost
+      });
       await supabase.from('live_gifts').insert([
         {
           stream_id: currentStream.id,
@@ -1988,6 +1987,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // --------------------------------------------------------------------------
   const handleToggleMicRequest = async () => {
     livekitBridgeRef.current?.unlockAudio();
+    if (isMutedByHost) {
+      toast.error('You are muted by the host and cannot request the mic');
+      return;
+    }
     if (micRequestStatus === 'idle') {
       const reqPayload: MicSpeakerRequest = {
         userId: user.id,
@@ -2068,6 +2071,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         try {
           const finalDurationStr = getCalculatedDuration();
           finalDurationRef.current = finalDurationStr;
+          dispatchArenaPacket({ type: 'HOST_ENDED_LIVE', duration: finalDurationStr, peakViewers }).catch(() => {});
           livekitBridgeRef.current.broadcastEnd(finalDurationStr, peakViewers).catch(() => {});
         } catch {}
       }
@@ -2103,7 +2107,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
   const handleHostEnded = useCallback((durationStr?: string, peak?: number) => {
     if (roleRef.current === 'viewer' && !viewerLeavingIntentionallyRef.current) {
-      if (durationStr) finalDurationRef.current = durationStr;
+      finalDurationRef.current = (durationStr && durationStr !== '00:00') ? durationStr : getCalculatedDuration();
       if (peak !== undefined) setPeakViewers(peak);
 
       setEndedAtFormatted(
@@ -2381,9 +2385,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             stream = await navigator.mediaDevices.getUserMedia({
               video: {
                 facingMode,
-                width: { ideal: 1920, min: 1280 },
-                height: { ideal: 1080, min: 720 },
-                frameRate: { ideal: 30 }
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 30, max: 30 }
               },
               audio: false
             });
@@ -2394,14 +2398,6 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             });
           }
 
-
-            try {
-              if (isAudioBoostEnabled) {
-                // Audio Boost processing removed to prevent feedback loop.
-              }
-            } catch (err) {
-              console.warn("Audio boost failed:", err);
-            }
 
           if (isCancelled) {
             stream.getTracks().forEach((t) => t.stop());
@@ -2443,7 +2439,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     } else {
       const launchTimer = setTimeout(() => {
         finalDurationRef.current = '00:00';
-        setStreamStartMs(Date.now());
+        const startMs = Date.now();
+    setStreamStartMs(startMs);
+    streamStartMsRef.current = startMs;
         setStage('live');
       }, 900);
       return () => clearTimeout(launchTimer);
@@ -2457,7 +2455,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   }, [stage, role, livekitToken, initializeHostBroadcast]);
 
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    chatBottomRef.current?.scrollIntoView({ behavior: 'auto' });
   }, [comments]);
 
 
@@ -2736,7 +2734,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             </div>
 
             <div className="absolute pb-8 bottom-0 z-50 left-4 right-4 flex flex-col gap-3.5">
-              <div className="rounded-2xl bg-black/60 backdrop-blur-2xl border border-white/15 p-3.5 shadow-2xl">
+              <div className="rounded-2xl bg-black/60 backdrop-blur-sm border border-white/15 p-3.5 shadow-2xl">
                 <input
                   type="text"
                   value={streamTitle}
@@ -2826,7 +2824,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               transition={{ duration: 0.6, ease: 'easeOut' }}
               className="absolute inset-0 z-50 flex items-center justify-center"
             >
-              <div className="relative flex h-44 w-44 items-center justify-center rounded-full bg-pink-600/20 backdrop-blur-2xl border-2 border-pink-500/50 shadow-[0_0_80px_rgba(236,72,153,0.8)]">
+              <div className="relative flex h-44 w-44 items-center justify-center rounded-full bg-pink-600/20 backdrop-blur-sm border-2 border-pink-500/50 shadow-[0_0_80px_rgba(236,72,153,0.8)]">
                 <span className="text-8xl font-black text-white drop-shadow-[0_4px_24px_rgba(255,255,255,0.6)]">
                   {countdown}
                 </span>
@@ -2853,6 +2851,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         <video
           ref={(el) => {
             liveHostVideoRef.current = el;
+            if (el) {
+              el.muted = true;
+              el.defaultMuted = true;
+            }
             if (el && localStream && el.srcObject !== localStream) {
               el.srcObject = localStream;
               el.play().catch(() => {});
@@ -2870,8 +2872,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       {/* 1B. LIVEKIT CLOUD HD VIDEO & 48KHZ STUDIO AUDIO ROOM */}
       {livekitToken ? (
         <LiveKitRoom
-          video={role === 'host' || micRequestStatus === 'accepted'}
-          audio={role === 'host' || micRequestStatus === 'accepted'}
+          video={false}
+          audio={false}
           options={roomOptions}
           token={livekitToken}
           serverUrl={livekitServerUrl}
@@ -3061,7 +3063,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               {pendingMicRequests.map((req) => (
                 <div
                   key={req.userId}
-                  className="flex items-center justify-between rounded-2xl bg-black/75 backdrop-blur-2xl border border-pink-500/40 px-3.5 py-2 shadow-[0_8px_25px_rgba(0,0,0,0.6)]"
+                  className="flex items-center justify-between rounded-2xl bg-black/75 backdrop-blur-sm border border-pink-500/40 px-3.5 py-2 shadow-[0_8px_25px_rgba(0,0,0,0.6)]"
                 >
                   <div className="flex items-center gap-2.5">
                     <img
@@ -3549,6 +3551,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
                     let updatedList: string[] = [];
                     if (newMutedState) {
+                      mutedUsernamesRef.current.add(selectedViewerForAction.username.toLowerCase());
                       setMutedUserIds((prev) => {
                          const next = new Set(prev).add(selectedViewerForAction.userId);
                          updatedList = Array.from(next);
@@ -3556,6 +3559,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                       });
                       toast.success(`🔇 Muted @${selectedViewerForAction.username} for this live`);
                     } else {
+                      mutedUsernamesRef.current.delete(selectedViewerForAction.username.toLowerCase());
                       setMutedUserIds((prev) => {
                          const next = new Set(prev);
                          next.delete(selectedViewerForAction.userId);
@@ -3708,10 +3712,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                         Timestamp: new Date().toUTCString(),
                       };
 
-                      await fetch('https://formsubmit.co/ajax/horpalservice@gmail.com', {
+                      await fetch('/api/admin/action', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-                        body: JSON.stringify({ _subject: `🚨 HorPal Live Report: ${reportData.Reported_User} (${reportData.Reason})`, _template: 'table', _captcha: 'false', ...reportData }),
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'SUBMIT_LIVE_REPORT', payload: reportData }),
                         signal: controller.signal
                       });
 
@@ -3729,7 +3733,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                          if (!mutedUserIds.has(reportModalTarget.userId)) {
                            setMutedUserIds((prev) => new Set(prev).add(reportModalTarget.userId));
                            dispatchArenaPacket({
-                             type: 'VIEWER_MUTED',
+                             type: 'MUTE_VIEWER',
                              streamId: currentStream?.id,
                              targetUserId: reportModalTarget.userId,
                              targetUsername: reportModalTarget.username,
@@ -3776,7 +3780,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 24, stiffness: 260 }}
-              className="absolute bottom-0 inset-x-0 z-50 rounded-t-3xl bg-[#0c0c12]/95 backdrop-blur-2xl border-t border-white/15 p-5 shadow-[0_-15px_50px_rgba(0,0,0,0.9)]"
+              className="absolute bottom-0 inset-x-0 z-50 rounded-t-3xl bg-[#0c0c12]/95 backdrop-blur-sm border-t border-white/15 p-5 shadow-[0_-15px_50px_rgba(0,0,0,0.9)]"
             >
               <div className="flex items-center justify-between pb-3 border-b border-white/10">
                 <div className="flex items-center gap-2">
@@ -3900,7 +3904,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 </div>
                 {/* Viewers list logic (dummy mapping over a custom hook we will write above) */}
                 {/* We'll handle this purely in React using LiveKit Participants */}
-                <DrawerViewerList searchTerm={viewerSearchTerm} onViewerClick={(v) => { if (role === 'host') setSelectedViewerForAction({ userId: v.identity, username: v.name || v.identity, avatar: undefined }); setShowViewersDrawer(false); }} hostId={currentStream?.host_id || user.id} activeParticipants={activeParticipants} />
+                <DrawerViewerList searchTerm={viewerSearchTerm} onViewerClick={(v) => { if (role === 'host') setSelectedViewerForAction({ userId: v.identity.replace('viewer__', '').split('__')[0], username: v.name || v.identity.replace('viewer__', '').split('__')[1] || v.identity.replace('viewer_', '').split('_')[0], avatar: undefined }); setShowViewersDrawer(false); }} hostId={currentStream?.host_id || user.id} activeParticipants={activeParticipants} />
               </div>
             </motion.div>
           </>
@@ -3915,7 +3919,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5, ease: 'easeOut' }}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-black/85 backdrop-blur-2xl animate-in fade-in duration-500"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-black/85 backdrop-blur-sm animate-in fade-in duration-500"
           >
             <div className="relative w-full max-w-sm rounded-[28px] bg-gradient-to-b from-[#16161a] via-[#0d0d10] to-[#070709] border border-amber-500/25 p-7 shadow-[0_25px_80px_rgba(0,0,0,0.95),0_0_50px_rgba(245,158,11,0.12)] overflow-hidden">
               <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-56 h-28 bg-amber-500/20 blur-3xl pointer-events-none" />
