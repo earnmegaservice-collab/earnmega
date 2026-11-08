@@ -8,6 +8,7 @@ import { Metadata, Viewport } from "next";
 import { SmartInstallBanner } from "../components/SmartInstallBanner";
 import { PwaInstallPrompt } from "../components/PwaInstallPrompt";
 import { ServiceWorkerRegister } from "../components/ServiceWorkerRegister";
+import { GlobalAdminEnforcer } from "../components/admin/GlobalAdminEnforcer";
 
 export const metadata: Metadata = {
   openGraph: {
@@ -52,6 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <WalletProvider>
               <CallProvider>
               {children}
+              <GlobalAdminEnforcer />
               <Toaster position="top-right" />
               <SmartInstallBanner />
               <PwaInstallPrompt />
