@@ -516,13 +516,8 @@ export default function GroupInfoDrawer({
 
   // Update Group Name & Description
   const handleUpdateGroupInfo = async () => {
-    if (!isAdminOrOwner && permissions.only_admins_can_edit_info) {
-      toast.error('Only admins can edit this group info.');
-      return;
-    }
-
     if (!canEditInfo) {
-      toast.error('Only admins can edit group info');
+      toast.error('Only admins can edit group info.');
       return;
     }
 
@@ -860,14 +855,46 @@ export default function GroupInfoDrawer({
       toast.error('Only admins can change group permissions');
       return;
     }
-    const nextVal = !permissions[key];
+    const prevVal = permissions[key];
+    const nextVal = !prevVal;
+
+    // Optimistic update
     setPermissions((prev) => ({ ...prev, [key]: nextVal }));
 
     try {
-      const { error } = await supabase.from('chat_groups').update({ [key]: nextVal }).eq('id', groupId);
-      if (error) {
-        await supabase.from('rooms').update({ [key]: nextVal }).eq('id', groupId);
+      const { data: cgCheck } = await supabase.from('chat_groups').select('id').eq('id', groupId).maybeSingle();
+      const { data: roomCheck } = await supabase.from('rooms').select('id').eq('id', groupId).maybeSingle();
+
+      let updateSuccessful = false;
+
+      if (cgCheck) {
+         const { error, data } = await supabase.from('chat_groups').update({ [key]: nextVal }).eq('id', groupId).select();
+         if (!error && data && data.length > 0) updateSuccessful = true;
+      } else if (roomCheck) {
+         const { error, data } = await supabase.from('rooms').update({ [key]: nextVal }).eq('id', groupId).select();
+         if (!error && data && data.length > 0) updateSuccessful = true;
+      } else {
+         const { error, data } = await supabase.from('conversations').update({ [key]: nextVal }).eq('id', groupId).select();
+         if (!error && data && data.length > 0) updateSuccessful = true;
       }
+
+      if (!updateSuccessful) {
+         setPermissions((prev) => ({ ...prev, [key]: prevVal }));
+         toast.error('Failed to update permission');
+         return;
+      }
+
+      // Keep unified settings sync working across components and persist after reload
+      await saveGroupSettings({
+         groupId,
+         ...permissions,
+         [key]: nextVal,
+         name: displayGroupName,
+         avatar_url: displayGroupAvatar,
+         invite_code: inviteLink?.split('/').pop(),
+         updated_at: Date.now()
+      }, effectiveUserId);
+
       await fireSystemMessage(
         `${currentActorName} updated group settings: ${label} is now ${nextVal ? 'enabled' : 'disabled'}`,
         'permissions_updated'
@@ -876,6 +903,8 @@ export default function GroupInfoDrawer({
       onGroupUpdated?.();
     } catch (err) {
       console.error('Permission update error:', err);
+      setPermissions((prev) => ({ ...prev, [key]: prevVal }));
+      toast.error('Failed to update permission');
     }
   };
 

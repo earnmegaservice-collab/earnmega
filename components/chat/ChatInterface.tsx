@@ -583,7 +583,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const isGroupChat = Boolean(otherUserProfile?.isGroup || otherUserProfile?.bio === 'Group Chat' || otherUserProfile?.bio?.toLowerCase() === 'group chat' || (otherUserProfile as any)?.room_id);
 
 
-  const isAdmin = isGroupChat && groupMembers.some(m => m.user_id === user?.id && (m.role === 'admin' || m.role === 'owner'));
+  const isAdmin = Boolean(isGroupChat && (
+    (otherUserProfile as any)?.created_by === user?.id ||
+    (otherUserProfile as any)?.owner_id === user?.id ||
+    (otherUserProfile as any)?.creator_id === user?.id ||
+    groupDetails?.created_by === user?.id ||
+    groupDetails?.owner_id === user?.id ||
+    groupDetails?.creator_id === user?.id ||
+    groupMembers.some(m => (m.user_id === user?.id || m.profiles?.id === user?.id) && (m.role === 'admin' || m.role === 'owner'))
+  ));
 
   useEffect(() => {
     if (isGroupChat) {
@@ -931,11 +939,20 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       (currentOtherUserProfile as any)?.created_by === user?.id ||
       (currentOtherUserProfile as any)?.owner_id === user?.id ||
       (currentOtherUserProfile as any)?.creator_id === user?.id ||
+      groupDetails?.created_by === user?.id ||
+      groupDetails?.owner_id === user?.id ||
+      groupDetails?.creator_id === user?.id ||
       groupMembers.some(m => (m.user_id === user?.id || m.profiles?.id === user?.id) && (m.role === 'admin' || m.role === 'owner'))
     )
   );
 
-  const canSendMessages = isGroupAdmin || !(groupDetails?.only_admins_message || groupDetails?.only_admins_can_send || groupPermissions.onlyAdminsCanSend || groupPermissions.only_admins_can_send);
+  const canSendMessages = isGroupAdmin || !(
+    groupDetails?.only_admins_can_send ||
+    groupDetails?.only_admins_send ||
+    groupDetails?.only_admins_message ||
+    groupPermissions?.only_admins_can_send ||
+    groupPermissions?.onlyAdminsCanSend
+  );
 
   useEffect(() => {
     if (currentOtherUserProfile === null) {
@@ -1858,6 +1875,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || !user || !currentOtherUserProfile) return;
+
+    if (!canSendMessages) {
+       toast.error('Only admins can send messages to this group.');
+       return;
+    }
 
     let textContent = inputValue.trim();
 
