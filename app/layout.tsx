@@ -9,6 +9,7 @@ import { SmartInstallBanner } from "../components/SmartInstallBanner";
 import { PwaInstallPrompt } from "../components/PwaInstallPrompt";
 import { ServiceWorkerRegister } from "../components/ServiceWorkerRegister";
 import { GlobalAdminEnforcer } from "../components/admin/GlobalAdminEnforcer";
+import { GlobalAdminBanner } from "../components/admin/GlobalAdminBanner";
 
 export const metadata: Metadata = {
   openGraph: {
@@ -54,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <CallProvider>
               {children}
               <GlobalAdminEnforcer />
+              <GlobalAdminBanner />
               <Toaster position="top-right" />
               <SmartInstallBanner />
               <PwaInstallPrompt />
