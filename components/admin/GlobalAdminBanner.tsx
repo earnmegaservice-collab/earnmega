@@ -12,6 +12,23 @@ export function GlobalAdminBanner() {
   useEffect(() => {
     if (!user) return;
 
+    const fetchPersistedWarning = async () => {
+        const { data } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('type', 'GOD_VOICE_WARNING')
+            .eq('is_read', false)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (data) {
+            setWarning({ message: data.content || data.message || '', level: data.title || 'WARNING', timestamp: new Date(data.created_at).getTime() });
+        }
+    };
+    fetchPersistedWarning();
+
     const channel = supabase.channel('horpal_godmode_command')
       .on('broadcast', { event: 'GOD_VOICE_WARNING' }, (payload) => {
         const { target, level, message, timestamp } = payload.payload;
@@ -89,7 +106,10 @@ export function GlobalAdminBanner() {
           <div className="flex justify-between items-center text-[10px] text-gray-500">
              <span>{new Date(warning.timestamp).toLocaleString()}</span>
              <button
-                onClick={() => setWarning(null)}
+                onClick={async () => {
+                   setWarning(null);
+                   await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id).eq('type', 'GOD_VOICE_WARNING');
+                }}
                 className={`bg-white/10 hover:bg-white/20 text-white font-bold uppercase px-4 py-2 rounded-lg transition-all active:scale-95 border border-white/20`}
               >
                 Acknowledge & Dismiss

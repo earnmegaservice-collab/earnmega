@@ -360,8 +360,22 @@ function ReportsModule() {
                 <div>{r.details}</div>
              </div>
              <div className="flex gap-2 pt-2">
-                <button className="flex-1 bg-red-500/10 text-red-500 text-xs py-2 rounded hover:bg-red-500/20 font-bold border border-red-500/20">Ban Target</button>
-                <button className="flex-1 bg-yellow-500/10 text-yellow-500 text-xs py-2 rounded hover:bg-yellow-500/20 font-bold border border-yellow-500/20">Warn Top Screen</button>
+                <button onClick={async () => {
+                    toast.loading('Banning user...', { id: 'ban' });
+                    const res = await apiFetch('/api/admin/action', {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'BAN_USER', payload: { userId: r.target_id } })
+                    });
+                    if (res.ok) toast.success('User Banned', { id: 'ban' });
+                }} className="flex-1 bg-red-500/10 text-red-500 text-xs py-2 rounded hover:bg-red-500/20 font-bold border border-red-500/20">Ban Target</button>
+                <button onClick={async () => {
+    toast.loading('Warning user...', { id: 'warn' });
+    const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'GOD_VOICE_WARNING', payload: { target: r.target_id, level: 'WARNING', message: 'You have been reported for violating community guidelines. Further violations will result in account suspension.' } })
+    });
+    if (res.ok) toast.success('Warning Sent', { id: 'warn' });
+}} className="flex-1 bg-yellow-500/10 text-yellow-500 text-xs py-2 rounded hover:bg-yellow-500/20 font-bold border border-yellow-500/20">Warn Top Screen</button>
                 <button className="flex-1 bg-green-500/10 text-green-500 text-xs py-2 rounded hover:bg-green-500/20 font-bold border border-green-500/20">Resolve</button>
              </div>
            </div>
@@ -375,7 +389,7 @@ function LiveRadarModule() {
   const [streams, setStreams] = useState<any[]>([]);
 
   const fetchStreams = async () => {
-    const { data } = await supabase.from('live_streams').select('*, profiles!host_id(username, avatar_url)').neq('status', 'ended').order('created_at', { ascending: false }).limit(20);
+    const { data } = await supabase.from('live_streams').select('*, profiles!host_id(username, avatar_url)').or('status.neq.ended,is_live.eq.true').order('created_at', { ascending: false }).limit(20);
     setStreams(data || []);
   };
 
@@ -449,7 +463,12 @@ function GroupCommandModule() {
   useEffect(() => {
     const fetchGroups = async () => {
       const { data } = await supabase.from('chat_groups').select('*, profiles(username)').order('created_at', { ascending: false }).limit(20);
-      setGroups(data || []);
+      if (!data || data.length === 0) {
+         const { data: fallbackData } = await supabase.from('rooms').select('*').order('created_at', { ascending: false }).limit(20);
+         setGroups(fallbackData || []);
+      } else {
+         setGroups(data);
+      }
     };
     fetchGroups();
   }, []);
@@ -742,10 +761,16 @@ function UserVaultModule() {
   };
 
   const toggleFreeze = async (user: any) => {
+    toast.loading(user.is_wallet_frozen ? 'Unfreezing...' : 'Freezing...', { id: 'freeze' });
     const newVal = !user.is_wallet_frozen;
-    await supabase.from('profiles').update({ is_wallet_frozen: newVal }).eq('id', user.id);
-    setSelectedUser({ ...user, is_wallet_frozen: newVal });
-    toast.success(newVal ? 'Wallet frozen' : 'Wallet unfrozen');
+    const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'FREEZE_WALLET', payload: { userId: user.id, isFrozen: newVal } })
+    });
+    if (res.ok) {
+        setSelectedUser({ ...user, is_wallet_frozen: newVal });
+        toast.success(newVal ? 'Wallet frozen' : 'Wallet unfrozen', { id: 'freeze' });
+    }
   };
 
   const toggleRole = async (user: any, field: string) => {
@@ -912,8 +937,29 @@ function UserVaultModule() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                 <button className="bg-gray-800 text-gray-300 text-xs py-2 rounded hover:bg-gray-700 font-bold">⏸️ Suspend</button>
-                 <button className="bg-red-900/50 text-red-500 text-xs py-2 rounded hover:bg-red-900 font-bold border border-red-900">🛡️ Ban Account</button>
+                 <button onClick={async () => {
+                    toast.loading(selectedUser.status === 'suspended' ? 'Unsuspending...' : 'Suspending...', { id: 'suspend' });
+                    const res = await apiFetch('/api/admin/action', {
+                        method: 'POST',
+                        body: JSON.stringify({ action: selectedUser.status === 'suspended' ? 'UNSUSPEND_USER' : 'SUSPEND_USER', payload: { userId: selectedUser.id } })
+                    });
+                    if (res.ok) {
+                       toast.success(selectedUser.status === 'suspended' ? 'Unsuspended' : 'Suspended', { id: 'suspend' });
+                       setSelectedUser({...selectedUser, status: selectedUser.status === 'suspended' ? 'active' : 'suspended'});
+                    }
+                 }} className="bg-gray-800 text-gray-300 text-xs py-2 rounded hover:bg-gray-700 font-bold">{selectedUser.status === 'suspended' ? '▶️ Unsuspend' : '⏸️ Suspend'}</button>
+
+                 <button onClick={async () => {
+                    toast.loading(selectedUser.is_banned ? 'Unbanning...' : 'Banning...', { id: 'ban' });
+                    const res = await apiFetch('/api/admin/action', {
+                        method: 'POST',
+                        body: JSON.stringify({ action: selectedUser.is_banned ? 'UNBAN_USER' : 'BAN_USER', payload: { userId: selectedUser.id } })
+                    });
+                    if (res.ok) {
+                       toast.success(selectedUser.is_banned ? 'Unbanned' : 'Banned', { id: 'ban' });
+                       setSelectedUser({...selectedUser, is_banned: !selectedUser.is_banned, status: selectedUser.is_banned ? 'active' : 'suspended'});
+                    }
+                 }} className="bg-red-900/50 text-red-500 text-xs py-2 rounded hover:bg-red-900 font-bold border border-red-900">{selectedUser.is_banned ? '🟢 Unban Account' : '🛡️ Ban Account'}</button>
               </div>
             </div>
           </div>

@@ -18,6 +18,11 @@ export function GlobalAdminEnforcer() {
       setSuspended(true);
     }
 
+    // Also check real-time state for active ban check (on mount via AuthContext usually, but here as a safety measure)
+    if (user.user_metadata?.is_banned === true || user.user_metadata?.status === 'suspended') {
+       setSuspended(true);
+    }
+
     const channel = supabase.channel('horpal_godmode_command')
       .on('broadcast', { event: 'GOD_VOICE_WARNING' }, (payload) => {
         const { target, level, message } = payload.payload;
@@ -32,6 +37,13 @@ export function GlobalAdminEnforcer() {
           setSuspended(true);
         }
       })
+      .on('broadcast', { event: 'ACCOUNT_RESTORED' }, (payload) => {
+        const { target } = payload.payload;
+        if (target === user.id || target === user.email) {
+          localStorage.removeItem(`horpal_suspended_${user.id}`);
+          setSuspended(false);
+        }
+      })
       .subscribe();
 
     return () => {
@@ -43,14 +55,12 @@ export function GlobalAdminEnforcer() {
     return (
       <div className="fixed inset-0 z-[999999] bg-[#050811] flex flex-col items-center justify-center p-6">
         <ShieldAlert className="w-24 h-24 text-red-600 mb-6" />
-        <h1 className="text-3xl font-black text-white mb-4 uppercase tracking-widest text-center">Account Suspended</h1>
+        <h1 className="text-3xl font-black text-white mb-4 uppercase tracking-widest text-center">YOUR ACCOUNT HAS BEEN BANNED</h1>
         <p className="text-gray-400 text-center max-w-md mb-8">
-          Your account has been suspended by HorPal Trust & Safety for violating community guidelines.
+          Your access to this application has been restricted by the administration. You cannot access your account at this time.
         </p>
         <div className="bg-[#1e293b]/50 border border-red-500/30 p-4 rounded-xl w-full max-w-md text-center space-y-2">
-          <p className="text-sm text-gray-300">Contact Support to appeal:</p>
-          <a href="mailto:horpalservice@gmail.com" className="block text-red-400 font-bold hover:underline">horpalservice@gmail.com</a>
-          <a href="https://wa.me/233534761381" className="block text-[#10B981] font-bold hover:underline">WhatsApp: 0534761381</a>
+          <a href={`mailto:horpalservice@gmail.com?subject=Account Ban Appeal&body=Hello Admin,%0D%0A%0D%0AMy account has been banned, and I would like to appeal this decision.%0D%0A%0D%0APlease review my account and let me know if my access can be restored.%0D%0A%0D%0AUser ID: ${user.id}%0D%0AEmail: ${user.email}%0D%0A%0D%0AThank you.`} className="block bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg w-full transition-all">Submit Appeal</a>
         </div>
       </div>
     );

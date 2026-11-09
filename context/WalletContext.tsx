@@ -57,6 +57,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshWallet();
+
+    if (!user) return;
+    const channel = supabase.channel(`wallet_updates_${user.id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, () => {
+         refreshWallet();
+      })
+      .subscribe();
+
+    return () => {
+        supabase.removeChannel(channel);
+    };
   }, [user]);
 
   return (

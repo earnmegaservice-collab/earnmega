@@ -203,6 +203,8 @@ export async function POST(request: Request) {
          description: `Admin balance override: ${actionType} ${amount} ${type}`
       }]);
 
+      // Trigger client update if needed, but postgres_changes should catch this automatically.
+
       return NextResponse.json({ success: true, user: data });
     }
 
@@ -257,7 +259,50 @@ export async function POST(request: Request) {
     if (action === 'BAN_USER') {
        const { userId } = payload;
        if (!userId || typeof userId !== 'string') return NextResponse.json({ success: false, error: 'Invalid userId' });
-       await adminSupabase.from('profiles').update({ is_paid: false, is_pillar2_paid: false, is_wallet_frozen: true }).eq('id', userId);
+       await adminSupabase.from('profiles').update({ is_paid: false, is_pillar2_paid: false, is_wallet_frozen: true, is_banned: true, status: 'suspended' }).eq('id', userId);
+       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'FREEZE_WALLET') {
+       const { userId, isFrozen } = payload;
+       if (!userId || typeof userId !== 'string') return NextResponse.json({ success: false, error: 'Invalid userId' });
+       await adminSupabase.from('profiles').update({ is_wallet_frozen: isFrozen }).eq('id', userId);
+       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'SUSPEND_USER') {
+       const { userId } = payload;
+       if (!userId || typeof userId !== 'string') return NextResponse.json({ success: false, error: 'Invalid userId' });
+       await adminSupabase.from('profiles').update({ status: 'suspended' }).eq('id', userId);
+       await adminSupabase.channel('horpal_godmode_command').send({
+         type: 'broadcast',
+         event: 'ACCOUNT_SUSPENDED',
+         payload: { target: userId }
+       });
+       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'UNSUSPEND_USER') {
+       const { userId } = payload;
+       if (!userId || typeof userId !== 'string') return NextResponse.json({ success: false, error: 'Invalid userId' });
+       await adminSupabase.from('profiles').update({ status: 'active' }).eq('id', userId);
+       await adminSupabase.channel('horpal_godmode_command').send({
+         type: 'broadcast',
+         event: 'ACCOUNT_RESTORED',
+         payload: { target: userId }
+       });
+       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'UNBAN_USER') {
+       const { userId } = payload;
+       if (!userId || typeof userId !== 'string') return NextResponse.json({ success: false, error: 'Invalid userId' });
+       await adminSupabase.from('profiles').update({ is_banned: false, status: 'active' }).eq('id', userId);
+       await adminSupabase.channel('horpal_godmode_command').send({
+         type: 'broadcast',
+         event: 'ACCOUNT_RESTORED',
+         payload: { target: userId }
+       });
        return NextResponse.json({ success: true });
     }
 
@@ -301,6 +346,17 @@ export async function POST(request: Request) {
     if (action === 'GOD_VOICE_WARNING') {
        const { target, level, message } = payload;
        if (!target || !level || !message) return NextResponse.json({ success: false, error: 'Invalid payload' });
+
+       if (target && target !== 'ALL' && target !== 'PILLAR_1' && target !== 'PILLAR_2' && !target.includes('@')) {
+           // It is likely a user ID, insert a persistent notification
+           await adminSupabase.from('notifications').insert([{
+               user_id: target,
+               type: 'GOD_VOICE_WARNING',
+               content: message,
+               title: level,
+               is_read: false
+           }]);
+       }
 
        await adminSupabase.channel('horpal_godmode_command').send({
          type: 'broadcast',

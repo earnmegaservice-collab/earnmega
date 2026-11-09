@@ -73,6 +73,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    let profileChannel: any;
+    if (user) {
+        profileChannel = supabase.channel(`auth_updates_${user.id}`)
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, (payload) => {
+                const newProfile = payload.new as any;
+                if (newProfile.is_banned || newProfile.status === 'suspended') {
+                    supabase.auth.signOut();
+                }
+            })
+            .subscribe();
+    }
+    return () => {
+      if (profileChannel) supabase.removeChannel(profileChannel);
+    };
+  }, [user]);
+
   return (
     <AuthContext.Provider value={{ session, user, isLoading }}>
       {children}
