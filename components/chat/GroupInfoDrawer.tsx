@@ -153,7 +153,7 @@ export default function GroupInfoDrawer({
     onConfirm: () => Promise<void>;
   } | null>(null);
 
-  const isAdminOrOwner = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const isAdminOrOwner = currentUserRole === 'owner' || currentUserRole === 'admin' || creatorId === effectiveUserId;
   const canEditInfo = isAdminOrOwner || !permissions.only_admins_can_edit_info;
   const canAddMembers = isAdminOrOwner || !permissions.only_admins_can_add_members;
 
@@ -229,8 +229,8 @@ export default function GroupInfoDrawer({
         }
 
         setPermissions({
-          only_admins_can_send: Boolean(groupRecord.only_admins_can_send),
-          only_admins_can_edit_info: Boolean(groupRecord.only_admins_can_edit_info),
+          only_admins_can_send: Boolean(groupRecord.only_admins_can_send || groupRecord.only_admins_send),
+          only_admins_can_edit_info: Boolean(groupRecord.only_admins_can_edit_info || groupRecord.only_admins_edit),
           only_admins_can_add_members: Boolean(groupRecord.only_admins_can_add_members),
           approve_new_members: Boolean(groupRecord.approve_new_members)
         });
@@ -516,6 +516,11 @@ export default function GroupInfoDrawer({
 
   // Update Group Name & Description
   const handleUpdateGroupInfo = async () => {
+    if (!isAdminOrOwner && permissions.only_admins_can_edit_info) {
+      toast.error('Only admins can edit this group info.');
+      return;
+    }
+
     if (!canEditInfo) {
       toast.error('Only admins can edit group info');
       return;
@@ -851,18 +856,24 @@ export default function GroupInfoDrawer({
 
   // Toggle Group Permission (Block 4)
   const handleTogglePermission = async (key: keyof GroupPermissions, label: string) => {
-    if (!isAdminOrOwner) return;
+    if (!isAdminOrOwner) {
+      toast.error('Only admins can change group permissions');
+      return;
+    }
     const nextVal = !permissions[key];
     setPermissions((prev) => ({ ...prev, [key]: nextVal }));
 
     try {
-      await supabase.from('chat_groups').update({ [key]: nextVal }).eq('id', groupId);
-      await supabase.from('rooms').update({ [key]: nextVal }).eq('id', groupId);
+      const { error } = await supabase.from('chat_groups').update({ [key]: nextVal }).eq('id', groupId);
+      if (error) {
+        await supabase.from('rooms').update({ [key]: nextVal }).eq('id', groupId);
+      }
       await fireSystemMessage(
         `${currentActorName} updated group settings: ${label} is now ${nextVal ? 'enabled' : 'disabled'}`,
         'permissions_updated'
       );
       toast.success('Group permission updated');
+      onGroupUpdated?.();
     } catch (err) {
       console.error('Permission update error:', err);
     }
