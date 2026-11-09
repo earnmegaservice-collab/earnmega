@@ -481,6 +481,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     onlyAdminsCanEditInfo: false,
     onlyAdminsCanAddMembers: false,
     approveNewMembers: false,
+    only_admins_can_send: false,
+    only_admins_can_edit_info: false,
+    only_admins_can_add_members: false,
+    approve_new_members: false,
   });
 
   const currentUserProfileRef = useRef(currentUserProfile);
@@ -926,9 +930,12 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     isGroupChat && (
       (currentOtherUserProfile as any)?.created_by === user?.id ||
       (currentOtherUserProfile as any)?.owner_id === user?.id ||
+      (currentOtherUserProfile as any)?.creator_id === user?.id ||
       groupMembers.some(m => (m.user_id === user?.id || m.profiles?.id === user?.id) && (m.role === 'admin' || m.role === 'owner'))
     )
   );
+
+  const canSendMessages = isGroupAdmin || !(groupDetails?.only_admins_message || groupDetails?.only_admins_can_send || groupPermissions.onlyAdminsCanSend || groupPermissions.only_admins_can_send);
 
   useEffect(() => {
     if (currentOtherUserProfile === null) {
@@ -3694,14 +3701,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
            </div>
         </div>
       )}
-{(groupDetails?.only_admins_message || groupDetails?.only_admins_can_send) && !groupMembers.some(m => m.user_id === user?.id && (m.role === 'admin' || m.role === 'owner')) ? (
+{!canSendMessages ? (
         <div className="w-full py-4 bg-black/60 backdrop-blur-xl rounded-3xl border border-white/10 relative z-20 text-center text-white/50 text-sm">
           🔒 Only admins can send messages to this group.
-        </div>
-      ) : isGroupChat && groupPermissions.onlyAdminsCanSend && !isGroupAdmin ? (
-        <div className="w-full py-3.5 px-4 bg-zinc-900/90 backdrop-blur-xl rounded-2xl border border-amber-500/30 text-center text-amber-300 text-xs font-bold tracking-wide flex items-center justify-center gap-2">
-          <Lock className="text-amber-400 shrink-0" size={14} />
-          <span>Only admins can send messages in this group</span>
         </div>
       ) : (
         <form
