@@ -8,52 +8,124 @@ interface HorPalLandingGatewayProps {
   onEnterPillar1: () => void;
 }
 
-const carouselSlides = [
+export const promoTextBlocks = [
   {
-    type: 'video',
-    url: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/promo.mp4',
     badge: 'OFFICIAL PLATFORM PROMO',
     headline: 'Welcome to HorPal — Where Real Connections Turn Into Real Value',
     subtitle: 'Experience HD live streaming, verified social discovery, VIP communities, and instant creator rewards.',
   },
   {
-    type: 'video',
-    url: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/gemini_generated_video_74257962.mp4',
     badge: 'NEXT-GEN CREATOR ARENA',
     headline: 'Broadcast Live in HD & Monetize Your Audience Globally',
     subtitle: 'Go live with zero lag, receive animated 3D gifts in real time, and build your global fanbase.',
   },
   {
-    type: 'image',
-    url: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/file_0000000009b08211b57dd97f6fc9d336.png',
     badge: 'PILLAR 1 • SOCIAL & EARNING HUB',
     headline: 'Make Verified Friends, Chat Privately & Grow Together',
     subtitle: '100% real verified people, interactive group chats, voice notes, and smart AI assistance.',
   },
   {
-    type: 'image',
-    url: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/file_00000000006082438fdf286c8d7920d7.png',
     badge: 'THE HORPAL ECOSYSTEM',
     headline: 'One Elite Platform. Two Powerful Wealth & Social Pillars.',
     subtitle: 'Built with enterprise AI and dedicated human staff to deliver a world-class experience.',
   },
 ];
 
+const promoSlides = [
+  { id: 1, type: 'video', src: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/gemini_generated_video_d176d608.mp4' },
+  { id: 2, type: 'video', src: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/gemini_generated_video_88322b33.mp4' },
+  { id: 3, type: 'video', src: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/gemini_generated_video_74257962.mp4' },
+  { id: 4, type: 'image', src: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/1793877659965.jpg' },
+  { id: 5, type: 'image', src: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/1793877634662.jpg' },
+];
+
 export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEnterPillar1 }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isVideoMuted, setIsVideoMuted] = useState(true);
+  const [hasInteracted, setHasInteracted] = useState(false);
   const [touchStart, setTouchStart] = useState(0);
   const [touchEnd, setTouchEnd] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % carouselSlides.length);
-    }, 7000);
-    return () => clearInterval(timer);
+    const handleFirstInteraction = () => {
+      setHasInteracted(true);
+      setIsVideoMuted(false);
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+    window.addEventListener('click', handleFirstInteraction, { once: true });
+    window.addEventListener('touchstart', handleFirstInteraction, { once: true });
+
+    // Remember global mute state
+    const savedMute = sessionStorage.getItem('horpal_hero_muted');
+    if (savedMute !== null) {
+      setIsVideoMuted(savedMute === 'true');
+      if (savedMute === 'false') setHasInteracted(true);
+    }
+
+    return () => {
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
   }, []);
 
+  const toggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newMuted = !isVideoMuted;
+    setIsVideoMuted(newMuted);
+    setHasInteracted(true);
+    sessionStorage.setItem('horpal_hero_muted', newMuted.toString());
+  };
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      setIsPaused(document.hidden);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (isPaused) return;
+
+    let timer: NodeJS.Timeout;
+    const currentMedia = promoSlides[currentSlide];
+
+    if (currentMedia.type === 'image') {
+      timer = setTimeout(() => {
+        setCurrentSlide((prev) => (prev + 1) % promoSlides.length);
+      }, 5000);
+    } else {
+      // Safety timeout for video in case onEnded doesn't fire
+      timer = setTimeout(() => {
+         setCurrentSlide((prev) => (prev + 1) % promoSlides.length);
+      }, 12000);
+    }
+
+    return () => clearTimeout(timer);
+  }, [currentSlide, isPaused]);
+
+  // Handle video play logic manually to ensure only one plays and try/catch is used
+  useEffect(() => {
+    videoRefs.current.forEach((video, index) => {
+      if (!video) return;
+      if (index === currentSlide) {
+        video.currentTime = 0;
+        video.play().catch(err => console.warn('Autoplay prevented:', err));
+      } else {
+        video.pause();
+      }
+    });
+  }, [currentSlide, isPaused]);
+
+  const handleVideoEnded = () => {
+    setCurrentSlide((prev) => (prev + 1) % promoSlides.length);
+  };
+
   const handleTouchStart = (e: React.TouchEvent) => {
+    setIsPaused(true);
     setTouchStart(e.targetTouches[0].clientX);
   };
 
@@ -62,16 +134,17 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
   };
 
   const handleTouchEnd = () => {
+    setIsPaused(false);
     if (touchStart - touchEnd > 75) {
-      setCurrentSlide((prev) => (prev + 1) % carouselSlides.length);
+      setCurrentSlide((prev) => (prev + 1) % promoSlides.length);
     }
     if (touchStart - touchEnd < -75) {
-      setCurrentSlide((prev) => (prev - 1 + carouselSlides.length) % carouselSlides.length);
+      setCurrentSlide((prev) => (prev - 1 + promoSlides.length) % promoSlides.length);
     }
   };
 
-  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % carouselSlides.length);
-  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + carouselSlides.length) % carouselSlides.length);
+  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % promoSlides.length);
+  const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + promoSlides.length) % promoSlides.length);
 
   return (
     <div className="min-h-screen bg-[#050508] text-white font-sans overflow-x-hidden selection:bg-amber-500/30">
@@ -109,93 +182,120 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
       </header>
 
       {/* 2. MAIN HERO CAROUSEL */}
-      <section className="pt-24 px-4 md:px-8 max-w-7xl mx-auto">
+      <section className="pt-24 px-4 md:px-8 max-w-7xl mx-auto relative">
+        {/* Ambient Glow */}
+        <div className="absolute top-[20%] left-1/2 -translate-x-1/2 w-3/4 h-1/2 bg-amber-500/20 blur-[100px] rounded-full pointer-events-none transition-colors duration-1000"></div>
+
         <div
-          className="relative w-full h-[420px] sm:h-[500px] rounded-3xl overflow-hidden shadow-2xl bg-black group"
+          className="relative w-full h-[48vh] sm:h-[55vh] max-h-[600px] rounded-[32px] overflow-hidden shadow-[0_20px_60px_-15px_rgba(233,185,73,0.15)] bg-black group border border-amber-400/30 ring-1 ring-white/5"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={currentSlide}
-              initial={{ opacity: 0, x: 50 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -50 }}
-              transition={{ duration: 0.5, ease: "easeInOut" }}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.04 }}
+              transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
               className="absolute inset-0"
             >
-              {carouselSlides[currentSlide].type === 'video' ? (
+              {promoSlides[currentSlide].type === 'video' ? (
                 <video
                   ref={(el) => { if (el) videoRefs.current[currentSlide] = el; }}
-                  src={carouselSlides[currentSlide].url}
-                  autoPlay
-                  loop
+                  src={promoSlides[currentSlide].src}
                   muted={isVideoMuted}
                   playsInline
+                  preload="auto"
+                  onEnded={handleVideoEnded}
                   className="w-full h-full object-cover"
+                  poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
                 />
               ) : (
                 <img
-                  src={carouselSlides[currentSlide].url}
-                  alt={carouselSlides[currentSlide].headline}
+                  src={promoSlides[currentSlide].src}
+                  alt="HorPal Luxury Media"
                   className="w-full h-full object-cover"
+                  loading="eager"
                 />
               )}
 
-              {/* Gradient Overlay for Text Readability */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-8 sm:p-12">
-                <span className="inline-block px-3 py-1 bg-white/20 backdrop-blur-md border border-white/30 rounded-full text-xs font-bold tracking-widest text-white mb-4 w-fit">
-                  {carouselSlides[currentSlide].badge}
-                </span>
-                <h2 className="text-3xl sm:text-5xl font-black mb-3 leading-tight text-white drop-shadow-lg max-w-3xl">
-                  {carouselSlides[currentSlide].headline}
-                </h2>
-                <p className="text-white/80 text-sm sm:text-lg max-w-2xl drop-shadow-md">
-                  {carouselSlides[currentSlide].subtitle}
-                </p>
-              </div>
+              {/* Minimal Bottom Vignette for Progress Bar Visibility */}
+              <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none"></div>
 
-              {/* Audio Toggle for Videos */}
-              {carouselSlides[currentSlide].type === 'video' && (
+              {/* Audio Toggle */}
+              {promoSlides[currentSlide].type === 'video' && (
                 <button
-                  onClick={() => setIsVideoMuted(!isVideoMuted)}
-                  className="absolute top-6 right-6 p-3 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white hover:bg-white/20 transition-colors z-20"
+                  onClick={toggleMute}
+                  aria-label={isVideoMuted ? "Unmute video" : "Mute video"}
+                  className="absolute top-6 right-6 p-3 rounded-full bg-white/10 backdrop-blur-xl border border-white/20 text-white hover:bg-white/20 transition-all z-20 shadow-lg"
                 >
-                  {isVideoMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                  {isVideoMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                 </button>
               )}
             </motion.div>
           </AnimatePresence>
 
-          {/* Controls */}
-          <div className="absolute inset-y-0 left-4 flex items-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
-            <button onClick={prevSlide} className="p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white hover:bg-white/20"><ChevronLeft size={24} /></button>
+          {/* Keyboard & Mouse Navigation (Accessibility & Desktop) */}
+          <div className="absolute inset-y-0 left-4 flex items-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
+            <button onClick={prevSlide} className="p-3 rounded-full bg-black/20 backdrop-blur-xl border border-white/10 text-white hover:bg-white/20 transition-all"><ChevronLeft size={24} /></button>
           </div>
-          <div className="absolute inset-y-0 right-4 flex items-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
-            <button onClick={nextSlide} className="p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white hover:bg-white/20"><ChevronRight size={24} /></button>
+          <div className="absolute inset-y-0 right-4 flex items-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
+            <button onClick={nextSlide} className="p-3 rounded-full bg-black/20 backdrop-blur-xl border border-white/10 text-white hover:bg-white/20 transition-all"><ChevronRight size={24} /></button>
           </div>
 
           {/* Progress Indicators */}
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2 z-20 w-full max-w-md px-4">
-            {carouselSlides.map((_, idx) => (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2 z-20 w-full max-w-sm px-8">
+            {promoSlides.map((_, idx) => (
               <button
                 key={idx}
                 onClick={() => setCurrentSlide(idx)}
-                className={`h-1.5 rounded-full flex-1 transition-all duration-300 ${
-                  idx === currentSlide ? 'bg-amber-400 w-8' : 'bg-white/30'
+                aria-label={`Go to slide ${idx + 1}`}
+                className={`h-1.5 rounded-full flex-1 transition-all duration-500 ${
+                  idx === currentSlide ? 'bg-[#E9B949] w-8' : 'bg-white/20 hover:bg-white/40'
                 }`}
               />
             ))}
           </div>
         </div>
 
+        {/* 2.1 PILLAR ACCESS BUTTONS */}
+        <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center w-full max-w-2xl mx-auto z-10 relative">
+          <button
+            onClick={onEnterPillar1}
+            className="group relative w-full sm:flex-1 min-h-[56px] rounded-full bg-[#0A0A0F]/80 backdrop-blur-xl border border-[#E9B949]/30 hover:border-[#E9B949] flex items-center justify-center gap-3 px-6 py-3 transition-all duration-300 active:scale-[0.98] shadow-[0_0_15px_rgba(233,185,73,0.1)] hover:shadow-[0_0_25px_rgba(233,185,73,0.2)] overflow-hidden"
+          >
+            {/* Sweep effect */}
+            <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12"></div>
+
+            <div className="w-8 h-8 rounded-full border border-[#E9B949]/40 bg-[#E9B949]/10 flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E9B949" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            </div>
+            <span className="font-sans font-bold text-white text-base tracking-wide">Global Chat</span>
+          </button>
+
+          <button
+            onClick={() => { localStorage.setItem('horpal_target_pillar', '2'); window.location.href = '/affiliate'; }}
+            className="group relative w-full sm:flex-1 min-h-[56px] rounded-full bg-[#0A0A0F]/80 backdrop-blur-xl border border-emerald-500/30 hover:border-emerald-500 flex items-center justify-center gap-3 px-6 py-3 transition-all duration-300 active:scale-[0.98] shadow-[0_0_15px_rgba(16,185,129,0.1)] hover:shadow-[0_0_25px_rgba(16,185,129,0.2)] overflow-hidden"
+          >
+             {/* Sweep effect */}
+             <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12"></div>
+
+            <div className="w-8 h-8 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+            </div>
+            <span className="font-sans font-bold text-white text-base tracking-wide">Affiliate Marketing</span>
+          </button>
+        </div>
+
         {/* 3. LIVE SOCIAL PROOF TICKER */}
-        <div className="mt-6 py-3 px-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm overflow-hidden flex whitespace-nowrap">
+        <div className="mt-8 py-3 px-6 rounded-2xl bg-[#1A1A24]/40 border border-white/5 backdrop-blur-sm overflow-hidden flex whitespace-nowrap hover:bg-[#1A1A24]/60 transition-colors">
           <motion.div
             animate={{ x: [0, -1000] }}
             transition={{ repeat: Infinity, ease: "linear", duration: 20 }}
-            className="flex gap-12 items-center text-sm font-medium text-amber-200/80 tracking-wide"
+            whileHover={{ animationPlayState: 'paused' }}
+            className="flex gap-12 items-center text-sm font-medium text-[#E9B949]/80 tracking-wide font-sans"
           >
             <span>⚡ 100% Bot-Free Verified Community</span>
             <span>💎 Real-Time Live Arena Gift Rewards</span>
@@ -207,8 +307,28 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
         </div>
       </section>
 
+      {/* 3.5 HIGHLIGHT CARDS (Relocated Promo Text) */}
+      <section className="py-16 px-4 md:px-8 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {promoTextBlocks.map((block, idx) => (
+            <div key={idx} className="p-8 rounded-3xl bg-[#1A1A24] border border-[#E9B949]/20 hover:border-[#E9B949]/50 transition-colors shadow-lg relative overflow-hidden group">
+               <div className="absolute inset-0 bg-gradient-to-br from-[#E9B949]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+              <span className="inline-block px-3 py-1 bg-white/5 border border-[#E9B949]/30 rounded-full text-[10px] font-bold tracking-widest text-[#E9B949] mb-6 uppercase">
+                {block.badge}
+              </span>
+              <h3 className="text-xl sm:text-2xl font-serif font-black mb-3 text-white leading-snug">
+                {block.headline}
+              </h3>
+              <p className="text-white/60 text-sm sm:text-base font-sans leading-relaxed">
+                {block.subtitle}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* 4. DUAL-PILLAR COMMAND DECK */}
-      <section id="pillars" className="py-24 px-4 md:px-8 max-w-7xl mx-auto">
+      <section id="pillars" className="py-12 md:py-24 px-4 md:px-8 max-w-7xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-4xl sm:text-5xl font-black mb-4">Choose Your HorPal Pillar</h2>
           <p className="text-white/60 text-lg">One elite platform. Two powerful paths to social and financial growth.</p>
@@ -218,7 +338,7 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
           {/* PILLAR 1 CARD (ACTIVE) */}
           <div
             onClick={onEnterPillar1}
-            className="group relative flex flex-col justify-between p-8 rounded-3xl bg-gradient-to-b from-zinc-900 to-black border border-amber-500/40 shadow-[0_0_50px_rgba(245,158,11,0.18)] hover:shadow-[0_0_80px_rgba(245,158,11,0.3)] transition-all cursor-pointer overflow-hidden"
+            className="group relative flex flex-col justify-between p-8 rounded-3xl bg-[#050508] border border-[#E9B949]/40 shadow-[0_0_40px_rgba(233,185,73,0.15)] hover:shadow-[0_0_60px_rgba(233,185,73,0.25)] transition-all cursor-pointer overflow-hidden"
           >
             <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/10 via-pink-500/5 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
 
@@ -254,7 +374,7 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
           </div>
 
           {/* PILLAR 2 CARD (INERT) */}
-          <div className="relative flex flex-col justify-between p-8 rounded-3xl bg-zinc-950/70 border border-emerald-500/20 opacity-90 overflow-hidden">
+          <div className="relative flex flex-col justify-between p-8 rounded-3xl bg-[#1A1A24]/70 border border-white/10 opacity-90 overflow-hidden shadow-xl">
             <div className="relative z-10">
               <div className="flex flex-wrap gap-2 mb-6">
                 <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold border border-emerald-500/20">
@@ -294,10 +414,11 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
       </section>
 
       {/* 5. WHY ENTRY PASS */}
-      <section id="why" className="py-24 bg-black/50 border-y border-white/5 px-4 md:px-8">
-        <div className="max-w-7xl mx-auto">
+      <section id="why" className="py-24 bg-[#0D0D14] border-y border-white/5 px-4 md:px-8 relative">
+        <div className="absolute inset-0 bg-[url('https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/noise.png')] opacity-[0.03] pointer-events-none mix-blend-overlay"></div>
+        <div className="max-w-7xl mx-auto relative z-10">
           <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-5xl font-black mb-6">Built for Quality, Powered by Paid AI & Real Human Workers.</h2>
+            <h2 className="text-3xl sm:text-5xl font-serif font-black mb-6">Built for Quality, Powered by Paid AI & Real Human Workers.</h2>
             <p className="text-white/60 text-lg max-w-3xl mx-auto leading-relaxed">
               Unlike free apps that sell your data, flood your screen with ads, and leave you talking to bots, HorPal uses your small entry fee to fund real intelligence, real human staff, and real creator payouts.
             </p>
@@ -336,19 +457,19 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
             ))}
           </div>
 
-          <div className="bg-zinc-900/80 p-8 rounded-3xl border border-white/10">
-            <h4 className="text-sm font-bold text-white/80 mb-6 uppercase tracking-wider text-center">Fund Allocation Breakdown</h4>
-            <div className="h-4 rounded-full bg-zinc-800 flex overflow-hidden mb-6">
-              <div className="h-full bg-blue-500" style={{ width: '35%' }} title="35% Enterprise AI Engines & High-Speed Cloud Servers"></div>
-              <div className="h-full bg-amber-500" style={{ width: '30%' }} title="30% Paid Human Workers, Support & Safety Moderators"></div>
-              <div className="h-full bg-emerald-500" style={{ width: '25%' }} title="25% Creator Rewards, Bonuses & Community Ecosystem"></div>
-              <div className="h-full bg-rose-500" style={{ width: '10%' }} title="10% Identity Verification & Bank-Grade Security"></div>
+          <div className="bg-[#1A1A24] p-8 sm:p-12 rounded-3xl border border-white/5 shadow-2xl">
+            <h4 className="text-sm font-bold text-white/80 mb-8 uppercase tracking-widest text-center">Fund Allocation Breakdown</h4>
+            <div className="h-4 sm:h-5 rounded-full bg-black flex overflow-hidden mb-8 shadow-inner ring-1 ring-white/10">
+              <div className="h-full bg-[#A8741A] transition-all duration-1000 ease-out" style={{ width: '35%' }} title="35% Enterprise AI Engines & High-Speed Cloud Servers"></div>
+              <div className="h-full bg-[#E9B949] transition-all duration-1000 ease-out" style={{ width: '30%' }} title="30% Paid Human Workers, Support & Safety Moderators"></div>
+              <div className="h-full bg-[#F6E3A1] transition-all duration-1000 ease-out" style={{ width: '25%' }} title="25% Creator Rewards, Bonuses & Community Ecosystem"></div>
+              <div className="h-full bg-[#5D6B78] transition-all duration-1000 ease-out" style={{ width: '10%' }} title="10% Identity Verification & Bank-Grade Security"></div>
             </div>
-            <div className="flex flex-wrap justify-center gap-6 text-xs text-white/60 font-medium">
-              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-blue-500"></span>35% AI & Cloud Servers</div>
-              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-amber-500"></span>30% Human Workers & Support</div>
-              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500"></span>25% Creator Rewards Ecosystem</div>
-              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-rose-500"></span>10% Security & Verification</div>
+            <div className="flex flex-wrap justify-center gap-x-8 gap-y-4 text-xs sm:text-sm text-white/70 font-medium">
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#A8741A] shadow-sm"></span>35% AI & Cloud Servers</div>
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#E9B949] shadow-sm"></span>30% Human Workers & Support</div>
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#F6E3A1] shadow-sm"></span>25% Creator Rewards Ecosystem</div>
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#5D6B78] shadow-sm"></span>10% Security & Verification</div>
             </div>
           </div>
         </div>
@@ -357,13 +478,13 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
       {/* 6. HOW IT WORKS */}
       <section id="how" className="py-24 px-4 md:px-8 max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-5xl font-black mb-4">How Make Friends & Earn Works</h2>
+          <h2 className="text-3xl sm:text-5xl font-serif font-black mb-4">How Make Friends & Earn Works</h2>
           <p className="text-white/60 text-lg">Four simple steps to join the elite global network.</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 relative">
           {/* Connecting line for desktop */}
-          <div className="hidden lg:block absolute top-12 left-[10%] right-[10%] h-0.5 bg-gradient-to-r from-amber-500/5 via-amber-500/50 to-amber-500/5 z-0"></div>
+          <div className="hidden lg:block absolute top-12 left-[10%] right-[10%] h-[1px] bg-gradient-to-r from-transparent via-[#E9B949]/50 to-transparent z-0"></div>
 
           {[
             { step: '1', title: 'Tap "Make Friends and Earn"', desc: 'Create your account and unlock your verified member access.' },
@@ -372,9 +493,9 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
             { step: '4', title: 'Receive Gifts & Earn Rewards', desc: 'Collect virtual gifts from supporters and grow your balance inside the app.' }
           ].map((item, i) => (
             <div key={i} className="relative z-10 flex flex-col items-center text-center">
-              <div className="w-24 h-24 rounded-full bg-black border-4 border-[#050508] shadow-[0_0_0_2px_rgba(245,158,11,0.3)] flex items-center justify-center text-3xl font-black text-amber-500 mb-6 relative">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-[#050508] border border-[#E9B949]/40 shadow-[0_0_0_4px_rgba(233,185,73,0.1)] flex items-center justify-center text-2xl sm:text-3xl font-serif font-black text-[#E9B949] mb-6 relative">
                 {item.step}
-                <div className="absolute inset-0 rounded-full bg-amber-500/20 blur-xl -z-10"></div>
+                <div className="absolute inset-0 rounded-full bg-[#E9B949]/10 blur-xl -z-10"></div>
               </div>
               <h4 className="text-xl font-bold mb-3">{item.title}</h4>
               <p className="text-sm text-white/60">{item.desc}</p>
@@ -387,7 +508,7 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
       <section id="faq" className="py-24 bg-zinc-950 px-4 md:px-8">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-5xl font-black mb-4">Why HorPal Beats Ordinary Free Social Apps</h2>
+            <h2 className="text-3xl sm:text-5xl font-serif font-black mb-4">Why HorPal Beats Ordinary Free Social Apps</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-20">
@@ -407,10 +528,11 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
             </div>
 
             {/* HorPal */}
-            <div className="p-8 rounded-3xl bg-gradient-to-b from-amber-500/10 to-transparent border border-amber-500/30 relative overflow-hidden">
-              <div className="absolute top-0 right-0 px-4 py-1 bg-amber-500 text-black text-[10px] font-black tracking-widest rounded-bl-xl">ELITE STANDARD</div>
-              <h3 className="text-xl font-bold text-amber-400 mb-6 flex items-center gap-2">
-                <span className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center">✓</span>
+            <div className="p-8 rounded-3xl bg-[#1A1A24] border border-[#E9B949] relative overflow-hidden shadow-[0_0_30px_rgba(233,185,73,0.15)]">
+              <div className="absolute inset-0 bg-gradient-to-br from-[#E9B949]/5 to-transparent pointer-events-none"></div>
+              <div className="absolute top-0 right-0 px-4 py-1 bg-[#E9B949] text-black text-[10px] font-black tracking-widest rounded-bl-xl shadow-sm">ELITE STANDARD</div>
+              <h3 className="text-xl font-bold text-[#E9B949] mb-6 flex items-center gap-2">
+                <span className="w-8 h-8 rounded-full bg-[#E9B949]/20 flex items-center justify-center text-[#E9B949]">✓</span>
                 HorPal Pillar 1
               </h3>
               <ul className="space-y-4">
@@ -439,20 +561,20 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
                 a: "Pillar 1 is 100% live and active right now. Pillar 2 is currently in development and locked. We are building the automated commission engine and high-ticket marketplace, which will be released in an upcoming major update."
               }
             ].map((faq, i) => (
-              <div key={i} className="p-6 rounded-2xl bg-white/5 border border-white/10">
-                <h4 className="text-lg font-bold text-white mb-2">{faq.q}</h4>
+              <div key={i} className="p-6 rounded-2xl bg-[#1A1A24] border border-[#E9B949]/30 hover:border-[#E9B949]/50 transition-colors cursor-pointer group">
+                <h4 className="text-lg font-bold text-white mb-2 flex justify-between items-center group-hover:text-[#E9B949] transition-colors">{faq.q} <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#E9B949]/50 group-hover:text-[#E9B949]"><polyline points="6 9 12 15 18 9"></polyline></svg></h4>
                 <p className="text-white/60 text-sm leading-relaxed">{faq.a}</p>
               </div>
             ))}
           </div>
 
           {/* Final CTA */}
-          <div className="p-12 rounded-3xl bg-gradient-to-r from-amber-600/20 via-pink-600/20 to-purple-600/20 border border-amber-500/30 text-center relative overflow-hidden">
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-500/20 via-transparent to-transparent opacity-50 blur-2xl"></div>
-            <h2 className="text-3xl sm:text-4xl font-black mb-6 relative z-10">Ready to Join the Elite Network?</h2>
+          <div className="p-12 rounded-3xl bg-[#1A1A24] border border-[#E9B949]/40 text-center relative overflow-hidden shadow-[0_0_50px_rgba(233,185,73,0.15)]">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#E9B949]/20 via-transparent to-transparent opacity-60 blur-2xl"></div>
+            <h2 className="text-3xl sm:text-4xl font-serif font-black mb-6 relative z-10 text-white">Ready to Join the Elite Network?</h2>
             <button
               onClick={onEnterPillar1}
-              className="relative z-10 px-8 py-4 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-white font-black text-lg shadow-[0_0_30px_rgba(245,158,11,0.5)] hover:scale-105 transition-transform"
+              className="relative z-10 px-8 py-4 rounded-full bg-[#E9B949] hover:bg-[#F6E3A1] text-black font-black text-lg shadow-[0_0_30px_rgba(233,185,73,0.4)] hover:shadow-[0_0_40px_rgba(233,185,73,0.6)] hover:scale-105 transition-all duration-300"
             >
               Start Now — Enter Make Friends & Earn &rarr;
             </button>
