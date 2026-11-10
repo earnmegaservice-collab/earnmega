@@ -35,10 +35,22 @@ export default function HorpalAIPage() {
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeModeData = MODES.find(m => m.id === activeMode);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -88,10 +100,11 @@ export default function HorpalAIPage() {
   };
 
   const handleSend = async (text: string = prompt) => {
-    if (!text.trim()) return;
+    if (!text.trim() && attachedFiles.length === 0) return;
 
     const userMessage = text.trim();
     setPrompt('');
+    setAttachedFiles([]);
     const userMsgId = Date.now().toString();
     setMessages(prev => [...prev, { id: userMsgId, role: 'user', content: userMessage }]);
     setIsLoading(true);
@@ -231,8 +244,8 @@ export default function HorpalAIPage() {
       {/* Main Canvas */}
       <main className="relative z-10 flex-1 flex flex-col w-full max-w-4xl mx-auto px-4 pb-32 pt-8 overflow-y-auto overflow-x-hidden">
         {messages.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center mt-20">
-            <h1 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-br from-white via-zinc-300 to-zinc-600">
+          <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <h1 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-r from-zinc-300 via-zinc-100 to-zinc-500 animate-pulse">
               Welcome to horpal.ai
             </h1>
             <p className="text-lg text-zinc-400 mb-12">How can I elevate your workflow today?</p>
@@ -312,9 +325,35 @@ export default function HorpalAIPage() {
       {/* Floating Bottom Dock */}
       <div className="fixed bottom-0 left-0 right-0 p-4 sm:p-6 z-30 bg-gradient-to-t from-[#06070B] via-[#06070B] to-transparent pointer-events-none">
         <div className="max-w-3xl mx-auto w-full pointer-events-auto">
+
+          {attachedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2 px-2">
+              {attachedFiles.map((file, idx) => (
+                <div key={idx} className="flex items-center gap-2 bg-[#0E0F14] border border-white/10 text-zinc-300 text-xs px-3 py-1.5 rounded-full shadow-sm">
+                  <span className="truncate max-w-[120px]">{file.name}</span>
+                  <button onClick={() => removeFile(idx)} className="hover:text-white transition-colors">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="relative bg-[#111218]/80 backdrop-blur-2xl border border-white/10 rounded-[32px] p-2 shadow-2xl flex items-end gap-2 focus-within:border-white/20 focus-within:bg-[#15161C]/90 transition-all">
 
-            <button className="p-3 text-zinc-400 hover:text-white transition-colors rounded-full hover:bg-white/5 mb-1 shrink-0">
+            <input
+              type="file"
+              className="hidden"
+              ref={fileInputRef}
+              multiple
+              accept="image/*,video/*,.pdf,.txt,.doc,.docx"
+              onChange={handleFileSelect}
+            />
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-3 text-zinc-400 hover:text-white transition-colors rounded-full hover:bg-white/5 mb-1 shrink-0"
+            >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
 
