@@ -7,7 +7,7 @@ export async function POST(req: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'Magic Hour API key not configured', isText: true, content: 'Magic Hour API Key is missing on the server.' },
+        { error: 'Server missing Magic Hour API configuration.', isText: true, content: 'Server missing Magic Hour API configuration.' },
         { status: 500 }
       );
     }
