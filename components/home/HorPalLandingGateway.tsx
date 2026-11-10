@@ -287,6 +287,31 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
             </div>
             <span className="font-sans font-bold text-white text-base tracking-wide">Affiliate Marketing</span>
           </button>
+
+          <button
+            onClick={() => window.location.href = '/horpal-ai'}
+            className="group relative w-full sm:flex-1 min-h-[56px] rounded-full bg-[#0E0F14] backdrop-blur-xl flex items-center justify-center gap-3 px-6 py-3 transition-all duration-300 active:scale-[0.98] shadow-[0_0_15px_rgba(168,85,247,0.1)] hover:shadow-[0_0_25px_rgba(168,85,247,0.2)]"
+          >
+            {/* Iridescent Border Gradient Wrapper */}
+            <div className="absolute inset-0 rounded-full border border-transparent [background:linear-gradient(#0E0F14,#0E0F14)_padding-box,linear-gradient(to_right,rgba(139,92,246,0.4),rgba(6,182,212,0.4),rgba(253,230,138,0.4))_border-box]"></div>
+
+             {/* Sweep effect */}
+             <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12"></div>
+
+            <div className="w-8 h-8 rounded-full border border-purple-500/40 bg-purple-500/10 flex items-center justify-center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="url(#ai-gradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <defs>
+                  <linearGradient id="ai-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop stopColor="#a855f7" offset="0%" />
+                    <stop stopColor="#06b6d4" offset="50%" />
+                    <stop stopColor="#fde68a" offset="100%" />
+                  </linearGradient>
+                </defs>
+                <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+              </svg>
+            </div>
+            <span className="font-sans font-bold text-white text-base tracking-wide">horpal.ai</span>
+          </button>
         </div>
 
         {/* 3. LIVE SOCIAL PROOF TICKER */}
