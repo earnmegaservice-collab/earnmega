@@ -24,21 +24,28 @@ export async function POST(req: Request) {
       });
     }
 
+    let cleanPrompt = prompt.replace(/^(?:generate|create)\s+(?:an?\s+)?(?:image|video)(?:\s+of)?\s*/i, '').trim();
+    if (!cleanPrompt) {
+      cleanPrompt = "Ultra-luxury futuristic digital portrait, cinematic lighting, 8k photorealistic";
+    }
+
     // Call Magic Hour API
-    let endpoint = 'https://api.magichour.ai/v1/image-projects';
+    let endpoint = 'https://api.magichour.ai/v1/ai-image-generator';
     let bodyPayload: any = {
+      name: `Horpal AI Image - ${Date.now()}`,
+      image_count: 1,
+      orientation: 'square',
       style: {
-        image_prompt: {
-          prompt: prompt
-        }
+        prompt: cleanPrompt
       }
     };
 
     if (isVideo) {
       endpoint = 'https://api.magichour.ai/v1/video-projects';
       bodyPayload = {
+        name: `Horpal AI Video - ${Date.now()}`,
         style: {
-          prompt: prompt
+          prompt: cleanPrompt
         }
       };
     }
