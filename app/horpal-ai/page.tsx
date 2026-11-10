@@ -110,8 +110,8 @@ export default function HorpalAIPage() {
       const aiMsgId = (Date.now() + 1).toString();
 
       if (!response.ok) {
-         const errorData = await response.json();
-         setMessages(prev => [...prev, { id: aiMsgId, role: 'ai', content: errorData.content || 'An error occurred. Check if MAGIC_HOUR_API_KEY is configured.', isText: true }]);
+         const errorData = await response.json().catch(() => ({}));
+         setMessages(prev => [...prev, { id: aiMsgId, role: 'ai', content: errorData.error || errorData.content || 'An error occurred. Check if MAGIC_HOUR_API_KEY is configured.', isText: true }]);
       } else {
          const data = await response.json();
 

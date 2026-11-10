@@ -8,7 +8,7 @@ export async function GET(req: Request) {
     const apiKey = process.env.MAGIC_HOUR_API_KEY;
 
     if (!apiKey) {
-      return NextResponse.json({ error: 'Magic Hour API key not configured' }, { status: 500 });
+      return NextResponse.json({ error: 'Server missing Magic Hour API configuration.' }, { status: 500 });
     }
 
     if (!id) {
