@@ -4064,21 +4064,29 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
                            const { data: { session } } = await supabase.auth.getSession();
 
-                           const formData = new FormData();
-                           formData.append('reportedUserId', targetId);
-                           formData.append('reason', reportReason === 'Other' ? reportOtherText : reportReason);
-                           formData.append('contentType', 'user');
-                           if (session?.user?.id) formData.append('reporterId', session.user.id);
-                           if (session?.access_token) formData.append('accessToken', session.access_token);
+                           const reportPayload = {
+                              surface: isGroupChat ? 'GROUP_CHAT' : 'DIRECT_CHAT',
+                              reporterId: session?.user?.id || user.id,
+                              reportedUserId: targetId,
+                              contextId: targetId,
+                              reason: reportReason === 'Other' ? reportOtherText : reportReason,
+                              details: reportOtherText
+                           };
 
-                           const result = await submitUserReport(formData);
-
-                           if (!result.success) {
-                              toast.error(`Report Failed: ${result.error}`);
-                              console.error(result.error);
+                           try {
+                              const res = await fetch('/api/report', {
+                                 method: 'POST',
+                                 headers: { 'Content-Type': 'application/json' },
+                                 body: JSON.stringify(reportPayload)
+                              });
+                              const data = await res.json();
+                              if (!data.success) throw new Error(data.message || 'Report failed');
+                              toast.success('Report submitted to HorPal Trust & Safety.');
+                           } catch (err: any) {
+                              toast.error(`Report Failed: ${err.message}`);
+                              console.error(err);
                               return;
                            }
-                           toast.success('Report submitted securely');
 
                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
                               navigator.vibrate([50, 50, 50]);
@@ -4222,16 +4230,27 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                            if (reportOnExit) {
                                const { data: { session } } = await supabase.auth.getSession();
 
-                               const formData = new FormData();
-                               formData.append('reportedUserId', targetId);
-                               formData.append('contentType', 'group');
-                               formData.append('reason', 'Reported on exit');
-                               if (session?.user?.id) formData.append('reporterId', session.user.id);
-                               if (session?.access_token) formData.append('accessToken', session.access_token);
+                               const reportPayload = {
+                                  surface: 'GROUP_CHAT',
+                                  reporterId: session?.user?.id || user.id,
+                                  reportedUserId: targetId,
+                                  contextId: targetId,
+                                  reason: 'Reported on exit',
+                                  details: 'User reported the group upon exiting'
+                               };
 
-                               const result = await submitUserReport(formData);
-                               if (result.success) {
-                                   toast.success('Report submitted securely');
+                               try {
+                                  const res = await fetch('/api/report', {
+                                     method: 'POST',
+                                     headers: { 'Content-Type': 'application/json' },
+                                     body: JSON.stringify(reportPayload)
+                                  });
+                                  const data = await res.json();
+                                  if (data.success) {
+                                      toast.success('Report submitted to HorPal Trust & Safety.');
+                                  }
+                               } catch (err) {
+                                  console.error(err);
                                }
                            }
 
