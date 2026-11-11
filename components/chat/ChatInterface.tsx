@@ -1505,7 +1505,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   useEffect(() => {
     // For broadcast, we must use a shared channel name
-    const channel = supabase.channel('chat-events')
+    if (!user) return;
+    const channel = supabase.channel(`user_inbox_${user.id}`)
       .on('broadcast', { event: 'gift_received' }, (payload) => {
         // SECURITY GATE: Before mounting the 3D portal or inserting the receipt into the chat feed,
         // verify that the authenticated user's ID exactly matches either the sender_id or receiver_id.
@@ -1520,7 +1521,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           window.dispatchEvent(customEvent);
 
           const newMessage: Message = {
-            id: Date.now().toString(),
+            id: payload.payload.messageId || Date.now().toString(),
             text: `Received a ${payload.payload.gift_type.name} (${payload.payload.gift_type.cost} Coins)`,
             sender: 'other',
             timestamp: new Date(),
@@ -1530,13 +1531,16 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             giftCost: payload.payload.gift_type.cost,
           };
 
-          // Only add to chat feed if the current active chat is with the sender
-        if (currentOtherUserRef.current?.id === payload.payload.senderId) {
-           setMessages((prev) => {
-             // Deduplicate by ID just in case
-             if (prev.some(m => m.id === newMessage.id)) return prev;
-             return [...prev, newMessage];
-           });
+          // Strict Thread Isolation
+          const isToMe = payload.payload.receiverId === currentUserProfile?.id;
+          const isFromOtherToMe = isToMe && payload.payload.senderId === currentOtherUserRef.current?.id;
+          const isGroupMatch = payload.payload.roomId && currentOtherUserRef.current?.id === payload.payload.roomId;
+
+          if (isFromOtherToMe || isGroupMatch) {
+             setMessages((prev) => {
+               if (prev.some(m => m.id === newMessage.id)) return prev;
+               return [...prev, newMessage];
+             });
           }
         }
       })
@@ -1672,7 +1676,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [currentUserProfile?.id]);
+  }, [user?.id, currentUserProfile?.id, setMessages, setExploreUsers]);
 
   useEffect(() => {
     scrollToBottom();
@@ -2005,16 +2009,25 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       });
 
       // Notify recipient via channel to trigger read receipts or notification
-      channelRef.current?.send({
-         type: 'broadcast',
-         event: 'new_message',
-         payload: {
-            messageId: optimisticMessage.id,
-            senderId: user.id,
-            receiverId: (currentOtherUserProfile as any).isGroup ? null : currentOtherUserProfile.id,
-            roomId: (currentOtherUserProfile as any).isGroup ? currentOtherUserProfile.id : undefined
-         }
-      });
+      const targetId = (currentOtherUserProfile as any).isGroup ? currentOtherUserProfile.id : currentOtherUserProfile.id;
+      if (targetId) {
+          const tempChannel = supabase.channel(`user_inbox_${targetId}`);
+          tempChannel.subscribe((status) => {
+              if (status === 'SUBSCRIBED') {
+                  tempChannel.send({
+                      type: 'broadcast',
+                      event: 'new_message',
+                      payload: {
+                          messageId: optimisticMessage.id,
+                          senderId: user.id,
+                          receiverId: (currentOtherUserProfile as any).isGroup ? null : targetId,
+                          roomId: (currentOtherUserProfile as any).isGroup ? targetId : undefined
+                      }
+                  });
+                  setTimeout(() => supabase.removeChannel(tempChannel), 1000);
+              }
+          });
+      }
 
       if (currentOtherUserProfile.is_bot) {
         try {
@@ -2107,7 +2120,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     // We will just do the broadcast.
 
     const newMessage: Message = {
-      id: Date.now().toString(),
+      id: giftData.messageId || Date.now().toString(),
       text: `Sent a ${giftData.name} (${giftData.cost} Coins)`,
       sender: 'user',
       timestamp: new Date(),
@@ -2117,50 +2130,39 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       giftName: giftData.name,
       giftCost: giftData.cost,
     };
-    setMessages((prev) => [...prev, newMessage]);
-
-    // Insert the luxury gift receipt into the database
-    supabase.from('messages').insert({
-      id: newMessage.id,
-      sender_id: user?.id,
-      receiver_id: currentOtherUserProfile?.id,
-      content: `[GIFT:${giftData.id}:${giftData.name}:${giftData.cost}] Sent a ${giftData.name} (${giftData.cost} Coins)`,
-      message_type: 'gift',
-      status: 'sent'
-    }).then(({ error }) => {
-       if (error) console.error("Error inserting gift message", error);
-    });
-
-    supabase.from('notifications').insert({
-       user_id: currentOtherUserProfile?.id,
-       actor_id: user?.id,
-       type: 'chat_gift',
-       content: `🎁 Sent you a ${giftData.name} (${giftData.cost} Coins)`,
-       title: `${currentUserProfile?.name || 'Someone'} sent you a gift in DM`,
-       metadata: { gift_id: giftData.id, gift_name: giftData.name, gift_cost: giftData.cost, sender_id: user?.id, sender_name: currentUserProfile?.name }
-    }).then(({ error }) => {
-       if (error) console.error("Error inserting gift notification", error);
+    setMessages((prev) => {
+        if (prev.some(m => m.id === newMessage.id)) return prev;
+        return [...prev, newMessage];
     });
 
     // Trigger local animation via custom event for sender
     const customEvent = new CustomEvent('gift_received_local', { detail: { giftData: giftData, senderId: currentUserProfile?.id, receiverId: currentOtherUserProfile?.id, isSender: true } });
     window.dispatchEvent(customEvent);
 
-    // Broadcast gift event via Supabase Realtime
-    if (channelRef.current) {
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'gift_received',
-        payload: { messageId: newMessage.id, gift_type: giftData, senderId: currentUserProfile?.id, senderName: currentUserProfile?.name, senderAvatar: currentUserProfile?.avatarUrl, receiverId: currentOtherUserProfile?.id }
-      });
+    // Broadcast gift event via Supabase Realtime using a temporary receiver channel
+    if (currentOtherUserProfile?.id) {
+      const tempChannel = supabase.channel(`user_inbox_${currentOtherUserProfile.id}`);
+      tempChannel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          tempChannel.send({
+            type: 'broadcast',
+            event: 'gift_received',
+            payload: { messageId: newMessage.id, gift_type: giftData, senderId: currentUserProfile?.id, senderName: currentUserProfile?.name, senderAvatar: currentUserProfile?.avatarUrl, receiverId: (currentOtherUserProfile as any).isGroup ? null : currentOtherUserProfile?.id, roomId: (currentOtherUserProfile as any).isGroup ? currentOtherUserProfile?.id : undefined }
+          });
 
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'new_message',
-        payload: {
-           messageId: newMessage.id,
-           senderId: user?.id,
-           receiverId: currentOtherUserProfile?.id
+          tempChannel.send({
+            type: 'broadcast',
+            event: 'new_message',
+            payload: {
+               messageId: newMessage.id,
+               senderId: user?.id,
+               receiverId: currentOtherUserProfile?.id
+            }
+          });
+
+          setTimeout(() => {
+             supabase.removeChannel(tempChannel);
+          }, 1000);
         }
       });
     }

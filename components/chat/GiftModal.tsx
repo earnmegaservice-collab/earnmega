@@ -104,32 +104,36 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
         return;
       }
 
-      const { error: deductError } = GOD_MODE ? { error: null } : await supabase.rpc('deduct_coins', {
-        user_uuid: user.id,
-        deduct_amount: gift.cost,
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch('/api/chat/gift', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          senderId: user.id,
+          receiverId: recipientId,
+          giftId: gift.id,
+          giftName: gift.name,
+          giftCost: gift.cost
+        })
       });
 
-      if (deductError) {
-        console.error('Failed to deduct coins:', deductError);
-        onClose();
-        onOpenStore();
-        return;
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to send gift');
       }
 
-      // Trigger the real-time gift notification payload matching GiftOverlay listener
-      const { error: notifError } = await supabase.from('notifications').insert({
-        user_id: recipientId,
-        actor_id: user.id,
-        type: 'GIFT',
-        content: `${gift.name}|${gift.cost}`
-      });
+      const updatedGift = { ...gift, messageId: data.messageId, cost: data.giftCost || gift.cost };
 
-      if (notifError) {
-        console.error('Failed to insert gift notification:', notifError);
-      }
 
-      setBalance(prev => Math.max(0, prev - gift.cost));
-      onGiftSent(gift);
+      // Balance is handled server-side now and will update via Realtime if set up. But we update optimisticly if we want, but server sync is better.
+      // Or we let WalletContext handle it
+      onGiftSent(updatedGift);
       onClose();
     } catch (err) {
       console.error('Unexpected error sending gift:', err);
