@@ -316,21 +316,29 @@ export default function ChatList({
 
     const { data: { session } } = await supabase.auth.getSession();
 
-    const formData = new FormData();
-    formData.append('reportedUserId', targetId);
-    formData.append('reason', finalReason);
-    formData.append('contentType', 'user');
-    if (session?.user?.id) formData.append('reporterId', session.user.id);
-    if (session?.access_token) formData.append('accessToken', session.access_token);
+    const reportPayload = {
+      surface: 'DIRECT_CHAT',
+      reporterId: session?.user?.id || currentUserProfile.id,
+      reportedUserId: targetId,
+      contextId: targetId,
+      reason: finalReason,
+      details: reportDescription
+    };
 
-    const result = await submitUserReport(formData);
-
-    if (!result.success) {
-      toast.error(`Report Failed: ${result.error}`);
-      console.error(result.error);
+    try {
+      const res = await fetch('/api/report', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify(reportPayload)
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Report failed');
+      toast.success('Report submitted to HorPal Trust & Safety.');
+    } catch (err: any) {
+      toast.error(`Report Failed: ${err.message}`);
+      console.error(err);
       return;
     }
-    toast.success('Report submitted securely');
 
     toast.custom((t) => (
       <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-[#111] shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-white/10`}>

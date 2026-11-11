@@ -3690,20 +3690,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
                     try {
                       const reportData = {
-                        Platform: "HorPal Live Stream Moderation",
-                        Report_Type: "Live Stream User Report",
-                        Reason: reportCategory,
-                        Details: reportReason || "No additional notes provided",
-                        Reported_User: reportModalTarget === 'live' ? `Live Stream Host` : `${reportModalTarget.username} (ID: ${reportModalTarget.userId})`,
-                        Reported_By: `${user.username} (ID: ${user.id})`,
-                        Stream_ID: currentStream?.id || "unknown",
-                        Timestamp: new Date().toUTCString(),
+                        surface: 'LIVE_ARENA',
+                        reason: reportCategory,
+                        details: reportReason || "No additional notes provided",
+                        reportedUserId: reportModalTarget === 'live' ? currentStream?.host_id || user.id : reportModalTarget.userId,
+                        reportedUsername: reportModalTarget === 'live' ? currentStream?.host_username || user.username : reportModalTarget.username,
+                        reporterId: user.id,
+                        reporterUsername: user.username,
+                        contextId: currentStream?.id || "unknown",
                       };
 
-                      await fetch('/api/admin/action', {
+                      await fetch('/api/report', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'SUBMIT_LIVE_REPORT', payload: reportData }),
+                        body: JSON.stringify(reportData),
                         signal: controller.signal
                       });
 
@@ -3711,12 +3711,12 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                         await supabase.from('notifications').insert([{
                           user_id: user.id,
                           type: 'SYSTEM_ALERT',
-                          content: `Report submitted for ${reportData.Reported_User}`
+                          content: `Report submitted for ${reportData.reportedUsername}`
                         }]);
                       } catch (e) {}
 
                       if (reportModalTarget !== 'live') {
-                         toast.success("✅ Report submitted to HorPal Trust & Safety");
+                         toast.success("Report submitted to HorPal Trust & Safety.");
                          // Optional auto mute
                          if (!mutedUserIds.has(reportModalTarget.userId)) {
                            setMutedUserIds((prev) => new Set(prev).add(reportModalTarget.userId));
@@ -3730,7 +3730,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                            toast.success(`🔇 Also auto-muted @${reportModalTarget.username} for this live stream`);
                          }
                       } else {
-                         toast.success("✅ Report submitted to HorPal Trust & Safety");
+                         toast.success("Report submitted to HorPal Trust & Safety.");
                       }
                     } catch (err) {
                       console.error(err);

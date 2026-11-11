@@ -195,19 +195,25 @@ export default function StatusViewer({
       const user = session?.user;
       if (!user) throw new Error('Not authenticated');
 
-      const formData = new FormData();
-      formData.append('reportedUserId', status.userId);
-      formData.append('contentType', 'status');
-      formData.append('reason', 'Inappropriate Content');
-      formData.append('details', `Reported status ${status.id}`);
-      if (session?.user?.id) formData.append('reporterId', session.user.id);
-      if (session?.access_token) formData.append('accessToken', session.access_token);
+      const reportPayload = {
+         surface: 'STATUS_STORY',
+         reporterId: session?.user?.id || user.id,
+         reportedUserId: status.userId,
+         contextId: status.id,
+         contextContent: status.mediaUrl || status.textContent,
+         reason: 'Inappropriate Content',
+         details: `Reported status ${status.id}`
+      };
 
-      const result = await submitUserReport(formData);
-      if (!result.success) throw new Error(result.error);
-      toast.success('Report submitted securely');
+      const res = await fetch('/api/report', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify(reportPayload)
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Report failed');
 
-      toast.success('Report secured. Team notified.', { id: toastId });
+      toast.success('Report submitted to HorPal Trust & Safety.', { id: toastId });
       if (onHideUser) onHideUser(status.userId);
       onClose(); 
     } catch (err: any) {

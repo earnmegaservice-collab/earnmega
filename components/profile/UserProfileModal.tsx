@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Briefcase, GraduationCap, Sparkles, MessageSquare, Globe, User, Heart, X, CheckCircle, Camera } from 'lucide-react';
+import { MapPin, Briefcase, GraduationCap, Sparkles, MessageSquare, Globe, User, Heart, X, CheckCircle, Camera, MoreVertical, ShieldAlert } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 type SubscriptionTier = 'FREE' | 'PRO' | 'PREMIUM';
 
@@ -40,6 +41,12 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
   const [hasStatus, setHasStatus] = React.useState(false);
   const [currentUser, setCurrentUser] = React.useState<any>(null);
   const [fullProfile, setFullProfile] = React.useState<any>(null);
+
+  const [isReportMenuOpen, setIsReportMenuOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [reportOtherText, setReportOtherText] = useState('');
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
   React.useEffect(() => {
     import('../../utils/supabase').then(({ supabase }) => {
@@ -155,6 +162,7 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
   const uniqueTags = Array.from(new Set(tags));
 
   return (
+    <>
     <AnimatePresence>
       {isOpen && user && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[9999] bg-[#020202] overflow-y-auto overflow-x-hidden">
@@ -165,13 +173,45 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             className="relative min-h-[150vh] w-full flex flex-col pb-20"
           >
-            {/* Close Button */}
-            <button
-               onClick={onClose}
-               className="absolute top-6 right-6 w-10 h-10 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur-xl transition-colors z-[100] shadow-lg"
-            >
-               <X size={20} strokeWidth={2.5} />
-            </button>
+            {/* Top Action Buttons */}
+            <div className="absolute top-6 right-6 z-[100] flex items-center gap-3">
+              <div className="relative">
+                 <button
+                    onClick={() => setIsReportMenuOpen(!isReportMenuOpen)}
+                    className="w-10 h-10 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur-xl transition-colors shadow-lg"
+                 >
+                    <MoreVertical size={20} strokeWidth={2.5} />
+                 </button>
+
+                 <AnimatePresence>
+                    {isReportMenuOpen && (
+                       <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          className="absolute right-0 mt-2 w-48 bg-[#111] border border-white/10 rounded-2xl shadow-xl overflow-hidden py-1"
+                       >
+                          <button
+                             onClick={() => {
+                                setIsReportMenuOpen(false);
+                                setIsReportModalOpen(true);
+                             }}
+                             className="w-full px-4 py-3 text-sm font-bold text-rose-500 hover:bg-white/5 transition-colors text-left flex items-center gap-2"
+                          >
+                             <ShieldAlert size={16} /> Report User
+                          </button>
+                       </motion.div>
+                    )}
+                 </AnimatePresence>
+              </div>
+
+              <button
+                 onClick={onClose}
+                 className="w-10 h-10 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur-xl transition-colors shadow-lg"
+              >
+                 <X size={20} strokeWidth={2.5} />
+              </button>
+            </div>
 
             {/* 1. THE EDGE-TO-EDGE "AURA" HERO */}
             <div className="relative w-full h-[55vh] flex-shrink-0">
@@ -329,5 +369,109 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpgradeClick
         </motion.div>
       )}
     </AnimatePresence>
+
+    {/* Report Modal */}
+    <AnimatePresence>
+      {isReportModalOpen && (
+         <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+         >
+            <motion.div
+               initial={{ scale: 0.95, opacity: 0, y: 20 }}
+               animate={{ scale: 1, opacity: 1, y: 0 }}
+               exit={{ scale: 0.95, opacity: 0, y: 20 }}
+               className="bg-[#111] border border-white/10 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-6"
+            >
+               <div className="flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
+                     <ShieldAlert size={32} className="text-rose-500" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">Report User</h3>
+                  <p className="text-sm text-white/60 mb-6">
+                     This report will be sent to the HorPal Trust & Safety team. The user will not be notified.
+                  </p>
+               </div>
+
+               <div className="space-y-3 mb-6">
+                  {['Spam or scam', 'Inappropriate content', 'Harassment', 'Other'].map(reason => (
+                     <button
+                        key={reason}
+                        onClick={() => setReportReason(reason)}
+                        className={`w-full py-3 px-4 rounded-xl text-sm font-medium transition-all text-left ${reportReason === reason ? 'bg-rose-500 text-white border border-rose-400/50' : 'bg-white/5 text-white/70 border border-white/10 hover:bg-white/10'}`}
+                     >
+                        {reason}
+                     </button>
+                  ))}
+                  <AnimatePresence>
+                     {reportReason === 'Other' && (
+                        <motion.textarea
+                           initial={{ height: 0, opacity: 0 }}
+                           animate={{ height: '120px', opacity: 1 }}
+                           exit={{ height: 0, opacity: 0 }}
+                           value={reportOtherText}
+                           onChange={(e) => setReportOtherText(e.target.value)}
+                           className="w-full mt-4 p-4 rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-fuchsia-500 resize-none transition-all"
+                           placeholder="Type your exact reason here..."
+                        />
+                     )}
+                  </AnimatePresence>
+               </div>
+
+               <div className="flex gap-3">
+                  <button
+                     onClick={() => { setIsReportModalOpen(false); setReportReason(''); setReportOtherText(''); }}
+                     className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white font-bold transition-all text-sm"
+                  >
+                     Cancel
+                  </button>
+                  <button
+                     disabled={reportReason === "" || (reportReason === 'Other' && reportOtherText.trim() === "") || isSubmittingReport}
+                     onClick={async (e) => {
+                        e.preventDefault();
+                        if (!user || !currentUser) return;
+                        setIsSubmittingReport(true);
+
+                        const reportPayload = {
+                           surface: 'USER_PROFILE',
+                           reporterId: currentUser.id,
+                           reportedUserId: user.id,
+                           contextId: user.id,
+                           reason: reportReason === 'Other' ? reportOtherText : reportReason,
+                           details: reportOtherText || 'Reported from User Profile Modal'
+                        };
+
+                        try {
+                           const res = await fetch('/api/report', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(reportPayload)
+                           });
+                           const data = await res.json();
+                           if (!data.success) throw new Error(data.message || 'Report failed');
+
+                           toast.success('Report submitted to HorPal Trust & Safety.');
+                           setIsReportModalOpen(false);
+                           setReportReason('');
+                           setReportOtherText('');
+                        } catch (err: any) {
+                           toast.error(`Report Failed: ${err.message}`);
+                           console.error(err);
+                        } finally {
+                           setIsSubmittingReport(false);
+                        }
+                     }}
+                     className="flex-1 py-3 bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-400 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_30px_rgba(225,29,72,0.5)]"
+                  >
+                     {isSubmittingReport ? 'Submitting...' : 'Submit Report'}
+                  </button>
+               </div>
+            </motion.div>
+         </motion.div>
+      )}
+    </AnimatePresence>
+    </>
   );
 }

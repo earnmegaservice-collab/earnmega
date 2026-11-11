@@ -71,38 +71,133 @@ export async function POST(request: Request) {
 
     if (action === 'SUBMIT_LIVE_REPORT') {
       const { Platform, Report_Type, Reason, Details, Reported_User, Reported_By, Stream_ID, Timestamp } = payload;
+      let reportedUserId = typeof Reported_User === 'string' ? Reported_User.replace(/.*\(ID: (.*?)\).*/, '$1') : Reported_User;
+      if (reportedUserId === Reported_User && Reported_User === 'Live Stream Host') {
+        reportedUserId = 'host';
+      }
+      let reporterId = typeof Reported_By === 'string' ? Reported_By.replace(/.*\(ID: (.*?)\).*/, '$1') : Reported_By;
 
-      try {
-        await supabase.from('reports').insert([{
-          type: Report_Type,
-          reason: Reason,
-          details: Details,
-          target_user: Reported_User,
-          reporter: Reported_By,
-          stream_id: Stream_ID
-        }]);
-      } catch (err) {}
+      let finalReporterName = reporterId || 'Unknown Reporter';
+      let finalReporterEmail = 'No email provided';
+      let finalReportedName = reportedUserId || 'Unknown User';
+      let finalReportedEmail = 'No email provided';
+
+      let reporterPaid = false;
+      let reporterVerified = false;
+      let reporterCoins = 0;
+
+      let reportedPaid = false;
+      let reportedVerified = false;
+      let reportedCoins = 0;
+
+      if (adminSupabase) {
+          // 1. Fetch Reporter details
+          if (reporterId && !reporterId.startsWith('unknown')) {
+              const { data: reporterProfile } = await adminSupabase.from('profiles').select('*').eq('id', reporterId).maybeSingle();
+              if (reporterProfile) {
+                  finalReporterName = reporterProfile.username || reporterProfile.full_name || reporterProfile.name || finalReporterName;
+                  finalReporterEmail = reporterProfile.email || finalReporterEmail;
+              }
+          }
+
+          // 2. Fetch Reported User details
+          if (reportedUserId && !reportedUserId.startsWith('unknown') && reportedUserId !== 'host') {
+              const { data: reportedProfile } = await adminSupabase.from('profiles').select('*').eq('id', reportedUserId).maybeSingle();
+              if (reportedProfile) {
+                  finalReportedName = reportedProfile.username || reportedProfile.full_name || reportedProfile.name || finalReportedName;
+                  finalReportedEmail = reportedProfile.email || finalReportedEmail;
+
+                  reportedPaid = reportedProfile.is_paid || false;
+                  reportedVerified = reportedProfile.is_verified || false;
+                  reportedCoins = reportedProfile.coin_balance || 0;
+              }
+          }
+
+          // 3. Save to reports table
+          try {
+              await adminSupabase.from('reports').insert([{
+                  type: 'LIVE_ARENA',
+                  reason: Reason,
+                  details: Details,
+                  target_user: reportedUserId || finalReportedName,
+                  reporter: reporterId || finalReporterName,
+                  stream_id: Stream_ID
+              }]);
+          } catch (err) {}
+      }
 
       if (resend) {
-        await resend.emails.send({
-          from: 'HorPal Trust & Safety <safety@horpal.com>',
-          to: process.env.ADMIN_CONTACT_EMAIL || 'earnmegaservice@gmail.com',
-          subject: `🚨 HorPal Live Report: ${Reported_User} (${Reason})`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #050811; color: #fff; padding: 20px; border: 1px solid #ef4444; border-radius: 8px;">
-              <h2 style="color: #ef4444; text-align: center; text-transform: uppercase;">🚨 NEW TRUST & SAFETY REPORT</h2>
-              <div style="background-color: #1a0f14; padding: 15px; border-left: 4px solid #ef4444; margin: 20px 0;">
-                <p><strong>Reported User:</strong> ${Reported_User}</p>
-                <p><strong>Reason:</strong> ${Reason}</p>
-                <p><strong>Details:</strong> ${Details}</p>
-                <p><strong>Reported By:</strong> ${Reported_By}</p>
-                <p><strong>Stream ID:</strong> ${Stream_ID}</p>
-                <p><strong>Timestamp:</strong> ${Timestamp}</p>
-                <p><strong>Platform:</strong> ${Platform} (${Report_Type})</p>
+          const adminEmail = process.env.ADMIN_CONTACT_EMAIL || 'earnmegaservice@gmail.com';
+          const fromEmail = process.env.RESEND_FROM_EMAIL || 'HorPal Trust & Safety <onboarding@resend.dev>';
+          const timestamp = new Date().toISOString();
+
+          const htmlBody = `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #050811; color: #fff; padding: 20px; border: 1px solid #ef4444; border-radius: 8px;">
+                  <h2 style="color: #ef4444; text-align: center; text-transform: uppercase;">🚨 NEW TRUST & SAFETY REPORT</h2>
+
+                  <div style="background-color: #1a0f14; padding: 15px; border-left: 4px solid #ef4444; margin: 20px 0;">
+                      <h3 style="color: #ef4444; margin-top: 0;">1. REPORT SUMMARY & LOCATION</h3>
+                      <p><strong>Pillar / Surface:</strong> LIVE_ARENA</p>
+                      <p><strong>Reason / Category:</strong> ${Reason}</p>
+                      <p><strong>Details / Message:</strong> ${Details || 'None provided'}</p>
+                      <p><strong>Context / Content ID:</strong> ${Stream_ID || 'N/A'}</p>
+                      <p><strong>Timestamp:</strong> ${timestamp}</p>
+                  </div>
+
+                  <div style="background-color: #1a0f14; padding: 15px; border-left: 4px solid #f59e0b; margin: 20px 0;">
+                      <h3 style="color: #f59e0b; margin-top: 0;">2. REPORTED PERSON'S ACCOUNT DETAILS</h3>
+                      <p><strong>Username:</strong> @${finalReportedName}</p>
+                      <p><strong>Email:</strong> ${finalReportedEmail}</p>
+                      <p><strong>User ID:</strong> ${reportedUserId || 'N/A'}</p>
+                      <p><strong>Account Status:</strong> ${reportedPaid ? 'Paid' : 'Unpaid'}, ${reportedVerified ? 'Verified' : 'Unverified'}, ${reportedCoins} Coins</p>
+                  </div>
+
+                  <div style="background-color: #1a0f14; padding: 15px; border-left: 4px solid #3b82f6; margin: 20px 0;">
+                      <h3 style="color: #3b82f6; margin-top: 0;">3. REPORTER'S ACCOUNT DETAILS</h3>
+                      <p><strong>Username:</strong> @${finalReporterName}</p>
+                      <p><strong>Email:</strong> ${finalReporterEmail}</p>
+                      <p><strong>User ID:</strong> ${reporterId || 'N/A'}</p>
+                  </div>
+
+                  <div style="text-align: center; margin: 30px 0;">
+                      <h3 style="color: #ef4444; margin-bottom: 10px;">4. QUICK ADMIN ACTION</h3>
+                      <a href="https://horpal.com/geemings-command-x9v2" style="background-color: #ef4444; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Open Command Center</a>
+                  </div>
               </div>
-            </div>
-          `
-        });
+          `;
+
+          const textBody = `
+🚨 NEW TRUST & SAFETY REPORT
+
+1. REPORT SUMMARY & LOCATION
+Pillar / Surface: LIVE_ARENA
+Reason / Category: ${Reason}
+Details / Message: ${Details || 'None provided'}
+Context / Content ID: ${Stream_ID || 'N/A'}
+Timestamp: ${timestamp}
+
+2. REPORTED PERSON'S ACCOUNT DETAILS
+Username: @${finalReportedName}
+Email: ${finalReportedEmail}
+User ID: ${reportedUserId || 'N/A'}
+Account Status: ${reportedPaid ? 'Paid' : 'Unpaid'}, ${reportedVerified ? 'Verified' : 'Unverified'}, ${reportedCoins} Coins
+
+3. REPORTER'S ACCOUNT DETAILS
+Username: @${finalReporterName}
+Email: ${finalReporterEmail}
+User ID: ${reporterId || 'N/A'}
+
+4. QUICK ADMIN ACTION
+Open Command Center: https://horpal.com/geemings-command-x9v2
+          `;
+
+          await resend.emails.send({
+              from: fromEmail,
+              to: adminEmail,
+              subject: `🚨 [HorPal Pillar 1 Report - LIVE_ARENA] @${finalReportedName} reported by @${finalReporterName} (${Reason})`,
+              html: htmlBody,
+              text: textBody
+          });
       }
       return NextResponse.json({ success: true, message: 'Report submitted successfully' });
     }
