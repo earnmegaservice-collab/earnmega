@@ -969,14 +969,35 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     if (currentOtherUserProfile === null) {
       const fetchExploreUsers = async () => {
         if (!user) return;
+
+        try {
+            const cachedChats = localStorage.getItem(`horpal_cached_chat_list_${user.id}`);
+            if (cachedChats) {
+                const parsed = JSON.parse(cachedChats);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setExploreUsers(parsed);
+                }
+            }
+        } catch (e) {}
+
         setIsChatsLoading(true);
         setChatsFetchError(null);
         try {
-          // 1. Fetch Groups the user is part of
-          const { data: roomsData, error: roomsError } = await supabase
+          // 1. Fetch Groups the user is part of & Direct Messages concurrently
+          const [roomsResult, chatsResult] = await Promise.all([
+            supabase
               .from('room_participants')
-              .select('room_id, is_deleted, rooms ( id, name, created_at )')
-              .eq('user_id', user.id);
+              .select('room_id, is_deleted, rooms ( id, name, created_at, updated_at )')
+              .eq('user_id', user.id),
+            supabase
+              .from('chats')
+              .select('id, user1_id, user2_id, updated_at, unread_count, latest_message_id, user1:profiles!chats_user1_id_fkey(*), user2:profiles!chats_user2_id_fkey(*)')
+              .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+              .order('updated_at', { ascending: false })
+          ]);
+
+          const { data: roomsData, error: roomsError } = roomsResult;
+          const { data: chatsData, error: chatsError } = chatsResult;
 
           if (roomsError) throw roomsError;
 
@@ -1007,7 +1028,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                    isSelf: false,
                    isGroup: true,
                    unreadCount: 0,
-                   lastMessageTime: 0
+                   lastMessageTime: new Date(gm?.rooms?.updated_at || gm?.rooms?.created_at || 0).getTime()
                  });
                } catch (err) {
                  console.warn("Failed to parse group row", err);
@@ -1015,13 +1036,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             });
 
           const roomsFormatted = Array.from(new Map(rawGroups.map(r => [r.id, r])).values());
-
-          // 2. Fetch Direct Messages (chats)
-          const { data: chatsData, error: chatsError } = await supabase
-            .from('chats')
-            .select('id, user1_id, user2_id, updated_at, unread_count, latest_message_id, user1:profiles!chats_user1_id_fkey(*), user2:profiles!chats_user2_id_fkey(*)')
-            .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
-            .order('updated_at', { ascending: false });
 
           const statsMap = new Map<string, { unreadCount: number, lastMessageTime: number }>();
           let formattedProfiles: UserProfileDetails[] = [];
@@ -1034,9 +1048,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
                 const otherUser = chat?.user1_id === user.id ? user2Obj : user1Obj;
                 if (otherUser && otherUser.id && !localDeletedRooms.includes(otherUser.id)) {
+                    const time = chat?.updated_at ? new Date(chat.updated_at).getTime() : 0;
                     statsMap.set(otherUser.id, {
-                        unreadCount: 0,
-                        lastMessageTime: 0
+                        unreadCount: chat?.unread_count || 0,
+                        lastMessageTime: time
                     });
                     const displayName = otherUser.username || otherUser.name || 'User';
                     formattedProfiles.push({
@@ -1050,8 +1065,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                         isOnline: onlineUsers.has(otherUser.id),
                         coinsGifted: otherUser.coins_gifted || 0,
                         isSelf: false,
-                        unreadCount: 0,
-                        lastMessageTime: 0,
+                        unreadCount: chat?.unread_count || 0,
+                        lastMessageTime: time,
                         isVerified: Boolean(otherUser.is_verified)
                     });
                 }
@@ -1061,77 +1076,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             });
           }
 
-          // 3. Fetch Unread Counters and Latest Message Time for Groups and DMs correctly
-          const groupIds = roomsFormatted.map(g => g.id);
-          let allTargetIds = [...groupIds];
-          if (formattedProfiles.length > 0) {
-              allTargetIds = [...allTargetIds, ...formattedProfiles.map(p => p.id)];
-          }
-
-          if (allTargetIds.length > 0) {
-              const { data: messagesData, error: msgError } = await supabase
-                .from('messages')
-                .select('id, sender_id, receiver_id, room_id, created_at, status, is_read, content')
-                .or(`room_id.in.(${groupIds.join(',')}),and(room_id.is.null,or(sender_id.eq.${user.id},receiver_id.eq.${user.id}))`)
-                .order('created_at', { ascending: false })
-                .limit(1000);
-
-              if (!msgError && messagesData) {
-                // Keep track of group config updates for avatars
-                const latestConfigs = new Map<string, any>();
-
-                messagesData.forEach(msg => {
-                  let targetId = msg.room_id;
-                  if (!targetId) {
-                      targetId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
-                  }
-                  if (!targetId) return;
-
-                  const time = new Date(msg.created_at).getTime();
-                  const isConfigMsg = typeof msg.content === 'string' && msg.content.startsWith('[GROUP_CONFIG_JSON]');
-
-                  if (isConfigMsg && msg.room_id) {
-                      if (!latestConfigs.has(targetId)) {
-                          try {
-                              const conf = JSON.parse(msg.content.replace('[GROUP_CONFIG_JSON]', ''));
-                              latestConfigs.set(targetId, conf);
-                          } catch (e) {}
-                      }
-                  }
-
-                  const isUnread = !isConfigMsg && msg.sender_id !== user.id && (time > Number(localStorage.getItem(`earnmega_last_read_${user.id}_${targetId}`) || 0)) && (msg.is_read === false || (msg.is_read == null && msg.status !== 'read'));
-
-                  if (!statsMap.has(targetId)) {
-                    statsMap.set(targetId, { unreadCount: 0, lastMessageTime: 0 });
-                  }
-
-                  const stats = statsMap.get(targetId)!;
-                  if (!isConfigMsg) {
-                      stats.lastMessageTime = Math.max(stats.lastMessageTime, time);
-                  }
-
-                  if (isUnread) {
-                    stats.unreadCount += 1;
-                  }
-                });
-
-                roomsFormatted.forEach(room => {
-                    const conf = latestConfigs.get(room.id);
-                    if (conf && conf.avatar_url) {
-                        room.avatarUrl = conf.avatar_url;
-                    } else if (conf && conf.name) {
-                        room.name = conf.name;
-                    }
-                });
-                if (isGroupChat && latestConfigs.has(currentOtherUserProfile.id)) {
-                     // Pass latest permissions to state for the lock banner
-                     const conf = latestConfigs.get(currentOtherUserProfile.id);
-                     setGroupDetails(prev => ({ ...prev, ...conf }));
-                }
-              }
-          }
-
-          // 4. Fallback for new users (Discovery)
+          // Fallback for new users (Discovery)
           if (formattedProfiles.length === 0) {
               const { data: defaultProfiles, error: defaultError } = await supabase
                 .from('profiles')
@@ -1220,6 +1165,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
           // Sort strictly by lastMessageTime DESCENDING
           allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+
+          try {
+              localStorage.setItem(`horpal_cached_chat_list_${user.id}`, JSON.stringify(allUsers));
+          } catch (e) {}
 
           console.info("[CHAT LIST] Hydrated Chats:", allUsers);
           setExploreUsers(allUsers);

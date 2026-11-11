@@ -1,6 +1,5 @@
-1.  **Add Chat History Logging:** Use `replace_with_git_merge_diff` on `context/CallContext.tsx` to restore the `supabase.from('messages').insert` logic. For outgoing calls (`executeInitiateCall`), insert a `call_started` system message. For ended calls (`endCallSession`), insert either a `missed_call` or `completed_call` message (using `call_started` as the `message_type` to match `ChatInterface.tsx` parsing) containing the call duration if applicable.
-2.  **Fix Video Toggle State Update:** Use `replace_with_git_merge_diff` on `context/CallContext.tsx` to update the `toggleVideo` function so it also calls `setCallType('video')` or `'audio'` appropriately so the UI transitions correctly when upgrading an audio call to a video call mid-call.
-3.  **Clean up remaining script:** Run `rm patch_chat_buttons.js` (if it exists) to ensure a completely clean directory.
-4.  **Verify modifications:** Run `npx tsc --noEmit`.
-5.  **Final Build Test:** Run `npm run build`.
-6.  **Complete pre-commit steps:** Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
+1. Modify `fetchExploreUsers` to first check for locally cached chat list using `localStorage.getItem(\`horpal_cached_chat_list_${user.id}\`)` and set the state immediately with `setExploreUsers` if the cache exists, enabling instant initial render.
+2. Remove the heavy `supabase.from('messages')` query. Currently it selects up to 1000 rows across group IDs and computes unread count and latest config.
+3. Instead of fetching all the raw messages for unread count, rely on the `unread_count` provided by the `chats` table. The `chats` table is already returning `updated_at` (used for `lastMessageTime`) and `unread_count`. For group chats we might just set it to 0 or use existing counts if supported by a separate mechanism (or skip for groups as per common behavior, but the request says we can rely on `chats` and `rooms` tables or local activity).
+4. Run `roomsData` and `chatsData` queries concurrently using `Promise.all` rather than sequentially.
+5. Cache the final formatted result to `localStorage.setItem(\`horpal_cached_chat_list_${user.id}\`, JSON.stringify(allUsers))` before setting state `setExploreUsers(allUsers)`.
