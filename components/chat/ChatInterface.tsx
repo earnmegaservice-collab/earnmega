@@ -974,23 +974,34 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
              localDeletedRooms = JSON.parse(localStorage.getItem(`earnmega_deleted_rooms_${user.id}`) || '[]');
           } catch(e) {}
 
-          let rawGroups = (roomsData || [])
-            .filter(gm => gm.is_deleted !== true && gm.rooms != null && !localDeletedRooms.includes(gm.room_id))
-            .map((gm: any) => ({
-               id: gm.rooms?.id,
-               name: gm.rooms?.name || "Unknown Group",
-               avatarInitials: (gm.rooms?.name?.[0] || "G").toUpperCase() + (gm.rooms?.name?.[1] || "R").toUpperCase(),
-               avatarUrl: undefined as string | undefined,
-               bio: 'Group Chat',
-               joinDate: new Date(gm.rooms?.created_at || Date.now()).toLocaleDateString(),
-               tier: 'FREE' as const,
-               isOnline: true,
-               coinsGifted: 0,
-               isSelf: false,
-               isGroup: true,
-               unreadCount: 0,
-               lastMessageTime: 0
-            }));
+          let rawGroups: any[] = [];
+          (roomsData || [])
+            .filter((gm: any) => gm?.is_deleted !== true && gm?.rooms != null && !localDeletedRooms.includes(gm?.room_id))
+            .forEach((gm: any) => {
+               try {
+                 const nameStr = gm?.rooms?.name || "Unknown Group";
+                 const firstChar = nameStr[0] || "G";
+                 const secondChar = nameStr[1] || "R";
+                 const avatarInitials = firstChar.toUpperCase() + secondChar.toUpperCase();
+                 rawGroups.push({
+                   id: gm?.rooms?.id,
+                   name: nameStr,
+                   avatarInitials: avatarInitials,
+                   avatarUrl: undefined as string | undefined,
+                   bio: 'Group Chat',
+                   joinDate: new Date(gm?.rooms?.created_at || Date.now()).toLocaleDateString(),
+                   tier: 'FREE' as const,
+                   isOnline: true,
+                   coinsGifted: 0,
+                   isSelf: false,
+                   isGroup: true,
+                   unreadCount: 0,
+                   lastMessageTime: 0
+                 });
+               } catch (err) {
+                 console.warn("Failed to parse group row", err);
+               }
+            });
 
           const roomsFormatted = Array.from(new Map(rawGroups.map(r => [r.id, r])).values());
 
@@ -1005,31 +1016,36 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           let formattedProfiles: UserProfileDetails[] = [];
 
           if (chatsData && chatsData.length > 0) {
-            chatsData.forEach(chat => {
-              const user1Obj = Array.isArray(chat.user1) ? chat.user1[0] : chat.user1;
-              const user2Obj = Array.isArray(chat.user2) ? chat.user2[0] : chat.user2;
+            chatsData.forEach((chat: any) => {
+              try {
+                const user1Obj = Array.isArray(chat?.user1) ? chat.user1[0] : chat?.user1;
+                const user2Obj = Array.isArray(chat?.user2) ? chat.user2[0] : chat?.user2;
 
-              const otherUser = chat.user1_id === user.id ? user2Obj : user1Obj;
-              if (otherUser && !localDeletedRooms.includes(otherUser.id)) {
-                  statsMap.set(otherUser.id, {
-                      unreadCount: 0,
-                      lastMessageTime: 0
-                  });
-                  formattedProfiles.push({
-                      id: otherUser.id,
-                      name: otherUser.username || otherUser.name || 'User',
-                      avatarInitials: (otherUser.username || otherUser.name || 'U').substring(0, 2).toUpperCase(),
-                      avatarUrl: otherUser.avatar_url,
-                      bio: otherUser.bio || 'HorPal user',
-                      joinDate: otherUser.created_at ? new Date(otherUser.created_at).toLocaleDateString() : 'Unknown',
-                      tier: otherUser.subscription_tier || 'FREE',
-                      isOnline: onlineUsers.has(otherUser.id),
-                      coinsGifted: otherUser.coins_gifted || 0,
-                      isSelf: false,
-                      unreadCount: 0,
-                      lastMessageTime: 0,
-                      isVerified: otherUser.is_verified || false
-                  });
+                const otherUser = chat?.user1_id === user.id ? user2Obj : user1Obj;
+                if (otherUser && otherUser.id && !localDeletedRooms.includes(otherUser.id)) {
+                    statsMap.set(otherUser.id, {
+                        unreadCount: 0,
+                        lastMessageTime: 0
+                    });
+                    const displayName = otherUser.username || otherUser.name || 'User';
+                    formattedProfiles.push({
+                        id: otherUser.id,
+                        name: displayName,
+                        avatarInitials: displayName.substring(0, 2).toUpperCase(),
+                        avatarUrl: otherUser.avatar_url,
+                        bio: otherUser.bio || 'HorPal user',
+                        joinDate: otherUser.created_at ? new Date(otherUser.created_at).toLocaleDateString() : 'Unknown',
+                        tier: otherUser.subscription_tier || 'FREE',
+                        isOnline: onlineUsers.has(otherUser.id),
+                        coinsGifted: otherUser.coins_gifted || 0,
+                        isSelf: false,
+                        unreadCount: 0,
+                        lastMessageTime: 0,
+                        isVerified: Boolean(otherUser.is_verified)
+                    });
+                }
+              } catch (err) {
+                console.warn("Failed to parse chat row", err);
               }
             });
           }
@@ -2515,7 +2531,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             )}
 
             {activeTab === 'chats' && (
-              <div className="h-full relative">
+              <div className={`h-full relative ${selectedProfile || currentOtherUserProfile ? 'hidden md:block md:w-1/3 border-r border-white/5' : 'flex w-full'}`}>
                 <ChatList
                   exploreUsers={exploreUsers}
                   chats={exploreUsers}
