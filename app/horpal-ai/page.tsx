@@ -132,6 +132,7 @@ export default function HorpalAIPage() {
             setMessages(prev => [...prev, { id: aiMsgId, role: 'ai', content: data.content, isText: true }]);
          } else {
             // It's a media job
+            const isFallback = data.id?.startsWith('fallback-');
             setMessages(prev => [...prev, {
               id: aiMsgId,
               role: 'ai',
@@ -139,10 +140,11 @@ export default function HorpalAIPage() {
               isText: false,
               jobId: data.id,
               jobType: data.type,
-              mediaStatus: 'pending'
+              mediaStatus: isFallback ? 'completed' : 'pending',
+              mediaUrl: isFallback ? data.instantUrl : undefined
             }]);
 
-            if (data.id) {
+            if (data.id && !isFallback) {
                pollJobStatus(data.id, data.type, aiMsgId);
             }
          }
@@ -385,7 +387,7 @@ export default function HorpalAIPage() {
                 }
               }}
               placeholder="Ask horpal.ai anything or describe what to create..."
-              className="flex-1 max-h-48 min-h-[44px] bg-transparent resize-none outline-none text-zinc-100 py-3 px-2 placeholder:text-zinc-500 text-[15px] leading-relaxed"
+              className="flex-1 max-h-48 min-h-[44px] bg-transparent resize-none outline-none text-zinc-100 py-3 px-2 placeholder:text-zinc-500 text-[14px] leading-snug"
               rows={1}
             />
 
