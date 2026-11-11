@@ -81,13 +81,13 @@ export default function HorpalAIPage() {
         const res = await fetch(`/api/horpal-ai/poll?id=${jobId}&type=${type}`);
         if (res.ok) {
           const data = await res.json();
-          if (data.status === 'completed' || data.status === 'success') {
-            const mediaUrl = type === 'video' ? data.video_url : data.image_url;
+          if (data.status === 'complete' || data.status === 'completed' || data.status === 'success') {
+            const mediaUrl = data.url;
             setMessages(prev => prev.map(m => m.id === msgId ? { ...m, mediaStatus: 'completed', mediaUrl, content: 'Media generated successfully.' } : m));
             clearInterval(pollInterval);
             delete activeIntervals.current[jobId];
-          } else if (data.status === 'failed' || data.status === 'error') {
-             setMessages(prev => prev.map(m => m.id === msgId ? { ...m, mediaStatus: 'failed', content: 'Failed to generate media.' } : m));
+          } else if (data.status === 'failed' || data.status === 'error' || data.error) {
+             setMessages(prev => prev.map(m => m.id === msgId ? { ...m, mediaStatus: 'failed', content: 'Failed to generate media. ' + (data.error || '') } : m));
              clearInterval(pollInterval);
              delete activeIntervals.current[jobId];
           }
@@ -95,7 +95,7 @@ export default function HorpalAIPage() {
       } catch (err) {
          console.error("Polling error", err);
       }
-    }, 5000);
+    }, 3000);
     activeIntervals.current[jobId] = pollInterval;
   };
 
@@ -132,6 +132,7 @@ export default function HorpalAIPage() {
             setMessages(prev => [...prev, { id: aiMsgId, role: 'ai', content: data.content, isText: true }]);
          } else {
             // It's a media job
+            const isFallback = data.id?.startsWith('fallback-');
             setMessages(prev => [...prev, {
               id: aiMsgId,
               role: 'ai',
@@ -139,10 +140,11 @@ export default function HorpalAIPage() {
               isText: false,
               jobId: data.id,
               jobType: data.type,
-              mediaStatus: 'pending'
+              mediaStatus: isFallback ? 'completed' : 'pending',
+              mediaUrl: isFallback ? data.instantUrl : undefined
             }]);
 
-            if (data.id) {
+            if (data.id && !isFallback) {
                pollJobStatus(data.id, data.type, aiMsgId);
             }
          }
@@ -286,7 +288,7 @@ export default function HorpalAIPage() {
                   {msg.mediaStatus === 'pending' && (
                      <div className="mt-4 flex items-center gap-3 text-sm text-zinc-400">
                         <div className="w-4 h-4 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin"></div>
-                        Generating {msg.jobType}...
+                        horpal.ai is rendering your media...
                      </div>
                   )}
 
@@ -295,11 +297,25 @@ export default function HorpalAIPage() {
                         {msg.jobType === 'image' ? (
                           <img src={msg.mediaUrl} alt="Generated UI" className="w-full h-auto object-cover max-h-96" />
                         ) : (
-                          <video src={msg.mediaUrl} controls className="w-full h-auto max-h-96" />
+                          <video src={msg.mediaUrl} controls autoPlay loop playsInline className="w-full h-auto max-h-96" />
                         )}
-                        <a href={msg.mediaUrl} download="generated-media" target="_blank" rel="noopener noreferrer" className="absolute bottom-3 right-3 p-2 bg-black/60 backdrop-blur-md rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={async () => {
+                           try {
+                             const res = await fetch(msg.mediaUrl!);
+                             const blob = await res.blob();
+                             const url = URL.createObjectURL(blob);
+                             const a = document.createElement('a');
+                             a.href = url;
+                             a.download = msg.jobType === 'video' ? 'generated-video.mp4' : 'generated-image.png';
+                             a.click();
+                             URL.revokeObjectURL(url);
+                           } catch (e) {
+                             console.error('Download failed', e);
+                             window.open(msg.mediaUrl, '_blank');
+                           }
+                        }} className="absolute bottom-3 right-3 p-2 bg-black/60 backdrop-blur-md rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity">
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                        </a>
+                        </button>
                      </div>
                   )}
                 </div>
@@ -371,7 +387,7 @@ export default function HorpalAIPage() {
                 }
               }}
               placeholder="Ask horpal.ai anything or describe what to create..."
-              className="flex-1 max-h-48 min-h-[44px] bg-transparent resize-none outline-none text-zinc-100 py-3 px-2 placeholder:text-zinc-500 text-[15px] leading-relaxed"
+              className="flex-1 max-h-48 min-h-[44px] bg-transparent resize-none outline-none text-zinc-100 py-3 px-2 placeholder:text-zinc-500 text-[14px] leading-snug"
               rows={1}
             />
 

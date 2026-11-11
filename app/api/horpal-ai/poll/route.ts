@@ -34,7 +34,11 @@ export async function GET(req: Request) {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json({
+       status: data.status,
+       url: data.downloads?.[0]?.url || null,
+       error: data.error || null
+    });
 
   } catch (error) {
     console.error('Error polling horpal-ai:', error);
