@@ -73,25 +73,24 @@ export async function POST(request: Request) {
       const { Platform, Report_Type, Reason, Details, Reported_User, Reported_By, Stream_ID, Timestamp } = payload;
 
       try {
-        await supabase.from('reports').insert([{
-          type: Report_Type,
+        await adminSupabase.from('reports').insert([{
+          content_type: 'live',
           reason: Reason,
           details: Details,
-          target_user: Reported_User,
-          reporter: Reported_By,
-          stream_id: Stream_ID
+          reported_user_id: Reported_User,
+          reporter_id: Reported_By,
         }]);
       } catch (err) {}
 
-      if (resend) {
+      if (resend && process.env.ADMIN_CONTACT_EMAIL) {
         await resend.emails.send({
-          from: 'HorPal Trust & Safety <safety@horpal.com>',
+          from: 'trust-pipeline@resend.dev',
           to: process.env.ADMIN_CONTACT_EMAIL || 'earnmegaservice@gmail.com',
-          subject: `🚨 HorPal Live Report: ${Reported_User} (${Reason})`,
+          subject: `[HorPal Trust & Safety] Live Report against ${Reported_User}`,
           html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #050811; color: #fff; padding: 20px; border: 1px solid #ef4444; border-radius: 8px;">
-              <h2 style="color: #ef4444; text-align: center; text-transform: uppercase;">🚨 NEW TRUST & SAFETY REPORT</h2>
-              <div style="background-color: #1a0f14; padding: 15px; border-left: 4px solid #ef4444; margin: 20px 0;">
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #09090b; color: #fff; padding: 20px; border: 1px solid #27272a; border-radius: 8px;">
+              <h2 style="color: #fbbf24; text-align: center; text-transform: uppercase;">🚨 NEW LIVE REPORT</h2>
+              <div style="background-color: #18181b; padding: 15px; border-left: 4px solid #ef4444; margin: 20px 0;">
                 <p><strong>Reported User:</strong> ${Reported_User}</p>
                 <p><strong>Reason:</strong> ${Reason}</p>
                 <p><strong>Details:</strong> ${Details}</p>

@@ -462,6 +462,19 @@ export default function ChatList({
       {TopBar}
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden w-full pb-20 scrollbar-hide">
+        {isLoading ? (
+            <div className="flex flex-col w-full px-4 pt-4 gap-4">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="flex items-center space-x-4 animate-pulse">
+                  <div className="w-14 h-14 bg-white/5 rounded-full shrink-0"></div>
+                  <div className="flex-1 space-y-3 py-1">
+                    <div className="h-3 bg-white/5 rounded w-3/4"></div>
+                    <div className="h-2 bg-white/5 rounded w-1/2"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+        ) : (
         <AnimatePresence>
           {sortedUsers.map((u, i) => {
             // STRICT FAKE PREMIUM TAG NUKE
@@ -649,6 +662,7 @@ export default function ChatList({
             );
           })}
         </AnimatePresence>
+        )}
       </div>
 
       {/* --- WHATSAPP-STYLE 4K HD AVATAR VIEWER --- */}
