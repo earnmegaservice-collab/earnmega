@@ -287,7 +287,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
      );
   }
 
-  if (message.messageType === 'completed_call') {
+  if ((message.messageType as any) === 'completed_call') {
 
   return (
         <div className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 backdrop-blur-md w-72 my-1">
@@ -301,7 +301,7 @@ export const renderMessageContent = (message: any, currentUserId: string) => {
         </div>
      );
   }
-    if (message.messageType === 'missed_call') {
+    if ((message.messageType as any) === 'missed_call') {
 
   return (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between p-4 rounded-3xl bg-rose-950/40 border border-rose-500/40 w-80 my-2 backdrop-blur-xl shadow-lg">
@@ -390,9 +390,20 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
            joinCall?.(e.detail.roomId, e.detail.type || 'video');
        }
     };
+    const handleInitiateCall = (e: CustomEvent) => {
+       if (e.detail && e.detail.id) {
+           // We might not have the full profile here, but we can initiate with just ID
+           // Ideally we'd fetch it, but initiateCall can handle partial data
+           initiateCall(e.detail.id, 'User', undefined, e.detail.type || 'audio', false);
+       }
+    };
     window.addEventListener('join_call', handleJoinCall as EventListener);
-    return () => window.removeEventListener('join_call', handleJoinCall as EventListener);
-  }, [joinCall]);
+    window.addEventListener('initiate_call', handleInitiateCall as EventListener);
+    return () => {
+        window.removeEventListener('join_call', handleJoinCall as EventListener);
+        window.removeEventListener('initiate_call', handleInitiateCall as EventListener);
+    };
+  }, [joinCall, initiateCall]);
 
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
@@ -1303,8 +1314,8 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               replyToId,
               replyToSender,
               replyToText,
-              isSystemMessage: msg.message_type === 'system' || msg.is_system_message === true || false,
-              messageType: messageType as any,
+              isSystemMessage: msg.message_type === 'system' || msg.message_type === 'call_started' || msg.is_system_message === true || false,
+              messageType: (msg.message_type === 'call_started' && msg.content?.includes('missed')) ? 'missed_call' : (msg.message_type === 'call_started' ? 'completed_call' : messageType) as any,
               giftName,
               giftCost,
               systemEventType: msg.system_event_type || null,
@@ -3038,30 +3049,26 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             <>
               <button onClick={() => {
                 if (currentOtherUserProfile) {
-                  const roomId = `call_${uuidv4()}`;
-                  // Broadcast to receivers
-                  supabase.channel('public:calls').send({
-                     type: 'broadcast',
-                     event: 'INCOMING_CALL',
-                     payload: { roomId, callerName: currentUserProfile?.name, callerAvatar: currentUserProfile?.avatarUrl, callType: 'audio', receiverId: currentOtherUserProfile.id }
-                  });
-                  // Local event
-                  window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: { roomId, callType: 'audio' } }));
+                  initiateCall(
+                    currentOtherUserProfile.id,
+                    currentOtherUserProfile.name || currentOtherUserProfile.name,
+                    currentOtherUserProfile.avatarUrl,
+                    'audio',
+                    false
+                  );
                 }
               }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10">
                  <Phone size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
               <button onClick={() => {
                 if (currentOtherUserProfile) {
-                  const roomId = `call_${uuidv4()}`;
-                  // Broadcast to receivers
-                  supabase.channel('public:calls').send({
-                     type: 'broadcast',
-                     event: 'INCOMING_CALL',
-                     payload: { roomId, callerName: currentUserProfile?.name, callerAvatar: currentUserProfile?.avatarUrl, callType: 'video', receiverId: currentOtherUserProfile.id }
-                  });
-                  // Local event
-                  window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: { roomId, callType: 'video' } }));
+                  initiateCall(
+                    currentOtherUserProfile.id,
+                    currentOtherUserProfile.name || (currentOtherUserProfile as any).username || 'User',
+                    currentOtherUserProfile.avatarUrl,
+                    'video',
+                    false
+                  );
                 }
               }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10">
                  <Video size={20} className="sm:w-[22px] sm:h-[22px]" />
@@ -3173,10 +3180,44 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           const isVideo = message.imageUrl?.includes('#video') || message.imageUrl?.match(/\.(mp4|webm|ogg)$/i);
           const msgText = typeof message?.text === 'string' ? message.text : typeof (message as any)?.content === 'string' ? (message as any).content : '';
 
-          if (message.isSystemMessage || (msgText && msgText.startsWith('$$SYSTEM$$')) || (message.messageType as any) === 'system') {
-              const text = msgText.startsWith('$$SYSTEM$$') ? msgText.substring(10).trim() : msgText;
+          if ((message.messageType as any) === 'missed_call') {
               return (
-                  <div key={message.id} className="my-2 flex justify-center select-none">
+                  <div key={message.id} className="my-4 flex justify-center select-none w-full">
+                      <div className="bg-red-500/10 border border-red-500/20 rounded-2xl px-4 py-3 flex items-center gap-3 w-fit shadow-md">
+                          <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center text-red-400">
+                             <PhoneMissed size={16} />
+                          </div>
+                          <div>
+                             <p className="text-red-400 text-sm font-medium">Missed Call</p>
+                             <p className="text-red-500/60 text-xs mt-0.5">{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          </div>
+                          <button onClick={() => initiateCall(currentOtherUserProfile?.id || '', currentOtherUserProfile?.name || (currentOtherUserProfile as any)?.username || '', currentOtherUserProfile?.avatarUrl, 'audio', false)} className="ml-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400 text-xs font-semibold hover:bg-red-500/30 transition-colors">Call Back</button>
+                      </div>
+                  </div>
+              );
+          }
+
+          if ((message.messageType as any) === 'completed_call') {
+              return (
+                  <div key={message.id} className="my-4 flex justify-center select-none w-full">
+                      <div className="bg-zinc-900/80 border border-white/5 rounded-2xl px-4 py-3 flex items-center gap-3 w-fit shadow-sm">
+                          <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                             <Phone size={16} />
+                          </div>
+                          <div>
+                             <p className="text-zinc-300 text-sm font-medium">Call Ended</p>
+                             <p className="text-zinc-500 text-xs mt-0.5">{message.duration || '00:00'}</p>
+                          </div>
+                          <button onClick={() => initiateCall(currentOtherUserProfile?.id || '', currentOtherUserProfile?.name || (currentOtherUserProfile as any)?.username || '', currentOtherUserProfile?.avatarUrl, 'audio', false)} className="ml-2 px-3 py-1.5 rounded-full bg-white/5 text-zinc-300 text-xs font-semibold hover:bg-white/10 transition-colors">Call Again</button>
+                      </div>
+                  </div>
+              );
+          }
+
+          if (message.isSystemMessage || (msgText && msgText.startsWith('$SYSTEM$')) || (message.messageType as any) === 'system') {
+              const text = msgText.startsWith('$SYSTEM$') ? msgText.substring(10).trim() : msgText;
+              return (
+                  <div key={message.id} className="my-2 flex justify-center select-none w-full">
                       <span className="px-3.5 py-1 rounded-full bg-zinc-900/90 border border-white/10 text-[11px] text-zinc-300 text-center shadow-sm max-w-[85%]">{text}</span>
                   </div>
               );
@@ -3561,7 +3602,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       </div>
                     )}
 
-                    {message.messageType === 'missed_call' && (
+                    {(message.messageType as any) === 'missed_call' && (
                       <div className="flex items-center space-x-2 p-2 bg-red-500/20 border border-red-500/30 rounded-lg">
                         <Phone className="w-5 h-5 text-red-400" />
                         <div className="flex flex-col">
