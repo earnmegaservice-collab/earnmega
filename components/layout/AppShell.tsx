@@ -66,7 +66,13 @@ export const AppShell: React.FC<AppShellProps> = ({
         const notif = e.detail;
         if (notif.type === 'LIVE_STARTED') setActiveTab('live');
         else if (notif.type === 'STATUS_POSTED' || notif.type === 'STATUS_LIKED') setActiveTab('status');
-        else if (notif.type === 'MESSAGE' || notif.type === 'GROUP_INVITE' || notif.type === 'chat_gift' || notif.type === 'GIFT') setActiveTab('chats');
+        else if (notif.type === 'MESSAGE' || notif.type === 'GROUP_INVITE' || notif.type === 'chat_gift' || notif.type === 'GIFT') {
+           setActiveTab('chats');
+           // Try to route to specific chat thread
+           if (notif.actor_id) {
+               window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: notif.actor_id } }));
+           }
+        }
      };
      window.addEventListener('horpal:navigate-notification', handleNavigate);
      return () => window.removeEventListener('horpal:navigate-notification', handleNavigate);
