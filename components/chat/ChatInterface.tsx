@@ -969,18 +969,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     if (currentOtherUserProfile === null) {
       const fetchExploreUsers = async () => {
         if (!user) return;
+        let hasCachedData = false;
 
         try {
-            const cachedChats = localStorage.getItem(`horpal_cached_chat_list_${user.id}`);
+            const cachedChats = localStorage.getItem(`horpal_instant_chat_cache_${user.id}`);
             if (cachedChats) {
                 const parsed = JSON.parse(cachedChats);
                 if (Array.isArray(parsed) && parsed.length > 0) {
                     setExploreUsers(parsed);
+                    hasCachedData = true;
                 }
             }
         } catch (e) {}
 
-        setIsChatsLoading(true);
+        if (!hasCachedData) {
+            setIsChatsLoading(true);
+        }
         setChatsFetchError(null);
         try {
           // 1. Fetch Groups the user is part of & Direct Messages concurrently
@@ -991,7 +995,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               .eq('user_id', user.id),
             supabase
               .from('chats')
-              .select('id, user1_id, user2_id, updated_at, unread_count, latest_message_id, user1:profiles!chats_user1_id_fkey(*), user2:profiles!chats_user2_id_fkey(*)')
+              .select('id, user1_id, user2_id, updated_at, unread_count, latest_message_id, user1:profiles!chats_user1_id_fkey(id, username, name, avatar_url, bio, created_at, subscription_tier, is_verified, coins_gifted), user2:profiles!chats_user2_id_fkey(id, username, name, avatar_url, bio, created_at, subscription_tier, is_verified, coins_gifted)')
               .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
               .order('updated_at', { ascending: false })
           ]);
@@ -1080,7 +1084,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           if (formattedProfiles.length === 0) {
               const { data: defaultProfiles, error: defaultError } = await supabase
                 .from('profiles')
-                .select('*')
+                .select('id, username, name, avatar_url, bio, created_at, subscription_tier, is_verified, coins_gifted')
                 .neq('id', user.id)
                 .order('updated_at', { ascending: false })
                 .limit(20);
@@ -1119,7 +1123,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           if (missingIds.length > 0) {
              const { data: missingProfiles } = await supabase
                 .from('profiles')
-                .select('*')
+                .select('id, username, name, avatar_url, bio, created_at, subscription_tier, is_verified, coins_gifted')
                 .in('id', missingIds);
 
              if (missingProfiles) {
@@ -1167,7 +1171,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
 
           try {
-              localStorage.setItem(`horpal_cached_chat_list_${user.id}`, JSON.stringify(allUsers));
+              localStorage.setItem(`horpal_instant_chat_cache_${user.id}`, JSON.stringify(allUsers));
           } catch (e) {}
 
           console.info("[CHAT LIST] Hydrated Chats:", allUsers);
