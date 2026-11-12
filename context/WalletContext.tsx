@@ -1,10 +1,12 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import { supabase } from '../utils/supabase';
 import { useAuth } from './AuthContext';
-import CoinStoreModal from '../components/wallet/CoinStoreModal';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const CoinStoreModal = dynamic(() => import('../components/wallet/CoinStoreModal'), { ssr: false });
 
 export type SubscriptionTier = 'FREE' | 'PRO' | 'PREMIUM';
 export type NormalizedTier = 'free' | 'pro' | 'premium';
@@ -404,7 +406,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       {children}
 
       {/* Floating Coin Spend / Unlock Toasts */}
-      <div className="fixed top-4 right-4 z-[300] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed top-4 right-4 z-[2147483647] flex flex-col gap-2 pointer-events-none">
         <AnimatePresence>
           {toasts.map((toast) => (
             <motion.div
@@ -432,7 +434,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       {/* Sleek Paywall Choice Modal (Pay X Coins OR Upgrade to Pro / Premium) */}
       <AnimatePresence>
         {activePaywallPrompt && (
-          <div className="fixed inset-0 z-[240] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="fixed inset-0 z-[2147483645] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
             <motion.div
               initial={{ opacity: 0, scale: 0.93, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -528,22 +530,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         )}
       </AnimatePresence>
 
-      {/* Global HorPal Store Modal */}
-      <CoinStoreModal
-        isOpen={isStoreOpen}
-        onClose={closeCoinStore}
-        initialTab={storeInitialTab}
-        bannerMessage={storeBannerMessage}
-        highlightedPlan={highlightedStorePlan}
-        onPurchaseSuccess={async () => {
-          playCoinChime('success');
-          if (pendingStoreSuccessRef.current) {
-            const cb = pendingStoreSuccessRef.current;
-            pendingStoreSuccessRef.current = null;
-            await cb();
-          }
-        }}
-      />
+      {/* Global HorPal Store Modal (mounted only when open to avoid SSR window errors in react-paystack) */}
+      {isStoreOpen && (
+        <CoinStoreModal
+          isOpen={isStoreOpen}
+          onClose={closeCoinStore}
+          initialTab={storeInitialTab}
+          bannerMessage={storeBannerMessage}
+          highlightedPlan={highlightedStorePlan}
+          onPurchaseSuccess={async () => {
+            playCoinChime('success');
+            if (pendingStoreSuccessRef.current) {
+              const cb = pendingStoreSuccessRef.current;
+              pendingStoreSuccessRef.current = null;
+              await cb();
+            }
+          }}
+        />
+      )}
     </WalletContext.Provider>
   );
 }
