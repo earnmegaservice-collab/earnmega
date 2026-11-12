@@ -23,12 +23,19 @@ export interface PaywallModalConfig {
 
 export interface SpendCoinsOptions {
   requiredCoins: number;
-  actionName: string;
+  actionName?: string;
+  actionLabel?: string;
   actionCode?: string;
+  actionKey?: string;
   bypassTiers?: NormalizedTier[];
+  allowedTiers?: NormalizedTier[];
   receiverId?: string;
   onSuccess?: () => void | Promise<void>;
+  onAllowed?: () => void | Promise<void>;
   showPaywallModal?: boolean;
+  paywallModalTitle?: string;
+  paywallModalSubtitle?: string;
+  upgradeHighlight?: 'PRO' | 'PREMIUM';
   paywallModalConfig?: PaywallModalConfig;
 }
 
@@ -234,7 +241,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const executeAtomicDeduction = useCallback(
     async (options: SpendCoinsOptions): Promise<boolean> => {
-      const { requiredCoins, actionName, actionCode, bypassTiers = [], receiverId, onSuccess } = options;
+      const { requiredCoins, receiverId } = options;
+      const actionName = options.actionName || options.actionLabel || 'Complete Action';
+      const actionCode = options.actionCode || options.actionKey;
+      const bypassTiers = options.bypassTiers || options.allowedTiers || [];
+      const onSuccess = options.onSuccess || options.onAllowed;
 
       // Double check if user's tier bypasses this paywall
       const effectiveBypassTiers = bypassTiers.filter((t) => {
@@ -352,7 +363,30 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const spendCoinsOrPromptStore = useCallback(
-    async (options: SpendCoinsOptions): Promise<boolean> => {
+    async (rawOptions: SpendCoinsOptions): Promise<boolean> => {
+      const normalizedActionName = rawOptions.actionName || rawOptions.actionLabel || 'Complete Action';
+      const normalizedActionCode = rawOptions.actionCode || rawOptions.actionKey;
+      const normalizedBypassTiers = rawOptions.bypassTiers || rawOptions.allowedTiers || [];
+      const normalizedOnSuccess = rawOptions.onSuccess || rawOptions.onAllowed;
+      const normalizedModalConfig: PaywallModalConfig | undefined =
+        rawOptions.paywallModalConfig ||
+        (rawOptions.paywallModalTitle
+          ? {
+              title: rawOptions.paywallModalTitle,
+              subtitle: rawOptions.paywallModalSubtitle,
+              highlightPlan: rawOptions.upgradeHighlight || 'PRO',
+            }
+          : undefined);
+
+      const options: SpendCoinsOptions = {
+        ...rawOptions,
+        actionName: normalizedActionName,
+        actionCode: normalizedActionCode,
+        bypassTiers: normalizedBypassTiers,
+        onSuccess: normalizedOnSuccess,
+        paywallModalConfig: normalizedModalConfig,
+      };
+
       const { bypassTiers = [], actionCode, receiverId, showPaywallModal, onSuccess } = options;
 
       // 1. Check tier bypass first (Zero friction for bypassed tiers)

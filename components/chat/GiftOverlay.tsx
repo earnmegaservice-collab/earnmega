@@ -139,6 +139,17 @@ export default function GiftOverlay() {
       // 🔒 SECURITY GATE: ONLY THE RECEIVER SEES THE ANIMATION
       if (!user || user.id !== receiverId) return;
 
+      const msgId = giftData?.messageId || customEvent.detail?.messageId;
+      if (msgId && typeof window !== 'undefined') {
+        try {
+          const playedKey = `earnmega_played_gifts_${user.id}`;
+          const playedList: string[] = JSON.parse(localStorage.getItem(playedKey) || '[]');
+          if (playedList.includes(String(msgId))) return;
+          playedList.push(String(msgId));
+          localStorage.setItem(playedKey, JSON.stringify(playedList.slice(-100)));
+        } catch {}
+      }
+
       const normalizedName = (giftData.name || '').toLowerCase();
       const cost = Number(giftData.cost) || 10;
 
@@ -233,7 +244,7 @@ export default function GiftOverlay() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.4 }}
-          className="pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden"
+          className="pointer-events-none fixed inset-0 z-[2147483640] flex items-center justify-center overflow-hidden"
         >
           {/* =========================================================================
               🐍 TIER 1A: CYBER SERPENT STRIKE (10 Coins - 4K Jump-Scare Bite & Shatter)

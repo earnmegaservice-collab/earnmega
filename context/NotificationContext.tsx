@@ -469,6 +469,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         sourceLabel = '👥 Group Invite';
         title = title || 'Added to Group';
         notif.content = displayContent;
+      } else if (notif.type === 'chat_gift' || notif.type === 'GIFT') {
+        sourceLabel = '🎁 Gift Received';
+        title = title || `🎁 @${actor_username || senderName} sent you a gift!`;
+        notif.content = displayContent;
       } else {
         if (!sourceLabel) sourceLabel = '🔔 Notification';
         if (!title) title = `${senderName} interacted with you`;
@@ -757,38 +761,75 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           setTimeout(() => setBellShake(false), 500);
         }
 
-        if (finalNewNotification.type === 'GIFT' && finalNewNotification.content) {
-          try {
-            const parts = finalNewNotification.content.split('|');
-            if (parts.length >= 3) {
-              const giftData = { name: parts[0], cost: parseInt(parts[1]) };
-              const senderId = parts.length > 3 ? parts[3] : '';
-              const customEvent = new CustomEvent('gift_received_local', {
-                detail: { giftData, senderId, receiverId: currentUserId },
-              });
-              window.dispatchEvent(customEvent);
-            }
-          } catch (e) {
-            console.error('Error parsing gift notification', e);
-          }
-        }
-
         if (
           finalNewNotification.type === 'chat_gift' ||
           finalNewNotification.type === 'GIFT'
         ) {
-          const title = finalNewNotification.title || `🎁 New Gift!`;
-          const body =
-            finalNewNotification.content ||
-            finalNewNotification.message ||
-            `You received a gift in DM!`;
-          const tag = `horpal-gift-${finalNewNotification.id}`;
+          const meta = (rawRow as any)?.metadata || {};
+          let giftName = meta.gift_name || '';
+          let giftCost = Number(meta.gift_cost) || 0;
+          let giftId = meta.gift_id || '';
+          let messageId = meta.message_id || rawRow.id;
+          const senderHandle =
+            finalNewNotification.actor_username ||
+            finalNewNotification.actor_name ||
+            meta.sender_name ||
+            'Someone';
+
+          if (!giftName && finalNewNotification.content) {
+            if (finalNewNotification.content.includes('|')) {
+              const parts = finalNewNotification.content.split('|');
+              giftName = parts[0] || 'Gift';
+              giftCost = parseInt(parts[1], 10) || 10;
+            } else {
+              const match = finalNewNotification.content.match(/sent you a (.+?) \(\+?(\d+) Coins\)/i);
+              if (match) {
+                giftName = match[1];
+                giftCost = parseInt(match[2], 10) || 10;
+              }
+            }
+          }
+
+          if (giftName) {
+            window.dispatchEvent(
+              new CustomEvent('gift_received_local', {
+                detail: {
+                  giftData: { id: giftId, name: giftName, cost: giftCost || 10, messageId },
+                  senderId: finalNewNotification.actor_id || meta.sender_id || '',
+                  receiverId: currentUserId,
+                },
+              })
+            );
+          }
+
+          const bannerText = giftName
+            ? `🎁 @${senderHandle} sent you a ${giftName} (+${giftCost} Coins)!`
+            : finalNewNotification.content ||
+              finalNewNotification.message ||
+              `🎁 @${senderHandle} sent you a gift!`;
+
+          // In-App Notification Banner
+          import('react-hot-toast').then(({ toast }) => {
+            toast.success(bannerText, {
+              id: `gift-banner-${messageId}`,
+              duration: 5500,
+              style: {
+                background: '#0f172a',
+                color: '#fef08a',
+                border: '1px solid rgba(251,191,36,0.5)',
+                fontWeight: '800',
+              },
+            });
+          });
+
+          // Outside-the-App OS Push Notification via public/sw.js + Sound
+          const tag = `horpal-gift-${messageId}`;
           triggerNativeNotification(
-            title,
-            body,
+            bannerText,
+            `+${giftCost || ''} Coins added to your wallet balance! Tap to view in DM.`,
             tag,
             finalNewNotification.actor_avatar_url,
-            { url: '/', type: 'chat_gift' }
+            { url: '/?tab=chats', type: 'chat_gift' }
           );
         }
       });
@@ -867,7 +908,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           const isInMyGroup = msg.room_id && myRoomIdsRef.current.has(String(msg.room_id));
 
           if (isDirectToMe || isInMyGroup) {
-            const cleanedContent = msg.content
+            const giftMatch =
+              typeof msg.content === 'string'
+                ? msg.content.match(/^\[GIFT:(.*?):(.*?):(\d+)\](.*)/)
+                : null;
+            const cleanedContent = giftMatch
+              ? `🎁 Sent you a ${giftMatch[2]} (+${giftMatch[3]} Coins)!`
+              : msg.content
               ? cleanNotificationText(msg.content)
               : 'Sent you a media attachment';
             const msgNotif: GlobalNotification = {
@@ -876,7 +923,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               recipient_id: currentUserId,
               actor_id: msg.sender_id,
               room_id: msg.room_id,
-              type: 'MESSAGE',
+              type: giftMatch ? 'chat_gift' : 'MESSAGE',
               content: cleanedContent,
               is_read: false,
               created_at: msg.created_at || new Date().toISOString(),
@@ -885,6 +932,46 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             resolveProfilesAndRooms([msgNotif]).then((resolved) => {
               if (currentUserIdRef.current !== currentUserId) return;
               const finalMsgNotif = resolved[0];
+
+              if (giftMatch && isDirectToMe) {
+                const giftId = giftMatch[1];
+                const giftName = giftMatch[2];
+                const giftCost = Number(giftMatch[3]) || 10;
+                const senderHandle =
+                  finalMsgNotif.actor_username || finalMsgNotif.actor_name || 'Someone';
+                const bannerText = `🎁 @${senderHandle} sent you a ${giftName} (+${giftCost} Coins)!`;
+
+                window.dispatchEvent(
+                  new CustomEvent('gift_received_local', {
+                    detail: {
+                      giftData: { id: giftId, name: giftName, cost: giftCost, messageId: msg.id },
+                      senderId: msg.sender_id,
+                      receiverId: currentUserId,
+                    },
+                  })
+                );
+
+                import('react-hot-toast').then(({ toast }) => {
+                  toast.success(bannerText, {
+                    id: `gift-banner-${msg.id}`,
+                    duration: 5500,
+                    style: {
+                      background: '#0f172a',
+                      color: '#fef08a',
+                      border: '1px solid rgba(251,191,36,0.5)',
+                      fontWeight: '800',
+                    },
+                  });
+                });
+
+                triggerNativeNotification(
+                  bannerText,
+                  `+${giftCost} Coins added to your wallet balance! Tap to view in DM.`,
+                  `horpal-gift-${msg.id}`,
+                  finalMsgNotif.actor_avatar_url,
+                  { url: '/?tab=chats', type: 'chat_gift' }
+                );
+              }
               setNotifications((prev) => {
                 const clearedAt = Number(
                   localStorage.getItem(`earnmega_notif_cleared_at_${currentUserId}`) || 0

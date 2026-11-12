@@ -82,28 +82,30 @@ const GIFTS = [
   },
 ];
 
-const GOD_MODE = true;
-
 export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, onOpenStore }: GiftModalProps) {
-  const { balance, setBalance } = useWallet();
+  const { balance, setBalance, openCoinStore, triggerToast } = useWallet();
   const [showError, setShowError] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
   if (!isOpen) return null;
 
   const handleSendGift = async (gift: any) => {
+    if (isProcessing) return;
+
+    // Immediately redirect to Coin Store if user lacks enough coins
+    if (balance < gift.cost) {
+      onClose();
+      openCoinStore({
+        initialTab: 'BUY_COINS',
+        bannerMessage: `You need ${gift.cost} Coins to send a ${gift.name} gift. Top up now!`,
+      });
+      return;
+    }
+
     setIsProcessing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      // Check balance if God mode coin deduction is bypassed
-      if (!GOD_MODE && balance < gift.cost) {
-        setShowError(true);
-        setIsProcessing(false);
-        return;
-      }
-
+      if (!user) throw new Error('Not authenticated');
 
       const { data: { session } } = await supabase.auth.getSession();
 
@@ -111,34 +113,55 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
+          'Authorization': `Bearer ${session?.access_token || ''}`,
         },
         body: JSON.stringify({
           senderId: user.id,
           receiverId: recipientId,
           giftId: gift.id,
           giftName: gift.name,
-          giftCost: gift.cost
-        })
+          giftCost: gift.cost,
+        }),
       });
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
+        if (response.status === 402 || data.code === 'INSUFFICIENT_COINS') {
+          onClose();
+          openCoinStore({
+            initialTab: 'BUY_COINS',
+            bannerMessage: `You need ${gift.cost} Coins to send a ${gift.name} gift. Top up now!`,
+          });
+          return;
+        }
         throw new Error(data.error || 'Failed to send gift');
       }
 
-      const updatedGift = { ...gift, messageId: data.messageId, cost: data.giftCost || gift.cost };
+      if (typeof data.senderBalance === 'number') {
+        setBalance(data.senderBalance);
+      } else {
+        setBalance((prev) => Math.max(0, prev - gift.cost));
+      }
 
+      triggerToast(`-${gift.cost} Coins • Sent ${gift.name}`, 'spend');
 
-      // Balance is handled server-side now and will update via Realtime if set up. But we update optimisticly if we want, but server sync is better.
-      // Or we let WalletContext handle it
+      const updatedGift = {
+        ...gift,
+        messageId: data.messageId,
+        cost: data.giftCost || gift.cost,
+        senderName: data.senderName,
+      };
+
       onGiftSent(updatedGift);
       onClose();
     } catch (err) {
       console.error('Unexpected error sending gift:', err);
       onClose();
-      onOpenStore();
+      openCoinStore({
+        initialTab: 'BUY_COINS',
+        bannerMessage: `You need ${gift.cost} Coins to send a ${gift.name} gift. Top up now!`,
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -147,22 +170,28 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-md">
       <motion.div
-        initial={{ y: "100%", opacity: 0 }}
+        initial={{ y: '100%', opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        exit={{ y: "100%", opacity: 0 }}
+        exit={{ y: '100%', opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 220 }}
         className="w-full sm:max-w-lg bg-slate-950/85 backdrop-blur-3xl border-t sm:border border-white/15 rounded-t-3xl sm:rounded-3xl p-6 shadow-[0_-10px_50px_rgba(0,0,0,0.8)] relative overflow-hidden max-h-[90vh] flex flex-col"
       >
-        {/* Decorative top drag handle for mobile feel */}
         <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-5 sm:hidden" />
 
         <div className="flex justify-between items-center mb-5 relative z-10">
           <div>
-            <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-amber-200 to-yellow-500 drop-shadow-sm">Send a Gift</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Unleash cinematic 4K animations in chat</p>
+            <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-amber-200 to-yellow-500 drop-shadow-sm">
+              Send a Gift
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Unleash 4K animations &amp; credit 100% of gift coins directly to their wallet!
+            </p>
           </div>
-          <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors">
-             ✕
+          <button
+            onClick={onClose}
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+          >
+            ✕
           </button>
         </div>
 
@@ -180,7 +209,9 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
                 <ShieldAlert className="w-8 h-8 text-red-400" />
               </div>
               <h3 className="text-xl font-bold text-white mb-2">Insufficient Coins</h3>
-              <p className="text-sm text-gray-400 mb-6">You need more coins to dispatch this luxury gift.</p>
+              <p className="text-sm text-gray-400 mb-6">
+                You need more coins to dispatch this luxury gift.
+              </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowError(false)}
@@ -191,7 +222,8 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
                 <button
                   onClick={() => {
                     setShowError(false);
-                    onOpenStore();
+                    onClose();
+                    openCoinStore({ initialTab: 'BUY_COINS' });
                   }}
                   className="flex-1 px-4 py-2.5 bg-gradient-to-r from-yellow-500 to-amber-500 text-slate-950 font-black rounded-xl hover:from-yellow-400 hover:to-amber-400 transition-colors shadow-lg shadow-yellow-500/20"
                 >
@@ -203,7 +235,7 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
         )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5 relative z-10 overflow-y-auto pr-1 pb-2">
-          {GIFTS.map(gift => {
+          {GIFTS.map((gift) => {
             const isGod = gift.id === 'god_mode';
             const isSerpent = gift.id === 'serpent';
 
@@ -214,11 +246,18 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
                 key={gift.id}
                 onClick={() => handleSendGift(gift)}
                 disabled={isProcessing}
-                className={`group relative flex flex-col items-center justify-center p-4 bg-gradient-to-br ${gift.gradient} border ${gift.border} rounded-2xl transition-all disabled:opacity-50 overflow-hidden shadow-lg ${gift.glow} ${isGod ? 'col-span-2 sm:col-span-1' : ''}`}
+                className={`group relative flex flex-col items-center justify-center p-4 bg-gradient-to-br ${gift.gradient} border ${gift.border} rounded-2xl transition-all disabled:opacity-50 overflow-hidden shadow-lg ${gift.glow} ${
+                  isGod ? 'col-span-2 sm:col-span-1' : ''
+                }`}
               >
-                {/* Special Badge (START / MYTHIC) */}
                 {gift.badge && (
-                  <span className={`absolute top-2 right-2 text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-md shadow-md uppercase ${isGod ? 'bg-gradient-to-r from-amber-400 to-yellow-200 text-slate-950 animate-pulse' : 'bg-cyan-500/20 border border-cyan-400/40 text-cyan-300'}`}>
+                  <span
+                    className={`absolute top-2 right-2 text-[9px] font-black tracking-widest px-1.5 py-0.5 rounded-md shadow-md uppercase ${
+                      isGod
+                        ? 'bg-gradient-to-r from-amber-400 to-yellow-200 text-slate-950 animate-pulse'
+                        : 'bg-cyan-500/20 border border-cyan-400/40 text-cyan-300'
+                    }`}
+                  >
                     {gift.badge}
                   </span>
                 )}
@@ -227,11 +266,21 @@ export default function GiftModal({ isOpen, onClose, recipientId, onGiftSent, on
                 <div className="mb-2.5 transform group-hover:scale-110 group-hover:-translate-y-1 transition-all duration-300 drop-shadow-2xl">
                   {gift.icon}
                 </div>
-                <span className="text-sm font-bold text-white drop-shadow-md tracking-wide text-center">{gift.name}</span>
+                <span className="text-sm font-bold text-white drop-shadow-md tracking-wide text-center">
+                  {gift.name}
+                </span>
                 <div className="flex items-center mt-2 space-x-1">
-                   <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md shadow-sm ${isGod ? 'bg-amber-400/20 border border-amber-400/40 text-amber-300' : isSerpent ? 'bg-cyan-400/20 text-cyan-300' : 'bg-yellow-400/10 text-yellow-400'}`}>
-                     {gift.cost} Coins
-                   </span>
+                  <span
+                    className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md shadow-sm ${
+                      isGod
+                        ? 'bg-amber-400/20 border border-amber-400/40 text-amber-300'
+                        : isSerpent
+                        ? 'bg-cyan-400/20 text-cyan-300'
+                        : 'bg-yellow-400/10 text-yellow-400'
+                    }`}
+                  >
+                    {gift.cost} Coins
+                  </span>
                 </div>
               </motion.button>
             );

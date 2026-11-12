@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet } from "../../context/WalletContext";
+import { usePaywallGate } from "../../hooks/usePaywallGate";
+import GiftOverlay from "./GiftOverlay";
 import { useCall } from "../../context/CallContext";
 import LiveArena from "../live/LiveArena";
 import { useAuth } from "../../context/AuthContext";
@@ -87,7 +89,7 @@ const getDeterministicColor = (id: string | undefined) => {
     return colors[Math.abs(hash) % colors.length];
 };
 
-const GOD_MODE = true;
+const GOD_MODE = false;
 const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
 // Helper to parse basic formatting
@@ -397,19 +399,111 @@ import { AppShell } from '../layout/AppShell';
 const getCanonicalDmKey = (userA: string, userB: string) => ['dm', ...[String(userA), String(userB)].sort()].join('_');
 
 export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live', setAppTab: (tab: 'explore' | 'find' | 'chats' | 'status' | 'profile' | 'live') => void }) {
-  const { subscriptionTier, balance, setBalance } = useWallet();
+  const { subscriptionTier, balance, setBalance, refreshWallet } = useWallet();
+  const { spendCoinsOrPromptStore, openCoinStore } = usePaywallGate();
   const { initiateCall, joinCall } = useCall();
+
+  const handlePaywalledCall = React.useCallback(
+    async (callConfig: {
+      receiverId: string;
+      receiverName: string;
+      receiverAvatar?: string;
+      callType: 'audio' | 'video';
+      isGroup: boolean;
+      groupName?: string;
+      participantIds?: string[];
+    }) => {
+      if (callConfig.isGroup) {
+        await spendCoinsOrPromptStore({
+          actionKey: callConfig.callType === 'video' ? 'GROUP_VIDEO_CALL' : 'GROUP_VOICE_CALL',
+          actionLabel:
+            callConfig.callType === 'video'
+              ? 'Start/Join Group Video Call'
+              : 'Start/Join Group Voice Call',
+          requiredCoins: 10,
+          allowedTiers: ['pro', 'premium'],
+          showPaywallModal: true,
+          paywallModalTitle:
+            'Start/Join Group Call for 10 Coins — or Upgrade to Pro / Premium for Unlimited Free Calls',
+          paywallModalSubtitle:
+            'Connect with everyone in live HD voice & video right now for 10 Coins, or upgrade to Pro / Premium for unlimited free calls.',
+          upgradeHighlight: 'PRO',
+          onAllowed: () => {
+            initiateCall(callConfig);
+          },
+        });
+      } else {
+        const isVideo = callConfig.callType === 'video';
+        const cost = isVideo ? 5 : 3;
+        await spendCoinsOrPromptStore({
+          actionKey: isVideo ? 'DM_VIDEO_CALL' : 'DM_VOICE_CALL',
+          actionLabel: isVideo ? '1-on-1 Video Call' : '1-on-1 Voice Call',
+          requiredCoins: cost,
+          allowedTiers: ['pro', 'premium'],
+          showPaywallModal: true,
+          paywallModalTitle: `Start 1-on-1 ${isVideo ? 'Video' : 'Voice'} Call for ${cost} Coins — or Upgrade to Pro / Premium for Unlimited Free Calls`,
+          paywallModalSubtitle: `Pro & Premium members enjoy unlimited free 1-on-1 voice & video calls anytime.`,
+          upgradeHighlight: 'PRO',
+          onAllowed: () => {
+            initiateCall(callConfig);
+          },
+        });
+      }
+    },
+    [spendCoinsOrPromptStore, initiateCall]
+  );
+
+  const handlePaywalledJoinCall = React.useCallback(
+    async (roomId: string, callType: 'audio' | 'video' = 'video', isGroup = true) => {
+      if (isGroup) {
+        await spendCoinsOrPromptStore({
+          actionKey: callType === 'video' ? 'GROUP_VIDEO_CALL' : 'GROUP_VOICE_CALL',
+          actionLabel: 'Join Group Call',
+          requiredCoins: 10,
+          allowedTiers: ['pro', 'premium'],
+          showPaywallModal: true,
+          paywallModalTitle:
+            'Start/Join Group Call for 10 Coins — or Upgrade to Pro / Premium for Unlimited Free Calls',
+          paywallModalSubtitle:
+            'Connect with everyone in live HD voice & video right now for 10 Coins, or upgrade to Pro / Premium for unlimited free calls.',
+          upgradeHighlight: 'PRO',
+          onAllowed: () => {
+            joinCall?.(roomId, callType);
+          },
+        });
+      } else {
+        const cost = callType === 'video' ? 5 : 3;
+        await spendCoinsOrPromptStore({
+          actionKey: callType === 'video' ? 'DM_VIDEO_CALL' : 'DM_VOICE_CALL',
+          actionLabel: `Join 1-on-1 ${callType === 'video' ? 'Video' : 'Voice'} Call`,
+          requiredCoins: cost,
+          allowedTiers: ['pro', 'premium'],
+          showPaywallModal: true,
+          paywallModalTitle: `Start/Join 1-on-1 ${callType === 'video' ? 'Video' : 'Voice'} Call for ${cost} Coins — or Upgrade to Pro / Premium for Unlimited Free Calls`,
+          upgradeHighlight: 'PRO',
+          onAllowed: () => {
+            joinCall?.(roomId, callType);
+          },
+        });
+      }
+    },
+    [spendCoinsOrPromptStore, joinCall]
+  );
+
   useEffect(() => {
     const handleJoinCall = (e: CustomEvent) => {
        if (e.detail && e.detail.roomId) {
-           joinCall?.(e.detail.roomId, e.detail.type || 'video');
+           handlePaywalledJoinCall(e.detail.roomId, e.detail.type || 'video', true);
        }
     };
     const handleInitiateCall = (e: CustomEvent) => {
        if (e.detail && e.detail.id) {
-           // We might not have the full profile here, but we can initiate with just ID
-           // Ideally we'd fetch it, but initiateCall can handle partial data
-           initiateCall(e.detail.id, 'User', undefined, e.detail.type || 'audio', false);
+           handlePaywalledCall({
+             receiverId: e.detail.id,
+             receiverName: 'User',
+             callType: e.detail.type || 'audio',
+             isGroup: false,
+           });
        }
     };
     window.addEventListener('join_call', handleJoinCall as EventListener);
@@ -418,7 +512,7 @@ export default function ChatInterface({ activeTab, setAppTab }: { activeTab: 'ex
         window.removeEventListener('join_call', handleJoinCall as EventListener);
         window.removeEventListener('initiate_call', handleInitiateCall as EventListener);
     };
-  }, [joinCall, initiateCall]);
+  }, [handlePaywalledJoinCall, handlePaywalledCall]);
 
   const { user, isLoading } = useAuth();
   const [selectedProfile, setSelectedProfile] = useState<UserProfileDetails | null>(null);
@@ -1018,9 +1112,32 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
                      setMessages(prev => {
                          if (prev.some(m => m.id === msg.id)) return prev;
+                         let parsedText = msg.content || '';
+                         let parsedMessageType: Message['messageType'] = msg.message_type === 'system' ? 'system' : undefined;
+                         let parsedGiftName: string | undefined;
+                         let parsedGiftCost: number | undefined;
+
+                         const giftMatch = typeof parsedText === 'string' ? parsedText.match(/^\[GIFT:(.*?):(.*?):(\d+)\](.*)/) : null;
+                         if (giftMatch) {
+                             parsedMessageType = 'gift';
+                             parsedGiftName = giftMatch[2];
+                             parsedGiftCost = Number(giftMatch[3]);
+                             parsedText = `Received a ${parsedGiftName} (+${parsedGiftCost} Coins)`;
+                             refreshWallet();
+                             window.dispatchEvent(
+                               new CustomEvent('gift_received_local', {
+                                 detail: {
+                                   giftData: { id: giftMatch[1], name: parsedGiftName, cost: parsedGiftCost, messageId: msg.id },
+                                   senderId: msg.sender_id,
+                                   receiverId: user.id,
+                                 },
+                               })
+                             );
+                         }
+
                          const newMessage: Message = {
                             id: msg.id,
-                            text: msg.content || '',
+                            text: parsedText,
                             sender: 'other',
                             timestamp: new Date(msg.created_at || Date.now()),
                             status: msg.status || 'delivered',
@@ -1030,7 +1147,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                             isViewOnce: msg.is_view_once,
                             replyToId: msg.reply_to_id,
                             isSystemMessage: msg.message_type === 'system' || msg.is_system_message === true || false,
-                            messageType: msg.message_type === 'system' ? 'system' : undefined,
+                            messageType: parsedMessageType,
+                            giftName: parsedGiftName,
+                            giftCost: parsedGiftCost,
                             systemEventType: msg.system_event_type || null,
                             senderName,
                             senderId: msg.sender_id,
@@ -1439,9 +1558,37 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           saveCachedChatMessages(user.id, currentOtherUserProfile.id, merged);
 
           // Mark unread messages from the other user as read
-          const unreadMessageIds = data
-            .filter(msg => msg.sender_id !== user.id && (msg.status !== 'read' || msg.is_read === false))
-            .map(msg => msg.id);
+          const unreadIncomingRows = data.filter(
+            msg => msg.sender_id !== user.id && (msg.status !== 'read' || msg.is_read === false)
+          );
+          const unreadMessageIds = unreadIncomingRows.map(msg => msg.id);
+
+          // Trigger full-screen GiftOverlay animation on receiver's screen upon opening chat if they were offline when gifted
+          const unreadGiftRow = [...unreadIncomingRows]
+            .reverse()
+            .find(msg => typeof msg.content === 'string' && msg.content.startsWith('[GIFT:'));
+          if (unreadGiftRow && typeof unreadGiftRow.content === 'string') {
+            const gMatch = unreadGiftRow.content.match(/^\[GIFT:(.*?):(.*?):(\d+)\]/);
+            if (gMatch) {
+              refreshWallet();
+              setTimeout(() => {
+                window.dispatchEvent(
+                  new CustomEvent('gift_received_local', {
+                    detail: {
+                      giftData: {
+                        id: gMatch[1],
+                        name: gMatch[2],
+                        cost: Number(gMatch[3]) || 10,
+                        messageId: unreadGiftRow.id,
+                      },
+                      senderId: unreadGiftRow.sender_id,
+                      receiverId: user.id,
+                    },
+                  })
+                );
+              }, 350);
+            }
+          }
 
           // Clear local unread badge count unconditionally when opening chat
           localStorage.setItem(`earnmega_last_read_${user.id}_${currentOtherUserProfile.id}`, String(Date.now()));
@@ -1591,8 +1738,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         }
 
         if (payload.payload.senderId !== currentUserProfile?.id) {
+          refreshWallet();
           // Trigger local animation via custom event so GiftOverlay can pick it up instantly for the receiver
-          const customEvent = new CustomEvent('gift_received_local', { detail: { giftData: payload.payload.gift_type, senderId: payload.payload.senderId, receiverId: payload.payload.receiverId } });
+          const customEvent = new CustomEvent('gift_received_local', { detail: { giftData: { ...payload.payload.gift_type, messageId: payload.payload.messageId }, senderId: payload.payload.senderId, receiverId: payload.payload.receiverId } });
           window.dispatchEvent(customEvent);
 
           const newMessage: Message = {
@@ -2193,17 +2341,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
 
   const handleMediaClick = () => {
-    if ((!GOD_MODE && subscriptionTier === 'FREE')) {
-      setIsTierLockModalOpen(true);
-      return false;
-    }
     return true;
   };
 
   const handleCameraClick = () => {
-    if (handleMediaClick()) {
-      fileInputRef.current?.click();
-    }
+    fileInputRef.current?.click();
   };
 
   const handleGiftSent = (giftData: any) => {
@@ -2274,14 +2416,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
 
   const toggleRecording = async () => {
-    if (!handleMediaClick()) return;
-
     if (isRecording) {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
         setIsRecording(false);
       }
     } else {
+      // Voice Note paywall: 1 Coin for both Group Chat and 1-on-1 DM
+      if (balance < 1) {
+        openCoinStore({
+          initialTab: 'BUY_COINS',
+          bannerMessage: `You need 1 Coin to send a Voice Note in ${isGroupChat ? 'Group Chat' : 'Direct Message'}. Top up now!`,
+        });
+        return;
+      }
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
@@ -2310,6 +2459,63 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
 
   const uploadMediaFile = async (file: File | Blob, type: 'image' | 'audio' | 'video', caption?: string, originalName?: string) => {
+    const isGroup = Boolean(
+      isGroupChat ||
+        (currentOtherUserProfile as any)?.isGroup ||
+        (currentOtherUserProfile as any)?.is_group
+    );
+
+    // Enforce Pillar 1 Media & Voice Note Paywalls before uploading
+    if (type === 'audio') {
+      const allowed = await spendCoinsOrPromptStore({
+        actionKey: isGroup ? 'GROUP_VOICE_NOTE' : 'DM_VOICE_NOTE',
+        actionLabel: isGroup ? 'Send Group Voice Note' : 'Send DM Voice Note',
+        requiredCoins: 1,
+        allowedTiers: [],
+      });
+      if (!allowed) return;
+    } else if (type === 'image') {
+      if (isGroup) {
+        // Phase 3.2: Group Chat Image Upload (5 Coins OR Pro/Premium Free)
+        const allowed = await spendCoinsOrPromptStore({
+          actionKey: 'GROUP_IMAGE_UPLOAD',
+          actionLabel: 'Upload Image in Group Chat',
+          requiredCoins: 5,
+          allowedTiers: ['pro', 'premium'],
+        });
+        if (!allowed) return;
+      } else {
+        // Phase 4.4: 1-on-1 DM Photo Upload (2 Coins)
+        const allowed = await spendCoinsOrPromptStore({
+          actionKey: 'DM_PHOTO_UPLOAD',
+          actionLabel: 'Upload Photo in 1-on-1 DM',
+          requiredCoins: 2,
+          allowedTiers: [],
+        });
+        if (!allowed) return;
+      }
+    } else if (type === 'video') {
+      if (isGroup) {
+        // Phase 3.3: Group Chat Video Upload (10 Coins OR Pro/Premium Free)
+        const allowed = await spendCoinsOrPromptStore({
+          actionKey: 'GROUP_VIDEO_UPLOAD',
+          actionLabel: 'Upload Video in Group Chat',
+          requiredCoins: 10,
+          allowedTiers: ['pro', 'premium'],
+        });
+        if (!allowed) return;
+      } else {
+        // Phase 4.4: 1-on-1 DM Video Upload (5 Coins)
+        const allowed = await spendCoinsOrPromptStore({
+          actionKey: 'DM_VIDEO_UPLOAD',
+          actionLabel: 'Upload Video in 1-on-1 DM',
+          requiredCoins: 5,
+          allowedTiers: [],
+        });
+        if (!allowed) return;
+      }
+    }
+
     setIsUploading(true);
     try {
       let fileExt = 'jpg';
@@ -2548,27 +2754,67 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     return allViewed ? 'status-ring-viewed' : 'status-ring-active';
   };
 
-    const handleStatusClick = async (groupId: string, statuses: any[], profile: any) => {
+  const openStatusViewer = async (groupId: string, statuses: any[], profile: any) => {
     // If called from ChatList with empty statuses, fetch them here
     if (statuses.length === 0) {
-       try {
-         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-         const { data, error } = await supabase
-           .from('statuses')
-           .select('*')
-           .eq('user_id', groupId)
-           .gt('created_at', twentyFourHoursAgo)
-           .order('created_at', { ascending: true });
+      try {
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data, error } = await supabase
+          .from('statuses')
+          .select('*')
+          .eq('user_id', groupId)
+          .gt('created_at', twentyFourHoursAgo)
+          .order('created_at', { ascending: true });
 
-         if (data && !error) {
-             setViewingStatuses({ groupId, statuses: data, profile });
-         }
-       } catch (err) {
-         console.error("Failed to fetch statuses for viewer", err);
-       }
+        if (data && !error) {
+          setViewingStatuses({ groupId, statuses: data, profile });
+        }
+      } catch (err) {
+        console.error('Failed to fetch statuses for viewer', err);
+      }
     } else {
-       setViewingStatuses({ groupId, statuses, profile });
+      setViewingStatuses({ groupId, statuses, profile });
     }
+  };
+
+  const handleStatusClick = async (groupId: string, statuses: any[], profile: any) => {
+    // Viewing own status is free
+    if (!user?.id || groupId === user.id) {
+      await openStatusViewer(groupId, statuses, profile);
+      return;
+    }
+
+    // Check if already unlocked in localStorage
+    const cacheKey = `unlocked_statuses_${user.id}`;
+    let unlockedList: string[] = [];
+    try {
+      unlockedList = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+    } catch {}
+
+    const statusIds = (statuses || []).map((s: any) => String(s.id));
+    const isAlreadyUnlocked =
+      unlockedList.includes(String(groupId)) ||
+      (statusIds.length > 0 && statusIds.every((id) => unlockedList.includes(id)));
+
+    if (isAlreadyUnlocked) {
+      await openStatusViewer(groupId, statuses, profile);
+      return;
+    }
+
+    // Phase 5: 10 Coins to unlock & view status
+    await spendCoinsOrPromptStore({
+      actionKey: 'STATUS_VIEW',
+      actionLabel: `Unlock @${profile?.username || profile?.name || 'User'}'s Status`,
+      requiredCoins: 10,
+      allowedTiers: [],
+      onAllowed: async () => {
+        try {
+          const next = Array.from(new Set([...unlockedList, String(groupId), ...statusIds]));
+          localStorage.setItem(cacheKey, JSON.stringify(next));
+        } catch {}
+        await openStatusViewer(groupId, statuses, profile);
+      },
+    });
   };
 
   if (needsVerification) {
@@ -2835,6 +3081,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
   return (
     <div className="flex flex-col h-[100dvh] w-full overflow-hidden font-sans text-gray-100 selection:bg-purple-500/30 relative bg-neutral-950">
+      <GiftOverlay />
       {/* Verification Gate Modal */}
       <AnimatePresence>
           {showVerificationGateModal && (
@@ -3120,7 +3367,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               <button
                 onClick={() => {
                   if (currentOtherUserProfile) {
-                    initiateCall({
+                    handlePaywalledCall({
                       receiverId: groupDetails?.id || currentOtherUserProfile.id,
                       receiverName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
                       receiverAvatar: groupDetails?.avatar_url || currentOtherUserProfile.avatarUrl || '',
@@ -3141,7 +3388,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               <button
                 onClick={() => {
                   if (currentOtherUserProfile) {
-                    initiateCall({
+                    handlePaywalledCall({
                       receiverId: groupDetails?.id || currentOtherUserProfile.id,
                       receiverName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
                       receiverAvatar: groupDetails?.avatar_url || currentOtherUserProfile.avatarUrl || '',
@@ -3242,7 +3489,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             <>
               <button onClick={() => {
                 if (currentOtherUserProfile) {
-                  initiateCall({
+                  handlePaywalledCall({
                     receiverId: currentOtherUserProfile.id,
                     receiverName: currentOtherUserProfile.name || (currentOtherUserProfile as any).username || 'User',
                     receiverAvatar: currentOtherUserProfile.avatarUrl || '',
@@ -3255,7 +3502,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               </button>
               <button onClick={() => {
                 if (currentOtherUserProfile) {
-                  initiateCall({
+                  handlePaywalledCall({
                     receiverId: currentOtherUserProfile.id,
                     receiverName: currentOtherUserProfile.name || (currentOtherUserProfile as any).username || 'User',
                     receiverAvatar: currentOtherUserProfile.avatarUrl || '',
@@ -3384,7 +3631,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                              <p className="text-red-400 text-sm font-medium">Missed Call</p>
                              <p className="text-red-500/60 text-xs mt-0.5">{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
-                          <button onClick={() => initiateCall(currentOtherUserProfile?.id || '', currentOtherUserProfile?.name || (currentOtherUserProfile as any)?.username || '', currentOtherUserProfile?.avatarUrl, 'audio', false)} className="ml-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400 text-xs font-semibold hover:bg-red-500/30 transition-colors">Call Back</button>
+                          <button onClick={() => handlePaywalledCall({ receiverId: currentOtherUserProfile?.id || '', receiverName: currentOtherUserProfile?.name || (currentOtherUserProfile as any)?.username || 'User', receiverAvatar: currentOtherUserProfile?.avatarUrl, callType: 'audio', isGroup: isGroupChat })} className="ml-2 px-3 py-1.5 rounded-full bg-red-500/20 text-red-400 text-xs font-semibold hover:bg-red-500/30 transition-colors">Call Back</button>
                       </div>
                   </div>
               );
@@ -3401,7 +3648,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                              <p className="text-zinc-300 text-sm font-medium">Call Ended</p>
                              <p className="text-zinc-500 text-xs mt-0.5">{message.duration || '00:00'}</p>
                           </div>
-                          <button onClick={() => initiateCall(currentOtherUserProfile?.id || '', currentOtherUserProfile?.name || (currentOtherUserProfile as any)?.username || '', currentOtherUserProfile?.avatarUrl, 'audio', false)} className="ml-2 px-3 py-1.5 rounded-full bg-white/5 text-zinc-300 text-xs font-semibold hover:bg-white/10 transition-colors">Call Again</button>
+                          <button onClick={() => handlePaywalledCall({ receiverId: currentOtherUserProfile?.id || '', receiverName: currentOtherUserProfile?.name || (currentOtherUserProfile as any)?.username || 'User', receiverAvatar: currentOtherUserProfile?.avatarUrl, callType: 'audio', isGroup: isGroupChat })} className="ml-2 px-3 py-1.5 rounded-full bg-white/5 text-zinc-300 text-xs font-semibold hover:bg-white/10 transition-colors">Call Again</button>
                       </div>
                   </div>
               );
@@ -3809,23 +4056,37 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                     )}
 
                     {message.messageType === 'gift' && (
-                      <div className={`p-4 rounded-xl border relative overflow-hidden flex flex-col items-center shadow-lg ${
-                        message.giftName === 'Coffee' ? 'bg-amber-950/40 border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.2)]' :
-                        message.giftName === 'Rose' ? 'bg-rose-950/40 border-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.2)]' :
-                        message.giftName === 'Diamond' ? 'bg-cyan-950/40 border-cyan-400/30 shadow-[0_0_15px_rgba(34,211,238,0.3)]' :
-                        message.giftName === 'Crown' ? 'bg-gradient-to-br from-amber-500/20 to-purple-900/40 border-yellow-400/50 shadow-[0_0_20px_rgba(250,204,21,0.4)]' :
-                        message.giftName === 'Galaxy' ? 'bg-black border border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' :
-                        'bg-white/10 border-white/20'
+                      <div className={`p-4 rounded-2xl border relative overflow-hidden flex flex-col items-center min-w-[220px] shadow-2xl ${
+                        message.giftName?.toLowerCase().includes('serpent') ? 'bg-gradient-to-br from-cyan-950/80 via-slate-900 to-emerald-950/60 border-cyan-400/50 shadow-[0_0_25px_rgba(34,211,238,0.3)]' :
+                        message.giftName === 'Coffee' ? 'bg-amber-950/50 border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.25)]' :
+                        message.giftName === 'Rose' ? 'bg-rose-950/50 border-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.25)]' :
+                        message.giftName === 'Diamond' ? 'bg-cyan-950/50 border-cyan-400/40 shadow-[0_0_25px_rgba(34,211,238,0.35)]' :
+                        message.giftName === 'Crown' ? 'bg-gradient-to-br from-amber-500/25 to-purple-900/50 border-yellow-400/60 shadow-[0_0_25px_rgba(250,204,21,0.45)]' :
+                        message.giftName === 'Galaxy' ? 'bg-black border border-purple-500/70 shadow-[0_0_25px_rgba(168,85,247,0.45)]' :
+                        message.giftName?.toLowerCase().includes('god') ? 'bg-gradient-to-br from-amber-500/35 via-orange-950/60 to-black border-amber-400 shadow-[0_0_30px_rgba(251,191,36,0.55)]' :
+                        'bg-gradient-to-br from-amber-500/20 to-slate-900 border-amber-400/40'
                       }`}>
                          {message.giftName === 'Galaxy' && (
-                            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-fuchsia-600/20 via-purple-900/20 to-transparent z-0"></div>
+                            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-fuchsia-600/25 via-purple-900/25 to-transparent z-0"></div>
                          )}
-                         <div className={`relative z-10 font-bold text-center ${
-                             message.giftName === 'Galaxy' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent' :
-                             message.giftName === 'Crown' ? 'text-yellow-400 drop-shadow-md' :
+                         <div className="relative z-10 text-3xl mb-1.5 drop-shadow-[0_0_15px_rgba(251,191,36,0.6)]">
+                           {message.giftName?.toLowerCase().includes('serpent') ? '🐍' :
+                            message.giftName === 'Coffee' ? '☕' :
+                            message.giftName === 'Rose' ? '🌹' :
+                            message.giftName === 'Diamond' ? '💎' :
+                            message.giftName === 'Crown' ? '👑' :
+                            message.giftName === 'Galaxy' ? '🌌' :
+                            message.giftName?.toLowerCase().includes('god') ? '⚡🔥' : '🎁'}
+                         </div>
+                         <div className={`relative z-10 font-black text-sm text-center tracking-wide ${
+                             message.giftName === 'Galaxy' ? 'bg-gradient-to-r from-purple-300 via-pink-400 to-amber-300 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent' :
+                             message.giftName === 'Crown' || message.giftName?.toLowerCase().includes('god') ? 'text-yellow-300 drop-shadow-md' :
                              'text-white'
                          }`}>
-                             Sent a {message.giftName} ({message.giftCost} Coins)
+                             {isUser ? `Sent a ${message.giftName}` : `Received a ${message.giftName}`}
+                         </div>
+                         <div className="relative z-10 mt-2 px-3 py-1 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[11px] font-black uppercase tracking-wider shadow-inner">
+                           {isUser ? `${message.giftCost} Coins Gifted` : `+${message.giftCost} Coins Credited to Wallet`}
                          </div>
                       </div>
                     )}
@@ -4644,7 +4905,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }}
           onStartGroupCall={(callType) => {
             setIsGroupInfoDrawerOpen(false);
-            initiateCall?.({
+            handlePaywalledCall({
               receiverId: groupDetails?.id || currentOtherUserProfile.id,
               receiverName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
               receiverAvatar: groupDetails?.avatar_url || currentOtherUserProfile.avatarUrl || '',
