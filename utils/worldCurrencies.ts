@@ -12,7 +12,6 @@ export const BASE_PASS_AMOUNT_GHS = 50;
 export const FX_CACHE_STORAGE_KEY = 'horpal_fx_rates_ghs_v1';
 export const FX_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 export const POPULAR_CURRENCY_CODES = [
-  'GHS',
   'USD',
   'NGN',
   'GBP',
@@ -21,7 +20,7 @@ export const POPULAR_CURRENCY_CODES = [
   'ZAR',
   'XOF',
   'CAD',
-  'INR',
+  'GHS',
 ];
 
 /**

@@ -115,6 +115,7 @@ export default function GlobalChatAccessGate({
   const [isCurrencyPickerOpen, setIsCurrencyPickerOpen] = useState(false);
 
   const touchHandledRef = useRef(0);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const initializePayment = usePaystackPayment(
     paymentConfig || {
@@ -151,17 +152,39 @@ export default function GlobalChatAccessGate({
   }, [isOpen]);
 
   const makeSafeTap = (fn: () => void) => ({
+    onMouseDown: (e: React.MouseEvent) => {
+      // Prevent background text inputs from keeping or stealing focus during button taps
+      e.preventDefault();
+    },
+    onTouchStart: (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      if (t) touchStartRef.current = { x: t.clientX, y: t.clientY };
+    },
     onTouchEnd: (e: React.TouchEvent) => {
+      const start = touchStartRef.current;
+      const t = e.changedTouches[0];
+      touchStartRef.current = null;
+      if (start && t && (Math.abs(t.clientX - start.x) > 10 || Math.abs(t.clientY - start.y) > 10)) {
+        return; // Ignore swipe/scroll gestures on mobile
+      }
       e.stopPropagation();
       touchHandledRef.current = Date.now();
       fn();
     },
     onClick: (e: React.MouseEvent) => {
+      e.preventDefault();
       e.stopPropagation();
       if (Date.now() - touchHandledRef.current < 450) return;
       fn();
     },
   });
+
+  const handleOpenCurrencyPicker = () => {
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setIsCurrencyPickerOpen(true);
+  };
 
   const clearDeniedBanner = () => {
     setDeniedEmailBanner(null);
@@ -536,7 +559,7 @@ export default function GlobalChatAccessGate({
               <div className="mt-4 flex flex-col items-center gap-2">
                 <button
                   type="button"
-                  {...makeSafeTap(() => setIsCurrencyPickerOpen(true))}
+                  {...makeSafeTap(handleOpenCurrencyPicker)}
                   className="min-h-[44px] px-4 py-2 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/50 text-amber-200 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-[0_0_24px_rgba(245,158,11,0.28)] hover:scale-[1.02] active:scale-[0.98] transition cursor-pointer touch-manipulation"
                 >
                   <span>
