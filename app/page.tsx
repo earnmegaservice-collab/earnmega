@@ -86,6 +86,24 @@ function HomeContent() {
         .eq("id", activeSession.user.id)
         .single();
 
+      // Strict Phase 3 Gate Verification: SACK unpaid Google OAuth / Gate login attempts immediately
+      if (typeof window !== "undefined" && localStorage.getItem("horpal_gate_login_attempt") === "1") {
+        localStorage.removeItem("horpal_gate_login_attempt");
+        if (data?.has_paid_global_chat !== true) {
+          const deniedEmail = activeSession.user.email || "this account";
+          try {
+            sessionStorage.setItem("horpal_denied_gate_email", deniedEmail);
+          } catch (_) {}
+          try {
+            await supabase.auth.signOut();
+          } catch (_) {}
+          setProfileState(null);
+          setShowGateway(true);
+          setShowGlobalChatGate(true);
+          return;
+        }
+      }
+
       if (error && error.code !== "PGRST116") {
         console.error("Profile fetch error:", error);
       }
@@ -188,6 +206,20 @@ function HomeContent() {
             setShowGlobalChatGate(false);
             setShowGateway(false);
           }}
+          onPaidLoginSuccess={(_authUser, prof) => {
+            setShowGlobalChatGate(false);
+            setShowGateway(false);
+            setProfileState((prev: any) => ({
+              ...(prev || {}),
+              ...(prof || {}),
+              has_paid_global_chat: true,
+            }));
+          }}
+          onUnpaidDenied={() => {
+            setProfileState(null);
+            setShowGateway(true);
+            setShowGlobalChatGate(true);
+          }}
           onSuccess={async (ref) => {
             setPendingPassRef(ref);
             setShowGlobalChatGate(false);
@@ -258,6 +290,20 @@ function HomeContent() {
         <GlobalChatAccessGate
           isOpen={true}
           onLoginClick={() => {}}
+          onPaidLoginSuccess={(_authUser, prof) => {
+            setShowGlobalChatGate(false);
+            setShowGateway(false);
+            setProfileState((prev: any) => ({
+              ...(prev || {}),
+              ...(prof || {}),
+              has_paid_global_chat: true,
+            }));
+          }}
+          onUnpaidDenied={() => {
+            setProfileState(null);
+            setShowGateway(true);
+            setShowGlobalChatGate(true);
+          }}
           onSuccess={async (ref) => {
             await supabase
               .from("profiles")

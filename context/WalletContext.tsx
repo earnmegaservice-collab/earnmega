@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { supabase } from '../utils/supabase';
 import { useAuth } from './AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getEffectiveNormalizedTier } from '../utils/subscriptionUtils';
 
 const CoinStoreModal = dynamic(() => import('../components/wallet/CoinStoreModal'), { ssr: false });
 
@@ -170,7 +171,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const isPremium = normalizedTier === 'premium';
 
   const refreshWallet = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      setBalance(defaultState.balance);
+      setSubscriptionTier(defaultState.subscriptionTier);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -192,12 +197,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             : 0;
         setBalance(verifiedCoins);
 
-        const rawTier = String(data.subscription_tier || '').toUpperCase();
-        if (data.is_premium === true || rawTier === 'PREMIUM' || rawTier === 'VIP') {
+        const effectiveTier = getEffectiveNormalizedTier(data);
+        if (effectiveTier === 'premium') {
           setSubscriptionTier('PREMIUM');
-        } else if (data.is_pro === true || rawTier === 'PRO') {
+        } else if (effectiveTier === 'pro') {
           setSubscriptionTier('PRO');
-        } else if (rawTier === 'FREE') {
+        } else {
           setSubscriptionTier('FREE');
         }
       }
@@ -228,7 +233,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const openCoinStore = useCallback((options?: OpenCoinStoreOptions) => {
     setStoreInitialTab(options?.initialTab || 'BUY_COINS');
-    setStoreBannerMessage(options?.bannerMessage || null);
+    setStoreBannerMessage(options?.bannerMessage ?? options?.promptMessage ?? null);
     setHighlightedStorePlan(options?.highlightedPlan || null);
     pendingStoreSuccessRef.current = options?.onSuccess || null;
     setIsStoreOpen(true);

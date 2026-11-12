@@ -42,6 +42,8 @@ import {
 } from '../../utils/connectionsStore';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
+import ProfileExitControls from '../profile/ProfileExitControls';
+import { useModalBackHandler } from '../../utils/useModalBackHandler';
 
 export interface GroupPermissionsConfig {
   onlyAdminsCanSend: boolean;
@@ -152,6 +154,7 @@ export default function GroupInfoDrawer({
   const [isAddingMembers, setIsAddingMembers] = useState(false);
 
   const [selectedProfile, setSelectedProfile] = useState<ParticipantItem | null>(null);
+  useModalBackHandler(Boolean(selectedProfile), () => setSelectedProfile(null), 'horpalGroupMemberProfile');
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -1829,8 +1832,9 @@ export default function GroupInfoDrawer({
         {selectedProfile && (
           <div
             onClick={() => setSelectedProfile(null)}
-            className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+            className="fixed inset-0 z-[10001] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
           >
+            <ProfileExitControls onClose={() => setSelectedProfile(null)} zIndexClass="z-[10005]" />
             <motion.div
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1850,12 +1854,6 @@ export default function GroupInfoDrawer({
                     {selectedProfile.avatarInitials}
                   </div>
                 )}
-                <button
-                  onClick={() => setSelectedProfile(null)}
-                  className="absolute top-3 right-3 p-2 rounded-full bg-black/60 text-white"
-                >
-                  <X size={18} />
-                </button>
               </div>
               <div className="p-5">
                 <div className="flex items-center justify-between">

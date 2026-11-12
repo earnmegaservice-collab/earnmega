@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Bot } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
+import { useWallet } from '../../context/WalletContext';
 
 interface HelpBotModalProps {
   isOpen: boolean;
@@ -11,6 +12,19 @@ interface HelpBotModalProps {
 
 export default function HelpBotModal({ isOpen, onClose }: HelpBotModalProps) {
   const { user } = useAuth();
+  const { isPro, isPremium, openCoinStore } = useWallet();
+
+  useEffect(() => {
+    if (isOpen && (!user || (!isPro && !isPremium))) {
+      onClose();
+      openCoinStore({
+        initialTab: 'UPGRADES',
+        highlightedPlan: 'PRO',
+        bannerMessage:
+          '🤖 AI Help Bot is a Pro & Premium Exclusive — Upgrade Now for 24/7 Smart AI Assistance',
+      });
+    }
+  }, [isOpen, user, isPro, isPremium, onClose, openCoinStore]);
   const [messages, setMessages] = useState<{ id: string; role: 'user' | 'assistant'; content: string }[]>([
     { id: 'welcome', role: 'assistant', content: 'Hello! I am your 24/7 AI Concierge. How can I help you today?' }
   ]);

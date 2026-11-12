@@ -25,8 +25,10 @@ import NotificationDrawer from '../notifications/NotificationDrawer';
 import { supabase } from '../../utils/supabase';
 import { ProfileCompletionModal } from '../profile/ProfileCompletionModal';
 import HelpBotModal from '../chat/HelpBotModal';
-
-
+import { useWallet } from '../../context/WalletContext';
+import { useSubscriptionTimer } from '../../hooks/useSubscriptionTimer';
+import { hasActiveProOrPremium } from '../../utils/subscriptionUtils';
+import toast from 'react-hot-toast';
 import { useCall } from '../../context/CallContext';
 
 interface AppShellProps {
@@ -60,6 +62,62 @@ export const AppShell: React.FC<AppShellProps> = ({
   }, [joinCall]);
   const { unreadCount, bellShake, requestPushPermission, isMuted } = useGlobalNotifications();
   const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
+  const { tier: walletTier, isPro, isPremium, openCoinStore } = useWallet();
+  const subTimer = useSubscriptionTimer(user?.id);
+
+  const hasActiveHelpBotAccess = React.useMemo(() => {
+    if (subTimer.expiresAt && subTimer.remainingSeconds <= 0) {
+      return false;
+    }
+    const timerActive = (subTimer.tier === 'pro' || subTimer.tier === 'premium') && (!subTimer.expiresAt || subTimer.remainingSeconds > 0);
+    const walletActive = (walletTier === 'pro' || walletTier === 'premium' || isPro || isPremium) && (!subTimer.expiresAt || subTimer.remainingSeconds > 0);
+    return timerActive || walletActive;
+  }, [subTimer.tier, subTimer.expiresAt, subTimer.remainingSeconds, walletTier, isPro, isPremium]);
+
+  const handleFloatingHelpBotClick = async () => {
+    const upgradeBanner =
+      '🤖 AI Help Bot is a Pro & Premium Exclusive — Upgrade Now for 24/7 Smart AI Assistance';
+
+    if (!hasActiveHelpBotAccess || !user?.id) {
+      toast(upgradeBanner, { icon: '👑', duration: 4000 });
+      openCoinStore({
+        initialTab: 'UPGRADES',
+        highlightedPlan: 'PRO',
+        bannerMessage: upgradeBanner,
+      });
+      return;
+    }
+
+    // Double-check live database subscription_tier & expiry so free/expired users can never bypass
+    try {
+      const { data: latestProfile } = await supabase
+        .from('profiles')
+        .select('subscription_tier, is_pro, is_premium, subscription_expires_at')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (!hasActiveProOrPremium(latestProfile)) {
+        toast(upgradeBanner, { icon: '👑', duration: 4000 });
+        openCoinStore({
+          initialTab: 'UPGRADES',
+          highlightedPlan: 'PRO',
+          bannerMessage: upgradeBanner,
+        });
+        return;
+      }
+    } catch (_) {
+      if (!hasActiveHelpBotAccess) {
+        openCoinStore({
+          initialTab: 'UPGRADES',
+          highlightedPlan: 'PRO',
+          bannerMessage: upgradeBanner,
+        });
+        return;
+      }
+    }
+
+    setIsHelpBotOpen(true);
+  };
 
   useEffect(() => {
      const handleNavigate = (e: any) => {
@@ -344,8 +402,10 @@ export const AppShell: React.FC<AppShellProps> = ({
       {/* THE EMERALD CORE WIDGET (HELP BOT) */}
       {activeTab !== 'live' && (
         <button
-          onClick={() => setIsHelpBotOpen(true)}
-          className="fixed bottom-24 left-4 z-[99999] w-14 h-14 rounded-full bg-[#020202]/90 backdrop-blur-2xl border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.4)] flex items-center justify-center hover:scale-110 transition-all cursor-pointer group"
+          type="button"
+          onClick={handleFloatingHelpBotClick}
+          aria-label="Open AI Help Bot"
+          className="fixed bottom-24 left-4 z-[99999] w-14 h-14 rounded-full bg-[#020202]/90 backdrop-blur-2xl border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.4)] flex items-center justify-center hover:scale-110 transition-all cursor-pointer group touch-manipulation"
         >
           <motion.div
             animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}

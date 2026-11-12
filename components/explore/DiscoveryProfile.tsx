@@ -24,9 +24,12 @@ import VerifiedBadge from '../ui/VerifiedBadge';
 import { isRealVerified, isRealVip, isRealPremium } from '../../utils/connectionsStore';
 import { LiveSpatialRadarCard } from '../location/LiveSpatialRadarCard';
 import { usePaywallGate } from '../../hooks/usePaywallGate';
+import ProfileExitControls from '../profile/ProfileExitControls';
+import { useModalBackHandler } from '../../utils/useModalBackHandler';
 
 interface DiscoveryProfileProps {
   user: DiscoveredUser;
+  onClose?: () => void;
   onSkip: () => void;
   onSendGift: (user: DiscoveredUser) => void;
   onChat: (user: DiscoveredUser, isSpark?: boolean) => void;
@@ -37,6 +40,7 @@ interface DiscoveryProfileProps {
 
 export default function DiscoveryProfile({
   user,
+  onClose,
   onSkip,
   onSendGift,
   onChat,
@@ -44,6 +48,8 @@ export default function DiscoveryProfile({
   isConnected = false,
   isSending = false,
 }: DiscoveryProfileProps) {
+  const handleExit = onClose || onSkip;
+  useModalBackHandler(true, handleExit, 'horpalFindProfile');
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [direction, setDirection] = useState<'skip' | 'love'>('skip');
   const [showLoveExplosion, setShowLoveExplosion] = useState(false);
@@ -124,7 +130,11 @@ export default function DiscoveryProfile({
   const userIsPremium = !userIsVip && isRealPremium(user);
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black overflow-y-auto overflow-x-hidden">
+    <div
+      onClick={handleExit}
+      className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md overflow-y-auto overflow-x-hidden sm:py-6 sm:px-4"
+    >
+      <ProfileExitControls onClose={handleExit} zIndexClass="z-[10050]" />
       {/* FULL-SCREEN 4K LOVE EXPLOSION */}
       <AnimatePresence>
         {showLoveExplosion && (
@@ -157,7 +167,8 @@ export default function DiscoveryProfile({
             rotate: direction === 'skip' ? -10 : 10,
           }}
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-          className="relative min-h-[150vh] w-full flex flex-col bg-slate-950"
+          onClick={(e) => e.stopPropagation()}
+          className="relative max-w-xl mx-auto min-h-[150vh] w-full flex flex-col bg-slate-950 sm:rounded-3xl sm:border sm:border-white/10 sm:overflow-hidden shadow-2xl"
         >
           {/* 1. 100dvh HERO IMAGE & TAP ZONES */}
           <div className="relative h-[100dvh] w-full shrink-0">

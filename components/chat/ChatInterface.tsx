@@ -642,9 +642,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         bio: data.bio || 'Avid EarnMega user',
         joinDate: data.created_at ? new Date(data.created_at).toLocaleDateString() : 'Oct 2023',
         tier: getRealSubscriptionTier(data),
+        is_pro: Boolean(data.is_pro),
         is_premium: Boolean(data.is_premium),
         is_vip: Boolean(data.is_vip),
         subscription_tier: data.subscription_tier || 'free',
+        subscription_expires_at: data.subscription_expires_at || null,
         phone: data.phone,
         isOnline: true,
         coinsGifted: data.coins_gifted || 0,
@@ -674,6 +676,44 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   };
 
   useEffect(() => { fetchCurrentUserProfile(); }, [user, subscriptionTier]);
+
+  // Strict Phase 1 User Isolation: Purge legacy unscoped localStorage keys & wipe in-memory chat/group state whenever user switches or logs out
+  const previousUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    try {
+      const legacyGlobalKeys = [
+        'horpal_groups',
+        'pillar1_chats',
+        'earnmega_groups',
+        'horpal_chats',
+        'earnmega_chats',
+        'pinnedChats',
+        'mutedChats',
+        'horpal_instant_chat_cache',
+        'horpal_chat_activity',
+      ];
+      legacyGlobalKeys.forEach((k) => localStorage.removeItem(k));
+    } catch (_) {}
+
+    const nextUid = user?.id || null;
+    if (previousUserIdRef.current !== nextUid) {
+      previousUserIdRef.current = nextUid;
+      setExploreUsers([]);
+      setIncomingRequests([]);
+      setMessages([]);
+      setOtherUserProfile(null);
+      setGroupDetails(null);
+      setGroupMembers([]);
+      setSelectedProfile(null);
+      setIsProfileOpen(false);
+      setInspectingRequest(null);
+      setChatsFetchError(null);
+      if (!nextUid) {
+        setCurrentUserProfile(null);
+        setIsChatsLoading(false);
+      }
+    }
+  }, [user?.id]);
 
 
   // WebRTC configuration
@@ -732,16 +772,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
     if (isGroupChat || otherUserProfile.isGroup || otherUserProfile.bio === 'Group Chat') {
       const fetchGroup = async () => {
+        if (!user?.id) return;
         let { data: group } = await supabase.from('rooms').select('*').eq('id', otherUserProfile.id).maybeSingle();
         if (!group) {
-          const { data: fallback } = await supabase.from('rooms').select('*').eq('name', otherUserProfile.name).limit(1).maybeSingle();
-          group = fallback;
+          const { data: legacyGroup } = await supabase.from('groups').select('*').eq('id', otherUserProfile.id).maybeSingle();
+          group = legacyGroup;
         }
 
         if (group) {
           setGroupDetails(group);
           const { data: members } = await supabase.from('room_participants').select('*, profiles(id, username, full_name, avatar_url)').eq('room_id', group.id);
-          if (members) setGroupMembers(members);
+          if (members && members.length > 0) {
+            setGroupMembers(members);
+          } else {
+            const { data: gm } = await supabase.from('group_members').select('*, profiles(id, username, full_name, avatar_url)').eq('group_id', group.id);
+            if (gm) setGroupMembers(gm);
+          }
         }
       };
 
@@ -1222,20 +1268,23 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           lastMessageTime: Number.MAX_SAFE_INTEGER,
         };
 
-        // Purge legacy random-discovery caches so old random users or other people's groups never leak
+        // Purge legacy caches so old random users or other people's groups never leak
         try {
           localStorage.removeItem(`horpal_instant_chat_cache_${user.id}`);
           localStorage.removeItem(`horpal_chat_activity_${user.id}`);
+          localStorage.removeItem(`earnmega_clean_chat_cache_v3_${user.id}`);
         } catch (e) {}
 
         let hasCachedData = false;
-        const cleanCacheKey = `earnmega_clean_chat_cache_v3_${user.id}`;
+        const cleanCacheKey = `horpal_chats_${user.id}`;
         try {
           const cachedChats = localStorage.getItem(cleanCacheKey);
           if (cachedChats) {
             const parsed = JSON.parse(cachedChats);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              setExploreUsers(parsed);
+              const sanitized = parsed.filter((c: any) => c && c.id && c.id !== SUPPORT_BOT_ID);
+              const withoutBot = sanitized.filter((c: any) => c.id !== AI_FRIENDS_BOT_ID);
+              setExploreUsers([aiFriendsChat, ...withoutBot]);
               hasCachedData = true;
             }
           }
@@ -1248,60 +1297,107 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         setChatsFetchError(null);
 
         try {
-          // 1. Fetch accepted connections, incoming Love requests, and user's explicit group memberships
-          const [connectionsResult, roomsResult] = await Promise.all([
+          // 1. Fetch accepted connections, incoming Love requests, and strictly user-scoped group memberships
+          const [
+            connectionsResult,
+            roomParticipantsRes,
+            ownedRoomsRes,
+            memberArrayRoomsRes,
+            groupMembersRes,
+            ownedGroupsRes,
+          ] = await Promise.allSettled([
             fetchUserConnectionsAndRequests(user.id),
             supabase
               .from('room_participants')
               .select('room_id, is_deleted, role, rooms ( id, name, avatar_url, description, created_by, created_at, updated_at )')
               .eq('user_id', user.id),
+            supabase
+              .from('rooms')
+              .select('id, name, avatar_url, description, created_by, created_at, updated_at')
+              .eq('created_by', user.id),
+            supabase
+              .from('rooms')
+              .select('id, name, avatar_url, description, created_by, created_at, updated_at')
+              .contains('member_ids', [user.id]),
+            supabase
+              .from('group_members')
+              .select('group_id, groups ( id, name, created_by, created_at )')
+              .eq('user_id', user.id),
+            supabase
+              .from('groups')
+              .select('id, name, created_by, created_at')
+              .eq('created_by', user.id),
           ]);
 
-          const { acceptedUserIds, incomingRequests: pendingReqs, connectionTimestamps } = connectionsResult;
+          const connData =
+            connectionsResult.status === 'fulfilled'
+              ? connectionsResult.value
+              : { acceptedUserIds: new Set<string>(), incomingRequests: [], connectionTimestamps: new Map<string, number>() };
+          const { acceptedUserIds, incomingRequests: pendingReqs, connectionTimestamps } = connData;
           setIncomingRequests(pendingReqs);
-
-          const { data: roomsData, error: roomsError } = roomsResult;
-          if (roomsError) {
-            console.warn('[CHAT LIST] Warning fetching room_participants:', roomsError);
-          }
 
           let localDeletedRooms: string[] = [];
           try {
             localDeletedRooms = JSON.parse(localStorage.getItem(`earnmega_deleted_rooms_${user.id}`) || '[]');
           } catch (e) {}
 
-          // PHASE 1.4: Group Chat ONLY appears if logged-in user is explicitly an added member or creator (`room_participants` contains `user.id` and `is_deleted !== true`), deduplicated by `group.id`
+          // Strictly include ONLY groups where created_by === user.id OR user.id is explicitly a member
           const groupMap = new Map<string, UserProfileDetails>();
-          (roomsData || [])
-            .filter((gm: any) => gm?.is_deleted !== true && gm?.rooms != null && gm?.rooms?.id && !localDeletedRooms.includes(gm?.room_id))
-            .forEach((gm: any) => {
-              try {
-                const room = Array.isArray(gm.rooms) ? gm.rooms[0] : gm.rooms;
-                if (!room || !room.id) return;
-                if (groupMap.has(room.id)) return; // Strict deduplication by group.id
-                const nameStr = room.name || 'Group Chat';
-                const firstChar = nameStr[0] || 'G';
-                const secondChar = nameStr[1] || 'R';
-                const avatarInitials = (firstChar + secondChar).toUpperCase();
-                groupMap.set(room.id, {
-                  id: room.id,
-                  name: nameStr,
-                  avatarInitials,
-                  avatarUrl: room.avatar_url || undefined,
-                  bio: room.description || 'Group Chat',
-                  joinDate: new Date(room.created_at || Date.now()).toLocaleDateString(),
-                  tier: 'FREE',
-                  isOnline: true,
-                  coinsGifted: 0,
-                  isSelf: false,
-                  isGroup: true,
-                  unreadCount: 0,
-                  lastMessageTime: new Date(room.updated_at || room.created_at || 0).getTime(),
-                });
-              } catch (err) {
-                console.warn('Failed to parse group row', err);
-              }
+          const registerGroupRow = (rawGroup: any, isDeleted?: boolean) => {
+            try {
+              const room = Array.isArray(rawGroup) ? rawGroup[0] : rawGroup;
+              if (!room || !room.id) return;
+              if (isDeleted === true || localDeletedRooms.includes(room.id)) return;
+              if (room.is_live === true || room.stream_key) return;
+              if (groupMap.has(room.id)) return;
+              const nameStr = room.name || 'Group Chat';
+              const firstChar = nameStr[0] || 'G';
+              const secondChar = nameStr[1] || 'R';
+              groupMap.set(room.id, {
+                id: room.id,
+                name: nameStr,
+                avatarInitials: (firstChar + secondChar).toUpperCase(),
+                avatarUrl: room.avatar_url || room.icon_url || undefined,
+                bio: room.description || 'Group Chat',
+                joinDate: new Date(room.created_at || Date.now()).toLocaleDateString(),
+                tier: 'FREE',
+                isOnline: true,
+                coinsGifted: 0,
+                isSelf: false,
+                isGroup: true,
+                unreadCount: 0,
+                lastMessageTime: new Date(room.updated_at || room.created_at || 0).getTime(),
+              });
+            } catch (err) {
+              console.warn('Failed to parse group row', err);
+            }
+          };
+
+          if (roomParticipantsRes.status === 'fulfilled' && !roomParticipantsRes.value.error) {
+            (roomParticipantsRes.value.data || []).forEach((gm: any) => {
+              registerGroupRow(gm?.rooms, gm?.is_deleted);
             });
+          }
+          if (ownedRoomsRes.status === 'fulfilled' && !ownedRoomsRes.value.error) {
+            (ownedRoomsRes.value.data || []).forEach((rm: any) => {
+              if (rm?.created_by === user.id) registerGroupRow(rm, false);
+            });
+          }
+          if (memberArrayRoomsRes.status === 'fulfilled' && !memberArrayRoomsRes.value.error) {
+            (memberArrayRoomsRes.value.data || []).forEach((rm: any) => {
+              registerGroupRow(rm, false);
+            });
+          }
+          if (groupMembersRes.status === 'fulfilled' && !groupMembersRes.value.error) {
+            (groupMembersRes.value.data || []).forEach((gm: any) => {
+              registerGroupRow(gm?.groups, false);
+            });
+          }
+          if (ownedGroupsRes.status === 'fulfilled' && !ownedGroupsRes.value.error) {
+            (ownedGroupsRes.value.data || []).forEach((g: any) => {
+              if (g?.created_by === user.id) registerGroupRow(g, false);
+            });
+          }
 
           const roomsFormatted = Array.from(groupMap.values());
 
@@ -3318,7 +3414,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               isRealPremiumOrVip(currentOtherUserProfile) ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
               'text-neutral-200 font-bold'
             }`}>
-              {currentOtherUserProfile.is_bot && typeof window !== 'undefined' && localStorage.getItem(`bot_name_${currentOtherUserProfile.id}`) ? localStorage.getItem(`bot_name_${currentOtherUserProfile.id}`) : currentOtherUserProfile.name}
+              {currentOtherUserProfile.is_bot && user?.id && typeof window !== 'undefined' && localStorage.getItem(`horpal_bot_name_${user.id}_${currentOtherUserProfile.id}`) ? localStorage.getItem(`horpal_bot_name_${user.id}_${currentOtherUserProfile.id}`) : currentOtherUserProfile.name}
             </h1>
             {isRealVerified(currentOtherUserProfile) && <VerifiedBadge />}
             {isRealVip(currentOtherUserProfile) && (

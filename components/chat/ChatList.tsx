@@ -12,7 +12,9 @@ import { submitUserReport } from '../../app/actions/submitUserReport';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { useWallet } from '../../context/WalletContext';
+import { useAuth } from '../../context/AuthContext';
 import { deleteConversationPermanently } from '../../utils/deleteUtils';
+import { hasActiveProOrPremium } from '../../utils/subscriptionUtils';
 import {
   AI_FRIENDS_BOT_ID,
   SUPPORT_BOT_ID,
@@ -62,7 +64,9 @@ export default function ChatList({
   onDeclineRequest,
   onInspectRequesterProfile,
 }: ChatListProps) {
-  const { openCoinStore } = useWallet();
+  const { user: authUser } = useAuth();
+  const { openCoinStore, tier: walletTier, isPro: walletIsPro, isPremium: walletIsPremium } = useWallet();
+  const scopedUserId = authUser?.id || currentUserProfile?.id || null;
   const [searchQuery, setSearchQuery] = useState('');
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const router = useRouter();
@@ -131,24 +135,59 @@ export default function ChatList({
     };
   }, [currentUserProfile?.id]);
 
-  // Load pinned/muted from local storage
+  // Load pinned/muted strictly scoped by logged-in user and purge global/unscoped storage keys
   React.useEffect(() => {
     try {
-      const p = localStorage.getItem('pinnedChats');
-      if (p) setPinnedChats(new Set(JSON.parse(p)));
-      const m = localStorage.getItem('mutedChats');
-      if (m) setMutedChats(new Set(JSON.parse(m)));
-    } catch(e) {}
-  }, []);
+      const legacyGlobalKeys = [
+        'pinnedChats',
+        'mutedChats',
+        'horpal_groups',
+        'pillar1_chats',
+        'earnmega_groups',
+        'horpal_chats',
+        'earnmega_chats',
+      ];
+      legacyGlobalKeys.forEach((k) => {
+        try {
+          localStorage.removeItem(k);
+        } catch (_) {}
+      });
+    } catch (_) {}
+
+    if (!scopedUserId) {
+      setPinnedChats(new Set());
+      setMutedChats(new Set());
+      setSelectedChats(new Set());
+      setIsMultiSelectMode(false);
+      setSearchQuery('');
+      return;
+    }
+
+    try {
+      const p = localStorage.getItem(`horpal_pinned_chats_${scopedUserId}`);
+      setPinnedChats(p ? new Set(JSON.parse(p)) : new Set());
+      const m = localStorage.getItem(`horpal_muted_chats_${scopedUserId}`);
+      setMutedChats(m ? new Set(JSON.parse(m)) : new Set());
+    } catch (_) {
+      setPinnedChats(new Set());
+      setMutedChats(new Set());
+    }
+  }, [scopedUserId]);
 
   const savePinnedChats = (newSet: Set<string>) => {
     setPinnedChats(newSet);
-    localStorage.setItem('pinnedChats', JSON.stringify(Array.from(newSet)));
+    if (!scopedUserId) return;
+    try {
+      localStorage.setItem(`horpal_pinned_chats_${scopedUserId}`, JSON.stringify(Array.from(newSet)));
+    } catch (_) {}
   };
 
   const saveMutedChats = (newSet: Set<string>) => {
     setMutedChats(newSet);
-    localStorage.setItem('mutedChats', JSON.stringify(Array.from(newSet)));
+    if (!scopedUserId) return;
+    try {
+      localStorage.setItem(`horpal_muted_chats_${scopedUserId}`, JSON.stringify(Array.from(newSet)));
+    } catch (_) {}
   };
 
   const toggleSelection = (id: string) => {
@@ -700,8 +739,8 @@ export default function ChatList({
             let displayName = isAiFriendsChat
               ? 'AI Friends'
               : (u?.name || (u as any)?.username || (u as any)?.participants?.[0]?.username || "Unknown User");
-            if (u.is_bot && !isAiFriendsChat) {
-                const storedBotName = typeof window !== 'undefined' ? localStorage.getItem(`bot_name_${u.id}`) : null;
+            if (u.is_bot && !isAiFriendsChat && scopedUserId) {
+                const storedBotName = typeof window !== 'undefined' ? localStorage.getItem(`horpal_bot_name_${scopedUserId}_${u.id}`) : null;
                 if (storedBotName) {
                     displayName = storedBotName;
                 }
@@ -772,24 +811,20 @@ export default function ChatList({
                       }
                       if (!u.id) throw new Error('Chat ID is missing.');
 
-                      // PHASE 3: AI BOT FRIEND PAYWALL (PRO OR PREMIUM ONLY)
+                      // PHASE 3 & 4: AI BOT FRIEND PAYWALL (ACTIVE NON-EXPIRED PRO OR PREMIUM ONLY)
                       if (isAiFriendsChat) {
-                        const tier = String((currentUserProfile as any)?.subscription_tier || '').toLowerCase();
                         const isProOrPremium =
-                          tier === 'pro' ||
-                          tier === 'premium' ||
-                          (currentUserProfile as any)?.is_pro === true ||
-                          (currentUserProfile as any)?.is_premium === true;
+                          hasActiveProOrPremium(currentUserProfile as any) ||
+                          (walletIsPro || walletIsPremium || walletTier === 'pro' || walletTier === 'premium');
 
                         if (!isProOrPremium) {
-                          toast(
-                            '🤖 Unlock Your 24/7 AI Companion — Upgrade to Pro or Premium for Unlimited AI Chat',
-                            { icon: '👑', duration: 4000 }
-                          );
+                          const upgradeMsg =
+                            '🤖 Unlock Your 24/7 AI Companion — Upgrade to Pro or Premium for Unlimited AI Chat';
+                          toast(upgradeMsg, { icon: '👑', duration: 4000 });
                           openCoinStore({
                             initialTab: 'UPGRADES',
-                            promptMessage:
-                              '🤖 Unlock Your 24/7 AI Companion — Upgrade to Pro or Premium for Unlimited AI Chat',
+                            highlightedPlan: 'PRO',
+                            bannerMessage: upgradeMsg,
                           });
                           return;
                         }

@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { X, Edit2, Upload, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
+import { fetchUserConnectionsAndRequests, getRealSubscriptionTier } from '../../utils/connectionsStore';
 
 interface NavigationDrawerProps {
   isOpen: boolean;
@@ -64,14 +65,19 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!user?.id) {
+      setUsers([]);
+      setIsLoading(false);
+      return;
+    }
     if (isOpen) {
       if (activeTab === 'EXPLORE') {
         loadUsers();
-      } else if (activeTab === 'EDIT_PROFILE' && user) {
+      } else if (activeTab === 'EDIT_PROFILE') {
         loadCurrentUserProfile();
       }
     }
-  }, [isOpen, activeTab, user]);
+  }, [isOpen, activeTab, user?.id]);
 
   const loadCurrentUserProfile = async () => {
     if (!user) return;
@@ -94,44 +100,62 @@ export default function NavigationDrawer({ isOpen, onClose, onSelectUser, onProf
   };
 
   const loadUsers = async () => {
+    if (!user?.id) {
+      setUsers([]);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     try {
+      // Strictly load mutually accepted connections only — never leak stranger accounts into Pillar 1 chats
+      const { acceptedUserIds } = await fetchUserConnectionsAndRequests(user.id);
+      const acceptedIds = Array.from(acceptedUserIds).filter((id) => id && id !== user.id);
+
+      if (acceptedIds.length === 0) {
+        setUsers([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('profiles')
-        .select('*');
+        .select('*')
+        .in('id', acceptedIds);
 
       if (error) throw error;
 
       if (data) {
-        // filter out current user
-        const filteredUsers = data.filter(u => !user || u.id !== user.id);
+        const filteredUsers = data.filter((u) => u && u.id !== user.id);
 
-        // Map to user format expected by app
-        const formattedUsers = filteredUsers.map(u => {
-          try {
-            return {
-              id: u.id,
-              name: u.username || 'Unknown User',
-              avatarInitials: (u.username?.[0] || 'U').toUpperCase() + (u.username?.[1] || 'S').toUpperCase(),
-              avatarUrl: u.avatar_url,
-              bio: u.bio || 'HorPal user',
-              joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
-              tier: 'FREE', // Default fallback
-              isOnline: true,
-              coinsGifted: u.coins_gifted || 0,
-              isSelf: false,
-              last_seen: u.updated_at || u.created_at,
-              unreadCount: 0
-            };
-          } catch(e) {
-            return null;
-          }
-        }).filter(Boolean);
+        const formattedUsers = filteredUsers
+          .map((u) => {
+            try {
+              const displayName = u.username || u.full_name || 'User';
+              return {
+                id: u.id,
+                name: displayName,
+                avatarInitials:
+                  (displayName[0] || 'U').toUpperCase() + (displayName[1] || 'S').toUpperCase(),
+                avatarUrl: u.avatar_url,
+                bio: u.bio || 'HorPal user',
+                joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
+                tier: getRealSubscriptionTier(u),
+                isOnline: true,
+                coinsGifted: u.coins_gifted || 0,
+                isSelf: false,
+                last_seen: u.updated_at || u.created_at,
+                unreadCount: 0,
+              };
+            } catch (e) {
+              return null;
+            }
+          })
+          .filter(Boolean);
 
         setUsers(formattedUsers);
       }
     } catch (err) {
       console.error('Failed to load users', err);
+      setUsers([]);
     } finally {
       setIsLoading(false);
     }

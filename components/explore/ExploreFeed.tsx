@@ -13,6 +13,8 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { usePaywallGate } from '../../hooks/usePaywallGate';
 import { LiveSpatialRadarCard } from '../location/LiveSpatialRadarCard';
+import ProfileExitControls from '../profile/ProfileExitControls';
+import { useModalBackHandler } from '../../utils/useModalBackHandler';
 import { toast } from 'react-hot-toast';
 import {
   AI_FRIENDS_BOT_ID,
@@ -252,6 +254,8 @@ function ProfileView({
   const [showSparkExplosion, setShowSparkExplosion] = useState(false);
   const { spendCoinsOrPromptStore } = usePaywallGate();
 
+  useModalBackHandler(true, onClose, 'horpalExploreProfile');
+
   useEffect(() => {
     setCurrentPhotoIndex(0);
   }, [activeProfile?.id]);
@@ -320,7 +324,12 @@ function ProfileView({
   const realPremium = isRealPremium(activeProfile);
 
   const profileContent = (
-    <div ref={scrollContainerRef} className="fixed inset-0 z-[99999] bg-black overflow-y-auto overflow-x-hidden">
+    <div
+      ref={scrollContainerRef}
+      onClick={onClose}
+      className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto overflow-x-hidden sm:py-6 sm:px-4"
+    >
+      <ProfileExitControls onClose={onClose} zIndexClass="z-[100050]" />
       <AnimatePresence mode="wait">
         <motion.div
           key={activeProfile.id}
@@ -328,7 +337,8 @@ function ProfileView({
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 1.05 }}
           transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-          className="relative min-h-[150vh] w-full flex flex-col bg-[#0a0a0c]"
+          onClick={(e) => e.stopPropagation()}
+          className="relative max-w-xl mx-auto min-h-[150vh] w-full flex flex-col bg-[#0a0a0c] sm:rounded-3xl sm:border sm:border-white/10 sm:overflow-hidden shadow-2xl"
         >
           {/* 1. 100vh FULL SCREEN HERO IMAGE */}
           <motion.div style={{ scale: bgScale, opacity: bgOpacity }} className="relative h-[100dvh] w-full shrink-0 origin-top">
@@ -362,13 +372,6 @@ function ProfileView({
                 ))}
               </div>
             )}
-
-            <button
-              onClick={onClose}
-              className="absolute top-8 right-4 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center text-white border border-white/20 z-50 shadow-xl"
-            >
-              <X size={20} />
-            </button>
 
             {/* Core Info */}
             <div className="absolute bottom-[110px] left-0 right-0 px-6 z-10 text-white pointer-events-none pb-6">

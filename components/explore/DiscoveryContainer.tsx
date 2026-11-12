@@ -153,6 +153,7 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
           <DiscoveryProfile
             key="profile"
             user={matchedUser}
+            onClose={() => setMatchedUser(null)}
             onSkip={handleSkip}
             onSendGift={handleSendGift}
             onChat={handleChat}

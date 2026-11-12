@@ -4,6 +4,8 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Heart, X, CheckCircle, Check } from 'lucide-react';
 import { LiveSpatialRadarCard } from '../location/LiveSpatialRadarCard';
+import ProfileExitControls from './ProfileExitControls';
+import { useModalBackHandler } from '../../utils/useModalBackHandler';
 import {
   isRealVip,
   isRealPremium,
@@ -66,6 +68,8 @@ export default function UserProfileModal({
   const [currentUser, setCurrentUser] = React.useState<any>(null);
   const [fullProfile, setFullProfile] = React.useState<any>(null);
   const [isProcessingRequest, setIsProcessingRequest] = React.useState(false);
+
+  useModalBackHandler(Boolean(isOpen && user), onClose, 'horpalUserProfileModal');
 
   React.useEffect(() => {
     import('../../utils/supabase').then(({ supabase }) => {
@@ -247,23 +251,19 @@ export default function UserProfileModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[9999] bg-[#020202] overflow-y-auto overflow-x-hidden"
+          onClick={onClose}
+          className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md overflow-y-auto overflow-x-hidden sm:py-6 sm:px-4"
         >
+          <ProfileExitControls onClose={onClose} zIndexClass="z-[10050]" />
+
           <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="relative min-h-[120vh] w-full flex flex-col pb-28"
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-xl mx-auto min-h-screen sm:min-h-0 w-full bg-[#020202] sm:rounded-3xl sm:border sm:border-white/10 sm:overflow-hidden flex flex-col pb-28 shadow-2xl"
           >
-            {/* Close Button */}
-            <button
-              onClick={onClose}
-              className="fixed top-6 right-6 w-10 h-10 bg-black/60 hover:bg-black/80 border border-white/15 rounded-full flex items-center justify-center text-white backdrop-blur-xl transition-colors z-[100] shadow-lg"
-            >
-              <X size={20} strokeWidth={2.5} />
-            </button>
-
             {/* 1. THE EDGE-TO-EDGE "AURA" HERO */}
             <div className="relative w-full h-[55vh] flex-shrink-0">
               {photos.length > 0 ? (
