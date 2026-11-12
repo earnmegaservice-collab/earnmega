@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-type Tab = 'overwatch' | 'reports' | 'p1_live' | 'p1_groups' | 'p1_gifts' | 'p2_payouts' | 'p2_whitelist' | 'p2_licenses' | 'p2_contests' | 'crm_users' | 'crm_warnings';
+type Tab = 'overwatch' | 'reports' | 'p1_live' | 'p1_groups' | 'p1_gifts' | 'p1_subscriptions' | 'p2_payouts' | 'p2_whitelist' | 'p2_licenses' | 'p2_contests' | 'crm_users' | 'crm_warnings';
 
 const apiFetch = async (url: string, options: RequestInit = {}) => {
   const { data: { session } } = await supabase.auth.getSession();
@@ -106,6 +106,7 @@ export default function GodModeCommandCenter() {
               <SidebarItem tab="p1_live" current={activeTab} onClick={handleTabChange} icon={<Video />} label="Live Radar" />
               <SidebarItem tab="p1_groups" current={activeTab} onClick={handleTabChange} icon={<MessageSquare />} label="Group Command" />
               <SidebarItem tab="p1_gifts" current={activeTab} onClick={handleTabChange} icon={<Gift />} label="Gifts Ledger" />
+              <SidebarItem tab="p1_subscriptions" current={activeTab} onClick={handleTabChange} icon={<ShieldAlert />} label="Expired Subscriptions" />
             </SidebarGroup>
             <SidebarGroup title="PILLAR 2: AFFILIATE">
               <SidebarItem tab="p2_payouts" current={activeTab} onClick={handleTabChange} icon={<DollarSign />} label="Friday Payouts" />
@@ -141,6 +142,7 @@ export default function GodModeCommandCenter() {
             <SidebarItem tab="p1_live" current={activeTab} onClick={setActiveTab} icon={<Video />} label="Live Radar" />
             <SidebarItem tab="p1_groups" current={activeTab} onClick={setActiveTab} icon={<MessageSquare />} label="Group Command" />
             <SidebarItem tab="p1_gifts" current={activeTab} onClick={setActiveTab} icon={<Gift />} label="Gifts Ledger" />
+            <SidebarItem tab="p1_subscriptions" current={activeTab} onClick={setActiveTab} icon={<ShieldAlert />} label="Expired Subscriptions" />
           </SidebarGroup>
 
           <SidebarGroup title="PILLAR 2: AFFILIATE">
@@ -180,6 +182,7 @@ export default function GodModeCommandCenter() {
             {activeTab === 'p1_live' && <LiveRadarModule />}
             {activeTab === 'p1_groups' && <GroupCommandModule />}
             {activeTab === 'p1_gifts' && <GiftsLedgerModule />}
+            {activeTab === 'p1_subscriptions' && <SubscriptionsAlertModule />}
             {activeTab === 'p2_payouts' && <PayoutsModule />}
             {activeTab === 'p2_whitelist' && <WhitelistModule />}
             {activeTab === 'p2_licenses' && <LicenseModule />}
@@ -1047,6 +1050,213 @@ function WarningsModule() {
           <Send className="w-5 h-5" /> Dispatch Warning Strike
         </button>
       </form>
+    </div>
+  );
+}
+
+// --- Expired Subscriptions & Tier Control Module ---
+function SubscriptionsAlertModule() {
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const fetchAlerts = async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'GET_SUBSCRIPTION_ALERTS', payload: {} }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAlerts(data.alerts || []);
+      } else {
+        toast.error('Failed to load alerts');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Network error loading subscription alerts');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAlerts();
+  }, []);
+
+  const handleForceDowngrade = async (userId: string, alertId: string) => {
+    setActionLoading(alertId);
+    try {
+      const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'FORCE_DOWNGRADE_USER',
+          payload: { userId, alertId },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('User moved to Free Plan successfully!');
+        fetchAlerts();
+      } else {
+        toast.error(data.error || 'Failed to downgrade user');
+      }
+    } catch (e) {
+      toast.error('Error executing downgrade');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleBulkDowngrade = async () => {
+    const unacknowledged = alerts.filter(a => !a.admin_acknowledged);
+    if (unacknowledged.length === 0) {
+      toast('No pending alerts to downgrade', { icon: 'ℹ️' });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to force-downgrade all ${unacknowledged.length} users to Free Plan?`)) {
+      return;
+    }
+
+    setActionLoading('bulk');
+    try {
+      const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'BULK_FORCE_DOWNGRADE',
+          payload: {
+            userIds: unacknowledged.map(a => a.user_id),
+            alertIds: unacknowledged.map(a => a.id),
+          },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Bulk downgraded ${unacknowledged.length} users!`);
+        fetchAlerts();
+      } else {
+        toast.error(data.error || 'Bulk downgrade failed');
+      }
+    } catch (e) {
+      toast.error('Network error executing bulk action');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* High-visibility Alert Banner */}
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/80 via-amber-950/50 to-zinc-950 border border-red-500/40 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-xl bg-red-600/20 border border-red-500/50 flex items-center justify-center text-red-400">
+            <ShieldAlert className="w-6 h-6 animate-pulse" />
+          </div>
+          <div>
+            <h3 className="text-lg font-black text-white flex items-center gap-2">
+              🚨 Expired Subscriptions & Tier Control
+            </h3>
+            <p className="text-xs text-zinc-400">
+              Real-time monitoring of Pro (30-day) and Premium (365-day) timer expiries. Force move to Free Plan or verify automatic downgrades.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={fetchAlerts}
+            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-zinc-300 transition"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={handleBulkDowngrade}
+            disabled={actionLoading === 'bulk'}
+            className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider transition shadow-lg"
+          >
+            {actionLoading === 'bulk' ? 'Processing...' : 'Bulk Downgrade All to Free'}
+          </button>
+        </div>
+      </div>
+
+      {/* Alerts Table */}
+      <div className="bg-[#0B1120] border border-[#1e293b] rounded-2xl overflow-hidden shadow-2xl">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[#070b14] border-b border-[#1e293b] text-gray-400 text-xs uppercase tracking-wider">
+              <tr>
+                <th className="p-4">User</th>
+                <th className="p-4">Email</th>
+                <th className="p-4">Previous Tier</th>
+                <th className="p-4">Expired At</th>
+                <th className="p-4">Current Status</th>
+                <th className="p-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#1e293b]">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-gray-500 font-mono text-xs">
+                    Loading subscription alerts...
+                  </td>
+                </tr>
+              ) : alerts.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-gray-500 font-mono text-xs">
+                    ✅ No expired subscription alerts pending. All tiers active.
+                  </td>
+                </tr>
+              ) : (
+                alerts.map((alert) => (
+                  <tr key={alert.id} className="hover:bg-white/[0.02] transition">
+                    <td className="p-4 font-bold text-white flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-red-500" />
+                      {alert.username || 'User'}
+                    </td>
+                    <td className="p-4 text-gray-300 font-mono text-xs">{alert.email || 'N/A'}</td>
+                    <td className="p-4">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
+                          alert.previous_tier === 'premium'
+                            ? 'bg-purple-900/40 text-purple-300 border-purple-500/40'
+                            : 'bg-blue-900/40 text-blue-300 border-blue-500/40'
+                        }`}
+                      >
+                        {alert.previous_tier === 'premium' ? '👑 Premium 1-Year' : '⚡ Pro 1-Month'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-gray-400 text-xs font-mono">
+                      {new Date(alert.expired_at).toLocaleString()}
+                    </td>
+                    <td className="p-4">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          alert.admin_acknowledged
+                            ? 'bg-emerald-900/30 text-emerald-300 border border-emerald-500/30'
+                            : 'bg-red-900/30 text-red-300 border border-red-500/30 animate-pulse'
+                        }`}
+                      >
+                        {alert.action_taken || (alert.admin_acknowledged ? 'Acknowledged' : 'Auto Downgraded')}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right">
+                      <button
+                        onClick={() => handleForceDowngrade(alert.user_id, alert.id)}
+                        disabled={actionLoading === alert.id}
+                        className="px-3 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600 text-white font-bold text-xs uppercase tracking-wider transition border border-red-500/30"
+                      >
+                        {actionLoading === alert.id ? 'Processing...' : 'Force Move to Free / Remove Access'}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

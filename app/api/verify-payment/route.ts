@@ -91,13 +91,23 @@ export async function POST(request: Request) {
       const isPro = tierUpper === 'PRO' || tierUpper === 'PREMIUM';
       const isPremium = tierUpper === 'PREMIUM';
 
+      const now = new Date();
+      let expiresAt: Date | null = null;
+      if (tierUpper === 'PRO') {
+        expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+      } else if (tierUpper === 'PREMIUM') {
+        expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000); // 365 days
+      }
+
       const { error: fullErr } = await supabase
         .from('profiles')
         .update({
-          subscription_tier: tierUpper,
+          subscription_tier: tierUpper.toLowerCase(),
           is_pro: isPro,
           is_premium: isPremium,
           is_paid: true,
+          subscription_started_at: now.toISOString(),
+          subscription_expires_at: expiresAt ? expiresAt.toISOString() : null,
         })
         .eq('id', userId);
 
@@ -106,15 +116,17 @@ export async function POST(request: Request) {
         const { error: fallbackErr } = await supabase
           .from('profiles')
           .update({
-            subscription_tier: tierUpper,
+            subscription_tier: tierUpper.toLowerCase(),
             is_paid: true,
+            subscription_started_at: now.toISOString(),
+            subscription_expires_at: expiresAt ? expiresAt.toISOString() : null,
           })
           .eq('id', userId);
 
         if (fallbackErr) {
           await supabase
             .from('profiles')
-            .update({ subscription_tier: tierUpper })
+            .update({ subscription_tier: tierUpper.toLowerCase() })
             .eq('id', userId);
         }
       }

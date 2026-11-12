@@ -74,38 +74,79 @@ export async function POST(req: Request) {
         const isPro = targetTier === 'PRO' || targetTier === 'PREMIUM';
         const isPremium = targetTier === 'PREMIUM';
 
+        const now = new Date();
+        let expiresAt: Date | null = null;
+        if (targetTier === 'PRO') {
+          expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        } else if (targetTier === 'PREMIUM') {
+          expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000); // 365 days
+        }
+
+        const tierPayload = {
+          is_paid: true,
+          subscription_tier: targetTier.toLowerCase(),
+          is_pro: isPro,
+          is_premium: isPremium,
+          subscription_started_at: now.toISOString(),
+          subscription_expires_at: expiresAt ? expiresAt.toISOString() : null,
+        };
+
         if (userId) {
           const { error: upErr } = await supabase
             .from('profiles')
-            .update({
-              is_paid: true,
-              subscription_tier: targetTier,
-              is_pro: isPro,
-              is_premium: isPremium,
-            })
+            .update(tierPayload)
             .eq('id', userId);
           if (upErr) {
             await supabase
               .from('profiles')
-              .update({ is_paid: true, subscription_tier: targetTier })
+              .update({ is_paid: true, subscription_tier: targetTier.toLowerCase() })
               .eq('id', userId);
           }
         } else if (customerEmail) {
           const { error: upErr } = await supabase
             .from('profiles')
-            .update({
-              is_paid: true,
-              subscription_tier: targetTier,
-              is_pro: isPro,
-              is_premium: isPremium,
-            })
+            .update(tierPayload)
             .eq('email', customerEmail);
           if (upErr) {
             await supabase
               .from('profiles')
-              .update({ is_paid: true, subscription_tier: targetTier })
+              .update({ is_paid: true, subscription_tier: targetTier.toLowerCase() })
               .eq('email', customerEmail);
           }
+        }
+      }
+      else if (paymentType === 'GLOBAL_CHAT_PASS' || paymentType === 'P1_LIFETIME_PASS') {
+        const amountGHS = (event.data?.amount || 5000) / 100;
+        await supabase
+          .from('global_chat_passes')
+          .upsert(
+            {
+              paystack_reference: reference,
+              email: customerEmail || null,
+              amount_ghs: amountGHS,
+              claimed_by_user_id: userId || null,
+            },
+            { onConflict: 'paystack_reference' }
+          );
+
+        if (userId) {
+          await supabase
+            .from('profiles')
+            .update({
+              has_paid_global_chat: true,
+              global_chat_paystack_ref: reference,
+              is_paid: true,
+            })
+            .eq('id', userId);
+        } else if (customerEmail) {
+          await supabase
+            .from('profiles')
+            .update({
+              has_paid_global_chat: true,
+              global_chat_paystack_ref: reference,
+              is_paid: true,
+            })
+            .eq('email', customerEmail);
         }
       }
       else if (paymentType === 'COIN_PURCHASE') {

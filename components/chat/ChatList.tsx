@@ -11,6 +11,7 @@ import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, Shie
 import { submitUserReport } from '../../app/actions/submitUserReport';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import { useWallet } from '../../context/WalletContext';
 import { deleteConversationPermanently } from '../../utils/deleteUtils';
 import {
   AI_FRIENDS_BOT_ID,
@@ -61,6 +62,7 @@ export default function ChatList({
   onDeclineRequest,
   onInspectRequesterProfile,
 }: ChatListProps) {
+  const { openCoinStore } = useWallet();
   const [searchQuery, setSearchQuery] = useState('');
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const router = useRouter();
@@ -769,6 +771,30 @@ export default function ChatList({
                         return;
                       }
                       if (!u.id) throw new Error('Chat ID is missing.');
+
+                      // PHASE 3: AI BOT FRIEND PAYWALL (PRO OR PREMIUM ONLY)
+                      if (isAiFriendsChat) {
+                        const tier = String((currentUserProfile as any)?.subscription_tier || '').toLowerCase();
+                        const isProOrPremium =
+                          tier === 'pro' ||
+                          tier === 'premium' ||
+                          (currentUserProfile as any)?.is_pro === true ||
+                          (currentUserProfile as any)?.is_premium === true;
+
+                        if (!isProOrPremium) {
+                          toast(
+                            '🤖 Unlock Your 24/7 AI Companion — Upgrade to Pro or Premium for Unlimited AI Chat',
+                            { icon: '👑', duration: 4000 }
+                          );
+                          openCoinStore({
+                            initialTab: 'UPGRADES',
+                            promptMessage:
+                              '🤖 Unlock Your 24/7 AI Companion — Upgrade to Pro or Premium for Unlimited AI Chat',
+                          });
+                          return;
+                        }
+                      }
+
                       if ((currentUserProfile as any)?.isVerified === false && !isAiFriendsChat) {
                         e.preventDefault();
                         setShowVerificationGateModal(true);

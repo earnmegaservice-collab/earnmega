@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, Suspense, startTransition } from "react";
+import dynamic from "next/dynamic";
 import OnboardingFlow from "../components/profile/OnboardingFlow";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../utils/supabase";
@@ -9,6 +10,8 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { HorPalLandingGateway } from "../components/home/HorPalLandingGateway";
 import { RadarActivationModal } from "../components/location/RadarActivationModal";
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../components/auth/HorPalAuthGate";
+
+const GlobalChatAccessGate = dynamic(() => import("../components/auth/GlobalChatAccessGate"), { ssr: false });
 
 function HomeContent() {
   const { isLoading } = useAuth();
@@ -19,6 +22,8 @@ function HomeContent() {
   const [profileState, setProfileState] = useState<any>(null);
   const [isGateLoading, setIsGateLoading] = useState(true);
   const [hasMounted, setHasMounted] = useState(false);
+  const [showGlobalChatGate, setShowGlobalChatGate] = useState(false);
+  const [pendingPassRef, setPendingPassRef] = useState<string | null>(null);
 
   useEffect(() => {
     setHasMounted(true);
@@ -139,33 +144,69 @@ function HomeContent() {
 
   if (showGateway) {
     return (
-      <HorPalLandingGateway
-        onEnterPillar1={() => {
-          localStorage.setItem("horpal_target_pillar", "1");
-          setTargetPillar("1");
-          setShowGateway(false);
-        }}
-        onEnterPillar2={() => {
-          localStorage.setItem("horpal_target_pillar", "2");
-          setTargetPillar("2");
-          if (session?.user) {
-            localStorage.removeItem("horpal_target_pillar");
-            window.location.href = "/affiliate";
-          } else {
+      <>
+        <HorPalLandingGateway
+          onEnterPillar1={() => {
+            localStorage.setItem("horpal_target_pillar", "1");
+            setTargetPillar("1");
+            if (session?.user) {
+              if (profileState?.has_paid_global_chat === true) {
+                setShowGateway(false);
+              } else {
+                setShowGlobalChatGate(true);
+              }
+            } else {
+              setShowGlobalChatGate(true);
+            }
+          }}
+          onEnterPillar2={() => {
+            localStorage.setItem("horpal_target_pillar", "2");
+            setTargetPillar("2");
+            if (session?.user) {
+              localStorage.removeItem("horpal_target_pillar");
+              window.location.href = "/affiliate";
+            } else {
+              setShowGateway(false);
+            }
+          }}
+          onEnterPillar3={() => {
+            localStorage.setItem("horpal_target_pillar", "3");
+            setTargetPillar("3");
+            if (session?.user) {
+              localStorage.removeItem("horpal_target_pillar");
+              window.location.href = "/horpal-ai";
+            } else {
+              setShowGateway(false);
+            }
+          }}
+        />
+
+        <GlobalChatAccessGate
+          isOpen={showGlobalChatGate}
+          onClose={() => setShowGlobalChatGate(false)}
+          onLoginClick={() => {
+            setShowGlobalChatGate(false);
             setShowGateway(false);
-          }
-        }}
-        onEnterPillar3={() => {
-          localStorage.setItem("horpal_target_pillar", "3");
-          setTargetPillar("3");
-          if (session?.user) {
-            localStorage.removeItem("horpal_target_pillar");
-            window.location.href = "/horpal-ai";
-          } else {
-            setShowGateway(false);
-          }
-        }}
-      />
+          }}
+          onSuccess={async (ref) => {
+            setPendingPassRef(ref);
+            setShowGlobalChatGate(false);
+            if (session?.user) {
+              await supabase
+                .from("profiles")
+                .update({
+                  has_paid_global_chat: true,
+                  global_chat_paystack_ref: ref,
+                })
+                .eq("id", session.user.id);
+              setProfileState((prev: any) => ({ ...prev, has_paid_global_chat: true }));
+              setShowGateway(false);
+            } else {
+              setShowGateway(false);
+            }
+          }}
+        />
+      </>
     );
   }
 
@@ -186,6 +227,15 @@ function HomeContent() {
         defaultTargetPillar={targetPillar}
         onAuthenticated={async (authedUser) => {
           setSession({ user: authedUser });
+          if (pendingPassRef) {
+            await supabase
+              .from("profiles")
+              .update({
+                has_paid_global_chat: true,
+                global_chat_paystack_ref: pendingPassRef,
+              })
+              .eq("id", authedUser.id);
+          }
           const { data } = await supabase
             .from("profiles")
             .select("*")
@@ -198,6 +248,28 @@ function HomeContent() {
           setShowGateway(true);
         }}
       />
+    );
+  }
+
+  // If user is logged in and target is Pillar 1, check has_paid_global_chat
+  if (targetPillar === "1" && profileState?.has_paid_global_chat !== true) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4">
+        <GlobalChatAccessGate
+          isOpen={true}
+          onLoginClick={() => {}}
+          onSuccess={async (ref) => {
+            await supabase
+              .from("profiles")
+              .update({
+                has_paid_global_chat: true,
+                global_chat_paystack_ref: ref,
+              })
+              .eq("id", session.user.id);
+            setProfileState((prev: any) => ({ ...prev, has_paid_global_chat: true }));
+          }}
+        />
+      </div>
     );
   }
 

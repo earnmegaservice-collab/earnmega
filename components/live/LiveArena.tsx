@@ -60,6 +60,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { usePaywallGate } from '../../hooks/usePaywallGate';
+import { useWallet } from '../../context/WalletContext';
 
 
 const DrawerViewerList = React.memo(({ searchTerm, onViewerClick, hostId, activeParticipants }: { searchTerm: string, onViewerClick: (v: any) => void, hostId: string, activeParticipants: any[] }) => {
@@ -1691,6 +1692,9 @@ const ViewerVideoStage = React.memo(function ViewerVideoStage({ beautyMode }: { 
 export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaProps) {
   const [isMounted, setIsMounted] = useState(false);
   const { tier, isPremium, spendCoinsOrPromptStore } = usePaywallGate();
+  const { balance: walletCoins, openCoinStore } = useWallet();
+  const [streamToUnlock, setStreamToUnlock] = useState<(LiveStreamRecord & { is_locked?: boolean }) | null>(null);
+  const [isUnlockingStream, setIsUnlockingStream] = useState<boolean>(false);
   const hasPaidForCurrentLiveRef = useRef<boolean>(false);
   const isInitializingRef = useRef<boolean>(false);
   const viewerLeavingIntentionallyRef = useRef<boolean>(false);
@@ -1702,7 +1706,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       id: 'default-user-id',
       username: 'MegaCreator',
       avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=HorPal',
-      coin_balance: 50000
+      coin_balance: 0
     }
   );
 
@@ -2488,7 +2492,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // --------------------------------------------------------------------------
   // VIEWER JOIN STREAM WORKFLOW
   // --------------------------------------------------------------------------
-  const handleJoinStreamAsViewer = async (stream: LiveStreamRecord & { is_locked?: boolean }) => {
+  const executeJoinStream = async (stream: LiveStreamRecord & { is_locked?: boolean }) => {
     if (stream.is_locked) {
       toast.error('This live room is currently locked by the host.');
       return;
@@ -2566,7 +2570,69 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           is_system: true
         }
       ]);
-    } catch {}
+    } catch (err) {
+      console.error('Failed to log join comment:', err);
+    }
+  };
+
+  const handleJoinStreamAsViewer = async (stream: LiveStreamRecord & { is_locked?: boolean }) => {
+    // PHASE 4: WATCHING LIVE STREAM PAYWALL (10 COINS FOR FULL STREAM)
+    const hostId = stream.host_id || (stream as any).user_id;
+    if (hostId === user.id) {
+      // Host watches own stream for free
+      await executeJoinStream(stream);
+      return;
+    }
+
+    // Check if already unlocked in live_stream_unlocks
+    try {
+      const res = await fetch(`/api/pillar1/unlock-stream?streamId=${encodeURIComponent(stream.id)}&userId=${encodeURIComponent(user.id)}`);
+      const checkData = await res.json();
+      if (checkData.unlocked) {
+        await executeJoinStream(stream);
+        return;
+      }
+    } catch (_) {}
+
+    // Show blurred preview paywall modal
+    setStreamToUnlock(stream);
+  };
+
+  const handleUnlockAndWatch = async () => {
+    if (!streamToUnlock) return;
+    if (walletCoins < 10) {
+      toast.error('You need 10 Coins to unlock this Live Stream.');
+      openCoinStore({
+        initialTab: 'BUY_COINS',
+        promptMessage: '🪙 You need 10 Coins to unlock and watch this Live Stream.',
+      });
+      return;
+    }
+
+    setIsUnlockingStream(true);
+    try {
+      const res = await fetch('/api/pillar1/unlock-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          streamId: streamToUnlock.id,
+          userId: user.id,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('Full Live Stream Unlocked! (10 Coins)', { icon: '🔴' });
+        const target = streamToUnlock;
+        setStreamToUnlock(null);
+        await executeJoinStream(target);
+      } else {
+        toast.error(data.error || 'Failed to unlock stream');
+      }
+    } catch (e: any) {
+      toast.error('Network error unlocking stream');
+    } finally {
+      setIsUnlockingStream(false);
+    }
   };
 
   // --------------------------------------------------------------------------
@@ -5053,6 +5119,81 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               >
                 Return to Live Arena
               </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* PHASE 4: WATCHING LIVE STREAM PAYWALL OVERLAY (10 COINS) */}
+      <AnimatePresence>
+        {streamToUnlock && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
+          >
+            <div className="relative w-full max-w-sm rounded-3xl bg-gradient-to-b from-zinc-900 via-zinc-950 to-black border border-red-500/30 p-6 text-center shadow-2xl overflow-hidden">
+              {/* Blurred background preview of the stream avatar */}
+              <div
+                className="absolute inset-0 bg-cover bg-center opacity-20 blur-xl pointer-events-none"
+                style={{ backgroundImage: `url(${streamToUnlock.host_avatar})` }}
+              />
+
+              <button
+                onClick={() => setStreamToUnlock(null)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/60 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="relative z-10 flex flex-col items-center">
+                <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)] mb-3">
+                  <img
+                    src={streamToUnlock.host_avatar}
+                    alt={streamToUnlock.host_username}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 text-[11px] font-black uppercase tracking-wider mb-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                  🔴 LIVE NOW — 10 Coins
+                </div>
+
+                <h3 className="text-lg font-bold text-white mb-1">
+                  {streamToUnlock.host_username || 'Host'} is Broadcasting Live
+                </h3>
+                <p className="text-xs text-zinc-400 mb-6 max-w-xs">
+                  Unlock full 4K interactive viewing, chat reactions, and 3D gifting for the entire duration of this broadcast.
+                </p>
+
+                <div className="w-full p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between mb-6">
+                  <span className="text-xs text-zinc-400">Stream Unlock Fee:</span>
+                  <div className="flex items-center gap-1 text-amber-400 font-black text-sm">
+                    <Coins size={16} />
+                    10 Coins
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2.5 w-full">
+                  <button
+                    onClick={handleUnlockAndWatch}
+                    disabled={isUnlockingStream}
+                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white font-black text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(239,68,68,0.5)] hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                  >
+                    <Coins size={16} />
+                    {isUnlockingStream ? 'UNLOCKING...' : 'Watch Full Stream (10 Coins)'}
+                  </button>
+
+                  <button
+                    onClick={() => setStreamToUnlock(null)}
+                    className="w-full py-2.5 text-xs text-zinc-500 hover:text-zinc-300 font-semibold transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </div>
           </motion.div>
         )}

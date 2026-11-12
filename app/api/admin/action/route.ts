@@ -365,6 +365,70 @@ export async function POST(request: Request) {
        return NextResponse.json({ success: true });
     }
 
+    if (action === 'GET_SUBSCRIPTION_ALERTS') {
+      const { data: alerts, error: alertErr } = await adminSupabase
+        .from('admin_subscription_alerts')
+        .select('*')
+        .order('expired_at', { ascending: false });
+
+      if (alertErr) {
+        console.error('Error fetching subscription alerts:', alertErr);
+      }
+      return NextResponse.json({ success: true, alerts: alerts || [] });
+    }
+
+    if (action === 'FORCE_DOWNGRADE_USER') {
+      const { userId, alertId } = payload;
+      if (!userId) return NextResponse.json({ success: false, error: 'Missing userId' });
+
+      await adminSupabase
+        .from('profiles')
+        .update({
+          subscription_tier: 'free',
+          is_pro: false,
+          is_premium: false,
+        })
+        .eq('id', userId);
+
+      if (alertId) {
+        await adminSupabase
+          .from('admin_subscription_alerts')
+          .update({
+            admin_acknowledged: true,
+            action_taken: 'force_downgraded_by_admin',
+          })
+          .eq('id', alertId);
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'BULK_FORCE_DOWNGRADE') {
+      const { userIds, alertIds } = payload;
+      if (Array.isArray(userIds) && userIds.length > 0) {
+        await adminSupabase
+          .from('profiles')
+          .update({
+            subscription_tier: 'free',
+            is_pro: false,
+            is_premium: false,
+          })
+          .in('id', userIds);
+      }
+
+      if (Array.isArray(alertIds) && alertIds.length > 0) {
+        await adminSupabase
+          .from('admin_subscription_alerts')
+          .update({
+            admin_acknowledged: true,
+            action_taken: 'bulk_downgraded_by_admin',
+          })
+          .in('id', alertIds);
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
     return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });
 
   } catch (error) {

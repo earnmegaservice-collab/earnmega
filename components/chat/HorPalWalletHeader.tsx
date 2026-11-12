@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import { useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useSubscriptionTimer } from '../../hooks/useSubscriptionTimer';
 
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
 const NotificationDrawer = dynamic(() => import("../../components/notifications/NotificationDrawer"), { ssr: false });
@@ -15,6 +16,7 @@ const NotificationDrawer = dynamic(() => import("../../components/notifications/
 export default function HorPalWalletHeader() {
   const { user } = useAuth();
   const { balance, subscriptionTier } = useWallet();
+  const { isActive, tier, formattedRemaining, hasExpiredNotice, dismissNotice } = useSubscriptionTimer(user?.id);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -73,6 +75,38 @@ export default function HorPalWalletHeader() {
       <CoinStoreModal isOpen={isStoreOpen} onClose={() => setIsStoreOpen(false)} />
       <NotificationDrawer isOpen={isNotificationsOpen} onClose={() => setIsNotificationsOpen(false)} />
 
+      {/* Subscription Expired Notification Modal */}
+      {hasExpiredNotice && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="w-full max-w-sm rounded-3xl bg-zinc-900 border border-amber-500/30 p-6 text-center text-white shadow-2xl">
+            <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-4 text-2xl">
+              ⏰
+            </div>
+            <h3 className="text-lg font-bold mb-2">Subscription Ended</h3>
+            <p className="text-xs text-zinc-300 leading-relaxed mb-6">
+              Your subscription has ended. You have been moved to the Free Plan. Renew anytime to restore unlimited access!
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  dismissNotice();
+                  setIsStoreOpen(true);
+                }}
+                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition"
+              >
+                Renew Plan
+              </button>
+              <button
+                onClick={dismissNotice}
+                className="w-full py-2.5 text-xs text-zinc-400 hover:text-white transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Spacer to push content down below the fixed header */}
       <div className="h-16 shrink-0 w-full" />
 
@@ -95,18 +129,34 @@ export default function HorPalWalletHeader() {
            </div>
         </div>
 
-        {/* Center: Subscription Tier (Optional, keeping it small) */}
-
-        <div
-          className={`hidden sm:flex px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest transition-colors border ${
-            subscriptionTier?.toUpperCase() === 'PREMIUM'
-              ? 'bg-purple-900/30 text-purple-300 border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-              : subscriptionTier?.toUpperCase() === 'PRO'
-              ? 'bg-blue-900/30 text-blue-300 border-blue-500/50'
-              : 'bg-gray-800 text-gray-300 border-gray-600'
-          }`}
-        >
-          {subscriptionTier?.toUpperCase() === 'PREMIUM' ? 'PREMIUM' : subscriptionTier?.toUpperCase() === 'PRO' ? 'PRO' : 'BASE'}
+        {/* Center: Subscription Tier & Live Ticking Countdown Timer */}
+        <div className="flex items-center gap-2">
+          {isActive ? (
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-lg transition-all border ${
+                tier === 'premium'
+                  ? 'bg-purple-950/80 text-purple-300 border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.3)]'
+                  : 'bg-blue-950/80 text-blue-300 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.3)]'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>
+                {tier === 'premium' ? '👑 PREMIUM ACTIVE' : '⚡ PRO ACTIVE'} • {formattedRemaining}
+              </span>
+            </div>
+          ) : (
+            <div
+              className={`hidden sm:flex px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest transition-colors border ${
+                subscriptionTier?.toUpperCase() === 'PREMIUM'
+                  ? 'bg-purple-900/30 text-purple-300 border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                  : subscriptionTier?.toUpperCase() === 'PRO'
+                  ? 'bg-blue-900/30 text-blue-300 border-blue-500/50'
+                  : 'bg-gray-800 text-gray-300 border-gray-600'
+              }`}
+            >
+              {subscriptionTier?.toUpperCase() === 'PREMIUM' ? 'PREMIUM' : subscriptionTier?.toUpperCase() === 'PRO' ? 'PRO' : 'BASE'}
+            </div>
+          )}
         </div>
 
         {/* Action Section */}

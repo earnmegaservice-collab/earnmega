@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
+import { useWallet } from '../../context/WalletContext';
+import { toast } from 'react-hot-toast';
 import { ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -790,6 +792,7 @@ export default function HorPalAffiliatePillar({
   >(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
   const [isAiBotOpen, setIsAiBotOpen] = useState<boolean>(false);
+  const { openCoinStore } = useWallet();
 
   // User & Separate Pillar 2 Profile State (Strictly Isolated — Zero Hardcoded Fallbacks)
   const initialUid = currentProfile?.id || null;
@@ -7001,7 +7004,28 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
 
       {/* Floating AI Bot */}
       <button
-        onClick={() => setIsAiBotOpen((prev) => !prev)}
+        onClick={() => {
+          const tier = String(currentProfile?.subscription_tier || '').toLowerCase();
+          const isProOrPremium =
+            tier === 'pro' ||
+            tier === 'premium' ||
+            currentProfile?.is_pro === true ||
+            currentProfile?.is_premium === true;
+
+          if (!isProOrPremium) {
+            toast(
+              '🤖 Upgrade to Pro or Premium to access the 24/7 HorPal AI Business Brain!',
+              { icon: '👑', duration: 4000 }
+            );
+            openCoinStore({
+              initialTab: 'UPGRADES',
+              promptMessage:
+                '🤖 Unlock Your 24/7 AI Companion — Upgrade to Pro or Premium for Unlimited AI Chat',
+            });
+            return;
+          }
+          setIsAiBotOpen((prev) => !prev);
+        }}
         className="fixed bottom-20 left-4 z-[9999] w-12 h-12 rounded-full bg-[#020202]/90 backdrop-blur-xl border border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center hover:scale-110 transition-transform"
       >
         🤖

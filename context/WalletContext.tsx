@@ -42,6 +42,7 @@ export interface SpendCoinsOptions {
 export interface OpenCoinStoreOptions {
   initialTab?: 'UPGRADES' | 'BUY_COINS';
   bannerMessage?: string | null;
+  promptMessage?: string | null;
   highlightedPlan?: 'PRO' | 'PREMIUM' | null;
   onSuccess?: () => void | Promise<void>;
 }
