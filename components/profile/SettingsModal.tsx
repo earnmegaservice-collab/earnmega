@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
-import { X, ExternalLink, LogOut, Trash2, ArrowLeft, Mail, MessageCircle } from 'lucide-react';
+import { X, ExternalLink, LogOut, Trash2, ArrowLeft, Mail, MessageCircle, ChevronRight } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { subscribeToPush } from '../../lib/push';
+import { Pillar1PayoutModal } from '../wallet/Pillar1PayoutModal';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -29,6 +30,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
   const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
   const [isLoadingBlocked, setIsLoadingBlocked] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -153,20 +155,12 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
     setIsUpdating(true);
 
     try {
-      // Typically we'd use a server-side Edge Function for secure account deletion.
-      // Here we assume cascading deletes will handle profiles and related data.
-
-      // Delete the profile (which triggers cascading deletes via DB if set up)
       const { error: profileError } = await supabase
         .from('profiles')
         .delete()
         .eq('id', userProfile.id);
 
       if (profileError) throw profileError;
-
-      // Note: Calling admin level `supabase.auth.admin.deleteUser` requires a service role.
-      // For this purely client-side approach without edge functions, we'll delete what we can
-      // and sign out, rendering the account effectively defunct, or triggering a custom RPC.
 
       await supabase.auth.signOut();
       window.location.href = '/';
@@ -475,7 +469,7 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
           </div>
 
           {/* Card D: The Danger Zone */}
-          <div className="mx-4 mb-6 p-5 rounded-[24px] bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_0_30px_rgba(255,255,255,0.02)]">
+          <div className="mx-4 mb-4 p-5 rounded-[24px] bg-[#0a0a0a]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_0_30px_rgba(255,255,255,0.02)]">
             <h3 className="text-xs font-black tracking-[0.2em] text-gray-500 uppercase mb-4">The Danger Zone</h3>
             <div className="space-y-4">
               <button
@@ -496,10 +490,27 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
             </div>
           </div>
 
-          <div className="pb-8" />
+          {/* Discreet Pillar 1 Payout Row at the very bottom of Settings */}
+          <div className="mx-4 pt-2 pb-10">
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic();
+                setShowPayoutModal(true);
+              }}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] text-white/45 hover:text-white/75 transition-colors text-xs font-medium tracking-wide"
+            >
+              <span>Payout</span>
+              <ChevronRight size={14} className="text-white/30" />
+            </button>
+          </div>
         </div>
 
-        {/* Delete Confirmation Modal Overlay */}
+        {/* Pillar 1 Coin Payout Modal */}
+        <Pillar1PayoutModal
+          isOpen={showPayoutModal}
+          onClose={() => setShowPayoutModal(false)}
+        />
 
         {/* Blocked Users Modal */}
         <AnimatePresence>

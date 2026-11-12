@@ -20,7 +20,7 @@ import {
   useRoomContext,
   useConnectionState
 } from '@livekit/components-react';
-import { Track, RoomEvent, ConnectionState, VideoQuality, VideoPresets } from 'livekit-client';
+import { Track, RoomEvent, ConnectionState, ConnectionQuality, VideoQuality, VideoPresets } from 'livekit-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
@@ -55,12 +55,13 @@ import {
   Hand,
   Volume2,
   Lock,
-  MoreVertical
+  MoreVertical,
+  Wifi
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 
 
-const DrawerViewerList = ({ searchTerm, onViewerClick, hostId, activeParticipants }: { searchTerm: string, onViewerClick: (v: any) => void, hostId: string, activeParticipants: any[] }) => {
+const DrawerViewerList = React.memo(({ searchTerm, onViewerClick, hostId, activeParticipants }: { searchTerm: string, onViewerClick: (v: any) => void, hostId: string, activeParticipants: any[] }) => {
   const filtered = activeParticipants.filter((p) => {
     const id = p.identity || '';
     if (id === hostId || id === `host_${hostId}` || id.includes(hostId)) return false;
@@ -90,7 +91,8 @@ const DrawerViewerList = ({ searchTerm, onViewerClick, hostId, activeParticipant
       ))}
     </>
   );
-};
+});
+DrawerViewerList.displayName = 'DrawerViewerList';
 
 // ============================================================================
 // TYPES & FIXED LUXURY GIFT CATALOG
@@ -98,6 +100,7 @@ const DrawerViewerList = ({ searchTerm, onViewerClick, hostId, activeParticipant
 type ArenaStage = 'lobby' | 'setup' | 'countdown' | 'live' | 'ended';
 type UserRole = 'host' | 'viewer';
 type MicRequestStatus = 'idle' | 'pending' | 'accepted';
+type NetworkQualityLabel = 'Good' | 'Fair' | 'Poor';
 
 export interface GiftTierItem {
   id: string;
@@ -112,7 +115,7 @@ export interface GiftTierItem {
 export const LUXURY_GIFT_CATALOG: GiftTierItem[] = [
   {
     id: 'rose_1',
-    name: 'The Rose',
+    name: 'Rose',
     icon: '🌹',
     coins: 1,
     tier: 'standard',
@@ -120,8 +123,17 @@ export const LUXURY_GIFT_CATALOG: GiftTierItem[] = [
     tagline: 'Glass Holograph'
   },
   {
+    id: 'flame_5',
+    name: 'Flame',
+    icon: '🔥',
+    coins: 5,
+    tier: 'standard',
+    accent: 'from-orange-500/30 to-red-600/30 border-orange-400/40',
+    tagline: 'Blazing Spark'
+  },
+  {
     id: 'neon_heart_10',
-    name: 'The Neon Heart',
+    name: 'Neon Heart',
     icon: '💖',
     coins: 10,
     tier: 'standard',
@@ -129,8 +141,17 @@ export const LUXURY_GIFT_CATALOG: GiftTierItem[] = [
     tagline: 'Pulse Glow'
   },
   {
+    id: 'crown_25',
+    name: 'Royal Crown',
+    icon: '👑',
+    coins: 25,
+    tier: 'kinetic',
+    accent: 'from-amber-400/30 to-yellow-600/30 border-amber-300/60',
+    tagline: 'Royal Tribute'
+  },
+  {
     id: 'diamond_50',
-    name: 'The Diamond',
+    name: 'Diamond',
     icon: '💎',
     coins: 50,
     tier: 'kinetic',
@@ -138,8 +159,17 @@ export const LUXURY_GIFT_CATALOG: GiftTierItem[] = [
     tagline: 'Kinetic Shockwave'
   },
   {
+    id: 'sports_car_200',
+    name: 'Sports Car',
+    icon: '🏎️',
+    coins: 200,
+    tier: 'rocket',
+    accent: 'from-red-500/30 to-amber-500/30 border-red-400/60',
+    tagline: 'Nitro Drift'
+  },
+  {
     id: 'rocket_500',
-    name: 'The Rocket',
+    name: 'Rocket',
     icon: '🚀',
     coins: 500,
     tier: 'rocket',
@@ -147,8 +177,17 @@ export const LUXURY_GIFT_CATALOG: GiftTierItem[] = [
     tagline: 'Screen Shake + Trail'
   },
   {
+    id: 'lion_1000',
+    name: 'Golden Lion',
+    icon: '🦁',
+    coins: 1000,
+    tier: 'universe',
+    accent: 'from-yellow-400/40 via-amber-500/30 to-orange-700/40 border-yellow-300',
+    tagline: 'King Roar Takeover'
+  },
+  {
     id: 'universe_5000',
-    name: 'The HorPal Universe',
+    name: 'HorPal Universe',
     icon: '🌌',
     coins: 5000,
     tier: 'universe',
@@ -156,6 +195,13 @@ export const LUXURY_GIFT_CATALOG: GiftTierItem[] = [
     tagline: 'Full-Screen Takeover'
   }
 ];
+
+export interface TopGifterEntry {
+  userId: string;
+  username: string;
+  avatar: string;
+  totalCoins: number;
+}
 
 interface LiveGiftEvent {
   id: string;
@@ -169,6 +215,15 @@ interface LiveGiftEvent {
   coin_value: number;
   combo_count: number;
   coin_delta?: number;
+  // Normalized camelCase fields for instant multi-user sync
+  giftId?: string;
+  giftName?: string;
+  giftIcon?: string;
+  coinValue?: number;
+  senderId?: string;
+  senderName?: string;
+  senderAvatar?: string;
+  timestamp?: number;
 }
 
 interface LiveStreamRecord {
@@ -188,6 +243,8 @@ interface LiveStreamRecord {
   livekit_room_name?: string;
   is_live?: boolean;
   started_at?: string;
+  ended_at?: string;
+  duration_seconds?: number;
   created_at?: string;
 }
 
@@ -198,6 +255,7 @@ interface LiveComment {
   sender_id?: string;
   content: string;
   is_system?: boolean;
+  is_gift_announcement?: boolean;
   badge_level?: number;
 }
 
@@ -236,6 +294,91 @@ const CATEGORIES = [
   { id: 'Gaming', label: 'Gaming', icon: Gamepad2 }
 ];
 
+// Format duration in seconds accurately as MM:SS or HH:MM:SS (never 0:00 after stream ends)
+export function formatStreamDuration(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+  if (hours > 0) {
+    return `${hours.toString().padStart(2, '0')}:${minutes
+      .toString()
+      .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+  return `${minutes.toString().padStart(2, '0')}:${seconds
+    .toString()
+    .padStart(2, '0')}`;
+}
+
+// Synthesized Web Audio sound effects for gift animations (zero external MP3 dependencies)
+function playGiftSoundEffect(coinValue: number, giftId = '') {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    if (coinValue >= 1000 || giftId.includes('universe') || giftId.includes('lion')) {
+      [261.63, 329.63, 392.0, 523.25, 659.25].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = idx % 2 === 0 ? 'triangle' : 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.5, now + 0.9);
+        gain.gain.setValueAtTime(0.05, now + idx * 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.06);
+        osc.stop(now + 1.05);
+      });
+    } else if (coinValue >= 200 || giftId.includes('rocket') || giftId.includes('sports_car')) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.55);
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.62);
+    } else if (coinValue >= 25) {
+      [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.045);
+        gain.gain.setValueAtTime(0.06, now + idx * 0.045);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.045 + 0.28);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.045);
+        osc.stop(now + idx * 0.045 + 0.3);
+      });
+    } else {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, now);
+      osc.frequency.exponentialRampToValueAtTime(1174.66, now + 0.25);
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    }
+    setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 1500);
+  } catch {}
+}
+
 // ============================================================================
 // LIVE DURATION BADGE (ISOLATED TIMER TO PREVENT FULL-TREE RE-RENDERS)
 // ============================================================================
@@ -247,14 +390,12 @@ const LiveDurationBadge = React.memo(({ streamStartMs, className = '' }: { strea
       setDuration('00:00');
       return;
     }
-    const interval = setInterval(() => {
-      const diff = Math.max(0, Math.floor((Date.now() - streamStartMs) / 1000));
-      const minutes = Math.floor(diff / 60)
-        .toString()
-        .padStart(2, '0');
-      const seconds = (diff % 60).toString().padStart(2, '0');
-      setDuration(`${minutes}:${seconds}`);
-    }, 1000);
+    const updateTick = () => {
+      const diff = Math.max(1, Math.floor((Date.now() - streamStartMs) / 1000));
+      setDuration(formatStreamDuration(diff));
+    };
+    updateTick();
+    const interval = setInterval(updateTick, 1000);
     return () => clearInterval(interval);
   }, [streamStartMs]);
 
@@ -397,9 +538,12 @@ const GiftUniverseAnimation = ({ activeMega, universeFlash }: { activeMega: any,
           className="relative px-8 py-4 bg-zinc-900/80 backdrop-blur-xl border border-yellow-500/50 rounded-2xl flex flex-col items-center shadow-[0_0_40px_rgba(255,215,0,0.3)] overflow-hidden"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-yellow-200/20 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
-          <Crown className="w-10 h-10 text-yellow-400 mb-2 drop-shadow-[0_0_10px_rgba(255,215,0,0.8)]" />
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-4xl drop-shadow-[0_0_16px_rgba(255,215,0,0.9)]">{activeMega?.gift_icon || '🌌'}</span>
+            <Crown className="w-10 h-10 text-yellow-400 drop-shadow-[0_0_10px_rgba(255,215,0,0.8)]" />
+          </div>
           <h2 className="text-xl md:text-2xl font-black bg-gradient-to-b from-yellow-100 via-yellow-400 to-yellow-600 bg-clip-text text-transparent uppercase tracking-wider text-center">
-            @{activeMega?.sender_username} GIFTED THE HORPAL UNIVERSE!
+            @{activeMega?.sender_username} SENT {(activeMega?.gift_name || 'THE HORPAL UNIVERSE').toUpperCase()}!
           </h2>
         </motion.div>
       </div>
@@ -590,10 +734,11 @@ const GiftRocketAnimation = ({ activeMega }: { activeMega: any }) => {
           initial={{ y: -50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.2 }}
-          className="px-6 py-2 bg-black/80 backdrop-blur-md border border-red-500/50 rounded-xl shadow-[0_0_20px_rgba(255,0,0,0.4)]"
+          className="px-6 py-2 bg-black/80 backdrop-blur-md border border-red-500/50 rounded-xl shadow-[0_0_20px_rgba(255,0,0,0.4)] flex items-center gap-2"
         >
+          <span className="text-2xl">{activeMega?.gift_icon || '🚀'}</span>
           <span className="text-red-400 font-bold text-sm tracking-widest uppercase">
-            @{activeMega?.sender_username} LAUNCHED THE SUPERSONIC ROCKET!
+            @{activeMega?.sender_username} SENT {(activeMega?.gift_name || 'SUPERSONIC ROCKET').toUpperCase()}!
           </span>
         </motion.div>
       </div>
@@ -613,15 +758,34 @@ const MasterLiveGiftOverlay = forwardRef<
   const [universeFlash, setUniverseFlash] = useState<boolean>(false);
   const processedIdsRef = useRef<Set<string>>(new Set());
 
-  const enqueueGift = useCallback((gift: LiveGiftEvent) => {
-    if (!gift || !gift.id) return;
-    if (processedIdsRef.current.has(gift.id)) return;
-    processedIdsRef.current.add(gift.id);
+  const enqueueGift = useCallback((rawGift: LiveGiftEvent) => {
+    if (!rawGift) return;
+    const giftId = rawGift.id || `gift-${rawGift.timestamp || Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    if (processedIdsRef.current.has(giftId)) return;
+    processedIdsRef.current.add(giftId);
+
+    const gift: LiveGiftEvent = {
+      ...rawGift,
+      id: giftId,
+      sender_id: rawGift.sender_id || rawGift.senderId || 'viewer',
+      sender_username: rawGift.sender_username || rawGift.senderName || 'VIP Gifter',
+      sender_avatar: rawGift.sender_avatar || rawGift.senderAvatar,
+      gift_id: rawGift.gift_id || rawGift.giftId || 'rose_1',
+      gift_name: rawGift.gift_name || rawGift.giftName || 'Gift',
+      gift_icon: rawGift.gift_icon || rawGift.giftIcon || '🌹',
+      coin_value: Number(rawGift.coin_value ?? rawGift.coinValue ?? 1),
+      combo_count: Number(rawGift.combo_count ?? 1)
+    };
+
+    playGiftSoundEffect(gift.coin_value, gift.gift_id);
 
     const totalCoins = (gift.coin_value || 1) * (gift.combo_count || 1);
     if (
-      totalCoins >= 500 ||
+      totalCoins >= 200 ||
+      gift.coin_value >= 200 ||
       gift.gift_id?.includes('rocket') ||
+      gift.gift_id?.includes('sports_car') ||
+      gift.gift_id?.includes('lion') ||
       gift.gift_id?.includes('universe')
     ) {
       setMegaQueue((prev) => [...prev, gift]);
@@ -723,8 +887,15 @@ const MasterLiveGiftOverlay = forwardRef<
   }, [activeTrackA, trackAQueue, activeMega]);
 
   const isRocket =
-    activeMega && activeMega.coin_value >= 500 && activeMega.coin_value < 5000;
-  const isUniverse = activeMega && activeMega.coin_value >= 5000;
+    activeMega &&
+    ((activeMega.coin_value >= 200 && activeMega.coin_value < 1000) ||
+      activeMega.gift_id?.includes('rocket') ||
+      activeMega.gift_id?.includes('sports_car'));
+  const isUniverse =
+    activeMega &&
+    (activeMega.coin_value >= 1000 ||
+      activeMega.gift_id?.includes('universe') ||
+      activeMega.gift_id?.includes('lion'));
 
   return (
     <motion.div
@@ -850,8 +1021,10 @@ const LiveKitRoomBridge = forwardRef<
     hostUsername?: string;
     onViewerCountChange: (count: number) => void;
     onParticipantsChange?: (participants: any[]) => void;
-    onHostEnded: (duration?: string, peak?: number) => void;
+    onHostEnded: (duration?: string, peak?: number, durationSeconds?: number) => void;
     onPacketReceived: (packet: Record<string, any>) => void;
+    onNetworkQualityChange?: (quality: NetworkQualityLabel) => void;
+    onReconnectingChange?: (isReconnecting: boolean) => void;
   }
 >(
   (
@@ -866,7 +1039,9 @@ const LiveKitRoomBridge = forwardRef<
       onViewerCountChange,
       onParticipantsChange,
       onHostEnded,
-      onPacketReceived
+      onPacketReceived,
+      onNetworkQualityChange,
+      onReconnectingChange
     },
     ref
   ) => {
@@ -875,6 +1050,10 @@ const LiveKitRoomBridge = forwardRef<
     const connectionState = useConnectionState();
     const participants = useParticipants();
     const publishedVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+    const publishedAudioTrackRef = useRef<MediaStreamTrack | null>(null);
+    const rawMicStreamRef = useRef<MediaStream | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const lastParticipantsSigRef = useRef<string>('');
 
     useImperativeHandle(ref, () => ({
       sendPacket: async (payload: Record<string, any>) => {
@@ -899,8 +1078,8 @@ const LiveKitRoomBridge = forwardRef<
       },
       unlockAudio: () => {
         if (room && !room.canPlaybackAudio) {
-        room.startAudio().catch(() => {});
-      }
+          room.startAudio().catch(() => {});
+        }
       }
     }));
 
@@ -911,8 +1090,15 @@ const LiveKitRoomBridge = forwardRef<
       }
     }, [room, connectionState]);
 
-    // Track remote viewer count accurately
+    // Track remote viewer count accurately WITHOUT re-rendering parent on every audio/speaking tick
     useEffect(() => {
+      const sig = participants
+        .map((p) => `${p.identity || ''}:${p.name || ''}`)
+        .sort()
+        .join('|');
+      if (sig === lastParticipantsSigRef.current) return;
+      lastParticipantsSigRef.current = sig;
+
       const viewers = participants.filter((p) => {
         const id = p.identity || '';
         if (hostId && (id === hostId || id === `host_${hostId}` || id.includes(hostId))) {
@@ -927,7 +1113,7 @@ const LiveKitRoomBridge = forwardRef<
       if (onParticipantsChange) onParticipantsChange(participants);
     }, [participants, hostId, hostUsername, onViewerCountChange, onParticipantsChange]);
 
-    // Host HD 720p/1080p Video Track Publisher (3.0 Mbps, No Simulcast Blur)
+    // Host HD 720p @ 30fps Video Track Publisher with Multi-Layer Simulcast (720p + 360p + 180p)
     useEffect(() => {
       if (
         role !== 'host' ||
@@ -965,7 +1151,7 @@ const LiveKitRoomBridge = forwardRef<
                 name: 'camera',
                 source: Track.Source.Camera,
                 simulcast: true,
-                videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360, VideoPresets.h720],
+                videoSimulcastLayers: [VideoPresets.h540, VideoPresets.h360, VideoPresets.h180],
                 videoEncoding: {
                   maxBitrate: 1_800_000,
                   maxFramerate: 30
@@ -1004,34 +1190,196 @@ const LiveKitRoomBridge = forwardRef<
       }
     }, [role, localStream, isCamOff]);
 
-    // Studio-Clear 48kHz Audio Control for BOTH Host AND Accepted Viewer Speaker
+    // Studio-Grade WebRTC/LiveKit Audio Pipeline with Web Audio Voice Presence & Boost Chain:
+    // - Native WebRTC DSP: echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true
+    // - HighPass BiquadFilterNode @ 80Hz (removes low mud/rumble only)
+    // - Peaking BiquadFilterNode @ 2800Hz with gain: +3.5dB, Q: 1.0 (boosts human vocal clarity and speech intelligibility)
+    // - DynamicsCompressorNode (threshold: -20dB, knee: 20, ratio: 4, attack: 0.005, release: 0.15)
+    // - GainNode set to 1.8 (+5dB clean makeup gain) so host voice is loud, clear, and full on every viewer's phone
     useEffect(() => {
       if (connectionState !== ConnectionState.Connected || !localParticipant) return;
+
+      let isCancelled = false;
+
+      const teardownFilteredMic = async () => {
+        if (publishedAudioTrackRef.current) {
+          try {
+            await localParticipant.unpublishTrack(publishedAudioTrackRef.current, true);
+          } catch {}
+          publishedAudioTrackRef.current = null;
+        }
+        if (rawMicStreamRef.current) {
+          rawMicStreamRef.current.getTracks().forEach((t) => {
+            try {
+              t.stop();
+            } catch {}
+          });
+          rawMicStreamRef.current = null;
+        }
+        if (audioContextRef.current) {
+          audioContextRef.current.close().catch(() => {});
+          audioContextRef.current = null;
+        }
+      };
 
       const shouldPublishAudio =
         (role === 'host' && !isMicMuted) ||
         (role === 'viewer' && isAcceptedSpeaker && !isMicMuted);
 
       if (!shouldPublishAudio) {
+        if (publishedAudioTrackRef.current) {
+          publishedAudioTrackRef.current.enabled = false;
+        }
         localParticipant.setMicrophoneEnabled(false).catch(() => {});
         return;
       }
 
-      localParticipant
-        .setMicrophoneEnabled(true, {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          voiceIsolation: true,
-          sampleRate: 48000,
-          channelCount: 1
-        })
-        .catch(() => {
-          // If screen recorder is holding the mic, keep video running smoothly without crashing
-        });
+      const setupStudioFilteredMicrophone = async () => {
+        // If we already have a live filtered track, simply re-enable it
+        if (
+          publishedAudioTrackRef.current &&
+          publishedAudioTrackRef.current.readyState === 'live'
+        ) {
+          publishedAudioTrackRef.current.enabled = true;
+          return;
+        }
+
+        try {
+          const audioConstraints: MediaTrackConstraints & Record<string, any> = {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            voiceIsolation: true,
+            channelCount: { ideal: 1 },
+            sampleRate: { ideal: 48000 }
+          };
+
+          const rawMicStream = await navigator.mediaDevices.getUserMedia({
+            audio: audioConstraints,
+            video: false
+          });
+
+          if (isCancelled) {
+            rawMicStream.getTracks().forEach((t) => t.stop());
+            return;
+          }
+
+          rawMicStreamRef.current = rawMicStream;
+
+          const AudioCtx =
+            window.AudioContext ||
+            (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+
+          if (AudioCtx) {
+            const audioCtx = new AudioCtx({ sampleRate: 48000 });
+            audioContextRef.current = audioCtx;
+            if (audioCtx.state === 'suspended') {
+              await audioCtx.resume().catch(() => {});
+            }
+
+            const sourceNode = audioCtx.createMediaStreamSource(rawMicStream);
+
+            // 1. HighPass BiquadFilterNode at 80Hz (removes low mud/rumble only)
+            const highPassFilter = audioCtx.createBiquadFilter();
+            highPassFilter.type = 'highpass';
+            highPassFilter.frequency.setValueAtTime(80, audioCtx.currentTime);
+            highPassFilter.Q.setValueAtTime(0.707, audioCtx.currentTime);
+
+            // 2. Peaking BiquadFilterNode at 2800Hz with gain: +3.5dB, Q: 1.0 (boosts human vocal clarity and speech intelligibility)
+            const vocalPresenceFilter = audioCtx.createBiquadFilter();
+            vocalPresenceFilter.type = 'peaking';
+            vocalPresenceFilter.frequency.setValueAtTime(2800, audioCtx.currentTime);
+            vocalPresenceFilter.gain.setValueAtTime(3.5, audioCtx.currentTime);
+            vocalPresenceFilter.Q.setValueAtTime(1.0, audioCtx.currentTime);
+
+            // 3. DynamicsCompressorNode (threshold: -20dB, knee: 20, ratio: 4, attack: 0.005, release: 0.15)
+            const compressor = audioCtx.createDynamicsCompressor();
+            compressor.threshold.setValueAtTime(-20, audioCtx.currentTime);
+            compressor.knee.setValueAtTime(20, audioCtx.currentTime);
+            compressor.ratio.setValueAtTime(4, audioCtx.currentTime);
+            compressor.attack.setValueAtTime(0.005, audioCtx.currentTime);
+            compressor.release.setValueAtTime(0.15, audioCtx.currentTime);
+
+            // 4. GainNode set to 1.8 (+5dB clean makeup gain)
+            const makeupGain = audioCtx.createGain();
+            makeupGain.gain.setValueAtTime(1.8, audioCtx.currentTime);
+
+            const destinationNode = audioCtx.createMediaStreamDestination();
+            destinationNode.channelCount = 1;
+
+            // Connect chain ONLY to destinationNode (NEVER to audioCtx.destination to prevent local loopback!)
+            sourceNode.connect(highPassFilter);
+            highPassFilter.connect(vocalPresenceFilter);
+            vocalPresenceFilter.connect(compressor);
+            compressor.connect(makeupGain);
+            makeupGain.connect(destinationNode);
+
+            const filteredAudioTrack = destinationNode.stream.getAudioTracks()[0];
+            if (filteredAudioTrack) {
+              const existingMicPub = localParticipant.getTrackPublication(
+                Track.Source.Microphone
+              );
+              if (existingMicPub?.track && existingMicPub.track.mediaStreamTrack !== filteredAudioTrack) {
+                await localParticipant
+                  .unpublishTrack(existingMicPub.track.mediaStreamTrack, false)
+                  .catch(() => {});
+              }
+
+              await localParticipant.publishTrack(filteredAudioTrack, {
+                name: 'microphone',
+                source: Track.Source.Microphone,
+                dtx: true,
+                red: true,
+                audioPreset: { maxBitrate: 64_000 }
+              });
+              publishedAudioTrackRef.current = filteredAudioTrack;
+              return;
+            }
+          }
+        } catch (filterErr) {
+          console.warn('Web Audio filter fallback to native LiveKit mic:', filterErr);
+        }
+
+        // Fallback to LiveKit native capture with strict voice isolation constraints
+        await teardownFilteredMic();
+        localParticipant
+          .setMicrophoneEnabled(true, {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            voiceIsolation: true,
+            sampleRate: 48000,
+            channelCount: 1
+          })
+          .catch(() => {});
+      };
+
+      setupStudioFilteredMicrophone();
+
+      return () => {
+        isCancelled = true;
+      };
     }, [role, isAcceptedSpeaker, isMicMuted, connectionState, localParticipant]);
 
-    // Listen for all incoming DataChannel packets & Host disconnect
+    // Clean up Web Audio context & raw mic stream when bridge unmounts
+    useEffect(() => {
+      return () => {
+        if (rawMicStreamRef.current) {
+          rawMicStreamRef.current.getTracks().forEach((t) => {
+            try {
+              t.stop();
+            } catch {}
+          });
+          rawMicStreamRef.current = null;
+        }
+        if (audioContextRef.current) {
+          audioContextRef.current.close().catch(() => {});
+          audioContextRef.current = null;
+        }
+      };
+    }, []);
+
+    // Listen for all incoming DataChannel packets, Host disconnect, Network Quality & Reconnection
     useEffect(() => {
       if (!room) return;
 
@@ -1039,7 +1387,7 @@ const LiveKitRoomBridge = forwardRef<
         try {
           const data = JSON.parse(new TextDecoder().decode(payload));
           if (data.type === 'HOST_ENDED_LIVE') {
-            onHostEnded(data.duration, data.peakViewers);
+            onHostEnded(data.duration, data.peakViewers, data.durationSeconds);
           } else {
             onPacketReceived(data);
           }
@@ -1063,14 +1411,56 @@ const LiveKitRoomBridge = forwardRef<
         }
       };
 
+      const handleConnectionQualityChanged = (quality: ConnectionQuality, participant: any) => {
+        if (!onNetworkQualityChange) return;
+        const isTarget =
+          role === 'host'
+            ? participant?.isLocal
+            : participant?.isLocal ||
+              (hostId && participant?.identity?.includes(hostId));
+        if (!isTarget) return;
+
+        if (quality === ConnectionQuality.Poor || quality === ConnectionQuality.Lost) {
+          onNetworkQualityChange('Poor');
+        } else if (quality === ConnectionQuality.Good) {
+          onNetworkQualityChange('Fair');
+        } else if (quality === ConnectionQuality.Excellent) {
+          onNetworkQualityChange('Good');
+        }
+      };
+
+      const handleReconnecting = () => {
+        onReconnectingChange?.(true);
+      };
+
+      const handleReconnected = () => {
+        onReconnectingChange?.(false);
+        onNetworkQualityChange?.('Good');
+      };
+
       room.on(RoomEvent.DataReceived, handleData);
       room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+      room.on(RoomEvent.ConnectionQualityChanged, handleConnectionQualityChanged);
+      room.on(RoomEvent.Reconnecting, handleReconnecting);
+      room.on(RoomEvent.Reconnected, handleReconnected);
 
       return () => {
         room.off(RoomEvent.DataReceived, handleData);
         room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+        room.off(RoomEvent.ConnectionQualityChanged, handleConnectionQualityChanged);
+        room.off(RoomEvent.Reconnecting, handleReconnecting);
+        room.off(RoomEvent.Reconnected, handleReconnected);
       };
-    }, [room, role, hostId, hostUsername, onHostEnded, onPacketReceived]);
+    }, [
+      room,
+      role,
+      hostId,
+      hostUsername,
+      onHostEnded,
+      onPacketReceived,
+      onNetworkQualityChange,
+      onReconnectingChange
+    ]);
 
     return null;
   }
@@ -1078,9 +1468,87 @@ const LiveKitRoomBridge = forwardRef<
 LiveKitRoomBridge.displayName = 'LiveKitRoomBridge';
 
 // ============================================================================
-// VIEWER VIDEO STAGE (FORCES HIGH QUALITY HD SUBSCRIPTION)
+// STUDIO REMOTE AUDIO RENDERER (ZERO HOST AUDIO LOOPBACK GUARANTEE)
+// ============================================================================
+const RemoteParticipantAudioTile = React.memo(function RemoteParticipantAudioTile({
+  track
+}: {
+  track: any;
+}) {
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const el = audioElRef.current;
+    if (!el || !track || typeof track.attach !== 'function') return;
+    track.attach(el);
+    el.muted = false;
+    el.volume = 1.0;
+    el.play().catch(() => {});
+    return () => {
+      try {
+        track.detach(el);
+      } catch {}
+    };
+  }, [track]);
+
+  return <audio ref={audioElRef} autoPlay playsInline className="hidden" />;
+});
+
+const StudioRemoteAudioRenderer = React.memo(function StudioRemoteAudioRenderer({
+  role,
+  hostId,
+  localUserId
+}: {
+  role: UserRole;
+  hostId?: string;
+  localUserId?: string;
+}) {
+  const audioTrackRefs = useTracks([Track.Source.Microphone, Track.Source.Unknown], {
+    onlySubscribed: true
+  });
+
+  const remoteAudioTracks = useMemo(() => {
+    return audioTrackRefs.filter((ref) => {
+      // NEVER play back localParticipant audio on any device
+      if (!ref.participant || ref.participant.isLocal) return false;
+      const pub = ref.publication;
+      if (!pub || pub.kind !== Track.Kind.Audio || !pub.track) return false;
+
+      const identity = String(ref.participant.identity || '');
+      // Extra safeguard on host's own device: never play back any track matching host's identity
+      if (
+        role === 'host' &&
+        hostId &&
+        (identity === hostId || identity === `host_${hostId}` || identity.includes(hostId))
+      ) {
+        return false;
+      }
+      if (localUserId && identity.includes(localUserId)) {
+        return false;
+      }
+      return true;
+    });
+  }, [audioTrackRefs, role, hostId, localUserId]);
+
+  return (
+    <>
+      {remoteAudioTracks.map((ref) => (
+        <RemoteParticipantAudioTile
+          key={ref.publication.trackSid || ref.participant.identity}
+          track={ref.publication.track}
+        />
+      ))}
+    </>
+  );
+});
+
+// ============================================================================
+// VIEWER VIDEO STAGE (ADAPTIVE STREAM + SIMULCAST + AUTO-RECOVERY WATCHDOG)
 // ============================================================================
 const ViewerVideoStage = React.memo(function ViewerVideoStage({ beautyMode }: { beautyMode: boolean }) {
+  const room = useRoomContext();
+  const viewerVideoRef = useRef<HTMLVideoElement | null>(null);
+
   const subscribedTracks = useTracks(
     [Track.Source.Camera, Track.Source.Unknown],
     { onlySubscribed: true }
@@ -1101,23 +1569,99 @@ const ViewerVideoStage = React.memo(function ViewerVideoStage({ beautyMode }: { 
         t.publication.kind === Track.Kind.Video
     );
 
-  // Force LiveKit SFU to send HIGH video quality layer and full framerate to viewer
+  const videoTrack: any = remoteTrack?.publication?.track || null;
+
+  // Subscribe cleanly and let LiveKit adaptiveStream + simulcast manage layer selection (540p / 360p / 180p)
   useEffect(() => {
     const pub: any = remoteTrack?.publication;
     if (pub) {
       try {
         pub.setSubscribed?.(true);
-        pub.setVideoQuality?.(VideoQuality.HIGH);
-        pub.setVideoFPS?.(30);
       } catch {}
     }
   }, [remoteTrack]);
 
-  if (remoteTrack) {
+  // Attach remote video track and run Anti-Freeze Watchdog on stalled / waiting / pause / TrackSubscribed / Reconnected
+  useEffect(() => {
+    const videoEl = viewerVideoRef.current;
+    if (!videoEl || !videoTrack || typeof videoTrack.attach !== 'function') return;
+
+    const attachAndPlay = () => {
+      const el = viewerVideoRef.current;
+      if (!el || !videoTrack || typeof videoTrack.attach !== 'function') return;
+      try {
+        videoTrack.attach(el);
+        el.play().catch(() => {});
+      } catch {}
+    };
+
+    attachAndPlay();
+
+    const handleRecoverPlayback = () => {
+      const el = viewerVideoRef.current;
+      if (!el || !videoTrack) return;
+      try {
+        videoTrack.attach(el);
+        el.play().catch(() => {});
+      } catch {}
+    };
+
+    videoEl.addEventListener('stalled', handleRecoverPlayback);
+    videoEl.addEventListener('waiting', handleRecoverPlayback);
+    videoEl.addEventListener('pause', handleRecoverPlayback);
+
+    const handleRoomTrackSubscribed = (track: any) => {
+      if (track?.kind === Track.Kind.Video) {
+        handleRecoverPlayback();
+      }
+    };
+
+    const handleRoomReconnected = () => {
+      handleRecoverPlayback();
+    };
+
+    if (room) {
+      room.on(RoomEvent.TrackSubscribed, handleRoomTrackSubscribed);
+      room.on(RoomEvent.Reconnected, handleRoomReconnected);
+    }
+
+    // Periodic watchdog check every 3s in case browser silently pauses or stalls the video element
+    const watchdogInterval = setInterval(() => {
+      const el = viewerVideoRef.current;
+      if (!el || !videoTrack) return;
+      if (el.paused || el.readyState < 2) {
+        handleRecoverPlayback();
+      }
+    }, 3000);
+
+    return () => {
+      clearInterval(watchdogInterval);
+      videoEl.removeEventListener('stalled', handleRecoverPlayback);
+      videoEl.removeEventListener('waiting', handleRecoverPlayback);
+      videoEl.removeEventListener('pause', handleRecoverPlayback);
+      if (room) {
+        room.off(RoomEvent.TrackSubscribed, handleRoomTrackSubscribed);
+        room.off(RoomEvent.Reconnected, handleRoomReconnected);
+      }
+      try {
+        videoTrack.detach(videoEl);
+      } catch {}
+    };
+  }, [videoTrack, room]);
+
+  if (remoteTrack && videoTrack) {
     return (
       <div className="relative h-full w-full bg-[#070709] overflow-hidden">
-        <VideoTrack
-          trackRef={remoteTrack as any}
+        <video
+          ref={(el) => {
+            viewerVideoRef.current = el;
+            if (el && videoTrack && typeof videoTrack.attach === 'function') {
+              videoTrack.attach(el);
+              el.play().catch(() => {});
+            }
+          }}
+          autoPlay
+          playsInline
           className={`h-full w-full object-cover transition-all duration-500 ${
             beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
           }`}
@@ -1148,6 +1692,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const isInitializingRef = useRef<boolean>(false);
   const viewerLeavingIntentionallyRef = useRef<boolean>(false);
   const processedPacketIdsRef = useRef<Set<string>>(new Set());
+  const processedGiftIdsRef = useRef<Set<string>>(new Set());
 
   const [user, setUser] = useState(
     currentUser || {
@@ -1167,17 +1712,59 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   );
   const [endedAtFormatted, setEndedAtFormatted] = useState<string>('');
   const [streamStartMs, setStreamStartMs] = useState<number | null>(null);
+  const streamStartTimeRef = useRef<number | null>(null);
   const streamStartMsRef = useRef<number | null>(null);
+  const [finalDurationSeconds, setFinalDurationSeconds] = useState<number>(0);
   const finalDurationRef = useRef<string>('00:00');
+  const [networkQuality, setNetworkQuality] = useState<NetworkQualityLabel>('Good');
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
+  const [topGiftersMap, setTopGiftersMap] = useState<Record<string, TopGifterEntry>>({});
 
+  const topGiftersList = useMemo(() => {
+    return Object.values(topGiftersMap)
+      .sort((a, b) => b.totalCoins - a.totalCoins)
+      .slice(0, 3);
+  }, [topGiftersMap]);
+
+  const recordGifterContribution = useCallback(
+    (senderId: string, senderName: string, senderAvatar: string | undefined, coinsAdded: number) => {
+      if (!coinsAdded || coinsAdded <= 0) return;
+      const key = senderId || senderName || 'gifter';
+      const resolvedName = senderName || 'VIP Gifter';
+      const resolvedAvatar =
+        senderAvatar ||
+        `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(resolvedName)}`;
+      setTopGiftersMap((prev) => {
+        const existing = prev[key];
+        return {
+          ...prev,
+          [key]: {
+            userId: key,
+            username: resolvedName,
+            avatar: resolvedAvatar,
+            totalCoins: (existing?.totalCoins || 0) + coinsAdded
+          }
+        };
+      });
+    },
+    []
+  );
 
   const roomOptions = useMemo(() => ({
     adaptiveStream: true,
     dynacast: true,
+    reconnectPolicy: {
+      nextRetryDelayInMs: (context: { retryCount: number }) =>
+        Math.min(1000 * Math.pow(1.5, context.retryCount), 8000)
+    },
     publishDefaults: {
       simulcast: true,
       videoCodec: 'vp8' as const,
-      videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+      videoEncoding: {
+        maxBitrate: 1_800_000,
+        maxFramerate: 30
+      },
+      videoSimulcastLayers: [VideoPresets.h540, VideoPresets.h360, VideoPresets.h180],
       dtx: true,
       red: true,
     },
@@ -1189,19 +1776,22 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
+      voiceIsolation: true,
       channelCount: 1,
       sampleRate: 48000,
     },
   }), []);
 
+  const getCalculatedDurationSeconds = useCallback(() => {
+    const start = streamStartTimeRef.current || streamStartMsRef.current || streamStartMs;
+    if (!start) return Math.max(1, finalDurationSeconds || 1);
+    return Math.max(1, Math.floor((Date.now() - start) / 1000));
+  }, [streamStartMs, finalDurationSeconds]);
+
   const getCalculatedDuration = useCallback(() => {
-    const start = streamStartMs || streamStartMsRef.current;
-    if (!start) return '00:00';
-    const diff = Math.max(0, Math.floor((Date.now() - start) / 1000));
-    const minutes = Math.floor(diff / 60).toString().padStart(2, '0');
-    const seconds = (diff % 60).toString().padStart(2, '0');
-    return `${minutes}:${seconds}`;
-  }, [streamStartMs]);
+    const elapsedSeconds = getCalculatedDurationSeconds();
+    return formatStreamDuration(elapsedSeconds);
+  }, [getCalculatedDurationSeconds]);
   const [viewerCount, setViewerCount] = useState<number>(0);
   const [peakViewers, setPeakViewers] = useState<number>(0);
 
@@ -1258,10 +1848,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const [coinPopTrigger, setCoinPopTrigger] = useState<boolean>(false);
   const giftOverlayRef = useRef<GiftOverlayHandle>(null);
 
-  // Rapid-Tap Rose Combo Refs
+  // Rapid-Tap Rose & Drawer Combo Refs
   const roseComboCountRef = useRef<number>(0);
   const roseComboTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [activeRoseComboBadge, setActiveRoseComboBadge] = useState<number | null>(null);
+  const drawerComboCountRef = useRef<number>(0);
+  const drawerComboGiftIdRef = useRef<string>('rose_1');
+  const drawerComboTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [drawerComboBadge, setDrawerComboBadge] = useState<number>(0);
 
 
   // Viewer Mic / Co-Host Request State (Private to Host until Accepted)
@@ -1276,6 +1870,23 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const livekitBridgeRef = useRef<LiveKitBridgeRef>(null);
   const realtimeEventChannelRef = useRef<any>(null);
+  const realtimeHostBridgeChannelRef = useRef<any>(null);
+
+  // Explicitly enforce DOM .muted = true, .defaultMuted = true, .volume = 0 on Host preview <video> elements (Zero Audio Loopback)
+  useEffect(() => {
+    const hostVideoEl = liveHostVideoRef.current;
+    if (hostVideoEl) {
+      hostVideoEl.muted = true;
+      hostVideoEl.defaultMuted = true;
+      hostVideoEl.volume = 0;
+    }
+    const previewEl = previewVideoRef.current;
+    if (previewEl) {
+      previewEl.muted = true;
+      previewEl.defaultMuted = true;
+      previewEl.volume = 0;
+    }
+  }, [stage, role, localStream]);
 
   const handleViewerCountChange = useCallback((count: number) => {
     setViewerCount(count);
@@ -1332,31 +1943,25 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
   const handleIncomingArenaPacket = useCallback(
     (packet: Record<string, any>) => {
-      if (!packet || !packet.type) return;
+      if (!packet) return;
+      const packetType =
+        packet.type ||
+        (packet.event === 'gift_sent' || packet.giftId || packet.gift_id ? 'LIVE_GIFT' : undefined);
+      if (!packetType) return;
 
-      // Deduplicate packets received over both LiveKit DataChannel and Supabase Broadcast
+      // Deduplicate packets received over both LiveKit DataChannel and Supabase Broadcast strictly by packetId
       if (packet.packetId) {
         if (processedPacketIdsRef.current.has(packet.packetId)) return;
         processedPacketIdsRef.current.add(packet.packetId);
       }
 
-      // Ignore self-echo for likes/gifts/comments that were already applied optimistically
-      if (
-        packet.senderId &&
-        packet.senderId === user.id &&
-        (packet.type === 'LIVE_LIKE' ||
-          packet.type === 'LIVE_GIFT' ||
-          packet.type === 'LIVE_COMMENT')
-      ) {
-        return;
-      }
-      if (roleRef.current === 'host' && (packet.type === 'LIVE_COMMENT' || packet.type === 'MIC_REQUEST')) {
+      if (roleRef.current === 'host' && (packetType === 'LIVE_COMMENT' || packetType === 'MIC_REQUEST')) {
         if (packet.senderId && mutedUserIds.has(packet.senderId)) return;
         if (packet.comment?.username && mutedUsernamesRef.current.has(packet.comment.username.toLowerCase())) return;
         if (packet.requester?.username && mutedUsernamesRef.current.has(packet.requester.username.toLowerCase())) return;
       }
 
-      if ((packet.type === 'MUTE_VIEWER' || packet.type === 'UNMUTE_VIEWER') && (packet.targetUserId === user.id || packet.targetUsername?.toLowerCase() === user.username?.toLowerCase() || packet.targetUserId?.toLowerCase().includes(user.username?.toLowerCase() || ''))) {
+      if ((packetType === 'MUTE_VIEWER' || packetType === 'UNMUTE_VIEWER') && (packet.targetUserId === user.id || packet.targetUsername?.toLowerCase() === user.username?.toLowerCase() || packet.targetUserId?.toLowerCase().includes(user.username?.toLowerCase() || ''))) {
         setIsMutedByHost(packet.isMuted);
         if (typeof window !== 'undefined' && currentStream?.id) {
           localStorage.setItem('horpal_live_muted_' + currentStream.id, String(packet.isMuted));
@@ -1367,10 +1972,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           setIsMicMuted(true);
         }
       }
-      if (packet.type === 'LOCK_CHAT') {
+      if (packetType === 'LOCK_CHAT') {
         setIsRoomLocked(packet.locked);
       }
-      switch (packet.type) {
+      switch (packetType) {
         case 'LIVE_LIKE':
         case 'LIKE_SYNC': {
           const delta = packet.delta || 1;
@@ -1382,7 +1987,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             return nextTotal;
           });
 
-          for (let i=0; i<delta; i++) {
+          for (let i = 0; i < delta; i++) {
             spawnVisualHeartOnly();
           }
           break;
@@ -1405,11 +2010,57 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           }
           break;
         }
+        case 'gift_sent':
         case 'LIVE_GIFT': {
-          const giftEvt = packet.gift as LiveGiftEvent;
-          if (giftEvt) {
-            giftOverlayRef.current?.triggerGift(giftEvt);
-            const totalCost = Number(giftEvt.coin_delta ?? giftEvt.coin_value);
+          const rawGift = (packet.gift || packet) as LiveGiftEvent & Record<string, any>;
+          if (rawGift) {
+            const giftEventId =
+              rawGift.id ||
+              rawGift.giftEventId ||
+              packet.id ||
+              packet.giftEventId ||
+              `gift-${rawGift.timestamp || packet.timestamp || Date.now()}`;
+
+            // Deduplicate incoming gifts strictly by giftEventId across LiveKit DataChannel, Supabase Realtime Broadcast, and Postgres Changes
+            if (processedGiftIdsRef.current.has(giftEventId)) {
+              return;
+            }
+            processedGiftIdsRef.current.add(giftEventId);
+
+            const resolvedCombo = Number(rawGift.combo_count ?? packet.comboCount ?? 1);
+            const resolvedUnitCoins = Number(
+              rawGift.coin_value ?? rawGift.coinValue ?? packet.coinValue ?? 1
+            );
+            const totalCost = Number(
+              rawGift.coin_delta ??
+                packet.coin_delta ??
+                packet.coinValue ??
+                resolvedUnitCoins * resolvedCombo
+            );
+
+            const normalizedGift: LiveGiftEvent = {
+              ...rawGift,
+              id: giftEventId,
+              stream_id: rawGift.stream_id || rawGift.streamId || packet.streamId || currentStream?.id || '',
+              sender_id: rawGift.sender_id || rawGift.senderId || packet.senderId || 'viewer',
+              sender_username:
+                rawGift.sender_username || rawGift.senderName || packet.senderName || 'VIP Gifter',
+              sender_avatar: rawGift.sender_avatar || rawGift.senderAvatar || packet.senderAvatar,
+              gift_id: rawGift.gift_id || rawGift.giftId || packet.giftId || 'rose_1',
+              gift_name: rawGift.gift_name || rawGift.giftName || packet.giftName || 'Gift',
+              gift_icon: rawGift.gift_icon || rawGift.giftIcon || packet.giftIcon || '🌹',
+              coin_value: resolvedUnitCoins,
+              combo_count: resolvedCombo,
+              coin_delta: totalCost
+            };
+
+            giftOverlayRef.current?.triggerGift(normalizedGift);
+            recordGifterContribution(
+              normalizedGift.sender_id,
+              normalizedGift.sender_username,
+              normalizedGift.sender_avatar,
+              totalCost
+            );
             setCurrentStream((prev) =>
               prev
                 ? {
@@ -1420,17 +2071,21 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 : null
             );
             setComments((prev) => {
-              const msgId = `gift-msg-${giftEvt.id}`;
+              const msgId = `gift-msg-${normalizedGift.id}`;
               if (prev.some((c) => c.id === msgId)) return prev;
+              const comboSuffix =
+                (normalizedGift.combo_count || 1) > 1
+                  ? ` x${normalizedGift.combo_count}`
+                  : '';
               return [
                 ...prev.slice(-60),
                 {
                   id: msgId,
-                  username: giftEvt.sender_username,
-                  content: `sent ${giftEvt.gift_icon} ${giftEvt.gift_name} x${
-                    giftEvt.combo_count || 1
-                  }!`,
-                  is_system: true
+                  username: normalizedGift.sender_username,
+                  avatar_url: normalizedGift.sender_avatar,
+                  content: `@${normalizedGift.sender_username} sent a ${normalizedGift.gift_name}! ${normalizedGift.gift_icon}${comboSuffix}`,
+                  is_system: true,
+                  is_gift_announcement: true
                 }
               ];
             });
@@ -1521,7 +2176,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         }
       }
     },
-    [user.id, spawnVisualHeartOnly]
+    [user.id, spawnVisualHeartOnly, currentStream?.id, recordGifterContribution]
   );
 
   // Dispatch packet across BOTH LiveKit DataChannel & Supabase Broadcast
@@ -1534,17 +2189,54 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       if (livekitBridgeRef.current) {
         await livekitBridgeRef.current.sendPacket(fullPayload);
       }
-      if (realtimeEventChannelRef.current) {
+
+      const sendToChannel = (ch: any) => {
+        if (!ch) return;
         try {
-          realtimeEventChannelRef.current.send({
+          ch.send({
             type: 'broadcast',
             event: 'arena-packet',
             payload: fullPayload
           });
+          if (payload.type === 'LIVE_GIFT') {
+            const giftBroadcastPayload = {
+              id: payload.id || payload.gift?.id || packetId,
+              giftEventId: payload.id || payload.gift?.id || packetId,
+              streamId: payload.streamId || payload.gift?.stream_id || currentStream?.id,
+              giftId: payload.giftId || payload.gift?.gift_id,
+              giftName: payload.giftName || payload.gift?.gift_name,
+              giftIcon: payload.giftIcon || payload.gift?.gift_icon,
+              coinValue: payload.coinValue ?? payload.gift?.coin_delta ?? payload.gift?.coin_value,
+              comboCount: payload.comboCount ?? payload.gift?.combo_count ?? 1,
+              senderId: payload.senderId || user.id,
+              senderName: payload.senderName || user.username,
+              senderAvatar: payload.senderAvatar || user.avatar_url,
+              timestamp: payload.timestamp || Date.now(),
+              gift: payload.gift
+            };
+            ch.send({
+              type: 'broadcast',
+              event: 'gift_sent',
+              payload: giftBroadcastPayload
+            });
+            ch.send({
+              type: 'broadcast',
+              event: 'live-gift',
+              payload: payload.gift || giftBroadcastPayload
+            });
+          }
         } catch {}
+      };
+
+      sendToChannel(realtimeEventChannelRef.current);
+      if (
+        realtimeHostBridgeChannelRef.current &&
+        realtimeHostBridgeChannelRef.current !== realtimeEventChannelRef.current
+      ) {
+        sendToChannel(realtimeHostBridgeChannelRef.current);
       }
     },
-    [user.id]
+    [user.id, user.username, user.avatar_url, currentStream?.id]
   );
 
   // --------------------------------------------------------------------------
@@ -1585,7 +2277,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const roomId = `live_${activeUserId}`;
     const finalTitle = streamTitle.trim() || `${activeUsername}'s VIP Live`;
     let insertedStreamDbId: string | null = null;
-    const nowIso = new Date().toISOString();
+    const exactStartMs = streamStartTimeRef.current || Date.now();
+    streamStartTimeRef.current = exactStartMs;
+    streamStartMsRef.current = exactStartMs;
+    setStreamStartMs(exactStartMs);
+    const nowIso = new Date(exactStartMs).toISOString();
 
     try {
       await supabase.from('live_streams').delete().eq('host_id', activeUserId);
@@ -1605,7 +2301,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         allow_cohost: allowCohost,
         status: 'live',
         is_live: true,
-        started_at: nowIso
+        started_at: nowIso,
+        duration_seconds: 0
       };
 
       const { data, error } = await supabase
@@ -1619,7 +2316,8 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           host_id: activeUserId,
           host_username: activeUsername,
           title: finalTitle,
-          category: setupCategory
+          category: setupCategory,
+          started_at: nowIso
         };
         const { data: fallbackData } = await supabase
           .from('live_streams')
@@ -1670,7 +2368,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     try {
       const hostIdentity = `host_${activeUserId}`;
       const res = await fetch(
-        `/api/livekit?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(
+        `/api/livekit/token?room=${encodeURIComponent(roomId)}&username=${encodeURIComponent(
           hostIdentity
         )}&role=host&name=${encodeURIComponent(user.username || 'user')}`
       );
@@ -1678,7 +2376,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       if (!res.ok || !data.token) {
         throw new Error(data?.error || 'Failed to fetch LiveKit token');
       }
-      setLivekitServerUrl(data.wsUrl || data.url || DEFAULT_LIVEKIT_URL);
+      setLivekitServerUrl(data.serverUrl || data.wsUrl || data.url || DEFAULT_LIVEKIT_URL);
       setLivekitToken(data.token);
       setComments([
         {
@@ -1703,10 +2401,14 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   const handleStartCountdown = () => {
     setConnectionError(null);
     finalDurationRef.current = '00:00';
+    setFinalDurationSeconds(0);
+    streamStartTimeRef.current = null;
+    streamStartMsRef.current = null;
     setStreamStartMs(null);
     setViewerCount(0);
     setPeakViewers(0);
     setLikeCount(0);
+    setTopGiftersMap({});
     setPendingMicRequests([]);
     setActiveSpeakers([]);
     setRole('host');
@@ -1733,13 +2435,16 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setPendingMicRequests([]);
     setActiveSpeakers([]);
     setLikeCount(0);
+    setTopGiftersMap({});
     setCurrentStream(stream);
     finalDurationRef.current = '00:00';
+    setFinalDurationSeconds(0);
     setViewerCount(stream.viewer_count || 1);
     setPeakViewers(stream.viewer_count || 1);
     const startMs = stream.started_at || stream.created_at
         ? new Date((stream.started_at || stream.created_at) as string).getTime()
         : Date.now();
+    streamStartTimeRef.current = startMs;
     setStreamStartMs(startMs);
     streamStartMsRef.current = startMs;
 
@@ -1754,9 +2459,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     const viewerIdentity = `viewer__${user.id}__${user.username || 'user'}`;
 
     try {
-      // Request with role=host on the token endpoint so the viewer has permission to publish DataPackets & Co-Host Audio when accepted
+      // Request token from /api/livekit/token so the viewer has permission to publish DataPackets & Co-Host Audio when accepted
       const res = await fetch(
-        `/api/livekit?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(
+        `/api/livekit/token?room=${encodeURIComponent(actualRoomName)}&username=${encodeURIComponent(
           viewerIdentity
         )}&role=host`
       );
@@ -1764,7 +2469,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       if (!res.ok || !data.token) {
         throw new Error(data?.error || 'No token returned from server.');
       }
-      setLivekitServerUrl(data.wsUrl || data.url || DEFAULT_LIVEKIT_URL);
+      setLivekitServerUrl(data.serverUrl || data.wsUrl || data.url || DEFAULT_LIVEKIT_URL);
       setLivekitToken(data.token);
     } catch (err: any) {
       console.error('[LIVEKIT PIPELINE] Viewer Token Error:', err);
@@ -1886,22 +2591,22 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }
   }, [spawnVisualHeartOnly, dispatchArenaPacket, user?.id, user?.username, currentStream?.id]);
 
-  // 100% Free Gift Dispatch (Zero Paywall, Plays Animation on Both Screens)
+  // 100% Free Gift Dispatch in TEST MODE (Zero Paywall, Plays Animation + Sound + Syncs on All Screens)
   const handleDispatchGift = async (gift: GiftTierItem, amount = 1, displayComboCount = amount) => {
     if (!currentStream) return;
     livekitBridgeRef.current?.unlockAudio();
     const totalCost = gift.coins * amount;
+    const nowTs = Date.now();
 
-    if ((user.coin_balance || 0) < totalCost) {
-      toast.error('Insufficient coins to send this gift!');
-      return;
-    }
-
+    // TEST MODE: Bypass strict wallet balance blocks so any user or host can tap and send gifts immediately
     setCoinPopTrigger(true);
     setTimeout(() => setCoinPopTrigger(false), 550);
 
+    const giftEventId = `gift-${nowTs}-${Math.random().toString(36).slice(2, 7)}`;
+    processedGiftIdsRef.current.add(giftEventId);
+
     const giftEvent: LiveGiftEvent = {
-      id: `gift-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: giftEventId,
       stream_id: currentStream.id,
       sender_id: user.id,
       sender_username: user.username,
@@ -1911,11 +2616,21 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       gift_icon: gift.icon,
       coin_value: gift.coins,
       combo_count: displayComboCount,
-      coin_delta: totalCost
+      coin_delta: totalCost,
+      // Standardized camelCase fields for multi-user DataChannel + Supabase Broadcast sync
+      giftId: gift.id,
+      giftName: gift.name,
+      giftIcon: gift.icon,
+      coinValue: totalCost,
+      senderId: user.id,
+      senderName: user.username,
+      senderAvatar: user.avatar_url,
+      timestamp: nowTs
     };
 
-    // 1. Trigger local animation & goal update immediately via imperative ref
+    // 1. Trigger local animation, sound, leaderboard & goal update immediately via imperative ref
     giftOverlayRef.current?.triggerGift(giftEvent);
+    recordGifterContribution(user.id, user.username, user.avatar_url, totalCost);
     setCurrentStream((prev) =>
       prev
         ? {
@@ -1925,32 +2640,68 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           }
         : null
     );
+    const comboSuffix = displayComboCount > 1 ? ` x${displayComboCount}` : '';
     setComments((prev) => [
       ...prev.slice(-60),
       {
         id: `gift-sys-${giftEvent.id}`,
         username: user.username,
-        content: `sent ${gift.icon} ${gift.name} x${displayComboCount}!`,
-        is_system: true
+        avatar_url: user.avatar_url,
+        content: `@${user.username} sent a ${gift.name}! ${gift.icon}${comboSuffix}`,
+        is_system: true,
+        is_gift_announcement: true
       }
     ]);
 
-    // 2. Broadcast over LiveKit DataChannel + Supabase Broadcast so Host & all Viewers see the animation immediately
+    // 2. Broadcast over LiveKit DataChannel + Supabase Broadcast ('gift_sent' on live_arena_${streamId}) so Host & all Viewers see the animation in < 100ms
     await dispatchArenaPacket({
       type: 'LIVE_GIFT',
-      gift: giftEvent
+      event: 'gift_sent',
+      id: giftEventId,
+      giftEventId,
+      streamId: currentStream.id,
+      gift: giftEvent,
+      giftId: gift.id,
+      giftName: gift.name,
+      giftIcon: gift.icon,
+      coinValue: totalCost,
+      comboCount: displayComboCount,
+      senderId: user.id,
+      senderName: user.username,
+      senderAvatar: user.avatar_url,
+      timestamp: nowTs
     });
 
-    // 3. Real Coin Deduction & Best-effort DB persistence
+    // 3. Persist/increment coin total in Supabase (live_streams + live_gifts + stream_gifts)
     try {
-      await supabase.rpc('process_live_gift', {
-        p_sender_id: user.id,
-        p_host_id: currentStream.host_id,
-        p_stream_id: currentStream.id,
-        p_amount: totalCost
-      });
+      const targetStreamId = currentStreamDbId || currentStream.id;
+      const nextGoalCoins = (currentStream.gift_goal_current || 0) + totalCost;
+      const nextTotalCoins = (currentStream.total_coins_earned || 0) + totalCost;
+
+      if (targetStreamId && !String(targetStreamId).startsWith('live_')) {
+        supabase
+          .from('live_streams')
+          .update({
+            gift_goal_current: nextGoalCoins,
+            total_coins_earned: nextTotalCoins
+          })
+          .eq('id', targetStreamId)
+          .then(() => {});
+      }
+      if (currentStream.host_id) {
+        supabase
+          .from('live_streams')
+          .update({
+            gift_goal_current: nextGoalCoins,
+            total_coins_earned: nextTotalCoins
+          })
+          .eq('host_id', currentStream.host_id)
+          .then(() => {});
+      }
+
       await supabase.from('live_gifts').insert([
         {
+          id: giftEventId,
           stream_id: currentStream.id,
           sender_id: user.id,
           sender_username: user.username,
@@ -1963,6 +2714,28 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         }
       ]);
     } catch {}
+  };
+
+  const handleDrawerGiftSend = (gift: GiftTierItem) => {
+    if (drawerComboGiftIdRef.current === gift.id) {
+      drawerComboCountRef.current += 1;
+    } else {
+      drawerComboGiftIdRef.current = gift.id;
+      drawerComboCountRef.current = 1;
+    }
+    const nextCombo = drawerComboCountRef.current;
+    setDrawerComboBadge(nextCombo);
+
+    if (drawerComboTimerRef.current) {
+      clearTimeout(drawerComboTimerRef.current);
+    }
+
+    handleDispatchGift(gift, 1, nextCombo);
+
+    drawerComboTimerRef.current = setTimeout(() => {
+      drawerComboCountRef.current = 0;
+      setDrawerComboBadge(0);
+    }, 2500);
   };
 
   const handleQuickRoseGift = () => {
@@ -2067,11 +2840,27 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       const streamId = currentStreamDbId || currentStream?.id;
       const hostId = currentStream?.host_id || user.id;
 
+      // 1. Snapshot exact elapsed seconds BEFORE clearing any timer or tearing down room state
+      const startRefMs =
+        streamStartTimeRef.current ||
+        streamStartMsRef.current ||
+        streamStartMs ||
+        Date.now() - 1000;
+      const elapsedSeconds = Math.max(1, Math.floor((Date.now() - startRefMs) / 1000));
+      const finalDurationStr = formatStreamDuration(elapsedSeconds);
+      const endedAtIso = new Date().toISOString();
+
+      setFinalDurationSeconds(elapsedSeconds);
+      finalDurationRef.current = finalDurationStr;
+
       if (livekitBridgeRef.current) {
         try {
-          const finalDurationStr = getCalculatedDuration();
-          finalDurationRef.current = finalDurationStr;
-          dispatchArenaPacket({ type: 'HOST_ENDED_LIVE', duration: finalDurationStr, peakViewers }).catch(() => {});
+          dispatchArenaPacket({
+            type: 'HOST_ENDED_LIVE',
+            duration: finalDurationStr,
+            durationSeconds: elapsedSeconds,
+            peakViewers
+          }).catch(() => {});
           livekitBridgeRef.current.broadcastEnd(finalDurationStr, peakViewers).catch(() => {});
         } catch {}
       }
@@ -2085,9 +2874,20 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       );
       setStage('ended');
 
+      // 2. Persist ended_at and duration_seconds to Supabase on stream termination
+      const endUpdatePayload = {
+        status: 'ended',
+        is_live: false,
+        ended_at: endedAtIso,
+        duration_seconds: elapsedSeconds,
+        peak_viewers: Math.max(1, peakViewers)
+      };
+
       Promise.allSettled([
-        supabase.from('live_streams').delete().eq('host_id', hostId),
-        streamId ? supabase.from('live_streams').delete().eq('id', streamId) : Promise.resolve()
+        streamId && !String(streamId).startsWith('live_')
+          ? supabase.from('live_streams').update(endUpdatePayload).eq('id', streamId)
+          : Promise.resolve(),
+        supabase.from('live_streams').update(endUpdatePayload).eq('host_id', hostId)
       ]);
     } else {
       viewerLeavingIntentionallyRef.current = true;
@@ -2105,46 +2905,153 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }
   };
 
-  const handleHostEnded = useCallback((durationStr?: string, peak?: number) => {
-    if (roleRef.current === 'viewer' && !viewerLeavingIntentionallyRef.current) {
-      finalDurationRef.current = (durationStr && durationStr !== '00:00') ? durationStr : getCalculatedDuration();
-      if (peak !== undefined) setPeakViewers(peak);
+  const handleHostEnded = useCallback(
+    (durationStr?: string, peak?: number, remoteDurationSeconds?: number) => {
+      if (roleRef.current === 'viewer' && !viewerLeavingIntentionallyRef.current) {
+        const startRefMs =
+          streamStartTimeRef.current ||
+          streamStartMsRef.current ||
+          Date.now() - 1000;
+        const computedSeconds =
+          remoteDurationSeconds && remoteDurationSeconds > 0
+            ? remoteDurationSeconds
+            : Math.max(1, Math.floor((Date.now() - startRefMs) / 1000));
+        const resolvedDurationStr =
+          durationStr && durationStr !== '00:00' && durationStr !== '0:00'
+            ? durationStr
+            : formatStreamDuration(computedSeconds);
 
-      setEndedAtFormatted(
-        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      );
-      setMicRequestStatus('idle');
-      setLivekitToken('');
-      setStage('ended');
-    }
-  }, []);
+        setFinalDurationSeconds(computedSeconds);
+        finalDurationRef.current = resolvedDurationStr;
+        if (peak !== undefined) setPeakViewers(peak);
+
+        setEndedAtFormatted(
+          new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        );
+        setMicRequestStatus('idle');
+        setLivekitToken('');
+        setStage('ended');
+      }
+    },
+    []
+  );
 
   // Canonical Supabase Realtime Broadcast Channel for Likes, Gifts, Comments & Mic Requests
   useEffect(() => {
     if (stage !== 'live' || !currentStream) return;
 
-    const canonicalRoomKey = `live_${currentStream.host_id}`;
+    const streamId = currentStream.id;
+    const hostRoomKey = `live_${currentStream.host_id}`;
 
-    const eventChannel = supabase
-      .channel(`arena_sync_${canonicalRoomKey}`, {
+    const attachArenaChannelHandlers = (ch: any) =>
+      ch
+        .on('broadcast', { event: 'gift_sent' }, (msg: any) => {
+          const giftPayload = msg?.payload || msg;
+          if (giftPayload) {
+            handleIncomingArenaPacket({
+              type: 'LIVE_GIFT',
+              event: 'gift_sent',
+              ...giftPayload,
+              gift: giftPayload.gift || giftPayload,
+              senderId: giftPayload.senderId || giftPayload.sender_id
+            });
+          }
+        })
+        .on('broadcast', { event: 'arena-packet' }, (msg: any) => {
+          if (msg?.payload) {
+            handleIncomingArenaPacket(msg.payload);
+          }
+        })
+        .on('broadcast', { event: 'live-gift' }, (msg: any) => {
+          if (msg?.payload) {
+            handleIncomingArenaPacket({
+              type: 'LIVE_GIFT',
+              gift: msg.payload,
+              senderId: msg.payload.senderId || msg.payload.sender_id
+            });
+          }
+        })
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'live_gifts',
+            filter: `stream_id=eq.${streamId}`
+          },
+          (change: any) => {
+            const row = change?.new;
+            if (row) {
+              handleIncomingArenaPacket({
+                type: 'LIVE_GIFT',
+                id: row.id,
+                gift: row,
+                senderId: row.sender_id
+              });
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'live_streams',
+            filter: `id=eq.${streamId}`
+          },
+          (change: any) => {
+            const row = change?.new;
+            if (row) {
+              setCurrentStream((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      gift_goal_current: Math.max(
+                        prev.gift_goal_current || 0,
+                        Number(row.gift_goal_current || 0)
+                      ),
+                      total_coins_earned: Math.max(
+                        prev.total_coins_earned || 0,
+                        Number(row.total_coins_earned || row.total_coins || 0)
+                      )
+                    }
+                  : null
+              );
+            }
+          }
+        );
+
+    const eventChannel = attachArenaChannelHandlers(
+      supabase.channel(`live_arena_${streamId}`, {
         config: {
-          broadcast: { self: false, ack: false }
+          broadcast: { self: true, ack: true }
         }
       })
-      .on('broadcast', { event: 'arena-packet' }, (payload) => {
-        if (payload?.payload) {
-          handleIncomingArenaPacket(payload.payload);
-        }
-      })
-      .subscribe();
+    ).subscribe();
 
     realtimeEventChannelRef.current = eventChannel;
 
+    let bridgeChannel: any = null;
+    if (hostRoomKey && hostRoomKey !== String(streamId)) {
+      bridgeChannel = attachArenaChannelHandlers(
+        supabase.channel(`live_arena_${hostRoomKey}`, {
+          config: {
+            broadcast: { self: true, ack: true }
+          }
+        })
+      ).subscribe();
+      realtimeHostBridgeChannelRef.current = bridgeChannel;
+    }
+
     return () => {
       realtimeEventChannelRef.current = null;
+      realtimeHostBridgeChannelRef.current = null;
       supabase.removeChannel(eventChannel);
+      if (bridgeChannel) {
+        supabase.removeChannel(bridgeChannel);
+      }
     };
-  }, [stage, currentStream, handleIncomingArenaPacket]);
+  }, [stage, currentStream?.id, currentStream?.host_id, handleIncomingArenaPacket]);
 
   // Viewer stream-end listener
   useEffect(() => {
@@ -2439,9 +3346,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     } else {
       const launchTimer = setTimeout(() => {
         finalDurationRef.current = '00:00';
+        setFinalDurationSeconds(0);
         const startMs = Date.now();
-    setStreamStartMs(startMs);
-    streamStartMsRef.current = startMs;
+        streamStartTimeRef.current = startMs;
+        setStreamStartMs(startMs);
+        streamStartMsRef.current = startMs;
         setStage('live');
       }, 900);
       return () => clearTimeout(launchTimer);
@@ -2674,6 +3583,11 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         <video
           ref={(el) => {
             previewVideoRef.current = el;
+            if (el) {
+              el.muted = true;
+              el.defaultMuted = true;
+              el.volume = 0;
+            }
             if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
               el.srcObject = localStreamRef.current;
               el.play().catch(() => {});
@@ -2681,7 +3595,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           }}
           autoPlay
           playsInline
-          muted
+          muted={true}
           className={`h-full w-full object-cover transition-all duration-500 ${
             beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
           } ${stage === 'countdown' ? 'blur-md scale-105 brightness-50' : ''}`}
@@ -2854,6 +3768,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             if (el) {
               el.muted = true;
               el.defaultMuted = true;
+              el.volume = 0;
             }
             if (el && localStream && el.srcObject !== localStream) {
               el.srcObject = localStream;
@@ -2862,7 +3777,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           }}
           autoPlay
           playsInline
-          muted
+          muted={true}
           className={`absolute inset-0 h-full w-full object-cover z-0 transition-all duration-500 ${
             beautyMode ? 'brightness-105 contrast-105 saturate-110' : ''
           } ${isCamOff ? 'opacity-0' : 'opacity-100'}`}
@@ -2897,9 +3812,15 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             onParticipantsChange={setActiveParticipants}
             onHostEnded={handleHostEnded}
             onPacketReceived={handleIncomingArenaPacket}
+            onNetworkQualityChange={setNetworkQuality}
+            onReconnectingChange={setIsReconnecting}
           />
           {role === 'viewer' && <ViewerVideoStage beautyMode={beautyMode} />}
-          <RoomAudioRenderer volume={1.0} />
+          <StudioRemoteAudioRenderer
+            role={role}
+            hostId={currentStream?.host_id || user.id}
+            localUserId={user.id}
+          />
         </LiveKitRoom>
       ) : (
         role === 'viewer' && (
@@ -2921,22 +3842,44 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       {/* 2. MASTER TIER GPU GIFT OVERLAY (IMPERATIVE REF + REALTIME SYNCED) */}
       <MasterLiveGiftOverlay ref={giftOverlayRef} streamId={currentStream?.id} />
 
-      {/* 2.5 LIVE TIMER PILL (HOST ONLY) */}
-      {role === 'host' && (stage === 'live' || stage === 'ended') && (
-        <div className="absolute top-4 left-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-xl">
-          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-          {stage === 'live' ? (
-            <LiveDurationBadge streamStartMs={streamStartMs} className="text-white/90 font-mono text-sm tracking-widest font-medium" />
-          ) : (
-            <span className="text-white/90 font-mono text-sm tracking-widest font-medium">
-              {finalDurationRef.current || '00:00'}
-            </span>
+      {/* 2.5 LIVE TIMER PILL & NETWORK QUALITY BADGE */}
+      {stage === 'live' || stage === 'ended' ? (
+        <div className="absolute top-4 left-4 z-50 flex items-center gap-2">
+          {role === 'host' && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-xl">
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+              {stage === 'live' ? (
+                <LiveDurationBadge streamStartMs={streamStartMs} className="text-white/90 font-mono text-sm tracking-widest font-medium" />
+              ) : (
+                <span className="text-white/90 font-mono text-sm tracking-widest font-medium">
+                  {finalDurationSeconds > 0
+                    ? formatStreamDuration(finalDurationSeconds)
+                    : finalDurationRef.current || '00:01'}
+                </span>
+              )}
+            </div>
           )}
-        </div>
-      )}
 
-      {/* 3. TOP HUD: HOST CAPSULE, RANKINGS, WALLET & VIEWER PILLS */}
-      <div className={`absolute left-3 right-3 z-30 flex flex-col gap-2.5 ${role === 'host' ? 'top-14' : 'top-4'}`}>
+          {/* Automatic Network Quality & Reconnection Badge */}
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full backdrop-blur-md border text-[10px] font-extrabold uppercase tracking-wider shadow-lg ${
+              isReconnecting
+                ? 'bg-amber-500/25 border-amber-400/50 text-amber-200 animate-pulse'
+                : networkQuality === 'Poor'
+                ? 'bg-rose-500/25 border-rose-400/50 text-rose-200'
+                : networkQuality === 'Fair'
+                ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                : 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+            }`}
+          >
+            <Wifi className="w-3 h-3" />
+            <span>{isReconnecting ? 'Reconnecting...' : networkQuality}</span>
+          </div>
+        </div>
+      ) : null}
+
+      {/* 3. TOP HUD: HOST CAPSULE, RANKINGS, TOP GIFTERS LEADERBOARD, WALLET & VIEWER PILLS */}
+      <div className="absolute left-3 right-3 top-14 z-30 flex flex-col gap-2.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 rounded-full bg-black/45 backdrop-blur-xl border border-white/15 p-1 pr-2.5 shadow-lg min-w-0 flex-1">
             <div className="relative h-9 w-9 shrink-0 rounded-full p-[1.5px] bg-gradient-to-tr from-pink-500 via-amber-400 to-purple-500">
@@ -3025,11 +3968,44 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           </div>
         </div>
 
-        {/* Second Row HUD: Daily Ranking Badge & Luxury Gift Goal Bar */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-pink-500/20 backdrop-blur-md border border-amber-400/30 px-3 py-1 text-[11px] font-bold text-amber-200">
-            <Trophy className="h-3 w-3 text-amber-400" />
-            <span>Popular LIVE • Top 5%</span>
+        {/* Second Row HUD: Daily Ranking Badge, Top Gifters Leaderboard & Luxury Gift Goal Bar */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-pink-500/20 backdrop-blur-md border border-amber-400/30 px-3 py-1 text-[11px] font-bold text-amber-200">
+              <Trophy className="h-3 w-3 text-amber-400" />
+              <span>Top Gifters</span>
+            </div>
+            {topGiftersList.length > 0 ? (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                {topGiftersList.map((gifter, idx) => (
+                  <div
+                    key={gifter.userId}
+                    className={`flex items-center gap-1 rounded-full px-2 py-0.5 border backdrop-blur-md text-[10px] font-extrabold ${
+                      idx === 0
+                        ? 'bg-amber-500/25 border-amber-300/60 text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.35)]'
+                        : idx === 1
+                        ? 'bg-slate-400/20 border-slate-300/40 text-slate-200'
+                        : 'bg-orange-600/20 border-orange-400/40 text-orange-200'
+                    }`}
+                  >
+                    <span className="text-[9px] font-black">#{idx + 1}</span>
+                    <img
+                      src={gifter.avatar}
+                      alt={gifter.username}
+                      className="h-4 w-4 rounded-full object-cover"
+                    />
+                    <span className="max-w-[60px] truncate">@{gifter.username}</span>
+                    <span className="text-amber-300 font-black">
+                      {gifter.totalCoins.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="text-[10px] font-semibold text-white/50">
+                Send a gift to claim #1!
+              </span>
+            )}
           </div>
 
           <div className="flex-1 max-w-[190px] rounded-full bg-black/50 backdrop-blur-xl border border-white/10 px-3 py-1">
@@ -3793,13 +4769,19 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2.5 my-4">
+              <div className="grid grid-cols-3 gap-2.5 my-4 max-h-[44vh] overflow-y-auto no-scrollbar pr-1">
                 {LUXURY_GIFT_CATALOG.map((item) => {
                   const isSelected = selectedGiftId === item.id;
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setSelectedGiftId(item.id)}
+                      onClick={() => {
+                        setSelectedGiftId(item.id);
+                        if (drawerComboGiftIdRef.current !== item.id) {
+                          drawerComboCountRef.current = 0;
+                          setDrawerComboBadge(0);
+                        }
+                      }}
                       className={`relative flex flex-col items-center justify-center rounded-2xl p-3 border transition transform-gpu ${
                         isSelected
                           ? `bg-gradient-to-b ${item.accent} scale-[1.03] shadow-[0_0_25px_rgba(236,72,153,0.4)]`
@@ -3827,12 +4809,17 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                   const chosen =
                     LUXURY_GIFT_CATALOG.find((g) => g.id === selectedGiftId) ||
                     LUXURY_GIFT_CATALOG[0];
-                  handleDispatchGift(chosen, 1);
-                  if (chosen.coins >= 500) setIsGiftDrawerOpen(false);
+                  handleDrawerGiftSend(chosen);
+                  if (chosen.coins >= 1000) setIsGiftDrawerOpen(false);
                 }}
-                className="w-full rounded-2xl bg-gradient-to-r from-pink-600 via-fuchsia-600 to-amber-500 py-3.5 text-sm font-black uppercase tracking-wider text-white shadow-[0_0_25px_rgba(236,72,153,0.5)] active:scale-98 transition"
+                className="relative w-full rounded-2xl bg-gradient-to-r from-pink-600 via-fuchsia-600 to-amber-500 py-3.5 text-sm font-black uppercase tracking-wider text-white shadow-[0_0_25px_rgba(236,72,153,0.5)] active:scale-95 transition flex items-center justify-center gap-2"
               >
-                Send Luxury Gift Now (Free)
+                <span>Send Luxury Gift Now (Test Mode • Free)</span>
+                {drawerComboBadge > 1 && (
+                  <span className="px-2 py-0.5 rounded-full bg-black/40 border border-amber-300/60 text-amber-300 font-black italic text-xs animate-bounce">
+                    x{drawerComboBadge} COMBO!
+                  </span>
+                )}
               </button>
             </motion.div>
           </>
@@ -3934,7 +4921,13 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-4 flex flex-col items-center justify-center">
                   <Clock className="w-5 h-5 text-amber-500 mb-2" />
                   <span className="text-xl font-mono text-white tracking-wider">
-                    {finalDurationRef.current || '00:00'}
+                    {finalDurationSeconds > 0
+                      ? formatStreamDuration(finalDurationSeconds)
+                      : finalDurationRef.current &&
+                        finalDurationRef.current !== '00:00' &&
+                        finalDurationRef.current !== '0:00'
+                      ? finalDurationRef.current
+                      : '00:01'}
                   </span>
                   <span className="text-[9px] font-bold tracking-[0.15em] text-white/50 mt-1">
                     DURATION

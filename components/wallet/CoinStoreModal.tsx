@@ -12,6 +12,18 @@ interface ExchangeRates {
   [currencyCode: string]: number;
 }
 
+const FALLBACK_STORE_RATES: ExchangeRates = {
+  GHS: 1.0,
+  NGN: 108.0,
+  KES: 8.5,
+  ZAR: 1.18,
+  USD: 0.066,
+  GBP: 0.052,
+  EUR: 0.061,
+  CAD: 0.091,
+  XOF: 40.0,
+};
+
 export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES' }: { isOpen: boolean; onClose: () => void; initialTab?: 'UPGRADES' | 'BUY_COINS' }) {
   const {
     currency: selectedCurrency,
@@ -22,8 +34,8 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
     setBalance
   } = useWallet();
   const { session, user } = useAuth();
-  const [exchangeRates, setExchangeRates] = useState<ExchangeRates | null>(null);
-  const [isLoadingRates, setIsLoadingRates] = useState(true);
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(FALLBACK_STORE_RATES);
+  const [isLoadingRates, setIsLoadingRates] = useState(false);
   const [ratesError, setRatesError] = useState<string | null>(null);
 
   const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false);
@@ -37,15 +49,19 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
     }
   }, [isOpen, initialTab]);
 
+  const activeCurrency = selectedCurrency || 'GHS';
+
   const formatPrice = (basePrice: number) => {
-    if (!exchangeRates || !exchangeRates[selectedCurrency]) return basePrice.toFixed(2);
-    const rate = exchangeRates[selectedCurrency];
+    if (activeCurrency === 'GHS') return basePrice.toFixed(2);
+    const rate = exchangeRates?.[activeCurrency] ?? FALLBACK_STORE_RATES[activeCurrency];
+    if (!rate) return basePrice.toFixed(2);
     return (basePrice * rate).toFixed(2);
   };
 
   const getNumericPrice = (basePrice: number) => {
-    if (!exchangeRates || !exchangeRates[selectedCurrency]) return basePrice;
-    const rate = exchangeRates[selectedCurrency];
+    if (activeCurrency === 'GHS') return basePrice;
+    const rate = exchangeRates?.[activeCurrency] ?? FALLBACK_STORE_RATES[activeCurrency];
+    if (!rate) return basePrice;
     return basePrice * rate;
   };
 
@@ -122,7 +138,7 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
       // react-paystack usePaystackPayment returns a function taking (onSuccess, onClose)
       initializePayment({onSuccess, onClose: onClosed});
     }
-  }, [paymentConfig, initializePayment, balance, onClose, setSelectedPlan, setBalance]);
+  }, [paymentConfig, initializePayment, balance, onClose, setSelectedPlan, setBalance, session?.access_token, user?.id]);
 
   const handlePayment = (amount: number, type: 'UPGRADE' | 'COIN', payload: any) => {
     // Paystack expects amount in the lowest currency unit (e.g., kobo for NGN, pesewas for GHS)
@@ -154,7 +170,7 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
   };
 
   // Extract currency codes when rates are loaded
-  const currencies = exchangeRates ? Object.keys(exchangeRates) : ['GHS'];
+  const currencies = exchangeRates ? Object.keys(exchangeRates) : Object.keys(FALLBACK_STORE_RATES);
 
   const filteredCurrencies = currencies.filter(currency =>
     currency.toLowerCase().includes(currencySearchQuery.toLowerCase())
@@ -171,13 +187,16 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        if (data.result === 'success') {
-          setExchangeRates(data.rates);
-        } else {
-          throw new Error('Failed to fetch rates: API returned error');
+        if (data.result === 'success' && data.rates) {
+          setExchangeRates({
+            ...FALLBACK_STORE_RATES,
+            ...data.rates,
+            GHS: 1.0,
+          });
         }
       } catch (e: any) {
-        setRatesError(e.message || 'An error occurred fetching exchange rates.');
+        // Fallback rates remain active so prices stay crisp and accurate
+        setRatesError(null);
       } finally {
         setIsLoadingRates(false);
       }
@@ -189,197 +208,196 @@ export default function CoinStoreModal({ isOpen, onClose, initialTab = 'UPGRADES
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-3xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 antialiased">
           <motion.div
-            initial={{ scale: 0.95, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.95, opacity: 0, y: 20 }}
-            transition={{ type: 'spring', damping: 20, stiffness: 200 }}
-            className="bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl w-full max-w-4xl p-8 shadow-[0_0_40px_rgba(138,43,226,0.15)] overflow-y-auto max-h-[90vh]"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="bg-[#0d1117] border border-white/15 rounded-3xl w-full max-w-4xl p-5 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] antialiased"
           >
             <div className="flex justify-between items-center mb-6">
-          <h2 className="text-3xl tracking-wide font-extrabold text-white flex items-center drop-shadow-md">
-            <span className="mr-3 text-4xl drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">🏪</span> HorPal Store
-          </h2>
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <button
-                onClick={() => setIsCurrencyDropdownOpen(!isCurrencyDropdownOpen)}
-                className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-sm text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <span>{selectedCurrency}</span>
-                <svg className={`ml-2 h-4 w-4 text-gray-400 transition-transform ${isCurrencyDropdownOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
+              <h2 className="text-2xl sm:text-3xl tracking-wide font-extrabold text-white flex items-center">
+                <span className="mr-2.5 text-3xl sm:text-4xl">🏪</span> HorPal Store
+              </h2>
+              <div className="flex items-center space-x-3 sm:space-x-4">
+                <div className="relative">
+                  <button
+                    onClick={() => setIsCurrencyDropdownOpen(!isCurrencyDropdownOpen)}
+                    className="flex items-center justify-between px-3 py-1.5 bg-[#161b26] border border-white/15 rounded-lg shadow-sm text-xs sm:text-sm font-semibold text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <span>{activeCurrency}</span>
+                    <svg className={`ml-2 h-4 w-4 text-slate-400 transition-transform ${isCurrencyDropdownOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
 
-              {isCurrencyDropdownOpen && (
-                <div className="absolute z-10 right-0 mt-2 w-48 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
-                  <div className="p-2 border-b border-gray-200 dark:border-gray-700">
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      value={currencySearchQuery}
-                      onChange={(e) => setCurrencySearchQuery(e.target.value)}
-                      className="w-full px-2 py-1 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white sm:text-xs"
-                    />
+                  {isCurrencyDropdownOpen && (
+                    <div className="absolute z-20 right-0 mt-2 w-48 bg-[#161b26] border border-white/15 rounded-xl shadow-2xl max-h-60 overflow-hidden flex flex-col">
+                      <div className="p-2 border-b border-white/10">
+                        <input
+                          type="text"
+                          placeholder="Search currency..."
+                          value={currencySearchQuery}
+                          onChange={(e) => setCurrencySearchQuery(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-[#0d1117] border border-white/15 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white text-xs"
+                        />
+                      </div>
+                      <ul className="overflow-y-auto flex-1">
+                        {filteredCurrencies.length === 0 ? (
+                          <li className="px-3 py-2 text-xs text-slate-400">Not found</li>
+                        ) : (
+                          filteredCurrencies.map((currency) => (
+                            <li
+                              key={currency}
+                              onClick={() => {
+                                setSelectedCurrency(currency);
+                                setIsCurrencyDropdownOpen(false);
+                                setCurrencySearchQuery('');
+                              }}
+                              className={`px-3 py-2 text-xs font-semibold cursor-pointer hover:bg-white/10 ${activeCurrency === currency ? 'bg-blue-500/20 text-blue-400' : 'text-slate-200'}`}
+                            >
+                              {currency}
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={onClose}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex border-b border-white/10 mb-6">
+              <button
+                className={`pb-2.5 px-4 text-sm font-semibold transition-colors ${activeTab === 'UPGRADES' ? 'border-b-2 border-blue-500 text-blue-400' : 'text-slate-400 hover:text-slate-200'}`}
+                onClick={() => setActiveTab('UPGRADES')}
+              >
+                Upgrades
+              </button>
+              <button
+                className={`pb-2.5 px-4 text-sm font-semibold transition-colors ${activeTab === 'BUY_COINS' ? 'border-b-2 border-amber-400 text-amber-400' : 'text-slate-400 hover:text-slate-200'}`}
+                onClick={() => setActiveTab('BUY_COINS')}
+              >
+                Buy Coins
+              </button>
+            </div>
+
+            {activeTab === 'UPGRADES' ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {/* Base Plan */}
+                <div
+                  onClick={() => setSelectedPlan('FREE')}
+                  className={`cursor-pointer rounded-2xl border-2 p-6 flex flex-col transition-colors bg-[#131924] ${selectedPlan === 'FREE' ? 'border-blue-500' : 'border-white/10 hover:border-white/25'}`}
+                >
+                  <h3 className="text-xl font-bold text-white mb-2">Base Registration</h3>
+                  <p className="text-sm text-slate-400 mb-4 flex-1">Standard access to get you started.</p>
+                  <div className="mb-6 flex items-baseline">
+                    <span className="text-3xl font-bold text-white tabular-nums antialiased">
+                      {formatPrice(50)}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-300 ml-1.5">{activeCurrency}</span>
                   </div>
-                  <ul className="overflow-y-auto flex-1">
-                    {isLoadingRates ? (
-                      <li className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">Loading...</li>
-                    ) : ratesError ? (
-                      <li className="px-3 py-2 text-xs text-red-500">Error</li>
-                    ) : filteredCurrencies.length === 0 ? (
-                      <li className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">Not found</li>
-                    ) : (
-                      filteredCurrencies.map((currency) => (
-                        <li
-                          key={currency}
-                          onClick={() => {
-                            setSelectedCurrency(currency);
-                            setIsCurrencyDropdownOpen(false);
-                            setCurrencySearchQuery('');
-                          }}
-                          className={`px-3 py-2 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 ${selectedCurrency === currency ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-200'}`}
-                        >
-                          {currency}
-                        </li>
-                      ))
-                    )}
+                  <ul className="space-y-3 mb-8 text-sm text-slate-300 flex-1">
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> Basic Wallet Access</li>
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> Standard Support</li>
                   </ul>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (selectedPlan !== 'FREE') handlePayment(50, 'UPGRADE', 'FREE');
+                    }}
+                    className={`w-full py-2.5 px-4 rounded-xl font-semibold transition-colors ${selectedPlan === 'FREE' ? 'bg-blue-600 hover:bg-blue-500 text-white cursor-default' : 'bg-white/10 text-white hover:bg-white/15'}`}>
+                    {selectedPlan === 'FREE' ? 'Current Plan' : 'Select Base'}
+                  </button>
                 </div>
-              )}
-            </div>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
 
-        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
-          <button
-            className={`pb-2 px-4 text-sm font-medium ${activeTab === 'UPGRADES' ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
-            onClick={() => setActiveTab('UPGRADES')}
-          >
-            Upgrades
-          </button>
-          <button
-            className={`pb-2 px-4 text-sm font-medium ${activeTab === 'BUY_COINS' ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}`}
-            onClick={() => setActiveTab('BUY_COINS')}
-          >
-            Buy Coins
-          </button>
-        </div>
+                {/* Pro Plan */}
+                <div
+                  className={`cursor-pointer rounded-2xl border-2 p-6 flex flex-col transition-colors relative bg-[#131924] ${selectedPlan === 'PRO' ? 'border-blue-500' : 'border-white/10 hover:border-white/25'}`}
+                >
+                  <div className="absolute top-0 right-0 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl">POPULAR</div>
+                  <h3 className="text-xl font-bold text-white mb-2">Pro Tier</h3>
+                  <p className="text-sm text-slate-400 mb-4 flex-1">Advanced features.</p>
+                  <div className="mb-6 flex items-baseline">
+                    <span className="text-3xl font-bold text-white tabular-nums antialiased">
+                      {formatPrice(100)}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-300 ml-1.5">{activeCurrency} / mo</span>
+                  </div>
+                  <ul className="space-y-3 mb-8 text-sm text-slate-300 flex-1">
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> Advanced Wallet Analytics</li>
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> Priority Support</li>
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> 5% Bonus on Earnings</li>
+                  </ul>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (selectedPlan !== 'PRO') handlePayment(100, 'UPGRADE', 'PRO');
+                    }}
+                    className={`w-full py-2.5 px-4 rounded-xl font-semibold transition-colors ${selectedPlan === 'PRO' ? 'bg-blue-600 hover:bg-blue-500 text-white cursor-default' : 'bg-white/10 text-white hover:bg-white/15'}`}>
+                    {selectedPlan === 'PRO' ? 'Current Plan' : 'Select Pro'}
+                  </button>
+                </div>
 
-        {activeTab === 'UPGRADES' ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Base Plan */}
-            <div
-              onClick={() => setSelectedPlan('FREE')}
-              className={`cursor-pointer rounded-xl border-2 p-6 flex flex-col transition-all ${selectedPlan === 'FREE' ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'}`}
-            >
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Base Registration</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 flex-1">Standard access to get you started.</p>
-              <div className="mb-6 flex items-baseline">
-                <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                  {isLoadingRates ? '...' : formatPrice(50)}
-                </span>
-                <span className="text-sm text-gray-500 ml-1">{selectedCurrency}</span>
-              </div>
-              <ul className="space-y-3 mb-8 text-sm text-gray-600 dark:text-gray-300 flex-1">
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> Basic Wallet Access</li>
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> Standard Support</li>
-              </ul>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (selectedPlan !== 'FREE') handlePayment(50, 'UPGRADE', 'FREE');
-                }}
-                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${selectedPlan === 'FREE' ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-default' : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
-                {selectedPlan === 'FREE' ? 'Current Plan' : 'Select Base'}
-              </button>
-            </div>
-
-            {/* Pro Plan */}
-            <div
-              className={`cursor-pointer rounded-xl border-2 p-6 flex flex-col transition-all relative ${selectedPlan === 'PRO' ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'}`}
-            >
-              <div className="absolute top-0 right-0 bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg rounded-tr-lg">POPULAR</div>
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Pro Tier</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 flex-1">Advanced features.</p>
-              <div className="mb-6 flex items-baseline">
-                <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                  {isLoadingRates ? '...' : formatPrice(100)}
-                </span>
-                <span className="text-sm text-gray-500 ml-1">{selectedCurrency} / mo</span>
-              </div>
-              <ul className="space-y-3 mb-8 text-sm text-gray-600 dark:text-gray-300 flex-1">
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> Advanced Wallet Analytics</li>
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> Priority Support</li>
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> 5% Bonus on Earnings</li>
-              </ul>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (selectedPlan !== 'PRO') handlePayment(100, 'UPGRADE', 'PRO');
-                }}
-                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${selectedPlan === 'PRO' ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-default' : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
-                {selectedPlan === 'PRO' ? 'Current Plan' : 'Select Pro'}
-              </button>
-            </div>
-
-            {/* Premium Plan */}
-            <div
-              className={`cursor-pointer rounded-xl border-2 p-6 flex flex-col transition-all ${selectedPlan === 'PREMIUM' ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'}`}
-            >
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Premium Tier</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 flex-1">All access pass.</p>
-              <div className="mb-6 flex items-baseline">
-                <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                  {isLoadingRates ? '...' : formatPrice(200)}
-                </span>
-                <span className="text-sm text-gray-500 ml-1">{selectedCurrency} / yr</span>
-              </div>
-              <ul className="space-y-3 mb-8 text-sm text-gray-600 dark:text-gray-300 flex-1">
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> Everything in Pro</li>
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> 24/7 Dedicated Manager</li>
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> 15% Bonus on Earnings</li>
-                <li className="flex items-center"><span className="text-green-500 mr-2">✓</span> Custom Badges</li>
-              </ul>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (selectedPlan !== 'PREMIUM') handlePayment(200, 'UPGRADE', 'PREMIUM');
-                }}
-                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${selectedPlan === 'PREMIUM' ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-default' : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
-                {selectedPlan === 'PREMIUM' ? 'Current Plan' : 'Select Premium'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {[10, 20, 50, 100, 500, 1000].map((coinAmount) => (
-              <div
-                key={coinAmount}
-                onClick={() => handlePayment(coinAmount, 'COIN', coinAmount)}
-                className="cursor-pointer rounded-xl border-2 border-gray-200 dark:border-gray-700 p-4 flex flex-col items-center hover:border-yellow-500 dark:hover:border-yellow-600 transition-colors"
-              >
-                <div className="text-4xl mb-2">🪙</div>
-                <div className="text-xl font-bold text-gray-900 dark:text-white mb-1">{coinAmount} Coins</div>
-                <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  {isLoadingRates ? '...' : `${formatPrice(coinAmount)} ${selectedCurrency}`}
+                {/* Premium Plan */}
+                <div
+                  className={`cursor-pointer rounded-2xl border-2 p-6 flex flex-col transition-colors bg-[#131924] ${selectedPlan === 'PREMIUM' ? 'border-blue-500' : 'border-white/10 hover:border-white/25'}`}
+                >
+                  <h3 className="text-xl font-bold text-white mb-2">Premium Tier</h3>
+                  <p className="text-sm text-slate-400 mb-4 flex-1">All access pass.</p>
+                  <div className="mb-6 flex items-baseline">
+                    <span className="text-3xl font-bold text-white tabular-nums antialiased">
+                      {formatPrice(200)}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-300 ml-1.5">{activeCurrency} / yr</span>
+                  </div>
+                  <ul className="space-y-3 mb-8 text-sm text-slate-300 flex-1">
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> Everything in Pro</li>
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> 24/7 Dedicated Manager</li>
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> 15% Bonus on Earnings</li>
+                    <li className="flex items-center"><span className="text-emerald-400 mr-2">✓</span> Custom Badges</li>
+                  </ul>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (selectedPlan !== 'PREMIUM') handlePayment(200, 'UPGRADE', 'PREMIUM');
+                    }}
+                    className={`w-full py-2.5 px-4 rounded-xl font-semibold transition-colors ${selectedPlan === 'PREMIUM' ? 'bg-blue-600 hover:bg-blue-500 text-white cursor-default' : 'bg-white/10 text-white hover:bg-white/15'}`}>
+                    {selectedPlan === 'PREMIUM' ? 'Current Plan' : 'Select Premium'}
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[10, 20, 50, 100, 500, 1000].map((coinAmount) => (
+                  <button
+                    type="button"
+                    key={coinAmount}
+                    onClick={() => handlePayment(coinAmount, 'COIN', coinAmount)}
+                    className="cursor-pointer rounded-2xl border-2 border-slate-700/90 bg-[#131924] p-4 sm:p-5 flex flex-col items-center justify-center text-center hover:border-amber-400 hover:bg-[#192130] transition-colors antialiased"
+                  >
+                    <div className="text-3xl sm:text-4xl mb-2 select-none">🪙</div>
+                    <div className="text-base sm:text-lg font-extrabold text-white tracking-tight tabular-nums antialiased mb-2">
+                      {coinAmount} Coins
+                    </div>
+                    <div className="inline-flex items-center justify-center px-3 py-1 rounded-full bg-slate-800/95 border border-amber-400/40 text-xs sm:text-sm font-semibold tracking-wide tabular-nums antialiased text-slate-100 shadow-sm">
+                      {`${formatPrice(coinAmount)} ${activeCurrency}`}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
 
-            <div className="mt-8 text-center text-xs font-semibold text-gray-500">
+            <div className="mt-8 text-center text-xs font-semibold text-slate-400 tracking-wider">
               SECURED BY PAYSTACK
             </div>
           </motion.div>

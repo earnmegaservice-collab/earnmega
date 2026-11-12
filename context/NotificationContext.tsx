@@ -1053,80 +1053,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [user, notifications]);
 
 
-  useEffect(() => {
-    if (!user) return;
-    const callsChannel = supabase.channel('public:calls')
-      .on(
-        'broadcast',
-        { event: 'INCOMING_CALL' },
-        (payload) => {
-          if (payload.payload.receiverId === user.id) {
-             setIncomingCall(payload.payload);
-          }
-        }
-      )
-      .on(
-        'broadcast',
-        { event: 'CALL_REJECTED' },
-        (payload) => {
-          setIncomingCall(prev => {
-              if (prev && payload.payload.roomId === prev.roomId) return null;
-              return prev;
-          });
-        }
-      )
-      .subscribe();
-
-    return () => {
-       supabase.removeChannel(callsChannel);
-    };
-  }, [user]);
-
   const unreadCount = React.useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
 
   return (
     <NotificationContext.Provider value={{ notifications, markAsRead, markAllAsRead, clearAllNotifications, unreadCount, bellShake, setBellShake, triggerNativeNotification, requestPushPermission, permissionStatus, refreshNotifications: fetchNotifications, isMuted, toggleMute }}>
       {children}
-      {incomingCall && (
-        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-[#1a1a24] rounded-3xl p-6 w-full max-w-sm flex flex-col items-center shadow-2xl border border-white/10 animate-in zoom-in-95 duration-200">
-             {incomingCall.callerAvatar ? (
-                <img src={incomingCall.callerAvatar} alt={incomingCall.callerName} className="w-24 h-24 rounded-full mb-4 object-cover border-4 border-emerald-500/30 animate-pulse" />
-             ) : (
-                <div className="w-24 h-24 rounded-full mb-4 bg-emerald-500/20 flex items-center justify-center border-4 border-emerald-500/30 animate-pulse">
-                   <Phone className="w-10 h-10 text-emerald-400" />
-                </div>
-             )}
-             <h2 className="text-2xl font-bold text-white mb-1">{incomingCall.callerName}</h2>
-             <p className="text-gray-400 mb-8">Incoming {incomingCall.callType === 'video' ? 'Video' : 'Voice'} Call...</p>
-             <div className="flex w-full justify-between gap-4">
-                <button
-                  onClick={() => {
-                     supabase.channel('public:calls').send({
-                        type: 'broadcast',
-                        event: 'CALL_REJECTED',
-                        payload: { roomId: incomingCall.roomId }
-                     });
-                     setIncomingCall(null);
-                  }}
-                  className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl flex items-center justify-center gap-2 font-medium transition-colors"
-                >
-                  <X className="w-5 h-5" /> Decline
-                </button>
-                <button
-                  onClick={() => {
-                     const callDetail = incomingCall;
-                     setIncomingCall(null);
-                     window.dispatchEvent(new CustomEvent('horpal:join-call', { detail: callDetail }));
-                  }}
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl flex items-center justify-center gap-2 font-medium transition-colors"
-                >
-                  {incomingCall.callType === 'video' ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />} Accept
-                </button>
-             </div>
-          </div>
-        </div>
-      )}
     </NotificationContext.Provider>
   );
 }

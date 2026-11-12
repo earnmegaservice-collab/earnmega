@@ -5,14 +5,15 @@ import { X, Coins } from 'lucide-react';
 import { useWallet } from '../../context/WalletContext';
 
 export const GIFTS = [
-  { id: '1', name: 'Rose', cost: 1, icon: '🌹', anim: 'float-up' },
-  { id: '2', name: 'Heart', cost: 5, icon: '💖', anim: 'pulse' },
-  { id: '3', name: 'Perfume', cost: 10, icon: '🧴', anim: 'float-up' },
-  { id: '4', name: 'Ring', cost: 50, icon: '💍', anim: 'spin' },
-  { id: '5', name: 'Crown', cost: 99, icon: '👑', anim: 'bounce' },
-  { id: '6', name: 'Castle', cost: 500, icon: '🏰', anim: 'shake' },
-  { id: '7', name: 'Rocket', cost: 1000, icon: '🚀', anim: 'shoot' },
-  { id: '8', name: 'Dragon', cost: 5000, icon: '🐉', anim: 'roar' }
+  { id: 'rose_1', name: 'Rose', cost: 1, icon: '🌹', anim: 'float-up', tier: 'basic' },
+  { id: 'flame_5', name: 'Flame', cost: 5, icon: '🔥', anim: 'pulse', tier: 'basic' },
+  { id: 'neon_heart_10', name: 'Neon Heart', cost: 10, icon: '💖', anim: 'pulse', tier: 'basic' },
+  { id: 'diamond_50', name: 'Diamond', cost: 50, icon: '💎', anim: 'spin', tier: 'premium' },
+  { id: 'crown_99', name: 'Royal Crown', cost: 99, icon: '👑', anim: 'bounce', tier: 'premium' },
+  { id: 'sports_car_250', name: 'Sports Car', cost: 250, icon: '🏎️', anim: 'shoot', tier: 'luxury' },
+  { id: 'rocket_500', name: 'Rocket', cost: 500, icon: '🚀', anim: 'shoot', tier: 'luxury' },
+  { id: 'lion_1000', name: 'Golden Lion', cost: 1000, icon: '🦁', anim: 'roar', tier: 'supreme' },
+  { id: 'universe_5000', name: 'HorPal Universe', cost: 5000, icon: '🌌', anim: 'roar', tier: 'supreme' }
 ];
 
 interface LiveGiftDrawerProps {
@@ -38,24 +39,19 @@ export default function LiveGiftDrawer({ isOpen, onClose, onSendGift }: LiveGift
     const handleSendClick = () => {
         if (!selectedGift) return;
 
-        // Increment combo
-        setComboCount(prev => prev + 1);
+        const nextCombo = comboCount + 1;
+        setComboCount(nextCombo);
 
-        // Clear existing timer
+        // Dispatch immediately in TEST MODE for sub-100ms multi-user sync
+        onSendGift(selectedGift, nextCombo);
+
         if (comboTimer) {
             clearTimeout(comboTimer);
         }
 
-        // Set a new timer to finalize the combo after 1.5 seconds of inactivity
         const timer = setTimeout(() => {
-            // Finalize send
-            onSendGift(selectedGift, comboCount + 1);
-
-            // Reset state
             setComboCount(0);
-            setSelectedGift(null);
-            onClose();
-        }, 1500);
+        }, 2500);
 
         setComboTimer(timer);
     };
@@ -83,10 +79,13 @@ export default function LiveGiftDrawer({ isOpen, onClose, onSendGift }: LiveGift
                             <h3 className="font-bold text-lg text-white flex items-center gap-2">
                                 <span className="bg-gradient-to-r from-amber-400 to-rose-500 bg-clip-text text-transparent">Live Gifts</span>
                             </h3>
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-3">
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-[10px] font-black uppercase tracking-wider text-emerald-300">
+                                    TEST MODE • FREE SEND
+                                </span>
                                 <div className="flex items-center gap-1.5 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
                                     <Coins className="w-4 h-4 text-amber-400" />
-                                    <span className="text-sm font-bold text-amber-400">{balance.toLocaleString()}</span>
+                                    <span className="text-sm font-bold text-amber-400">{(balance > 0 ? balance : 999999).toLocaleString()}</span>
                                 </div>
                                 <button onClick={onClose} className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors">
                                     <X className="w-5 h-5 text-white/70" />

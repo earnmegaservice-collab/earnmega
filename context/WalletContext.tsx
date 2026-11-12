@@ -25,7 +25,7 @@ interface WalletContextType {
 const defaultState: WalletState = {
   balance: 0,
   subscriptionTier: 'FREE',
-  currency: 'USD'
+  currency: 'GHS'
 };
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -41,13 +41,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('coins, subscription_tier')
+        .select('coins, coin_balance, subscription_tier')
         .eq('id', user.id)
         .single();
 
       if (error) throw error;
       if (data) {
-        if (data.coins !== undefined) setBalance(data.coins);
+        const verifiedCoins =
+          typeof data.coins === 'number' && data.coins > 0
+            ? data.coins
+            : typeof data.coin_balance === 'number' && data.coin_balance > 0
+            ? data.coin_balance
+            : typeof data.coins === 'number'
+            ? data.coins
+            : 0;
+        setBalance(verifiedCoins);
         if (data.subscription_tier) setSubscriptionTier(data.subscription_tier);
       }
     } catch (error) {

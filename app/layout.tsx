@@ -1,6 +1,7 @@
 import "./globals.css";
 import { WalletProvider } from "../context/WalletContext";
 import { CallProvider } from "../context/CallContext";
+import { GlobalCallManager } from "../components/call/GlobalCallManager";
 import { AuthProvider } from "../context/AuthContext";
 import { NotificationProvider } from "../context/NotificationContext";
 import { Toaster } from "react-hot-toast";
@@ -54,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <WalletProvider>
               <CallProvider>
               {children}
+              <GlobalCallManager />
               <GlobalAdminEnforcer />
               <GlobalAdminBanner />
               <Toaster position="top-right" />

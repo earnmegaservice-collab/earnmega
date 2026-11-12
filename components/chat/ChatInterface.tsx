@@ -2935,6 +2935,48 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div className="flex items-center space-x-1 sm:space-x-2 shrink-0 ml-auto mr-2" onClick={(e) => e.stopPropagation()}>
           {isGroupChat ? (
             <>
+              <button
+                onClick={() => {
+                  if (currentOtherUserProfile) {
+                    initiateCall({
+                      receiverId: groupDetails?.id || currentOtherUserProfile.id,
+                      receiverName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
+                      receiverAvatar: groupDetails?.avatar_url || currentOtherUserProfile.avatarUrl || '',
+                      callType: 'audio',
+                      isGroup: true,
+                      groupName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
+                      participantIds: groupMembers
+                        .map((m: any) => m.user_id || m.profiles?.id || m.id)
+                        .filter(Boolean),
+                    });
+                  }
+                }}
+                className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10"
+                title="Start Group Voice Call"
+              >
+                <Phone size={20} className="sm:w-[22px] sm:h-[22px]" />
+              </button>
+              <button
+                onClick={() => {
+                  if (currentOtherUserProfile) {
+                    initiateCall({
+                      receiverId: groupDetails?.id || currentOtherUserProfile.id,
+                      receiverName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
+                      receiverAvatar: groupDetails?.avatar_url || currentOtherUserProfile.avatarUrl || '',
+                      callType: 'video',
+                      isGroup: true,
+                      groupName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
+                      participantIds: groupMembers
+                        .map((m: any) => m.user_id || m.profiles?.id || m.id)
+                        .filter(Boolean),
+                    });
+                  }
+                }}
+                className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10"
+                title="Start Group Video Call"
+              >
+                <Video size={20} className="sm:w-[22px] sm:h-[22px]" />
+              </button>
               <button onClick={() => toast("Search coming soon!", { icon: "🔍" })} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-white/70 transition-all active:scale-95 flex items-center justify-center">
                 <Search size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
@@ -3018,28 +3060,28 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
             <>
               <button onClick={() => {
                 if (currentOtherUserProfile) {
-                  initiateCall(
-                    currentOtherUserProfile.id,
-                    currentOtherUserProfile.name || currentOtherUserProfile.name,
-                    currentOtherUserProfile.avatarUrl,
-                    'audio',
-                    false
-                  );
+                  initiateCall({
+                    receiverId: currentOtherUserProfile.id,
+                    receiverName: currentOtherUserProfile.name || (currentOtherUserProfile as any).username || 'User',
+                    receiverAvatar: currentOtherUserProfile.avatarUrl || '',
+                    callType: 'audio',
+                    isGroup: false,
+                  });
                 }
-              }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10">
+              }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10" title="Voice Call">
                  <Phone size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
               <button onClick={() => {
                 if (currentOtherUserProfile) {
-                  initiateCall(
-                    currentOtherUserProfile.id,
-                    currentOtherUserProfile.name || (currentOtherUserProfile as any).username || 'User',
-                    currentOtherUserProfile.avatarUrl,
-                    'video',
-                    false
-                  );
+                  initiateCall({
+                    receiverId: currentOtherUserProfile.id,
+                    receiverName: currentOtherUserProfile.name || (currentOtherUserProfile as any).username || 'User',
+                    receiverAvatar: currentOtherUserProfile.avatarUrl || '',
+                    callType: 'video',
+                    isGroup: false,
+                  });
                 }
-              }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10">
+              }} className="p-2 sm:p-2.5 rounded-full hover:bg-white/10 text-emerald-400 transition-all active:scale-95 flex items-center justify-center bg-emerald-500/10" title="Video Call">
                  <Video size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
               <button
@@ -4414,13 +4456,17 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }}
           onStartGroupCall={(callType) => {
             setIsGroupInfoDrawerOpen(false);
-            initiateCall?.(
-              currentOtherUserProfile.id,
-              currentOtherUserProfile.name,
-              currentOtherUserProfile.avatarUrl,
+            initiateCall?.({
+              receiverId: groupDetails?.id || currentOtherUserProfile.id,
+              receiverName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
+              receiverAvatar: groupDetails?.avatar_url || currentOtherUserProfile.avatarUrl || '',
               callType,
-              true
-            );
+              isGroup: true,
+              groupName: groupDetails?.name || currentOtherUserProfile.name || 'Group Call',
+              participantIds: groupMembers
+                .map((m: any) => m.user_id || m.profiles?.id || m.id)
+                .filter(Boolean),
+            });
           }}
         />
       )}

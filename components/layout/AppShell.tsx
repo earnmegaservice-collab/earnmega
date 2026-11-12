@@ -27,7 +27,7 @@ import { ProfileCompletionModal } from '../profile/ProfileCompletionModal';
 import HelpBotModal from '../chat/HelpBotModal';
 
 
-import CallScreen from '../calls/CallScreen';
+import { useCall } from '../../context/CallContext';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -48,16 +48,16 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const { user } = useAuth();
-  const [activeCall, setActiveCall] = useState<{roomId: string, callType: 'video' | 'audio'} | null>(null);
+  const { joinCall } = useCall();
   useEffect(() => {
     const handleJoinCall = (e: CustomEvent) => {
-       if (e.detail && e.detail.roomId) {
-           setActiveCall({ roomId: e.detail.roomId, callType: e.detail.callType || 'video' });
-       }
+      if (e.detail && e.detail.roomId) {
+        joinCall(e.detail.roomId, e.detail.callType === 'audio' ? 'audio' : 'video');
+      }
     };
     window.addEventListener('horpal:join-call', handleJoinCall as EventListener);
     return () => window.removeEventListener('horpal:join-call', handleJoinCall as EventListener);
-  }, []);
+  }, [joinCall]);
   const { unreadCount, bellShake, requestPushPermission, isMuted } = useGlobalNotifications();
   const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
 
@@ -350,14 +350,6 @@ export const AppShell: React.FC<AppShellProps> = ({
       )}
 
       <HelpBotModal isOpen={isHelpBotOpen} onClose={() => setIsHelpBotOpen(false)} />
-
-      {activeCall && (
-         <CallScreen
-            roomId={activeCall.roomId}
-            callType={activeCall.callType}
-            onEndCall={() => setActiveCall(null)}
-         />
-      )}
     </div>
   );
 };

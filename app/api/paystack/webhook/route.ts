@@ -123,18 +123,25 @@ export async function POST(req: Request) {
           // Unlock product (in a real app, maybe insert into 'user_products' table)
           // For now, if there's an affiliate, pay them 50%
           if (metadata.affiliate_code) {
-             const { data: affProf } = await supabase.from('profiles').select('id, available_balance_ghs, total_earnings_ghs').eq('affiliate_code', metadata.affiliate_code).single();
+             const { data: affProf } = await supabase.from('profiles').select('id, affiliate_balance, available_balance_ghs, total_earnings_ghs, sales_count').ilike('affiliate_code', metadata.affiliate_code).maybeSingle();
              if (affProf) {
-               const commission = amountGHS * 0.5;
-               const newBal = Number(affProf.available_balance_ghs || 0) + commission;
-               const newEarn = Number(affProf.total_earnings_ghs || 0) + commission;
+               const commission = Number((amountGHS * 0.5).toFixed(2));
+               const newAffiliateBal = Number((Number(affProf.available_balance_ghs ?? affProf.affiliate_balance ?? 0) + commission).toFixed(2));
+               const newEarn = Number((Number(affProf.total_earnings_ghs || 0) + commission).toFixed(2));
                await supabase.from('profiles').update({
-                 available_balance_ghs: newBal,
+                 affiliate_balance: newAffiliateBal,
+                 available_balance_ghs: newAffiliateBal,
                  total_earnings_ghs: newEarn
                }).eq('id', affProf.id);
+               try {
+                 await supabase.from('profiles').update({
+                   sales_count: Number(affProf.sales_count || 0) + 1
+                 }).eq('id', affProf.id);
+               } catch (_) {}
 
                await supabase.from('affiliate_sales').insert({
                  affiliate_id: affProf.id,
+                 affiliate_code: metadata.affiliate_code,
                  paystack_reference: reference,
                  gross_amount_ghs: amountGHS,
                  commission_ghs: commission,

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 export async function POST(req: Request) {
@@ -25,25 +26,35 @@ export async function POST(req: Request) {
       }
     );
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    if (authError || !user) {
-        // Fallback for mock auth for dev
-        return NextResponse.json({ success: true, message: 'Skipped DB insert (unauthenticated)' });
+    const resolvedUserId = user?.id || subscription?.userId;
+    if (!resolvedUserId) {
+      return NextResponse.json({ success: true, message: 'Skipped DB insert (unauthenticated)' });
     }
 
-    if (subscription && subscription.endpoint && subscription.keys) {
-       const { error } = await supabase.from('push_subscriptions').upsert({
-           user_id: user.id,
-           endpoint: subscription.endpoint,
-           p256dh: subscription.keys.p256dh,
-           auth: subscription.keys.auth,
-       }, { onConflict: 'user_id,endpoint' });
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
 
-       if (error) {
-           console.error('Error saving subscription:', error);
-           return NextResponse.json({ error: 'Database error' }, { status: 500 });
-       }
+    if (subscription && subscription.endpoint && subscription.keys) {
+      const { error } = await supabaseAdmin.from('push_subscriptions').upsert(
+        {
+          user_id: resolvedUserId,
+          endpoint: subscription.endpoint,
+          p256dh: subscription.keys.p256dh,
+          auth: subscription.keys.auth,
+        },
+        { onConflict: 'user_id,endpoint' }
+      );
+
+      if (error) {
+        console.error('Error saving subscription:', error);
+        return NextResponse.json({ error: 'Database error' }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: true });

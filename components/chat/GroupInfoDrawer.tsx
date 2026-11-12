@@ -32,6 +32,7 @@ import {
   LogOut
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
+import { useCall } from '../../context/CallContext';
 import { saveGroupSettings, fetchGroupSettings } from '../../utils/groupSettingsStore';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
@@ -95,6 +96,7 @@ export default function GroupInfoDrawer({
   onTriggerInChatSearch,
   onStartGroupCall
 }: GroupInfoDrawerProps) {
+  const { initiateCall } = useCall();
   const effectiveUserId = currentUserId || currentUser?.id || '';
 
   const [participants, setParticipants] = useState<ParticipantItem[]>([]);
@@ -1148,8 +1150,20 @@ export default function GroupInfoDrawer({
                 <div className="px-6 mt-6 grid grid-cols-3 gap-2.5">
                   <button
                     onClick={() => {
-                      if (onStartGroupCall) onStartGroupCall('audio');
-                      else toast.success('Starting group audio call...');
+                      if (onStartGroupCall) {
+                        onStartGroupCall('audio');
+                      } else {
+                        onClose();
+                        initiateCall({
+                          receiverId: groupId,
+                          receiverName: displayGroupName || 'Group Call',
+                          receiverAvatar: displayGroupAvatar || '',
+                          callType: 'audio',
+                          isGroup: true,
+                          groupName: displayGroupName || 'Group Call',
+                          participantIds: participants.map((p) => p.id).filter(Boolean),
+                        });
+                      }
                     }}
                     className="bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-2xl py-3.5 flex flex-col items-center justify-center transition-all"
                   >
@@ -1158,8 +1172,20 @@ export default function GroupInfoDrawer({
                   </button>
                   <button
                     onClick={() => {
-                      if (onStartGroupCall) onStartGroupCall('video');
-                      else toast.success('Starting group video call...');
+                      if (onStartGroupCall) {
+                        onStartGroupCall('video');
+                      } else {
+                        onClose();
+                        initiateCall({
+                          receiverId: groupId,
+                          receiverName: displayGroupName || 'Group Call',
+                          receiverAvatar: displayGroupAvatar || '',
+                          callType: 'video',
+                          isGroup: true,
+                          groupName: displayGroupName || 'Group Call',
+                          participantIds: participants.map((p) => p.id).filter(Boolean),
+                        });
+                      }
                     }}
                     className="bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 rounded-2xl py-3.5 flex flex-col items-center justify-center transition-all"
                   >

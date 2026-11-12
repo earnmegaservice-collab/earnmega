@@ -1,8 +1,11 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import { LogOut } from 'lucide-react';
+import { supabase } from '../../utils/supabase';
+import HorPalAuthGate, { syncAuthenticatedUserProfile } from '../../components/auth/HorPalAuthGate';
 
 const MODES = [
   { id: 'quick', label: 'Quick Answers' },
@@ -30,6 +33,10 @@ type Message = {
 };
 
 export default function HorpalAIPage() {
+  const [authChecking, setAuthChecking] = useState(true);
+  const [session, setSession] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
+
   const [activeMode, setActiveMode] = useState(MODES[0].id);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
@@ -41,6 +48,127 @@ export default function HorpalAIPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeModeData = MODES.find(m => m.id === activeMode);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { session: activeSession } } = await supabase.auth.getSession();
+        if (activeSession?.user) {
+          setSession(activeSession);
+          localStorage.removeItem('horpal_target_pillar');
+          const synced = await syncAuthenticatedUserProfile(activeSession.user);
+          if (synced) {
+            setProfile(synced);
+          } else {
+            const { data: prof } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', activeSession.user.id)
+              .maybeSingle();
+            setProfile(prof);
+          }
+        } else {
+          setSession(null);
+          setProfile(null);
+          localStorage.setItem('horpal_target_pillar', '3');
+        }
+      } catch (err) {
+        console.error('horpal.ai auth check error:', err);
+      } finally {
+        setAuthChecking(false);
+      }
+    };
+
+    checkAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (_event, nextSession) => {
+        if (nextSession?.user) {
+          setSession(nextSession);
+          localStorage.removeItem('horpal_target_pillar');
+          const synced = await syncAuthenticatedUserProfile(nextSession.user);
+          if (synced) setProfile(synced);
+        } else {
+          setSession(null);
+          setProfile(null);
+        }
+        setAuthChecking(false);
+      }
+    );
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const userIdentity = useMemo(() => {
+    const authUser = session?.user;
+    const meta = authUser?.user_metadata || {};
+    const rawFullName = (
+      profile?.full_name ||
+      profile?.name ||
+      meta?.full_name ||
+      meta?.name ||
+      ''
+    ).trim();
+    const parts = rawFullName ? rawFullName.split(/\s+/) : [];
+    const firstName = (
+      profile?.first_name ||
+      profile?.pillar2_first_name ||
+      meta?.first_name ||
+      parts[0] ||
+      profile?.username ||
+      meta?.username ||
+      (authUser?.email ? authUser.email.split('@')[0] : '') ||
+      'Friend'
+    ).trim();
+    const lastName = (
+      profile?.last_name ||
+      profile?.pillar2_last_name ||
+      meta?.last_name ||
+      parts.slice(1).join(' ') ||
+      ''
+    ).trim();
+    const fullName = rawFullName || `${firstName} ${lastName}`.trim() || firstName;
+    const username = (
+      profile?.username ||
+      meta?.username ||
+      meta?.preferred_username ||
+      firstName
+    )
+      .replace(/^@+/, '')
+      .trim();
+
+    const fi = firstName.charAt(0);
+    const li = lastName.charAt(0);
+    const initials =
+      fi && li
+        ? `${fi}${li}`.toUpperCase()
+        : fi
+        ? fi.slice(0, 2).toUpperCase()
+        : username.slice(0, 2).toUpperCase() || 'HP';
+
+    return {
+      firstName,
+      lastName,
+      fullName,
+      username,
+      initials,
+      email: authUser?.email || profile?.email || '',
+    };
+  }, [session, profile]);
+
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Error signing out of horpal.ai:', err);
+    }
+    try {
+      localStorage.removeItem('horpal_target_pillar');
+    } catch (_) {}
+    window.location.href = '/';
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -117,7 +245,15 @@ export default function HorpalAIPage() {
       const response = await fetch('/api/horpal-ai/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userMessage, mode: activeMode })
+        body: JSON.stringify({
+          prompt: userMessage,
+          mode: activeMode,
+          userProfile: {
+            full_name: userIdentity.fullName,
+            first_name: userIdentity.firstName,
+            username: userIdentity.username,
+          },
+        })
       });
 
       const aiMsgId = (Date.now() + 1).toString();
@@ -190,6 +326,33 @@ export default function HorpalAIPage() {
     });
   };
 
+  if (authChecking) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#06070B]">
+        <div className="w-12 h-12 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin" />
+        <p className="mt-4 text-purple-400 font-mono text-xs uppercase tracking-widest">
+          Loading horpal.ai...
+        </p>
+      </div>
+    );
+  }
+
+  if (!session?.user) {
+    return (
+      <HorPalAuthGate
+        defaultTargetPillar="3"
+        onAuthenticated={(authedUser, syncedProf) => {
+          setSession({ user: authedUser });
+          if (syncedProf) setProfile(syncedProf);
+        }}
+        onBackToHub={() => {
+          localStorage.removeItem('horpal_target_pillar');
+          window.location.href = '/';
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-[#06070B] text-zinc-100 font-sans relative overflow-hidden">
       {/* Ambient Aurora Background */}
@@ -199,10 +362,10 @@ export default function HorpalAIPage() {
       </div>
 
       {/* Top Navigation */}
-      <header className="relative z-20 flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#06070B]/80 backdrop-blur-xl">
+      <header className="relative z-20 flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/5 bg-[#06070B]/80 backdrop-blur-xl">
         <Link href="/" className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-          <span className="text-sm font-medium">Home</span>
+          <span className="text-sm font-medium">Hub</span>
         </Link>
 
         {/* Mode Selector Dropdown */}
@@ -237,9 +400,34 @@ export default function HorpalAIPage() {
           </AnimatePresence>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-zinc-100 to-zinc-500">horpal.ai</span>
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
+        {/* Right: Brand + User Avatar Badge + Quick Sign Out */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="hidden md:flex items-center gap-2 mr-1">
+            <span className="text-lg font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-zinc-100 to-zinc-500">horpal.ai</span>
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
+          </div>
+
+          <div
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-full bg-white/5 border border-purple-500/30"
+            title={`${userIdentity.fullName} (@${userIdentity.username})`}
+          >
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500/30 to-indigo-500/30 border border-purple-400/40 text-purple-200 font-bold text-xs flex items-center justify-center">
+              {userIdentity.initials}
+            </div>
+            <span className="hidden sm:inline text-xs font-semibold text-zinc-200 max-w-[110px] truncate">
+              {userIdentity.firstName}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-semibold transition-all"
+            title="Sign Out of HorPal"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Sign Out</span>
+          </button>
         </div>
       </header>
 
@@ -248,9 +436,11 @@ export default function HorpalAIPage() {
         {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center">
             <h1 className="text-3xl md:text-5xl font-bold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-r from-zinc-300 via-zinc-100 to-zinc-500 animate-pulse">
-              Welcome to horpal.ai
+              Welcome to horpal.ai, {userIdentity.firstName}
             </h1>
-            <p className="text-lg text-zinc-400 mb-12">How can I elevate your workflow today?</p>
+            <p className="text-lg text-zinc-400 mb-12">
+              How can I elevate your workflow today, {userIdentity.firstName}?
+            </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
               {STARTER_PROMPTS.map((starter, i) => (
@@ -386,7 +576,7 @@ export default function HorpalAIPage() {
                   handleSend();
                 }
               }}
-              placeholder="Ask horpal.ai anything or describe what to create..."
+              placeholder={`Ask horpal.ai anything, ${userIdentity.firstName}...`}
               className="flex-1 max-h-48 min-h-[44px] bg-transparent resize-none outline-none text-zinc-100 py-3 px-2 placeholder:text-zinc-500 text-[14px] leading-snug"
               rows={1}
             />

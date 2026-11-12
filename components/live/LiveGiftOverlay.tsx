@@ -26,6 +26,7 @@ export interface RawGiftPayload {
   senderId?: string;
   sender_username?: string;
   senderUsername?: string;
+  senderName?: string;
   sender_avatar?: string;
   senderAvatar?: string;
   gift_id?: string;
@@ -39,6 +40,7 @@ export interface RawGiftPayload {
   combo_count?: number;
   comboCount?: number;
   totalValue?: number;
+  timestamp?: number;
 }
 
 export interface NormalizedGiftEvent {
@@ -70,24 +72,28 @@ function normalizeGiftPayload(raw: RawGiftPayload): NormalizedGiftEvent {
   const giftName = String(raw.gift_name ?? raw.giftName ?? 'Luxury Gift');
 
   let tier: NormalizedGiftEvent['tier'] = 'rose';
-  if (coinValue >= 5000 || giftId.includes('universe')) {
+  if (coinValue >= 1000 || giftId.includes('universe') || giftId.includes('lion')) {
     tier = 'universe';
-  } else if (coinValue >= 500 || giftId.includes('rocket')) {
+  } else if (coinValue >= 250 || giftId.includes('rocket') || giftId.includes('sports_car')) {
     tier = 'rocket';
-  } else if (coinValue >= 50 || giftId.includes('diamond')) {
+  } else if (coinValue >= 50 || giftId.includes('diamond') || giftId.includes('crown')) {
     tier = 'diamond';
-  } else if (coinValue >= 10 || giftId.includes('heart')) {
+  } else if (coinValue >= 5 || giftId.includes('heart') || giftId.includes('flame')) {
     tier = 'heart';
   }
 
   let defaultIcon = '🌹';
-  if (tier === 'heart') defaultIcon = '💖';
-  if (tier === 'diamond') defaultIcon = '💎';
-  if (tier === 'rocket') defaultIcon = '🚀';
-  if (tier === 'universe') defaultIcon = '🌌';
+  if (giftId.includes('flame')) defaultIcon = '🔥';
+  else if (tier === 'heart') defaultIcon = '💖';
+  else if (giftId.includes('crown')) defaultIcon = '👑';
+  else if (tier === 'diamond') defaultIcon = '💎';
+  else if (giftId.includes('sports_car')) defaultIcon = '🏎️';
+  else if (tier === 'rocket') defaultIcon = '🚀';
+  else if (giftId.includes('lion')) defaultIcon = '🦁';
+  else if (tier === 'universe') defaultIcon = '🌌';
 
   const senderUsername =
-    raw.sender_username || raw.senderUsername || 'VIP Patron';
+    raw.sender_username || raw.senderUsername || raw.senderName || 'VIP Patron';
 
   return {
     uid: raw.id || `gift-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -443,7 +449,9 @@ export default function LiveGiftOverlay({
     if (!streamId) return;
 
     const channel = supabase
-      .channel(`earnmega_luxury_gifts_${streamId}`)
+      .channel(`live_arena_${streamId}`, {
+        config: { broadcast: { self: true, ack: true } },
+      })
       .on(
         'postgres_changes',
         {
@@ -460,6 +468,13 @@ export default function LiveGiftOverlay({
           }
         }
       )
+      .on('broadcast', { event: 'gift_sent' }, (payload) => {
+        if (payload?.payload) {
+          dispatchNormalizedGift(
+            normalizeGiftPayload(payload.payload as RawGiftPayload)
+          );
+        }
+      })
       .on('broadcast', { event: 'live-gift' }, (payload) => {
         if (payload?.payload) {
           dispatchNormalizedGift(

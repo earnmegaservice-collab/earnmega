@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
+import { useCall } from '../../../context/CallContext';
 import { supabase } from '../../../utils/supabase';
 import { UserProfileDetails } from '../../../components/profile/UserProfileModal';
 import { ArrowLeft, MoreVertical, Send, Phone, Video } from 'lucide-react';
@@ -11,6 +12,7 @@ import VerifiedTick from '../../../components/ui/VerifiedTick';
 
 export default function ChatPage() {
   const { user } = useAuth();
+  const { initiateCall } = useCall();
   const router = useRouter();
   const params = useParams();
   const recipientId = params?.id as string;
@@ -155,8 +157,40 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-center gap-1">
-          <button className="p-2 rounded-full hover:bg-white/10 transition text-white/80 active:scale-95"><Phone size={18} /></button>
-          <button className="p-2 rounded-full hover:bg-white/10 transition text-white/80 active:scale-95"><Video size={18} /></button>
+          <button
+            onClick={() => {
+              if (recipient) {
+                initiateCall({
+                  receiverId: recipient.id,
+                  receiverName: recipient.name || 'User',
+                  receiverAvatar: recipient.avatarUrl || '',
+                  callType: 'audio',
+                  isGroup: false,
+                });
+              }
+            }}
+            className="p-2 rounded-full hover:bg-white/10 transition text-emerald-400 active:scale-95"
+            title="Voice Call"
+          >
+            <Phone size={18} />
+          </button>
+          <button
+            onClick={() => {
+              if (recipient) {
+                initiateCall({
+                  receiverId: recipient.id,
+                  receiverName: recipient.name || 'User',
+                  receiverAvatar: recipient.avatarUrl || '',
+                  callType: 'video',
+                  isGroup: false,
+                });
+              }
+            }}
+            className="p-2 rounded-full hover:bg-white/10 transition text-emerald-400 active:scale-95"
+            title="Video Call"
+          >
+            <Video size={18} />
+          </button>
           <button className="p-2 rounded-full hover:bg-white/10 transition text-white/80 active:scale-95"><MoreVertical size={18} /></button>
         </div>
       </div>

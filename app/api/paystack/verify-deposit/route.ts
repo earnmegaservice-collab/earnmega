@@ -70,6 +70,17 @@ export async function POST(req: Request) {
         status: 'completed',
         created_at: new Date().toISOString()
       });
+
+      try {
+        await supabase.from('wallet_deposits').insert({
+          user_id: userId,
+          reference: reference,
+          amount: amountGHS,
+          amount_ghs: amountGHS,
+          status: 'VERIFIED',
+          created_at: new Date().toISOString()
+        });
+      } catch (_) {}
     }
 
     return NextResponse.json({ success: true, amount: amountGHS });

@@ -2,15 +2,24 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { prompt, mode } = await req.json();
+    const { prompt, mode, userProfile } = await req.json();
     const apiKey = process.env.MAGIC_HOUR_API_KEY;
+
+    const userFirstName = (userProfile?.first_name || '').trim();
+    const userFullName = (userProfile?.full_name || userFirstName || '').trim();
+    const userHandle = (userProfile?.username || '').replace(/^@+/, '').trim();
+    const personalizationContext = userFirstName
+      ? ` The authenticated user you are assisting is ${userFullName} (First Name: "${userFirstName}"${
+          userHandle ? `, Username: "@${userHandle}"` : ''
+        }). Address ${userFirstName} naturally by their real name during conversations and tailor your affiliate marketing, content creation, and business growth strategies specifically to their HorPal profile.`
+      : '';
 
     // Determine if text or image/video based on prompt
     const lowerPrompt = prompt.toLowerCase();
     const isTextOnly = mode === 'argon4' || mode === 'quick' || mode === 'help' || lowerPrompt.includes('prompt') || lowerPrompt.includes('write') || lowerPrompt.includes('chat') || lowerPrompt.includes('explain') || lowerPrompt.includes('analyze');
 
     if (isTextOnly) {
-      const systemPrompt = `You are horpal.ai, HorPal's flagship executive AI engine powered by Argon 4. When asked for an "AI Video Studio Prompt", generate a rich, copy-ready Master Video Production Prompt including: Scene Concept, Camera Movement & Lens, Lighting & Atmosphere, Master Text-to-Video Prompt, and Negative Prompt.`;
+      const systemPrompt = `You are horpal.ai, HorPal's flagship executive AI engine powered by Argon 4.${personalizationContext} When asked for an "AI Video Studio Prompt", generate a rich, copy-ready Master Video Production Prompt including: Scene Concept, Camera Movement & Lens, Lighting & Atmosphere, Master Text-to-Video Prompt, and Negative Prompt.`;
 
       let generatedText = '';
 

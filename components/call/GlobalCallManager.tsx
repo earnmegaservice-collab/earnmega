@@ -1,121 +1,215 @@
-import React from 'react';
+"use client";
+
+import React, { useEffect, useRef } from 'react';
 import { useCall } from '../../context/CallContext';
+import { useAuth } from '../../context/AuthContext';
 import { IncomingCallOverlay } from './IncomingCallOverlay';
 import { OneOnOneCallScreen } from './OneOnOneCallScreen';
 import { GroupCallScreen } from './GroupCallScreen';
+import { Track, RemoteVideoTrack, RemoteAudioTrack, RemoteParticipant } from 'livekit-client';
+
+const RemoteAudioTrackAttachment: React.FC<{
+    track: RemoteAudioTrack;
+    isSpeakerOn: boolean;
+}> = ({ track, isSpeakerOn }) => {
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    useEffect(() => {
+        const el = audioRef.current;
+        if (!el || !track) return;
+        track.attach(el);
+        el.volume = isSpeakerOn ? 1.0 : 0.25;
+        el.play().catch(() => {});
+        return () => {
+            try {
+                track.detach(el);
+            } catch {}
+        };
+    }, [track, isSpeakerOn]);
+
+    return (
+        <audio
+            ref={(el) => {
+                audioRef.current = el;
+                if (el && track) {
+                    track.attach(el);
+                    el.volume = isSpeakerOn ? 1.0 : 0.25;
+                    el.play().catch(() => {});
+                }
+            }}
+            autoPlay
+            playsInline
+            className="hidden"
+        />
+    );
+};
+
+const RemoteParticipantsAudioRenderer: React.FC<{
+    remoteParticipants: RemoteParticipant[];
+    isSpeakerOn: boolean;
+    trackVersion: number;
+}> = ({ remoteParticipants, isSpeakerOn }) => {
+    const audioTracks: { key: string; track: RemoteAudioTrack }[] = [];
+
+    remoteParticipants.forEach((participant) => {
+        participant.audioTrackPublications.forEach((pub) => {
+            if (pub.track && !pub.isMuted) {
+                audioTracks.push({
+                    key: `${participant.identity}_${pub.trackSid || pub.track.sid || 'audio'}`,
+                    track: pub.track as RemoteAudioTrack,
+                });
+            }
+        });
+    });
+
+    return (
+        <>
+            {audioTracks.map((item) => (
+                <RemoteAudioTrackAttachment
+                    key={item.key}
+                    track={item.track}
+                    isSpeakerOn={isSpeakerOn}
+                />
+            ))}
+        </>
+    );
+};
 
 export const GlobalCallManager: React.FC = () => {
-  const callCtx = useCall();
-  const ctx: any = callCtx;
+    const ctx = useCall();
+    const { user } = useAuth();
 
-  if (ctx.callState === 'idle') return null;
+    if (!ctx || ctx.callState === 'idle' || !ctx.activeCall) return null;
 
-  if (ctx.isIncoming && ctx.callState === 'ringing') {
+    const { activeCall, callState } = ctx;
+
+    // 1. INCOMING CALL RINGING STATE
+    if (callState === 'ringing') {
+        return (
+            <IncomingCallOverlay
+                callerName={
+                    activeCall.isGroup
+                        ? `${activeCall.callerName} in ${activeCall.groupName || 'Group'}`
+                        : activeCall.callerName
+                }
+                callerAvatar={activeCall.callerAvatar}
+                callType={activeCall.callType === 'video' ? 'video' : 'voice'}
+                isGroup={activeCall.isGroup}
+                groupName={activeCall.groupName}
+                onAccept={() => ctx.acceptCall()}
+                onDecline={ctx.declineCall}
+            />
+        );
+    }
+
+    // 2. ACTIVE / OUTGOING CALL STATES ('calling' | 'accepted' | 'connected')
+    const mappedState: 'calling' | 'ringing' | 'connected' =
+        callState === 'connected' || callState === 'accepted' ? 'connected' : 'calling';
+
+    const localDisplayName =
+        user?.user_metadata?.username ||
+        user?.user_metadata?.full_name ||
+        user?.email?.split('@')[0] ||
+        'You';
+    const localAvatar = user?.user_metadata?.avatar_url || '';
+
+    if (activeCall.isGroup) {
+        return (
+            <>
+                <RemoteParticipantsAudioRenderer
+                    remoteParticipants={ctx.remoteParticipants}
+                    isSpeakerOn={ctx.isSpeakerOn}
+                    trackVersion={ctx.participantTrackVersion}
+                />
+                <GroupCallScreen
+                    groupName={activeCall.groupName || activeCall.receiverName || 'Group Call'}
+                    callState={mappedState}
+                    callDuration={ctx.callDuration}
+                    isMuted={ctx.isMuted}
+                    isCameraOff={ctx.isVideoOff}
+                    isSpeakerOn={ctx.isSpeakerOn}
+                    facingMode={ctx.facingMode}
+                    localUser={{
+                        id: user?.id || 'local',
+                        name: localDisplayName,
+                        avatar: localAvatar,
+                    }}
+                    localVideoTrack={ctx.localVideoTrack}
+                    remoteParticipants={ctx.remoteParticipants}
+                    activeSpeakerIds={ctx.activeSpeakerIds}
+                    participantTrackVersion={ctx.participantTrackVersion}
+                    audioPlaybackBlocked={ctx.audioPlaybackBlocked}
+                    onToggleMic={ctx.toggleMute}
+                    onToggleCamera={ctx.toggleVideo}
+                    onFlipCamera={ctx.flipCamera}
+                    onToggleSpeaker={ctx.toggleSpeaker}
+                    onUnlockAudio={ctx.unlockAudio}
+                    onEndCall={ctx.endCall}
+                />
+            </>
+        );
+    }
+
+    // Extract remote participant video track for 1-on-1 call by iterating all remote participants & videoTrackPublications
+    let remotePeer: RemoteParticipant | null = ctx.remoteParticipants[0] || null;
+    let remoteVideoTrack: RemoteVideoTrack | null = null;
+
+    for (const participant of ctx.remoteParticipants) {
+        remotePeer = participant;
+        const camPub = participant.getTrackPublication(Track.Source.Camera);
+        if (camPub && !camPub.isMuted && camPub.track) {
+            remoteVideoTrack = camPub.track as RemoteVideoTrack;
+            break;
+        }
+        for (const pub of participant.videoTrackPublications.values()) {
+            if (pub.track && !pub.isMuted) {
+                remoteVideoTrack = pub.track as RemoteVideoTrack;
+                break;
+            }
+        }
+        if (remoteVideoTrack) break;
+    }
+
+    const isRemoteSpeaking = remotePeer ? ctx.activeSpeakerIds.includes(remotePeer.identity) : false;
+
+    const peerName =
+        activeCall.callerId === user?.id
+            ? activeCall.receiverName || 'User'
+            : activeCall.callerName || 'User';
+    const peerAvatar =
+        activeCall.callerId === user?.id
+            ? activeCall.receiverAvatar || ''
+            : activeCall.callerAvatar || '';
+
     return (
-      <IncomingCallOverlay
-        isGroup={ctx.isGroupCall}
-        callerName={ctx.callerInfo.name}
-        avatarUrl={ctx.callerInfo.avatar}
-        groupName={ctx.callerInfo.name}
-        callType={ctx.callType}
-        activeMembers={ctx.activeMembers}
-        onAccept={(type) => {
-          ctx.setCallType(type);
-          ctx.acceptCall(type);
-        }}
-        onDecline={ctx.declineCall}
-      />
+        <>
+            <RemoteParticipantsAudioRenderer
+                remoteParticipants={ctx.remoteParticipants}
+                isSpeakerOn={ctx.isSpeakerOn}
+                trackVersion={ctx.participantTrackVersion}
+            />
+            <OneOnOneCallScreen
+                peerName={peerName}
+                peerAvatar={peerAvatar}
+                callType={activeCall.callType === 'video' ? 'video' : 'voice'}
+                callState={mappedState}
+                callDuration={ctx.callDuration}
+                isMuted={ctx.isMuted}
+                isSpeakerOn={ctx.isSpeakerOn}
+                isCameraOff={ctx.isVideoOff}
+                facingMode={ctx.facingMode}
+                isRemoteSpeaking={isRemoteSpeaking}
+                localVideoTrack={ctx.localVideoTrack}
+                remoteVideoTrack={remoteVideoTrack}
+                participantTrackVersion={ctx.participantTrackVersion}
+                audioPlaybackBlocked={ctx.audioPlaybackBlocked}
+                onToggleMic={ctx.toggleMute}
+                onToggleSpeaker={ctx.toggleSpeaker}
+                onToggleCamera={ctx.toggleVideo}
+                onFlipCamera={ctx.flipCamera}
+                onUnlockAudio={ctx.unlockAudio}
+                onEndCall={ctx.endCall}
+            />
+        </>
     );
-  }
-
-  if (ctx.callState === 'connected' || ctx.callState === 'calling') {
-     if (ctx.isInPiPMode) {
-       const partner = ctx.activeMembers[0];
-       return (
-         <div className="fixed top-20 right-4 z-[9990] w-28 h-40 bg-black rounded-xl border-2 border-white/20 shadow-2xl flex flex-col overflow-hidden cursor-pointer" onClick={() => ctx.setIsInPiPMode(false)}>
-            {ctx.callType === 'video' && partner?.videoTrack ? (
-              <video
-                className="absolute inset-0 w-full h-full object-cover"
-                autoPlay
-                playsInline
-                ref={(el) => {
-                   if (el && partner?.videoTrack) {
-                      const currentStream = el.srcObject as MediaStream;
-                      if (!currentStream || currentStream.getVideoTracks()[0]?.id !== partner.videoTrack.id) {
-                         el.srcObject = new MediaStream([partner.videoTrack]);
-                      }
-                   }
-                }}
-              />
-            ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-neutral-800 to-neutral-900">
-                <img src={ctx.callerInfo.avatar || '/icon.svg'} className="w-12 h-12 rounded-full object-cover" />
-              </div>
-            )}
-
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
-
-            <div className="absolute top-2 left-0 right-0 flex justify-center z-10 pointer-events-none">
-              <span className="text-emerald-400 font-bold text-xs bg-black/50 px-2 rounded-full backdrop-blur-md">
-                {Math.floor(ctx.duration / 60)}:{ctx.duration % 60 < 10 ? '0' : ''}{ctx.duration % 60}
-              </span>
-            </div>
-
-            <div className="absolute bottom-2 left-0 right-0 flex justify-around items-center z-10">
-              <button
-                onClick={(e) => { e.stopPropagation(); ctx.toggleMute(); }}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${ctx.isMuted ? 'bg-white text-black' : 'bg-black/50 text-white backdrop-blur-md'}`}
-              >
-                <span className="text-[10px] font-bold">{ctx.isMuted ? 'Muted' : 'Mic'}</span>
-              </button>
-
-              <button
-                onClick={(e) => { e.stopPropagation(); ctx.endCallSession(true, 'ended'); }}
-                className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center text-white"
-              >
-                <span className="text-[10px] font-bold">End</span>
-              </button>
-            </div>
-         </div>
-       );
-     }
-
-     if (ctx.isGroupCall) {
-       return (
-         <GroupCallScreen
-            groupName={ctx.callerInfo.name}
-            duration={ctx.duration}
-            isMuted={ctx.isMuted}
-            activeMembers={ctx.activeMembers}
-            activeSpeakerId={ctx.activeSpeakerId}
-            onToggleMute={ctx.toggleMute}
-            onToggleVideo={ctx.toggleVideo}
-            onMinimize={() => ctx.setIsInPiPMode(true)}
-            onLeave={() => ctx.endCallSession(true, 'ended')}
-         />
-       );
-     } else {
-       return (
-         <OneOnOneCallScreen
-            callState={ctx.callState}
-            callerName={ctx.callerInfo.name}
-            avatarUrl={ctx.callerInfo.avatar}
-            callType={ctx.callType}
-            duration={ctx.duration}
-            isMuted={ctx.isMuted}
-            isSpeaker={ctx.isSpeaker}
-            localVideoRef={ctx.localVideoRef}
-            activeMembers={ctx.activeMembers}
-            onToggleMute={ctx.toggleMute}
-            onToggleSpeaker={ctx.toggleSpeaker}
-            onToggleVideo={ctx.toggleVideo}
-            onFlipCamera={ctx.toggleVideo}
-            onMinimize={() => ctx.setIsInPiPMode(true)}
-            onEnd={() => ctx.endCallSession(true, 'ended')}
-         />
-       );
-     }
-  }
-
-  return null;
 };

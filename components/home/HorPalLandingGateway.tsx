@@ -6,6 +6,8 @@ import { Volume2, VolumeX, Lock, ChevronLeft, ChevronRight } from 'lucide-react'
 
 interface HorPalLandingGatewayProps {
   onEnterPillar1: () => void;
+  onEnterPillar2?: () => void;
+  onEnterPillar3?: () => void;
 }
 
 export const promoTextBlocks = [
@@ -39,7 +41,11 @@ const promoSlides = [
   { id: 5, type: 'image', src: 'https://rbyoqehpntitdjztnmbe.supabase.co/storage/v1/object/public/public-assets/1793877634662.jpg' },
 ];
 
-export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEnterPillar1 }) => {
+export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
+  onEnterPillar1,
+  onEnterPillar2,
+  onEnterPillar3,
+}) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isVideoMuted, setIsVideoMuted] = useState(true);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -276,7 +282,14 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
           </button>
 
           <button
-            onClick={() => { localStorage.setItem('horpal_target_pillar', '2'); window.location.href = '/affiliate'; }}
+            onClick={() => {
+              localStorage.setItem('horpal_target_pillar', '2');
+              if (onEnterPillar2) {
+                onEnterPillar2();
+              } else {
+                window.location.href = '/affiliate';
+              }
+            }}
             className="group relative w-full sm:flex-1 min-h-[56px] rounded-full bg-[#0A0A0F]/80 backdrop-blur-xl border border-emerald-500/30 hover:border-emerald-500 flex items-center justify-center gap-3 px-6 py-3 transition-all duration-300 active:scale-[0.98] shadow-[0_0_15px_rgba(16,185,129,0.1)] hover:shadow-[0_0_25px_rgba(16,185,129,0.2)] overflow-hidden"
           >
              {/* Sweep effect */}
@@ -289,7 +302,14 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
           </button>
 
           <button
-            onClick={() => window.location.href = '/horpal-ai'}
+            onClick={() => {
+              localStorage.setItem('horpal_target_pillar', '3');
+              if (onEnterPillar3) {
+                onEnterPillar3();
+              } else {
+                window.location.href = '/horpal-ai';
+              }
+            }}
             className="relative w-full flex items-center justify-center gap-3 py-4 px-6 rounded-full bg-[#0E0F14] border border-purple-500/40 shadow-[0_0_20px_rgba(168,85,247,0.15)] active:scale-[0.99] transition-all"
           >
             <span className="relative z-10 flex items-center justify-center w-9 h-9 rounded-full bg-purple-500/15 border border-purple-400/30 text-purple-400">
@@ -417,7 +437,11 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({ onEn
             <button
               onClick={() => {
                 localStorage.setItem('horpal_target_pillar', '2');
-                window.location.href = '/affiliate';
+                if (onEnterPillar2) {
+                  onEnterPillar2();
+                } else {
+                  window.location.href = '/affiliate';
+                }
               }}
               className="relative z-10 w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-black border border-amber-400/50 flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.4)] hover:scale-105 transition-transform"
             >

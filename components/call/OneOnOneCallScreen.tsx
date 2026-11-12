@@ -1,156 +1,447 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, Minimize2, Lock } from 'lucide-react';
+"use client";
 
-interface Props {
-  callState: string;
-  callerName: string;
-  avatarUrl?: string;
-  callType: 'audio' | 'video';
-  duration: number;
-  isMuted: boolean;
-  isSpeaker: boolean;
-  localVideoRef: React.RefObject<HTMLVideoElement>;
-  activeMembers: any[];
-  onToggleMute: () => void;
-  onToggleSpeaker: () => void;
-  onToggleVideo: () => void;
-  onFlipCamera: () => void;
-  onMinimize: () => void;
-  onEnd: () => void;
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import {
+    Mic,
+    MicOff,
+    Video,
+    VideoOff,
+    Volume2,
+    VolumeX,
+    SwitchCamera,
+    PhoneOff,
+    ShieldCheck,
+    Minimize2,
+    Maximize2,
+} from 'lucide-react';
+import { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client';
+import { FacingMode } from '../../context/CallContext';
+
+interface OneOnOneCallScreenProps {
+    peerName: string;
+    peerAvatar: string;
+    callType: 'voice' | 'video';
+    callState: 'calling' | 'ringing' | 'connected';
+    callDuration: number;
+    isMuted: boolean;
+    isSpeakerOn: boolean;
+    isCameraOff: boolean;
+    facingMode?: FacingMode;
+    isRemoteSpeaking?: boolean;
+    localVideoTrack?: LocalVideoTrack | null;
+    remoteVideoTrack?: RemoteVideoTrack | null;
+    participantTrackVersion?: number;
+    audioPlaybackBlocked?: boolean;
+    onToggleMic: () => void;
+    onToggleSpeaker: () => void;
+    onToggleCamera: () => void;
+    onFlipCamera: () => void;
+    onUnlockAudio?: () => void;
+    onEndCall: () => void;
 }
 
-export const OneOnOneCallScreen: React.FC<Props> = ({
-  callState,
-  callerName,
-  avatarUrl,
-  callType,
-  duration,
-  isMuted,
-  isSpeaker,
-  localVideoRef,
-  activeMembers,
-  onToggleMute,
-  onToggleSpeaker,
-  onToggleVideo,
-  onFlipCamera,
-  onMinimize,
-  onEnd,
+export const OneOnOneCallScreen: React.FC<OneOnOneCallScreenProps> = ({
+    peerName,
+    peerAvatar,
+    callType,
+    callState,
+    callDuration,
+    isMuted,
+    isSpeakerOn,
+    isCameraOff,
+    facingMode = 'user',
+    isRemoteSpeaking = false,
+    localVideoTrack,
+    remoteVideoTrack,
+    participantTrackVersion = 0,
+    audioPlaybackBlocked = false,
+    onToggleMic,
+    onToggleSpeaker,
+    onToggleCamera,
+    onFlipCamera,
+    onUnlockAudio,
+    onEndCall,
 }) => {
-  const [emojiFloaters, setEmojiFloaters] = useState<{ id: number, emoji: string, x: number }[]>([]);
+    const localVideoRef = useRef<HTMLVideoElement | null>(null);
+    const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+    const [isMinimized, setIsMinimized] = useState(false);
 
-  const partner = activeMembers.find((m) => true);
+    // Draggable PiP state
+    const [pipPos, setPipPos] = useState<{ x: number; y: number } | null>(null);
+    const dragOffsetRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
-  const formatDuration = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
+    const showRemoteVideo = !!remoteVideoTrack;
+    const showLocalVideo = !!localVideoTrack && !isCameraOff;
 
-  const sendEmoji = (emoji: string) => {
-    const newFloater = { id: Date.now(), emoji, x: Math.random() * 80 + 10 };
-    setEmojiFloaters(prev => [...prev, newFloater]);
-    setTimeout(() => {
-      setEmojiFloaters(prev => prev.filter(f => f.id !== newFloater.id));
-    }, 2000);
-  };
+    // Callback ref for local video element (strictly muted + immediate track attach)
+    const setLocalVideoElement = useCallback(
+        (el: HTMLVideoElement | null) => {
+            localVideoRef.current = el;
+            if (!el) return;
+            el.muted = true;
+            el.defaultMuted = true;
+            el.volume = 0;
+            if (localVideoTrack && !isCameraOff) {
+                localVideoTrack.attach(el);
+                el.play().catch(() => {});
+            }
+        },
+        [localVideoTrack, isCameraOff]
+    );
 
-  return (
-    <div className="fixed inset-0 z-[99990] bg-[#050811] flex flex-col overflow-hidden">
+    // Callback ref for remote video element (immediate track attach on DOM mount)
+    const setRemoteVideoElement = useCallback(
+        (el: HTMLVideoElement | null) => {
+            remoteVideoRef.current = el;
+            if (!el) return;
+            if (remoteVideoTrack) {
+                remoteVideoTrack.attach(el);
+                el.play().catch(() => {});
+            }
+        },
+        [remoteVideoTrack]
+    );
 
-      {callType === 'audio' && (
-        <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-3xl z-10" />
-          <img src={avatarUrl || '/icon.svg'} className="w-full h-full object-cover opacity-50 blur-2xl animate-pulse" />
-        </div>
-      )}
+    // Attach local video track on state/version updates
+    useEffect(() => {
+        const videoEl = localVideoRef.current;
+        if (!videoEl) return;
 
-      {callType === 'video' && partner && (
-         <div className="absolute inset-0 z-0 bg-black">
-            <video
-              className="w-full h-full object-cover bg-neutral-900"
-              autoPlay
-              playsInline
-              ref={(el) => {
-                 if (el && partner?.videoTrack) {
-                    const currentStream = el.srcObject as MediaStream;
-                    if (!currentStream || currentStream.getVideoTracks()[0]?.id !== partner.videoTrack.id) {
-                       el.srcObject = new MediaStream([partner.videoTrack]);
+        videoEl.muted = true;
+        videoEl.defaultMuted = true;
+        videoEl.volume = 0;
+
+        if (localVideoTrack && !isCameraOff) {
+            localVideoTrack.attach(videoEl);
+            videoEl.play().catch(() => {});
+        } else {
+            localVideoTrack?.detach(videoEl);
+            videoEl.srcObject = null;
+        }
+        return () => {
+            if (localVideoTrack && videoEl) {
+                localVideoTrack.detach(videoEl);
+            }
+        };
+    }, [localVideoTrack, isCameraOff, callState, showLocalVideo, participantTrackVersion, isMinimized]);
+
+    // Attach remote video track on state/version updates
+    useEffect(() => {
+        const videoEl = remoteVideoRef.current;
+        if (!videoEl) return;
+
+        if (remoteVideoTrack) {
+            remoteVideoTrack.attach(videoEl);
+            videoEl.play().catch(() => {});
+        } else {
+            videoEl.srcObject = null;
+        }
+        return () => {
+            if (remoteVideoTrack && videoEl) {
+                remoteVideoTrack.detach(videoEl);
+            }
+        };
+    }, [remoteVideoTrack, callState, showRemoteVideo, participantTrackVersion, isMinimized]);
+
+    const formatTime = (secs: number) => {
+        const mins = Math.floor(secs / 60);
+        const remSecs = secs % 60;
+        return `${mins.toString().padStart(2, '0')}:${remSecs.toString().padStart(2, '0')}`;
+    };
+
+    const handlePipPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const currentX = pipPos ? pipPos.x : rect.left;
+        const currentY = pipPos ? pipPos.y : rect.top;
+        dragOffsetRef.current = {
+            startX: e.clientX,
+            startY: e.clientY,
+            origX: currentX,
+            origY: currentY,
+        };
+        e.currentTarget.setPointerCapture(e.pointerId);
+    };
+
+    const handlePipPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!dragOffsetRef.current) return;
+        const dx = e.clientX - dragOffsetRef.current.startX;
+        const dy = e.clientY - dragOffsetRef.current.startY;
+        const maxW = typeof window !== 'undefined' ? window.innerWidth - 130 : 300;
+        const maxH = typeof window !== 'undefined' ? window.innerHeight - 180 : 600;
+        const nextX = Math.max(12, Math.min(maxW, dragOffsetRef.current.origX + dx));
+        const nextY = Math.max(16, Math.min(maxH, dragOffsetRef.current.origY + dy));
+        setPipPos({ x: nextX, y: nextY });
+    };
+
+    const handlePipPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!dragOffsetRef.current) return;
+        dragOffsetRef.current = null;
+        try {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch {}
+    };
+
+    // Floating Minimized Pill
+    if (isMinimized) {
+        return (
+            <div className="fixed top-4 right-4 z-[9999] bg-[#12131A]/95 backdrop-blur-2xl border border-white/15 rounded-2xl p-3 shadow-[0_20px_50px_rgba(0,0,0,0.85)] flex items-center gap-3 animate-in fade-in zoom-in-95 duration-200">
+                <div className="relative w-11 h-11 rounded-full overflow-hidden border border-emerald-500/40 shrink-0">
+                    {peerAvatar ? (
+                        <img src={peerAvatar} alt={peerName} className="w-full h-full object-cover" />
+                    ) : (
+                        <div className="w-full h-full bg-indigo-600 flex items-center justify-center text-white font-bold">
+                            {peerName?.charAt(0)?.toUpperCase()}
+                        </div>
+                    )}
+                    <span className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                </div>
+                <div className="min-w-[90px]">
+                    <p className="text-white text-xs font-bold truncate max-w-[120px]">{peerName}</p>
+                    <p className="text-emerald-400 text-[11px] font-mono">
+                        {callState === 'connected' ? formatTime(callDuration) : 'Calling...'}
+                    </p>
+                </div>
+                <button
+                    onClick={() => setIsMinimized(false)}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition"
+                    title="Expand Call"
+                >
+                    <Maximize2 className="w-4 h-4" />
+                </button>
+                <button
+                    onClick={onEndCall}
+                    className="p-2 rounded-xl bg-red-500 hover:bg-red-600 text-white transition"
+                    title="End Call"
+                >
+                    <PhoneOff className="w-4 h-4" />
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="fixed inset-0 z-[9998] bg-[#0B0C10] flex flex-col justify-between overflow-hidden select-none">
+            {/* 1. BACKGROUND / REMOTE VIDEO LAYER */}
+            {showRemoteVideo ? (
+                <video
+                    ref={setRemoteVideoElement}
+                    autoPlay
+                    playsInline
+                    className="absolute inset-0 w-full h-full object-cover z-0 bg-black"
+                />
+            ) : (
+                <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+                    {peerAvatar && (
+                        <img
+                            src={peerAvatar}
+                            alt=""
+                            className="w-full h-full object-cover blur-[90px] opacity-25 scale-125"
+                        />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-[#0B0C10]/85 to-[#0B0C10]" />
+                </div>
+            )}
+
+            {/* 2. TOP HEADER BAR */}
+            <div className="relative z-20 flex items-center justify-between px-5 pt-10 pb-4 bg-gradient-to-b from-black/70 to-transparent">
+                <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-[11px] text-white/80 font-medium tracking-wider uppercase">
+                        End-to-End Encrypted
+                    </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    {showRemoteVideo && (
+                        <div className="bg-black/50 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="text-xs font-semibold text-white">{peerName}</span>
+                            <span className="text-xs font-mono text-emerald-400">{formatTime(callDuration)}</span>
+                        </div>
+                    )}
+                    <button
+                        onClick={() => setIsMinimized(true)}
+                        className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 transition"
+                        title="Minimize Call"
+                    >
+                        <Minimize2 className="w-4 h-4" />
+                    </button>
+                </div>
+            </div>
+
+            {/* 3. INTERACTIVE AUDIO UNLOCK BANNER (Mobile Safari / Chrome Autoplay Guard) */}
+            {audioPlaybackBlocked && onUnlockAudio && (
+                <div className="relative z-30 mx-auto px-4">
+                    <button
+                        onClick={onUnlockAudio}
+                        className="bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs px-4 py-2.5 rounded-full shadow-lg flex items-center gap-2 animate-bounce"
+                    >
+                        <Volume2 className="w-4 h-4" />
+                        Tap to Unmute Browser Audio
+                    </button>
+                </div>
+            )}
+
+            {/* 4. CENTER AVATAR & STATUS (Shown when Remote Video is Off or Still Ringing) */}
+            {!showRemoteVideo && (
+                <div className="relative z-10 flex flex-col items-center justify-center flex-1 px-6 text-center">
+                    <div className="relative flex items-center justify-center mb-7">
+                        {callState !== 'connected' && (
+                            <>
+                                <div className="absolute w-44 h-44 rounded-full border border-emerald-500/30 animate-ping" />
+                                <div className="absolute w-56 h-56 rounded-full border border-indigo-500/15 animate-pulse" />
+                            </>
+                        )}
+                        <div
+                            className={`relative w-36 h-36 rounded-full overflow-hidden border-2 bg-gray-900 transition-all duration-300 ${
+                                isRemoteSpeaking
+                                    ? 'border-emerald-400 ring-4 ring-emerald-400/30 shadow-[0_0_50px_rgba(52,211,153,0.45)] scale-105'
+                                    : 'border-white/20 shadow-[0_0_40px_rgba(0,0,0,0.65)]'
+                            }`}
+                        >
+                            {peerAvatar ? (
+                                <img src={peerAvatar} alt={peerName} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 text-white text-5xl font-bold">
+                                    {peerName?.charAt(0)?.toUpperCase()}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight mb-2">{peerName}</h2>
+
+                    {callState === 'connected' ? (
+                        <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="text-emerald-400 font-mono text-base font-semibold tracking-wider">
+                                {formatTime(callDuration)}
+                            </span>
+                        </div>
+                    ) : (
+                        <p className="text-sm font-medium text-emerald-400 tracking-wide animate-pulse">
+                            {callState === 'calling'
+                                ? `Calling ${peerName} (${callType === 'video' ? 'Video' : 'Audio'})...`
+                                : 'Ringing...'}
+                        </p>
+                    )}
+                </div>
+            )}
+
+            {/* 5. DRAGGABLE PICTURE-IN-PICTURE (PiP) LOCAL CAMERA PREVIEW */}
+            {(showLocalVideo || callType === 'video' || !isCameraOff) && (
+                <div
+                    onPointerDown={handlePipPointerDown}
+                    onPointerMove={handlePipPointerMove}
+                    onPointerUp={handlePipPointerUp}
+                    style={
+                        pipPos
+                            ? { left: `${pipPos.x}px`, top: `${pipPos.y}px` }
+                            : { right: '20px', top: '84px' }
                     }
-                 }
-              }}
-            />
-         </div>
-      )}
+                    className="fixed z-30 w-28 h-40 sm:w-36 sm:h-48 rounded-2xl overflow-hidden border-2 border-white/25 shadow-[0_15px_35px_rgba(0,0,0,0.8)] bg-gray-950 cursor-grab active:cursor-grabbing touch-none"
+                >
+                    {showLocalVideo ? (
+                        <video
+                            ref={setLocalVideoElement}
+                            autoPlay
+                            playsInline
+                            muted
+                            className={`w-full h-full object-cover ${
+                                facingMode === 'user' ? 'scale-x-[-1]' : ''
+                            }`}
+                        />
+                    ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900/95 text-white/50 gap-1.5 p-2 text-center">
+                            <VideoOff className="w-6 h-6 text-white/40" />
+                            <span className="text-[10px] font-medium">Camera Off</span>
+                        </div>
+                    )}
 
-      <div className="relative z-20 flex justify-between items-start p-6">
-        <button onClick={onMinimize} className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition">
-          <Minimize2 className="w-5 h-5" />
-        </button>
-        <div className="flex flex-col items-center">
-          <div className="flex items-center gap-1 text-emerald-400 text-xs font-medium bg-emerald-500/10 px-3 py-1 rounded-full mb-2">
-            <Lock className="w-3 h-3" /> End-to-End Encrypted
-          </div>
-          <span className="text-white text-lg font-semibold">{callState === 'connected' ? formatDuration(duration) : callState}</span>
+                    {/* Mini Flip Camera Button inside PiP */}
+                    {showLocalVideo && (
+                        <button
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onFlipCamera();
+                            }}
+                            className="absolute bottom-2 right-2 p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white border border-white/20 backdrop-blur-md transition"
+                            title="Switch Front/Back Camera"
+                        >
+                            <SwitchCamera className="w-3.5 h-3.5" />
+                        </button>
+                    )}
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-sm text-[10px] font-semibold text-white/90">
+                        You
+                    </div>
+                </div>
+            )}
+
+            {/* 6. FLOATING BOTTOM GLASS CONTROL DOCK */}
+            <div className="relative z-20 w-full max-w-md mx-auto px-5 pb-9 pt-4">
+                <div className="bg-white/10 backdrop-blur-2xl border border-white/15 rounded-3xl p-4 flex items-center justify-around shadow-[0_20px_50px_rgba(0,0,0,0.85)]">
+                    {/* Speaker Toggle */}
+                    <button
+                        onClick={onToggleSpeaker}
+                        className={`p-4 rounded-2xl transition-all active:scale-90 ${
+                            isSpeakerOn
+                                ? 'bg-white text-black shadow-lg'
+                                : 'bg-white/10 text-white hover:bg-white/20'
+                        }`}
+                        title={isSpeakerOn ? 'Speaker On' : 'Speaker Off'}
+                    >
+                        {isSpeakerOn ? <Volume2 className="w-6 h-6" /> : <VolumeX className="w-6 h-6" />}
+                    </button>
+
+                    {/* Camera On/Off Toggle (Available in both Audio & Video calls) */}
+                    <button
+                        onClick={onToggleCamera}
+                        className={`p-4 rounded-2xl transition-all active:scale-90 ${
+                            isCameraOff
+                                ? 'bg-white/10 text-white hover:bg-white/20'
+                                : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25'
+                        }`}
+                        title={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
+                    >
+                        {isCameraOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+                    </button>
+
+                    {/* Microphone Mute/Unmute Toggle */}
+                    <button
+                        onClick={onToggleMic}
+                        className={`p-4 rounded-2xl transition-all active:scale-90 ${
+                            isMuted
+                                ? 'bg-red-500/25 text-red-400 border border-red-500/40'
+                                : 'bg-white/10 text-white hover:bg-white/20'
+                        }`}
+                        title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+                    >
+                        {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                    </button>
+
+                    {/* Front / Back Camera Switcher */}
+                    {!isCameraOff && (
+                        <button
+                            onClick={onFlipCamera}
+                            className="p-4 rounded-2xl bg-white/10 text-white hover:bg-white/20 transition-all active:scale-90"
+                            title="Flip Camera (Front / Back)"
+                        >
+                            <SwitchCamera className="w-6 h-6" />
+                        </button>
+                    )}
+
+                    {/* End Call Button */}
+                    <button
+                        onClick={onEndCall}
+                        className="p-4 rounded-2xl bg-red-500 hover:bg-red-600 text-white shadow-[0_0_25px_rgba(239,68,68,0.5)] transition-all active:scale-90"
+                        title="End Call"
+                    >
+                        <PhoneOff className="w-6 h-6" />
+                    </button>
+                </div>
+            </div>
         </div>
-        <div className="w-12 h-12" />
-      </div>
-
-      {callType === 'audio' && (
-        <div className="relative z-20 flex-1 flex flex-col items-center justify-center">
-           <div className="relative">
-             <div className="absolute inset-[-20px] rounded-full border border-emerald-500/30 animate-[spin_4s_linear_infinite]" />
-             <div className="absolute inset-[-40px] rounded-full border border-emerald-500/10 animate-[spin_6s_linear_infinite_reverse]" />
-             <img src={avatarUrl || '/icon.svg'} className="w-40 h-40 rounded-full object-cover border-4 border-[#050811] shadow-2xl relative z-10" />
-           </div>
-           <h2 className="text-white text-3xl font-bold mt-8">@{callerName}</h2>
-           <p className="text-white/50 text-sm mt-2">HorPal Voice Call</p>
-        </div>
-      )}
-
-      {callType === 'video' && (
-        <motion.div drag dragConstraints={{ top: 20, right: 20, bottom: 500, left: -300 }} className="absolute top-24 right-6 w-32 h-48 rounded-2xl overflow-hidden bg-black border-2 border-white/20 shadow-2xl z-30 cursor-move">
-           <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover pointer-events-none" />
-        </motion.div>
-      )}
-
-      <AnimatePresence>
-        {emojiFloaters.map(f => (
-          <motion.div key={f.id} initial={{ y: 0, opacity: 1, scale: 0.5 }} animate={{ y: -300, opacity: 0, scale: 2 }} exit={{ opacity: 0 }} transition={{ duration: 2 }} className="absolute bottom-32 z-40 text-4xl pointer-events-none" style={{ left: `${f.x}%` }}>
-            {f.emoji}
-          </motion.div>
-        ))}
-      </AnimatePresence>
-
-      <div className="relative z-20 p-6 pb-10 bg-gradient-to-t from-black/80 to-transparent">
-        <div className="max-w-sm mx-auto flex items-center justify-between bg-white/10 backdrop-blur-2xl rounded-[2.5rem] p-2 border border-white/10 shadow-2xl">
-
-          <button onClick={onToggleMute} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}>
-            {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-          </button>
-
-          <button onClick={onToggleVideo} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${callType === 'audio' ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-emerald-500/20 text-emerald-400'}`}>
-            {callType === 'audio' ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
-          </button>
-
-          <button onClick={onToggleSpeaker} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isSpeaker ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}>
-            <Volume2 className="w-6 h-6" />
-          </button>
-
-          <button onClick={onEnd} className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-all shadow-[0_0_20px_rgba(239,68,68,0.4)]">
-            <PhoneOff className="w-7 h-7" />
-          </button>
-        </div>
-
-        <div className="flex justify-center gap-4 mt-6">
-           {['❤️', '🔥', '😂', '👏'].map(emoji => (
-             <button key={emoji} onClick={() => sendEmoji(emoji)} className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-xl hover:bg-white/20 transition-transform active:scale-90">
-               {emoji}
-             </button>
-           ))}
-        </div>
-      </div>
-
-    </div>
-  );
+    );
 };

@@ -1,89 +1,111 @@
-import React from 'react';
-import { motion } from 'framer-motion';
-import { Phone, Video, PhoneOff } from 'lucide-react';
+"use client";
 
-interface Props {
-  isGroup: boolean;
-  callerName: string;
-  avatarUrl?: string;
-  groupName?: string;
-  groupAvatar?: string;
-  callType: 'audio' | 'video';
-  activeMembers?: any[];
-  onAccept: (type: 'audio' | 'video') => void;
-  onDecline: () => void;
+import React from 'react';
+import { Phone, PhoneOff, Video, ShieldCheck, Users } from 'lucide-react';
+
+interface IncomingCallOverlayProps {
+    callerName: string;
+    callerAvatar?: string;
+    avatarUrl?: string;
+    callType: 'voice' | 'audio' | 'video';
+    isGroup?: boolean;
+    groupName?: string;
+    groupAvatar?: string;
+    activeMembers?: any[];
+    onAccept: (type?: 'audio' | 'video') => void;
+    onDecline: () => void;
 }
 
-export const IncomingCallOverlay: React.FC<Props> = ({
-  isGroup,
-  callerName,
-  avatarUrl,
-  groupName,
-  groupAvatar,
-  callType,
-  activeMembers = [],
-  onAccept,
-  onDecline,
+export const IncomingCallOverlay: React.FC<IncomingCallOverlayProps> = ({
+    callerName,
+    callerAvatar,
+    avatarUrl,
+    callType,
+    isGroup = false,
+    groupName,
+    groupAvatar,
+    onAccept,
+    onDecline,
 }) => {
-  return (
-    <motion.div
-      initial={{ y: -100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: -100, opacity: 0 }}
-      className="fixed top-0 left-0 right-0 z-[99999] p-4 pointer-events-none"
-    >
-      <div className="max-w-md mx-auto bg-[#0a0a0a]/90 backdrop-blur-xl border border-white/10 rounded-3xl p-4 shadow-2xl pointer-events-auto flex flex-col gap-4">
-        {isGroup ? (
-          <div className="flex items-center gap-4">
-            <img src={groupAvatar || '/icon.svg'} alt={groupName} className="w-16 h-16 rounded-2xl object-cover" />
-            <div className="flex-1">
-              <h3 className="text-white font-semibold">{groupName}</h3>
-              <p className="text-white/60 text-sm">@{callerName} started a Group {callType === 'video' ? 'Video' : 'Voice'} Call</p>
-              <div className="flex items-center gap-1 mt-1">
-                {activeMembers.slice(0, 3).map((m, i) => (
-                  <div key={i} className="w-5 h-5 rounded-full bg-white/20 border border-black -ml-2 first:ml-0" />
-                ))}
-                {activeMembers.length > 3 && <span className="text-xs text-white/50 ml-1">+{activeMembers.length - 3} members</span>}
-                {activeMembers.length > 0 && activeMembers.length <= 3 && <span className="text-xs text-white/50 ml-1">{activeMembers.length} members in call</span>}
-              </div>
+    const resolvedAvatar = callerAvatar || avatarUrl || groupAvatar || '';
+    const isVideo = callType === 'video';
+
+    return (
+        <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-2xl flex flex-col items-center justify-between py-14 px-6 animate-in fade-in duration-300 select-none">
+            {/* Top Encryption Badge */}
+            <div className="flex flex-col items-center gap-2">
+                <div className="flex items-center gap-2 bg-white/10 px-4 py-1.5 rounded-full border border-white/10">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-medium text-white/80 tracking-wide">
+                        HorPal End-to-End Encrypted {isGroup ? 'Group ' : ''}
+                        {isVideo ? 'Video' : 'Voice'} Call
+                    </span>
+                </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-3">
-             <div className="relative">
-                <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping" />
-                <img src={avatarUrl || '/icon.svg'} alt={callerName} className="w-20 h-20 rounded-full object-cover border-2 border-emerald-500/50 relative z-10" />
-             </div>
-             <div className="text-center">
-                <h3 className="text-white font-bold text-lg">@{callerName}</h3>
-                <p className="text-emerald-400 text-sm">HorPal End-to-End Encrypted {callType === 'video' ? 'Video' : 'Voice'} Call</p>
-             </div>
-          </div>
-        )}
 
-        <div className="flex justify-center gap-4 mt-2">
-          <button onClick={onDecline} className="w-14 h-14 rounded-full bg-red-500/20 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]">
-            <PhoneOff className="w-6 h-6" />
-          </button>
+            {/* Center Caller Identity & Pulsing Rings */}
+            <div className="flex flex-col items-center gap-5 text-center">
+                <div className="relative flex items-center justify-center">
+                    <div className="absolute w-40 h-40 rounded-full bg-emerald-500/20 animate-ping" />
+                    <div className="absolute w-48 h-48 rounded-full border border-emerald-500/30 animate-pulse" />
+                    <div className="relative w-32 h-32 rounded-full overflow-hidden border-2 border-emerald-400 shadow-[0_0_40px_rgba(16,185,129,0.45)] bg-gray-900">
+                        {resolvedAvatar ? (
+                            <img
+                                src={resolvedAvatar}
+                                alt={callerName}
+                                className="w-full h-full object-cover"
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-700 text-white text-4xl font-bold">
+                                {(groupName || callerName)?.charAt(0)?.toUpperCase() || 'H'}
+                            </div>
+                        )}
+                    </div>
+                </div>
 
-          <button onClick={() => onAccept('audio')} className="w-14 h-14 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)]">
-            <Phone className="w-6 h-6" />
-          </button>
+                <div className="space-y-1.5 mt-2">
+                    {isGroup && groupName && (
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-xs font-semibold mb-1">
+                            <Users className="w-3.5 h-3.5" />
+                            {groupName}
+                        </div>
+                    )}
+                    <h2 className="text-3xl font-bold text-white tracking-tight">{callerName}</h2>
+                    <p className="text-sm font-medium text-emerald-400 tracking-widest uppercase animate-pulse">
+                        Incoming {isGroup ? 'Group ' : ''}
+                        {isVideo ? 'Video' : 'Voice'} Call...
+                    </p>
+                </div>
+            </div>
 
-          {callType === 'video' && (
-            <button onClick={() => onAccept('video')} className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-              <Video className="w-6 h-6" />
-            </button>
-          )}
+            {/* Bottom Accept / Decline Controls */}
+            <div className="flex items-center justify-center gap-16 w-full max-w-xs">
+                {/* Decline Button */}
+                <div className="flex flex-col items-center gap-3">
+                    <button
+                        onClick={onDecline}
+                        className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_30px_rgba(239,68,68,0.5)] text-white"
+                    >
+                        <PhoneOff className="w-8 h-8" />
+                    </button>
+                    <span className="text-xs font-semibold text-white/70 tracking-wider uppercase">
+                        Decline
+                    </span>
+                </div>
+
+                {/* Accept Button */}
+                <div className="flex flex-col items-center gap-3">
+                    <button
+                        onClick={() => onAccept(isVideo ? 'video' : 'audio')}
+                        className="w-20 h-20 rounded-full bg-emerald-500 hover:bg-emerald-600 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_30px_rgba(16,185,129,0.55)] text-white animate-bounce"
+                    >
+                        {isVideo ? <Video className="w-8 h-8" /> : <Phone className="w-8 h-8" />}
+                    </button>
+                    <span className="text-xs font-semibold text-white/70 tracking-wider uppercase">
+                        {isGroup ? 'Join' : 'Accept'}
+                    </span>
+                </div>
+            </div>
         </div>
-
-        {!isGroup && (
-          <div className="flex gap-2 justify-center mt-2">
-             <button onClick={onDecline} className="px-4 py-2 rounded-full bg-white/5 text-white/70 text-xs hover:bg-white/10 transition-colors">Can't talk right now</button>
-             <button onClick={onDecline} className="px-4 py-2 rounded-full bg-white/5 text-white/70 text-xs hover:bg-white/10 transition-colors">I'll call you right back</button>
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
+    );
 };
