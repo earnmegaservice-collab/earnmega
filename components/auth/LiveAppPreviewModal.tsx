@@ -34,6 +34,7 @@ interface LiveAppPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUnlockCheckout: () => void;
+  priceLabel?: string;
 }
 
 const PREVIEW_TABS: { id: PreviewTab; label: string; shortLabel: string; icon: any }[] = [
@@ -180,6 +181,7 @@ export default function LiveAppPreviewModal({
   isOpen,
   onClose,
   onUnlockCheckout,
+  priceLabel = 'GH₵ 50',
 }: LiveAppPreviewModalProps) {
   const [activeTab, setActiveTab] = useState<PreviewTab>('explore');
   const [autoTour, setAutoTour] = useState(true);
@@ -244,7 +246,7 @@ export default function LiveAppPreviewModal({
             <div className="flex items-center gap-2 min-w-0">
               <span className="inline-flex h-2.5 w-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
               <p className="text-[11px] sm:text-xs font-extrabold tracking-wide text-amber-200 truncate">
-                🔴 LIVE APP PREVIEW — Interactive Controls Locked • Pay GH₵ 50 Once to Unlock Everything
+                🔴 LIVE APP PREVIEW — Interactive Controls Locked • Pay {priceLabel} Once to Unlock Everything
               </p>
             </div>
             <button
@@ -273,7 +275,7 @@ export default function LiveAppPreviewModal({
               className="min-h-[44px] px-4 py-2 rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-black text-xs font-black tracking-wide shadow-[0_0_24px_rgba(245,158,11,0.55)] hover:scale-[1.02] active:scale-95 transition flex items-center gap-1.5 cursor-pointer touch-manipulation"
             >
               <ShieldCheck size={15} />
-              <span>Unlock Full Access (GH₵ 50)</span>
+              <span>Unlock Full Access ({priceLabel})</span>
             </button>
 
             <button

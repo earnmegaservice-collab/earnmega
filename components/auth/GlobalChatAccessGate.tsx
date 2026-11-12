@@ -19,11 +19,21 @@ import {
   EyeOff,
   AlertTriangle,
   LogIn,
+  ChevronDown,
+  MapPin,
 } from 'lucide-react';
 import { usePaystackPayment } from 'react-paystack';
 import toast from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import LiveAppPreviewModal from './LiveAppPreviewModal';
+import WorldwideCurrencyPicker from './WorldwideCurrencyPicker';
+import {
+  BASE_PASS_AMOUNT_GHS,
+  detectCurrencyFromTimezone,
+  fetchLiveGhsRates,
+  formatConvertedPrice,
+  getCurrencyMeta,
+} from '../../utils/worldCurrencies';
 
 interface GlobalChatAccessGateProps {
   isOpen: boolean;
@@ -98,6 +108,12 @@ export default function GlobalChatAccessGate({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [deniedEmailBanner, setDeniedEmailBanner] = useState<string | null>(null);
 
+  // Worldwide Currency Converter State (anchored to GH₵ 50.00 base settlement)
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('GHS');
+  const [liveRates, setLiveRates] = useState<Record<string, number> | null>(null);
+  const [detectedCurrency, setDetectedCurrency] = useState<string>('GHS');
+  const [isCurrencyPickerOpen, setIsCurrencyPickerOpen] = useState(false);
+
   const touchHandledRef = useRef(0);
 
   const initializePayment = usePaystackPayment(
@@ -107,6 +123,19 @@ export default function GlobalChatAccessGate({
       amount: 5000,
     }
   );
+
+  // Load live exchange rates + detect local timezone currency when gate opens
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    setDetectedCurrency(detectCurrencyFromTimezone());
+    fetchLiveGhsRates().then((rates) => {
+      if (active) setLiveRates(rates);
+    });
+    return () => {
+      active = false;
+    };
+  }, [isOpen]);
 
   // Pick up any unpaid OAuth return banner stored before sign-out
   useEffect(() => {
@@ -141,6 +170,14 @@ export default function GlobalChatAccessGate({
     } catch (_) {}
   };
 
+  const selectedMeta = getCurrencyMeta(selectedCurrency);
+  const isForeignCurrency = selectedMeta.code !== 'GHS';
+  const convertedPrice = formatConvertedPrice(BASE_PASS_AMOUNT_GHS, selectedMeta.code, liveRates);
+  const detectedMeta = getCurrencyMeta(detectedCurrency);
+  const syncedPriceLabel = isForeignCurrency
+    ? `≈ ${convertedPrice.formattedWithCode} (GH₵ 50.00)`
+    : 'GH₵ 50.00';
+
   const triggerPayment = () => {
     const payEmail = email.trim() || deniedEmailBanner || 'guest_' + Date.now() + '@earnmega.com';
     const reference = `pass_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -148,13 +185,15 @@ export default function GlobalChatAccessGate({
     setPaymentConfig({
       reference,
       email: payEmail,
-      amount: 50 * 100, // 5000 pesewas = GH₵ 50.00
+      amount: 50 * 100, // Strictly 5000 pesewas = GH₵ 50.00 settlement in GHS
       currency: 'GHS',
       publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || '',
       metadata: {
         payment_type: 'GLOBAL_CHAT_PASS',
         target_pillar: '1',
         amount_ghs: 50,
+        viewed_currency: selectedMeta.code,
+        viewed_estimate: convertedPrice.formattedWithCode,
       },
     });
   };
@@ -467,7 +506,7 @@ export default function GlobalChatAccessGate({
               </div>
             )}
 
-            {/* Headline & Subheadline */}
+            {/* Headline & Subheadline + Interactive Worldwide Currency Switcher */}
             <div className="text-center max-w-2xl mx-auto mb-7">
               <h1 className="text-2xl sm:text-4xl font-serif font-black tracking-tight text-white mb-3">
                 Unlock Earnmega Global Chat —{' '}
@@ -476,13 +515,55 @@ export default function GlobalChatAccessGate({
                 </span>
               </h1>
               <p className="text-sm sm:text-base text-zinc-400 font-medium leading-relaxed">
-                Pay Once & For All. Never Pay Entry Again. Instant Lifetime Access to the Global
-                Social & AI Ecosystem for only{' '}
-                <span className="text-white font-bold underline decoration-amber-400 decoration-2">
-                  GH₵ 50.00
-                </span>
+                Pay Once &amp; For All. Never Pay Entry Again. Instant Lifetime Access to the Global
+                Social &amp; AI Ecosystem for only{' '}
+                {isForeignCurrency ? (
+                  <span className="inline-flex flex-wrap items-baseline justify-center gap-1.5">
+                    <span className="text-amber-300 font-black text-base sm:text-lg underline decoration-amber-400 decoration-2">
+                      ≈ {convertedPrice.formattedWithCode}
+                    </span>
+                    <span className="text-zinc-400 text-xs sm:text-sm italic">(GH₵ 50.00)</span>
+                  </span>
+                ) : (
+                  <span className="text-white font-bold underline decoration-amber-400 decoration-2">
+                    GH₵ 50.00
+                  </span>
+                )}
                 .
               </p>
+
+              {/* Sleek Glowing Worldwide Currency Switcher Pill Directly Under GH₵ 50.00 */}
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  {...makeSafeTap(() => setIsCurrencyPickerOpen(true))}
+                  className="min-h-[44px] px-4 py-2 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/50 text-amber-200 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-[0_0_24px_rgba(245,158,11,0.28)] hover:scale-[1.02] active:scale-[0.98] transition cursor-pointer touch-manipulation"
+                >
+                  <span>
+                    {isForeignCurrency
+                      ? `🌍 Currency: ${selectedMeta.flag} ${selectedMeta.code} (≈ ${convertedPrice.formattedWithCode} • GH₵ 50.00)`
+                      : '🌍 Currency: 🇬🇭 GHS (GH₵ 50.00)'}
+                  </span>
+                  <ChevronDown size={15} className="text-amber-300 shrink-0" />
+                  <span className="hidden sm:inline text-amber-300/90 font-semibold">
+                    — Tap to Convert Worldwide
+                  </span>
+                </button>
+
+                {/* Auto-Detected Timezone Suggestion Chip */}
+                {detectedCurrency !== 'GHS' && selectedCurrency !== detectedCurrency && (
+                  <button
+                    type="button"
+                    {...makeSafeTap(() => setSelectedCurrency(detectedCurrency))}
+                    className="min-h-[36px] px-3.5 py-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/45 text-emerald-300 text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer touch-manipulation"
+                  >
+                    <MapPin size={13} className="text-emerald-400 shrink-0" />
+                    <span>
+                      📍 Detected currency: Convert GH₵ 50.00 to {detectedMeta.code} ({detectedMeta.symbol})
+                    </span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* 6 Glowing VIP Feature Cards */}
@@ -522,6 +603,15 @@ export default function GlobalChatAccessGate({
               />
             </div>
 
+            {/* Reassuring Worldwide Paystack Settlement Notice */}
+            {isForeignCurrency && (
+              <div className="max-w-xl mx-auto mb-4 px-4 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-400/35 text-emerald-200 text-xs text-center font-semibold leading-relaxed">
+                💳 Worldwide Visa, Mastercard, Apple Pay &amp; Mobile Money accepted. Charged at GH₵ 50.00 (≈{' '}
+                <span className="text-white font-black">{convertedPrice.formattedWithCode}</span> at your bank&apos;s
+                live exchange rate).
+              </div>
+            )}
+
             {/* Action Buttons: Pay GH₵ 50 & View Inside App */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3.5 max-w-xl mx-auto mb-4">
               <button
@@ -531,7 +621,11 @@ export default function GlobalChatAccessGate({
                 className="w-full sm:flex-1 min-h-[52px] py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-600 text-black font-black text-sm tracking-wide shadow-[0_0_30px_rgba(245,158,11,0.5)] hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer touch-manipulation"
               >
                 <ShieldCheck size={18} className="text-black shrink-0" />
-                <span>{isVerifying ? 'VERIFYING PAYMENT...' : 'Unlock Lifetime Access — GH₵ 50.00'}</span>
+                <span>
+                  {isVerifying
+                    ? 'VERIFYING PAYMENT...'
+                    : `Unlock Lifetime Access — ${syncedPriceLabel}`}
+                </span>
               </button>
 
               <button
@@ -567,10 +661,20 @@ export default function GlobalChatAccessGate({
         )}
       </motion.div>
 
+      {/* ==================== SEARCHABLE WORLDWIDE CURRENCY PICKER ==================== */}
+      <WorldwideCurrencyPicker
+        isOpen={isCurrencyPickerOpen}
+        onClose={() => setIsCurrencyPickerOpen(false)}
+        selectedCode={selectedCurrency}
+        onSelect={(code) => setSelectedCurrency(code)}
+        liveRates={liveRates}
+      />
+
       {/* ==================== HYPER-REALISTIC LIVE APP PREVIEW MODAL ==================== */}
       <LiveAppPreviewModal
         isOpen={showPreview}
         onClose={() => setShowPreview(false)}
+        priceLabel={syncedPriceLabel}
         onUnlockCheckout={() => {
           setShowPreview(false);
           setViewMode('gate');
