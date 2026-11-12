@@ -69,11 +69,43 @@ export async function POST(req: Request) {
       }
 
       // Fulfillment routing
-      if (paymentType === 'P1_REGISTRATION') {
+      if (paymentType === 'P1_REGISTRATION' || paymentType === 'P1_UPGRADE') {
+        const targetTier = String(metadata.target_tier || 'FREE').toUpperCase();
+        const isPro = targetTier === 'PRO' || targetTier === 'PREMIUM';
+        const isPremium = targetTier === 'PREMIUM';
+
         if (userId) {
-          await supabase.from('profiles').update({ is_paid: true }).eq('id', userId);
+          const { error: upErr } = await supabase
+            .from('profiles')
+            .update({
+              is_paid: true,
+              subscription_tier: targetTier,
+              is_pro: isPro,
+              is_premium: isPremium,
+            })
+            .eq('id', userId);
+          if (upErr) {
+            await supabase
+              .from('profiles')
+              .update({ is_paid: true, subscription_tier: targetTier })
+              .eq('id', userId);
+          }
         } else if (customerEmail) {
-          await supabase.from('profiles').update({ is_paid: true }).eq('email', customerEmail);
+          const { error: upErr } = await supabase
+            .from('profiles')
+            .update({
+              is_paid: true,
+              subscription_tier: targetTier,
+              is_pro: isPro,
+              is_premium: isPremium,
+            })
+            .eq('email', customerEmail);
+          if (upErr) {
+            await supabase
+              .from('profiles')
+              .update({ is_paid: true, subscription_tier: targetTier })
+              .eq('email', customerEmail);
+          }
         }
       }
       else if (paymentType === 'COIN_PURCHASE') {
@@ -81,8 +113,12 @@ export async function POST(req: Request) {
           const coinsAmount = Number(metadata.coins_amount || 0);
           const { data: prof } = await supabase.from('profiles').select('coin_balance, coins').eq('id', userId).single();
           if (prof) {
-             const currentCoins = prof.coin_balance || prof.coins || 0;
-             await supabase.from('profiles').update({ coin_balance: currentCoins + coinsAmount, coins: currentCoins + coinsAmount }).eq('id', userId);
+             const currentCoins = prof.coins || prof.coin_balance || 0;
+             const newTotal = currentCoins + coinsAmount;
+             const { error: coinErr } = await supabase.from('profiles').update({ coin_balance: newTotal, coins: newTotal }).eq('id', userId);
+             if (coinErr) {
+               await supabase.from('profiles').update({ coins: newTotal }).eq('id', userId);
+             }
           }
         }
       }

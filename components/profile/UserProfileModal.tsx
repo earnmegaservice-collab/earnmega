@@ -3,6 +3,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Heart, X, CheckCircle, Check } from 'lucide-react';
+import { LiveSpatialRadarCard } from '../location/LiveSpatialRadarCard';
 import {
   isRealVip,
   isRealPremium,
@@ -356,6 +357,12 @@ export default function UserProfileModal({
 
             {/* 4. LUXURY ATTRIBUTES & BIO */}
             <div className="px-6 pt-8 flex flex-col gap-8">
+              {/* PHASE 7: Live Spatial Radar Card (10 Coins Curiosity Paywall) */}
+              <LiveSpatialRadarCard
+                profile={mergedProfile}
+                isSelf={Boolean(user.isSelf || (currentUser && currentUser.id === user.id))}
+              />
+
               {displayBio && (
                 <div className="bg-white/[0.02] border border-white/5 rounded-3xl p-6 shadow-2xl relative overflow-hidden backdrop-blur-3xl">
                   <span className="text-[10px] text-fuchsia-400 font-bold uppercase tracking-widest mb-3 block">
