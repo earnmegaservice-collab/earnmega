@@ -10,6 +10,7 @@ export interface ConnectionRequestItem {
     sender_id: string;
     receiver_id: string;
     status: 'pending' | 'accepted' | 'declined';
+    is_spark?: boolean;
     created_at: string;
     senderProfile?: {
         id: string;
@@ -79,10 +80,19 @@ export function isConnectionRequestControlMessage(content?: string | null, messa
 export function parseConnectionRequestStatus(content?: string | null): 'pending' | 'accepted' | 'declined' | null {
     if (!content || !content.startsWith(CONNECTION_REQ_PREFIX)) return null;
     const inner = content.slice(CONNECTION_REQ_PREFIX.length).replace(']', '').trim().toLowerCase();
-    if (inner === 'pending' || inner === 'accepted' || inner === 'declined') {
+    if (inner === 'spark_pending' || inner === 'pending') {
+        return 'pending';
+    }
+    if (inner === 'accepted' || inner === 'declined') {
         return inner;
     }
     return null;
+}
+
+export function isSparkConnectionRequestControl(content?: string | null): boolean {
+    if (!content || !content.startsWith(CONNECTION_REQ_PREFIX)) return false;
+    const inner = content.slice(CONNECTION_REQ_PREFIX.length).replace(']', '').trim().toLowerCase();
+    return inner === 'spark_pending';
 }
 
 /**
@@ -183,6 +193,7 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
             sender_id: string;
             receiver_id: string;
             status: 'pending' | 'accepted' | 'declined';
+            is_spark?: boolean;
             created_at: string;
         }
     >();
@@ -193,13 +204,27 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
 
     // 1. Try querying dedicated `chat_requests` table if present
     try {
-        const { data: crData, error: crError } = await supabase
+        let crData: any[] | null = null;
+        const { data: crWithSpark, error: crSparkError } = await supabase
             .from('chat_requests')
-            .select('id, sender_id, receiver_id, status, created_at, updated_at')
+            .select('id, sender_id, receiver_id, status, is_spark, created_at, updated_at')
             .or(`sender_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`)
             .order('created_at', { ascending: true });
 
-        if (!crError && Array.isArray(crData)) {
+        if (!crSparkError && Array.isArray(crWithSpark)) {
+            crData = crWithSpark;
+        } else {
+            const { data: crFallback, error: crError } = await supabase
+                .from('chat_requests')
+                .select('id, sender_id, receiver_id, status, created_at, updated_at')
+                .or(`sender_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`)
+                .order('created_at', { ascending: true });
+            if (!crError && Array.isArray(crFallback)) {
+                crData = crFallback;
+            }
+        }
+
+        if (Array.isArray(crData)) {
             for (const row of crData) {
                 if (!row.sender_id || !row.receiver_id) continue;
                 const key = `${row.sender_id}_${row.receiver_id}`;
@@ -208,6 +233,7 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
                     sender_id: row.sender_id,
                     receiver_id: row.receiver_id,
                     status: row.status as 'pending' | 'accepted' | 'declined',
+                    is_spark: Boolean(row.is_spark),
                     created_at: row.updated_at || row.created_at,
                 });
             }
@@ -230,6 +256,7 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
                 if (!row.sender_id || !row.receiver_id) continue;
                 const parsedStatus = parseConnectionRequestStatus(row.content);
                 if (!parsedStatus) continue;
+                const isSparkMsg = isSparkConnectionRequestControl(row.content);
                 const key = `${row.sender_id}_${row.receiver_id}`;
                 const existing = pairRecords.get(key);
                 if (!existing || new Date(row.created_at).getTime() >= new Date(existing.created_at).getTime()) {
@@ -238,8 +265,11 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
                         sender_id: row.sender_id,
                         receiver_id: row.receiver_id,
                         status: parsedStatus,
+                        is_spark: Boolean(isSparkMsg || existing?.is_spark),
                         created_at: row.created_at,
                     });
+                } else if (isSparkMsg && existing) {
+                    existing.is_spark = true;
                 }
             }
         }
@@ -256,6 +286,7 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
             sender_id: string;
             receiver_id: string;
             status: 'pending' | 'accepted' | 'declined';
+            is_spark?: boolean;
             created_at: string;
         }>
     >();
@@ -275,6 +306,7 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
         sender_id: string;
         receiver_id: string;
         status: 'pending' | 'accepted' | 'declined';
+        is_spark?: boolean;
         created_at: string;
     }> = [];
 
@@ -358,7 +390,12 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
                     },
                 };
             })
-            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            .sort((a, b) => {
+                // Pin Spark requests to the very top of Connection Requests
+                if (a.is_spark && !b.is_spark) return -1;
+                if (!a.is_spark && b.is_spark) return 1;
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            });
     }
 
     return {
@@ -370,7 +407,7 @@ export async function fetchUserConnectionsAndRequests(currentUserId: string): Pr
 }
 
 /**
- * Phase 2: Send a Love / Connection Request (with Smart Mutual Match upgrade)
+ * Phase 2: Send a Love / Spark Connection Request (with Smart Mutual Match upgrade)
  */
 export async function sendLoveRequest(params: {
     currentUserId: string;
@@ -378,11 +415,13 @@ export async function sendLoveRequest(params: {
     currentUserAvatar?: string;
     targetUserId: string;
     targetUsername: string;
+    isSpark?: boolean;
 }): Promise<{
     status: 'sent' | 'already_sent' | 'mutual_match' | 'already_connected';
     requestId?: string;
+    isSpark?: boolean;
 }> {
-    const { currentUserId, currentUsername, currentUserAvatar, targetUserId } = params;
+    const { currentUserId, currentUsername, currentUserAvatar, targetUserId, isSpark = false } = params;
 
     if (!currentUserId || !targetUserId || currentUserId === targetUserId) {
         throw new Error('Invalid user IDs for connection request');
@@ -407,16 +446,16 @@ export async function sendLoveRequest(params: {
             receiverAvatar: currentUserAvatar,
             isMutualMatch: true,
         });
-        return { status: 'mutual_match', requestId: existingIncoming.id };
+        return { status: 'mutual_match', requestId: existingIncoming.id, isSpark };
     }
 
-    if (outgoingPendingIds.has(targetUserId)) {
+    if (outgoingPendingIds.has(targetUserId) && !isSpark) {
         return { status: 'already_sent' };
     }
 
     let createdId = `${currentUserId}_${targetUserId}_${Date.now()}`;
 
-    // 1. Try upserting in `chat_requests` table
+    // 1. Try upserting in `chat_requests` table (with is_spark support)
     try {
         const { data: crRow, error: crErr } = await supabase
             .from('chat_requests')
@@ -425,6 +464,7 @@ export async function sendLoveRequest(params: {
                     sender_id: currentUserId,
                     receiver_id: targetUserId,
                     status: 'pending',
+                    is_spark: isSpark,
                     updated_at: new Date().toISOString(),
                 },
                 { onConflict: 'sender_id,receiver_id' }
@@ -434,14 +474,29 @@ export async function sendLoveRequest(params: {
 
         if (!crErr && crRow?.id) {
             createdId = crRow.id;
+        } else if (crErr) {
+            // Fallback without is_spark column if not yet migrated
+            const { data: crFallback } = await supabase
+                .from('chat_requests')
+                .upsert(
+                    {
+                        sender_id: currentUserId,
+                        receiver_id: targetUserId,
+                        status: 'pending',
+                        updated_at: new Date().toISOString(),
+                    },
+                    { onConflict: 'sender_id,receiver_id' }
+                )
+                .select('id')
+                .single();
+            if (crFallback?.id) createdId = crFallback.id;
         }
     } catch {
         // Fallback below
     }
 
-    // 2. Also persist in `messages` as `[CONNECTION_REQUEST:pending]` so live schema & realtime work 100% reliably
+    // 2. Also persist in `messages` as `[CONNECTION_REQUEST:spark_pending]` or `[CONNECTION_REQUEST:pending]`
     try {
-        // Clean up any old connection request markers between these two users first
         await supabase
             .from('messages')
             .delete()
@@ -449,12 +504,16 @@ export async function sendLoveRequest(params: {
             .eq('receiver_id', targetUserId)
             .like('content', `${CONNECTION_REQ_PREFIX}%`);
 
+        const controlTag = isSpark
+            ? `${CONNECTION_REQ_PREFIX}spark_pending]`
+            : `${CONNECTION_REQ_PREFIX}pending]`;
+
         const { data: msgRow } = await supabase
             .from('messages')
             .insert({
                 sender_id: currentUserId,
                 receiver_id: targetUserId,
-                content: `${CONNECTION_REQ_PREFIX}pending]`,
+                content: controlTag,
                 status: 'sent',
                 is_read: false,
             })
@@ -472,8 +531,10 @@ export async function sendLoveRequest(params: {
     await insertScopedNotification({
         recipientId: targetUserId,
         senderId: currentUserId,
-        type: 'LOVE_REQUEST',
-        message: `@${currentUsername || 'Someone'} sent you a Love request! ❤️ Tap to view their profile.`,
+        type: isSpark ? 'SPARK_REQUEST' : 'LOVE_REQUEST',
+        message: isSpark
+            ? `⚡ @${currentUsername || 'Someone'} spent a Spark on you!`
+            : `@${currentUsername || 'Someone'} sent you a Love request! ❤️ Tap to view their profile.`,
     });
 
     // 4. Broadcast real-time event to receiver's inbox channel
@@ -484,10 +545,11 @@ export async function sendLoveRequest(params: {
         sender_name: currentUsername,
         sender_avatar: currentUserAvatar,
         status: 'pending',
+        is_spark: isSpark,
         created_at: new Date().toISOString(),
     });
 
-    return { status: 'sent', requestId: createdId };
+    return { status: 'sent', requestId: createdId, isSpark };
 }
 
 /**

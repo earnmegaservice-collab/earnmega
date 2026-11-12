@@ -17,16 +17,19 @@ import {
   Dog,
   Music,
   Crown,
+  Zap,
 } from 'lucide-react';
 import { DiscoveredUser } from './DiscoveryRadar';
 import VerifiedBadge from '../ui/VerifiedBadge';
 import { isRealVerified, isRealVip, isRealPremium } from '../../utils/connectionsStore';
+import { LiveSpatialRadarCard } from '../location/LiveSpatialRadarCard';
+import { usePaywallGate } from '../../hooks/usePaywallGate';
 
 interface DiscoveryProfileProps {
   user: DiscoveredUser;
   onSkip: () => void;
   onSendGift: (user: DiscoveredUser) => void;
-  onChat: (user: DiscoveredUser) => void;
+  onChat: (user: DiscoveredUser, isSpark?: boolean) => void;
   isRequestSent?: boolean;
   isConnected?: boolean;
   isSending?: boolean;
@@ -44,6 +47,8 @@ export default function DiscoveryProfile({
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [direction, setDirection] = useState<'skip' | 'love'>('skip');
   const [showLoveExplosion, setShowLoveExplosion] = useState(false);
+  const [showSparkExplosion, setShowSparkExplosion] = useState(false);
+  const { spendCoinsOrPromptStore } = usePaywallGate();
 
   const rawPhotos = (user as any).publicImages || (user as any).profile_images || [];
   let photos =
@@ -91,7 +96,27 @@ export default function DiscoveryProfile({
       setShowLoveExplosion(false);
     }, 900);
 
-    onChat(user);
+    onChat(user, false);
+  };
+
+  const handleSpark = async () => {
+    if (isSending) return;
+    const targetName = user.username || user.full_name || user.name || 'Profile';
+    await spendCoinsOrPromptStore({
+      requiredCoins: 1,
+      actionName: `Spark @${targetName}`,
+      actionCode: 'EXPLORE_SPARK',
+      bypassTiers: [],
+      onSuccess: () => {
+        setDirection('love');
+        setShowSparkExplosion(true);
+        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([60, 40, 120]);
+        onChat(user, true);
+        setTimeout(() => {
+          setShowSparkExplosion(false);
+        }, 1200);
+      },
+    });
   };
 
   const userIsVerified = isRealVerified(user);
@@ -240,6 +265,9 @@ export default function DiscoveryProfile({
               </p>
             </div>
 
+            {/* PHASE 7: Live Spatial Radar Card (10 Coins Curiosity Paywall) right above ESSENTIALS */}
+            <LiveSpatialRadarCard profile={user} />
+
             <div>
               <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">
                 Essentials
@@ -303,15 +331,33 @@ export default function DiscoveryProfile({
         </motion.div>
       </AnimatePresence>
 
-      {/* 3. FIXED FLOATING ACTION BUTTONS */}
+      {/* 3. FIXED FLOATING ACTION BUTTONS (X = Free Skip, Spark = 1 Coin, Love = Free Request) */}
       <div className="fixed bottom-8 left-0 right-0 flex items-center justify-center gap-5 px-6 z-[99999] pointer-events-none">
         <motion.button
           whileTap={{ scale: 0.85 }}
           onClick={handleSkip}
-          className="pointer-events-auto w-[68px] h-[68px] rounded-full bg-slate-900/90 backdrop-blur-2xl border-2 border-white/10 flex items-center justify-center text-gray-400 shadow-[0_10px_40px_rgba(0,0,0,0.6)] hover:bg-slate-800 hover:text-white hover:border-white/30 transition-all"
+          className="pointer-events-auto w-[64px] h-[64px] rounded-full bg-slate-900/90 backdrop-blur-2xl border-2 border-white/10 flex items-center justify-center text-gray-400 shadow-[0_10px_40px_rgba(0,0,0,0.6)] hover:bg-slate-800 hover:text-white hover:border-white/30 transition-all"
           title="Next Profile"
         >
-          <X size={32} strokeWidth={2.5} />
+          <X size={30} strokeWidth={2.5} />
+        </motion.button>
+
+        <motion.button
+          whileTap={{ scale: 0.85 }}
+          onClick={handleSpark}
+          disabled={isSending}
+          title="Send Priority Spark (1 Coin)"
+          className="pointer-events-auto w-14 h-14 bg-gradient-to-b from-amber-400 to-orange-500 rounded-full flex items-center justify-center text-white shadow-[0_0_30px_rgba(245,158,11,0.6)] border border-amber-300 hover:scale-105 transition-transform relative overflow-hidden disabled:opacity-50"
+        >
+          <Zap size={28} fill="currentColor" className="text-white drop-shadow-md" />
+          {showSparkExplosion && (
+            <motion.div
+              initial={{ scale: 0, opacity: 1 }}
+              animate={{ scale: 5, opacity: 0 }}
+              transition={{ duration: 0.8, ease: 'easeOut' }}
+              className="absolute inset-0 bg-yellow-300 rounded-full"
+            />
+          )}
         </motion.button>
 
         {isConnected ? (

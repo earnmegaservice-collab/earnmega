@@ -15,11 +15,14 @@ import {
   Check,
   RefreshCw,
   Layers,
-  ShieldCheck
+  ShieldCheck,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import FacialVerification from '../profile/FacialVerification';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { usePaywallGate } from '../../hooks/usePaywallGate';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 
@@ -30,10 +33,61 @@ interface StatusTabProps {
 
 export default function StatusTab({ onStatusClick, currentUserProfile }: StatusTabProps) {
   const { user } = useAuth();
+  const { spendCoinsOrPromptStore } = usePaywallGate();
   const [groupedStatuses, setGroupedStatuses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploadingStatus, setIsUploadingStatus] = useState(false);
   const [isUploadingPP, setIsUploadingPP] = useState(false);
+  const [unlockedStatusIds, setUnlockedStatusIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!user?.id || typeof window === 'undefined') return;
+    try {
+      const saved = localStorage.getItem(`unlocked_statuses_${user.id}`);
+      if (saved) {
+        setUnlockedStatusIds(new Set(JSON.parse(saved)));
+      }
+    } catch (_) {}
+  }, [user?.id]);
+
+  const isGroupUnlocked = (group: any): boolean => {
+    if (!group) return false;
+    if (group.userId === user?.id) return true;
+    const statuses: any[] = group.statuses || [];
+    if (statuses.length === 0) return true;
+    return statuses.every((s: any) => unlockedStatusIds.has(String(s.id))) || unlockedStatusIds.has(`group_${group.userId}_${group.latestUpdate}`);
+  };
+
+  const handleOpenOtherUserStatus = async (group: any) => {
+    if (!group) return;
+    if (isGroupUnlocked(group)) {
+      onStatusClick(group.userId, group.statuses, group.profile);
+      return;
+    }
+
+    const creatorName = group.profile?.username || 'User';
+    await spendCoinsOrPromptStore({
+      requiredCoins: 10,
+      actionName: `Unlock @${creatorName}'s Status`,
+      actionCode: 'STATUS_VIEW',
+      bypassTiers: [],
+      onSuccess: () => {
+        const nextSet = new Set(unlockedStatusIds);
+        (group.statuses || []).forEach((s: any) => nextSet.add(String(s.id)));
+        nextSet.add(`group_${group.userId}_${group.latestUpdate}`);
+        setUnlockedStatusIds(nextSet);
+        if (user?.id && typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(
+              `unlocked_statuses_${user.id}`,
+              JSON.stringify(Array.from(nextSet))
+            );
+          } catch (_) {}
+        }
+        onStatusClick(group.userId, group.statuses, group.profile);
+      },
+    });
+  };
 
   // Active Filter Tab: 'all' | 'hidden'
   const [activeTab, setActiveTab] = useState<'all' | 'hidden'>('all');
@@ -853,6 +907,7 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                 const latestStatus = group.statuses[group.statuses.length - 1];
                 const isVideo = latestStatus?.media_type === 'video';
                 const avatarSrc = group.profile?.avatar_url || group.profile?.avatarUrl;
+                const unlocked = isGroupUnlocked(group);
 
                 return (
                   <motion.div
@@ -864,15 +919,23 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      onStatusClick(group.userId, group.statuses, group.profile);
+                      handleOpenOtherUserStatus(group);
                     }}
-                    className="relative z-50 pointer-events-auto bg-[#090a0f] border border-white/15 hover:border-fuchsia-500/60 rounded-[28px] p-3 flex flex-col items-center justify-between shadow-[0_15px_35px_rgba(0,0,0,0.7)] cursor-pointer group aspect-[3/4] overflow-hidden transition-all"
+                    className={`relative z-50 pointer-events-auto bg-[#090a0f] border rounded-[28px] p-3 flex flex-col items-center justify-between shadow-[0_15px_35px_rgba(0,0,0,0.7)] cursor-pointer group aspect-[3/4] overflow-hidden transition-all ${
+                      unlocked
+                        ? 'border-emerald-500/40 hover:border-emerald-400'
+                        : 'border-amber-400/40 hover:border-amber-400 shadow-[0_10px_30px_rgba(245,158,11,0.15)]'
+                    }`}
                   >
-                    {/* 4K Story Media Preview */}
+                    {/* 4K Story Media Preview (High-Curiosity Blurred when Locked) */}
                     {isVideo ? (
                       <video
                         src={latestStatus.media_url}
-                        className="absolute inset-0 w-full h-full object-cover opacity-75 group-hover:scale-105 transition-transform duration-500"
+                        className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
+                          unlocked
+                            ? 'opacity-75 group-hover:scale-105'
+                            : 'opacity-70 blur-[10px] scale-110 brightness-75 group-hover:blur-[8px]'
+                        }`}
                         autoPlay
                         loop
                         muted
@@ -881,12 +944,16 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                     ) : (
                       <img
                         src={latestStatus.media_url}
-                        className="absolute inset-0 w-full h-full object-cover opacity-75 group-hover:scale-105 transition-transform duration-500"
+                        className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
+                          unlocked
+                            ? 'opacity-75 group-hover:scale-105'
+                            : 'opacity-70 blur-[10px] scale-110 brightness-75 group-hover:blur-[8px]'
+                        }`}
                         alt={group.profile?.username || 'Story'}
                       />
                     )}
 
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/25 to-black/50" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-black/55" />
 
                     {/* Top Bar: Segment Count + Quick Hide Button */}
                     <div className="relative z-10 w-full flex flex-col gap-1.5">
@@ -916,21 +983,33 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                       </div>
                     </div>
 
-                    {/* Glowing 4K Ring Avatar */}
-                    <div className="relative z-10 w-14 h-14 sm:w-16 sm:h-16 rounded-full p-[2.5px] bg-gradient-to-tr from-fuchsia-500 via-rose-500 to-amber-400 shadow-[0_0_20px_rgba(217,70,239,0.55)] group-hover:scale-105 transition-transform my-auto">
-                      <div className="w-full h-full bg-[#050505] rounded-full p-[1.5px] overflow-hidden flex items-center justify-center">
-                        {avatarSrc ? (
-                          <img
-                            src={avatarSrc}
-                            alt={group.profile?.username || 'User'}
-                            className="w-full h-full object-cover rounded-full"
-                          />
-                        ) : (
-                          <span className="text-white font-black text-sm">
-                            {(group.profile?.username?.[0] || 'U').toUpperCase()}
-                          </span>
-                        )}
+                    {/* Glowing 4K Ring Avatar + Lock Badge */}
+                    <div className="relative z-10 flex flex-col items-center my-auto">
+                      <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-full p-[2.5px] bg-gradient-to-tr from-fuchsia-500 via-rose-500 to-amber-400 shadow-[0_0_20px_rgba(217,70,239,0.55)] group-hover:scale-105 transition-transform">
+                        <div className="w-full h-full bg-[#050505] rounded-full p-[1.5px] overflow-hidden flex items-center justify-center">
+                          {avatarSrc ? (
+                            <img
+                              src={avatarSrc}
+                              alt={group.profile?.username || 'User'}
+                              className="w-full h-full object-cover rounded-full"
+                            />
+                          ) : (
+                            <span className="text-white font-black text-sm">
+                              {(group.profile?.username?.[0] || 'U').toUpperCase()}
+                            </span>
+                          )}
+                        </div>
                       </div>
+
+                      {!unlocked ? (
+                        <span className="mt-2 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500/90 to-orange-500/90 border border-amber-300 text-black text-[8px] sm:text-[9px] font-black uppercase tracking-tight shadow-[0_0_15px_rgba(245,158,11,0.6)] whitespace-nowrap">
+                          🔒 Unlock Status • 10 Coins
+                        </span>
+                      ) : (
+                        <span className="mt-2 px-2 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-[8px] sm:text-[9px] font-black uppercase tracking-tight">
+                          🔓 Unlocked
+                        </span>
+                      )}
                     </div>
 
                     {/* Username & Timestamp */}
@@ -972,7 +1051,7 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      onStatusClick(group.userId, group.statuses, group.profile);
+                      handleOpenOtherUserStatus(group);
                     }}
                     className="flex items-center gap-3.5 cursor-pointer min-w-0 flex-1 relative z-50 pointer-events-auto"
                   >

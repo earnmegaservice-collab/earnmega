@@ -59,6 +59,7 @@ import {
   Wifi
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
+import { usePaywallGate } from '../../hooks/usePaywallGate';
 
 
 const DrawerViewerList = React.memo(({ searchTerm, onViewerClick, hostId, activeParticipants }: { searchTerm: string, onViewerClick: (v: any) => void, hostId: string, activeParticipants: any[] }) => {
@@ -1689,6 +1690,8 @@ const ViewerVideoStage = React.memo(function ViewerVideoStage({ beautyMode }: { 
 // ============================================================================
 export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaProps) {
   const [isMounted, setIsMounted] = useState(false);
+  const { tier, isPremium, spendCoinsOrPromptStore } = usePaywallGate();
+  const hasPaidForCurrentLiveRef = useRef<boolean>(false);
   const isInitializingRef = useRef<boolean>(false);
   const viewerLeavingIntentionallyRef = useRef<boolean>(false);
   const processedPacketIdsRef = useRef<Set<string>>(new Set());
@@ -2396,9 +2399,9 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   }, [user, streamTitle, setupCategory, giftGoal, allowCohost]);
 
   // --------------------------------------------------------------------------
-  // HOST START STREAM WORKFLOW
+  // PHASE 6: GO LIVE PAYWALL (20 COINS OR PREMIUM ONLY — NO FREE LIVE FOR PRO)
   // --------------------------------------------------------------------------
-  const handleStartCountdown = () => {
+  const launchCountdownAfterGate = () => {
     setConnectionError(null);
     finalDurationRef.current = '00:00';
     setFinalDurationSeconds(0);
@@ -2415,6 +2418,71 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     roleRef.current = 'host';
     setCountdown(3);
     setStage('countdown');
+  };
+
+  const handleOpenGoLiveSetup = async () => {
+    // Premium users can Go Live anytime for FREE with zero stops
+    if (isPremium || tier === 'premium' || hasPaidForCurrentLiveRef.current) {
+      setStage('setup');
+      return;
+    }
+
+    // Free AND Pro users MUST either pay 20 Coins OR upgrade to Premium
+    await spendCoinsOrPromptStore({
+      requiredCoins: 20,
+      actionName: 'Go Live Now',
+      actionCode: 'GO_LIVE',
+      bypassTiers: ['premium'], // Strictly Premium only — Pro is NOT exempt
+      showPaywallModal: true,
+      paywallModalConfig: {
+        title: 'Go Live Now for 20 Coins — or Upgrade to Premium for Unlimited Free Live Streaming',
+        subtitle:
+          tier === 'pro'
+            ? 'Your Pro plan includes unlimited calls & group media. Live Arena broadcasting requires 20 Coins or the Premium Plan.'
+            : 'Command the HorPal Live Arena in 1080p HD and earn real-time gifts from viewers.',
+        payButtonLabel: 'Pay 20 Coins',
+        upgradeButtonLabel: 'Upgrade to Premium',
+        highlightPlan: 'PREMIUM',
+        badgeText: 'LIVE ARENA HOST GATEWAY',
+        icon: '🎥',
+      },
+      onSuccess: () => {
+        hasPaidForCurrentLiveRef.current = true;
+        setStage('setup');
+      },
+    });
+  };
+
+  const handleStartCountdown = async () => {
+    if (isPremium || tier === 'premium' || hasPaidForCurrentLiveRef.current) {
+      hasPaidForCurrentLiveRef.current = false; // consume session unlock as broadcast launches
+      launchCountdownAfterGate();
+      return;
+    }
+
+    await spendCoinsOrPromptStore({
+      requiredCoins: 20,
+      actionName: 'Start Live Stream',
+      actionCode: 'GO_LIVE',
+      bypassTiers: ['premium'], // Strictly Premium only — Pro is NOT exempt
+      showPaywallModal: true,
+      paywallModalConfig: {
+        title: 'Go Live Now for 20 Coins — or Upgrade to Premium for Unlimited Free Live Streaming',
+        subtitle:
+          tier === 'pro'
+            ? 'Your Pro plan includes unlimited calls & group media. Live Arena broadcasting requires 20 Coins or the Premium Plan.'
+            : 'Command the HorPal Live Arena in 1080p HD and earn real-time gifts from viewers.',
+        payButtonLabel: 'Pay 20 Coins',
+        upgradeButtonLabel: 'Upgrade to Premium',
+        highlightPlan: 'PREMIUM',
+        badgeText: 'LIVE ARENA HOST GATEWAY',
+        icon: '🎥',
+      },
+      onSuccess: () => {
+        hasPaidForCurrentLiveRef.current = false;
+        launchCountdownAfterGate();
+      },
+    });
   };
 
   // --------------------------------------------------------------------------
@@ -3400,7 +3468,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     };
 
     return createPortal(
-      <div className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white flex flex-col select-none overflow-hidden">
+      <div className="fixed inset-0 w-screen h-[100dvh] z-[100000] bg-[#060608] text-white flex flex-col select-none overflow-hidden">
         <div className="sticky top-0 z-30 bg-[#060608]/90 backdrop-blur-xl px-4 pt-4 pb-3 border-b border-white/5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -3423,7 +3491,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
             </div>
 
             <button
-              onClick={() => setStage('setup')}
+              onClick={handleOpenGoLiveSetup}
               className="flex items-center gap-2 rounded-full bg-gradient-to-r from-pink-600 via-rose-500 to-amber-500 px-4 py-2 text-sm font-bold text-white shadow-[0_0_20px_rgba(236,72,153,0.5)] active:scale-95 transition"
             >
               <Video className="h-4 w-4" />
@@ -3485,7 +3553,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               </div>
             </div>
             <button
-              onClick={() => setStage('setup')}
+              onClick={handleOpenGoLiveSetup}
               className="rounded-xl bg-pink-600 px-4 py-2 text-xs font-bold text-white shadow-[0_0_15px_rgba(219,39,119,0.5)] active:scale-95 transition"
             >
               Start Live
@@ -3504,7 +3572,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
                 Be the first creator to go live right now and command the entire HorPal stage.
               </p>
               <button
-                onClick={() => setStage('setup')}
+                onClick={handleOpenGoLiveSetup}
                 className="mt-6 rounded-full bg-gradient-to-r from-pink-600 via-purple-600 to-amber-500 px-7 py-3 text-sm font-extrabold text-white shadow-[0_0_25px_rgba(236,72,153,0.5)] active:scale-95 transition"
               >
                 Start Broadcasting Now
@@ -3579,7 +3647,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   // ==========================================================================
   if (stage === 'setup' || stage === 'countdown') {
     return createPortal(
-      <div className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white overflow-hidden flex flex-col select-none">
+      <div className="fixed inset-0 w-screen h-[100dvh] z-[100000] bg-[#060608] text-white overflow-hidden flex flex-col select-none">
         <video
           ref={(el) => {
             previewVideoRef.current = el;
@@ -3758,7 +3826,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     <div
       onClick={() => livekitBridgeRef.current?.unlockAudio()}
       onDoubleClick={role === 'viewer' ? spawnFloatingHeart : undefined}
-      className="fixed inset-0 w-screen h-[100dvh] z-[2147483647] bg-[#060608] text-white flex flex-col select-none overflow-hidden"
+      className="fixed inset-0 w-screen h-[100dvh] z-[100000] bg-[#060608] text-white flex flex-col select-none overflow-hidden"
     >
       {/* 1. HOST ALWAYS RENDERS CONTINUOUS LOCAL CAMERA LAYER SO SCREEN NEVER GOES BLACK */}
       {role === 'host' && (

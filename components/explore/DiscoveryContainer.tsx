@@ -69,7 +69,7 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
     });
   };
 
-  const handleChat = async (discoveredUser: DiscoveredUser) => {
+  const handleChat = async (discoveredUser: DiscoveredUser, isSpark: boolean = false) => {
     if (!authUser?.id) {
       toast.error('Please sign in first.');
       return;
@@ -84,7 +84,7 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
       return;
     }
 
-    if (sentRequestIds.has(discoveredUser.id)) {
+    if (sentRequestIds.has(discoveredUser.id) && !isSpark) {
       toast(`Love request already sent to @${targetUsername}`, { icon: '💌' });
       return;
     }
@@ -103,6 +103,7 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
         currentUserAvatar: authUser.user_metadata?.avatar_url,
         targetUserId: discoveredUser.id,
         targetUsername,
+        isSpark,
       });
 
       if (result.status === 'already_connected') {
@@ -118,18 +119,26 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
         return;
       }
 
-      if (result.status === 'already_sent') {
+      if (result.status === 'already_sent' && !isSpark) {
         setSentRequestIds((prev) => new Set(prev).add(discoveredUser.id));
         toast(`Love request already sent to @${targetUsername}`, { icon: '💌' });
         return;
       }
 
       setSentRequestIds((prev) => new Set(prev).add(discoveredUser.id));
-      toast.success(`Love request sent to @${targetUsername}! ❤️`);
+      if (isSpark) {
+        toast.success(`⚡ Priority Spark Request sent to @${targetUsername}!`);
+      } else {
+        toast.success(`Love request sent to @${targetUsername}! ❤️`);
+      }
     } catch (error) {
       console.error('Error sending love request from Find:', error);
       setSentRequestIds((prev) => new Set(prev).add(discoveredUser.id));
-      toast.success(`Love request sent to @${targetUsername}! ❤️`);
+      toast.success(
+        isSpark
+          ? `⚡ Priority Spark Request sent to @${targetUsername}!`
+          : `Love request sent to @${targetUsername}! ❤️`
+      );
     } finally {
       setIsSending(false);
     }

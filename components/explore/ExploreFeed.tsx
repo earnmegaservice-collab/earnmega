@@ -11,7 +11,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../context/AuthContext';
-import { useWallet } from '../../context/WalletContext';
+import { usePaywallGate } from '../../hooks/usePaywallGate';
+import { LiveSpatialRadarCard } from '../location/LiveSpatialRadarCard';
 import { toast } from 'react-hot-toast';
 import {
   AI_FRIENDS_BOT_ID,
@@ -144,8 +145,8 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
     };
   };
 
-  // PHASE 2: Unified Love Request System in Explore
-  const handleLike = async (profile: any) => {
+  // PHASE 2: Unified Love / Spark Request System in Explore
+  const handleLike = async (profile: any, isSpark: boolean = false) => {
     if (!user || !profile?.id || isSendingLove) return;
 
     const targetUsername = profile.username || profile.full_name || profile.name || 'User';
@@ -156,8 +157,8 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
       return;
     }
 
-    // If request already sent, inform user smoothly
-    if (sentRequestIds.has(profile.id)) {
+    // If request already sent and not upgrading to Spark, inform user smoothly
+    if (sentRequestIds.has(profile.id) && !isSpark) {
       toast(`Love request already sent to @${targetUsername}! ❤️`, { icon: '💌' });
       return;
     }
@@ -177,6 +178,7 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
         currentUserAvatar: currentUserProfile?.avatarUrl,
         targetUserId: profile.id,
         targetUsername,
+        isSpark,
       });
 
       if (result.status === 'already_connected') {
@@ -186,7 +188,6 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
       }
 
       if (result.status === 'mutual_match') {
-        // Smart Mutual Match upgrade!
         setAcceptedUserIds(prev => new Set(prev).add(profile.id));
         toast.success("It's a Match! 🎉");
         onStartChat(buildCleanChatTarget(profile));
@@ -195,7 +196,11 @@ export default function ExploreFeed({ onStartChat, currentUserProfile }: Explore
 
       // Request sent (pending approval) — do NOT open 1-on-1 DM chat yet
       setSentRequestIds(prev => new Set(prev).add(profile.id));
-      toast.success(`Love request sent to @${targetUsername}! ❤️`);
+      if (isSpark) {
+        toast.success(`⚡ Priority Spark Request sent to @${targetUsername}!`);
+      } else {
+        toast.success(`Love request sent to @${targetUsername}! ❤️`);
+      }
     } catch (err) {
       console.error('Error sending love request:', err);
       toast.error('Could not send request right now. Please try again.');
@@ -237,7 +242,7 @@ function ProfileView({
 }: {
   activeProfile: any;
   onSkip: () => void;
-  onLike: (p: any) => void;
+  onLike: (p: any, isSpark?: boolean) => void;
   onClose: () => void;
   isConnected?: boolean;
   isRequestSent?: boolean;
@@ -245,22 +250,30 @@ function ProfileView({
 }) {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [showSparkExplosion, setShowSparkExplosion] = useState(false);
-  const { balance, setBalance } = useWallet();
+  const { spendCoinsOrPromptStore } = usePaywallGate();
 
   useEffect(() => {
     setCurrentPhotoIndex(0);
   }, [activeProfile?.id]);
 
-  const handleSpark = () => {
-    if (balance >= 1) {
-      setBalance(balance - 1);
-    }
-    setShowSparkExplosion(true);
-    toast.success('⚡ Spark Sent!');
-    setTimeout(() => {
-      setShowSparkExplosion(false);
-      onLike(activeProfile);
-    }, 1200);
+  const handleSpark = async () => {
+    const targetName = activeProfile?.username || activeProfile?.full_name || 'Profile';
+    await spendCoinsOrPromptStore({
+      requiredCoins: 1,
+      actionName: `Spark @${targetName}`,
+      actionCode: 'EXPLORE_SPARK',
+      bypassTiers: [], // 1 Coin paywall for Spark
+      onSuccess: () => {
+        setShowSparkExplosion(true);
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([60, 40, 120]);
+        }
+        onLike(activeProfile, true);
+        setTimeout(() => {
+          setShowSparkExplosion(false);
+        }, 1200);
+      },
+    });
   };
 
   const rawPhotos = activeProfile?.publicImages || activeProfile?.profile_images || [];
@@ -387,100 +400,97 @@ function ProfileView({
           </motion.div>
 
           {/* 2. SCROLLABLE DEEP PROFILE SHEET */}
-          {!activeProfile.bio && !activeProfile.prompt_1_a && !activeProfile.prompt_2_a && !activeProfile.prompt_3_a ? null : (
-            <div className="bg-[#050505]/75 backdrop-blur-[50px] border-t border-white/10 rounded-t-[48px] px-8 pt-10 pb-40 w-full mt-[-100px] relative z-40 shadow-[0_-40px_100px_rgba(0,0,0,0.9)]">
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-fuchsia-500/20 blur-[100px] pointer-events-none -z-10 rounded-full"></div>
+          <div className="bg-[#050505]/75 backdrop-blur-[50px] border-t border-white/10 rounded-t-[48px] px-8 pt-10 pb-40 w-full mt-[-100px] relative z-40 shadow-[0_-40px_100px_rgba(0,0,0,0.9)]">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 bg-fuchsia-500/20 blur-[100px] pointer-events-none -z-10 rounded-full"></div>
 
-              <div className="w-full flex justify-center mb-8">
-                <motion.div
-                  animate={{ y: [0, 8, 0] }}
-                  transition={{ duration: 1.5, repeat: Infinity }}
-                  className="opacity-50"
-                >
-                  <ChevronDown size={28} />
-                </motion.div>
+            <div className="w-full flex justify-center mb-8">
+              <motion.div
+                animate={{ y: [0, 8, 0] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+                className="opacity-50"
+              >
+                <ChevronDown size={28} />
+              </motion.div>
+            </div>
+
+            <div className="flex flex-col gap-6">
+              {activeProfile.bio && (
+                <div className="mb-4">
+                  <p className="text-xl font-medium text-slate-200 leading-relaxed tracking-wide drop-shadow-lg">
+                    {activeProfile.bio}
+                  </p>
+                </div>
+              )}
+
+              {activeProfile.prompt_1_a && (
+                <div className="bg-transparent relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60} /></div>
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_1_q}</span>
+                  <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
+                    {activeProfile.prompt_1_a}
+                  </p>
+                </div>
+              )}
+
+              {activeProfile.prompt_2_a && (
+                <div className="bg-transparent relative overflow-hidden">
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_2_q}</span>
+                  <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
+                    {activeProfile.prompt_2_a}
+                  </p>
+                </div>
+              )}
+
+              {activeProfile.prompt_3_a && (
+                <div className="bg-transparent relative overflow-hidden">
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_3_q}</span>
+                  <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
+                    {activeProfile.prompt_3_a}
+                  </p>
+                </div>
+              )}
+
+              {/* PHASE 7: Live Spatial Radar Card (10 Coins Curiosity Paywall) right above ESSENTIALS */}
+              <LiveSpatialRadarCard profile={activeProfile} />
+
+              <div>
+                <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Essentials</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                    <Briefcase size={20} className="text-cyan-400" />
+                    <span className="text-sm font-medium text-white">{activeProfile.job_title || 'Creator'}</span>
+                  </div>
+                  <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                    <GraduationCap size={20} className="text-purple-400" />
+                    <span className="text-sm font-medium text-white">{activeProfile.education || 'Verified Member'}</span>
+                  </div>
+                  {activeProfile.height && (
+                    <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                      <Ruler size={20} className="text-pink-400" />
+                      <span className="text-sm font-medium text-white">{activeProfile.height} cm</span>
+                    </div>
+                  )}
+                  {activeProfile.zodiac_sign && (
+                    <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
+                      <Sparkles size={20} className="text-yellow-400" />
+                      <span className="text-sm font-medium text-white">{activeProfile.zodiac_sign}</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="flex flex-col gap-6">
-                {activeProfile.bio && (
-                  <div className="mb-4">
-                    <p className="text-xl font-medium text-slate-200 leading-relaxed tracking-wide drop-shadow-lg">
-                      {activeProfile.bio}
-                    </p>
-                  </div>
-                )}
-
-                {activeProfile.prompt_1_a && (
-                  <div className="bg-transparent relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={60} /></div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_1_q}</span>
-                    <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
-                      {activeProfile.prompt_1_a}
-                    </p>
-                  </div>
-                )}
-
-                {activeProfile.prompt_2_a && (
-                  <div className="bg-transparent relative overflow-hidden">
-                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_2_q}</span>
-                    <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
-                      {activeProfile.prompt_2_a}
-                    </p>
-                  </div>
-                )}
-
-                {activeProfile.prompt_3_a && (
-                  <div className="bg-transparent relative overflow-hidden">
-                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-rose-400 mb-2 block">{activeProfile.prompt_3_q}</span>
-                    <p className="text-3xl font-black text-white leading-none tracking-tighter drop-shadow-xl mb-8">
-                      {activeProfile.prompt_3_a}
-                    </p>
-                  </div>
-                )}
-
+              {(activeProfile.interests || []).length > 0 && (
                 <div>
-                  <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Essentials</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {activeProfile.job_title && (
-                      <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                        <Briefcase size={20} className="text-cyan-400" />
-                        <span className="text-sm font-medium text-white">{activeProfile.job_title}</span>
-                      </div>
-                    )}
-                    {activeProfile.education && (
-                      <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                        <GraduationCap size={20} className="text-purple-400" />
-                        <span className="text-sm font-medium text-white">{activeProfile.education}</span>
-                      </div>
-                    )}
-                    {activeProfile.height && (
-                      <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                        <Ruler size={20} className="text-pink-400" />
-                        <span className="text-sm font-medium text-white">{activeProfile.height} cm</span>
-                      </div>
-                    )}
-                    {activeProfile.zodiac_sign && (
-                      <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/5">
-                        <Sparkles size={20} className="text-yellow-400" />
-                        <span className="text-sm font-medium text-white">{activeProfile.zodiac_sign}</span>
-                      </div>
-                    )}
+                  <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Lifestyle</h3>
+                  <div className="flex flex-wrap gap-3">
+                    {activeProfile.interests.map((interest: string, idx: number) => (
+                      <span key={idx} className="bg-white/10 border border-white/5 text-white font-semibold rounded-full px-4 py-2 flex items-center gap-2">{interest}</span>
+                    ))}
                   </div>
                 </div>
-
-                {(activeProfile.interests || []).length > 0 && (
-                  <div>
-                    <h3 className="text-sm text-gray-400 font-bold uppercase tracking-wider mb-4">Lifestyle</h3>
-                    <div className="flex flex-wrap gap-3">
-                      {activeProfile.interests.map((interest: string, idx: number) => (
-                        <span key={idx} className="bg-white/10 border border-white/5 text-white font-semibold rounded-full px-4 py-2 flex items-center gap-2">{interest}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* 3. FLOATING ACTION BUTTONS */}
           <div className="fixed bottom-8 left-0 right-0 flex justify-center gap-5 px-6 z-[100000] pointer-events-none items-center">

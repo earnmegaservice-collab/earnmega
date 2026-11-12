@@ -280,7 +280,7 @@ export default function CoinStoreModal({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md antialiased">
+        <div className="fixed inset-0 z-[2147483646] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md antialiased">
           <motion.div
             initial={{ opacity: 0, y: 12, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}

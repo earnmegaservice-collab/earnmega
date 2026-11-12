@@ -493,11 +493,17 @@ export default function ChatList({
     return (b.lastMessageTime || 0) - (a.lastMessageTime || 0);
   });
 
-  const filteredRequests = incomingRequests.filter(req => {
-    if (!searchQuery.trim()) return true;
-    const name = req.senderProfile?.name || req.senderProfile?.username || '';
-    return name.toLowerCase().includes(searchQuery.toLowerCase());
-  });
+  const filteredRequests = [...incomingRequests]
+    .filter(req => {
+      if (!searchQuery.trim()) return true;
+      const name = req.senderProfile?.name || req.senderProfile?.username || '';
+      return name.toLowerCase().includes(searchQuery.toLowerCase());
+    })
+    .sort((a, b) => {
+      if (a.is_spark && !b.is_spark) return -1;
+      if (!a.is_spark && b.is_spark) return 1;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
 
   const showRequestsSection =
     (activeFilter === 'All' && filteredRequests.length > 0) ||
@@ -542,6 +548,7 @@ export default function ChatList({
                   const senderVip = isRealVip(sender);
                   const senderPremium = isRealPremium(sender);
                   const isBusy = processingRequestId === req.id;
+                  const isSparked = Boolean(req.is_spark);
 
                   return (
                     <motion.div
@@ -549,15 +556,33 @@ export default function ChatList({
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95 }}
-                      className="w-full rounded-2xl bg-[#111418]/95 border border-rose-500/30 p-3.5 shadow-[0_8px_25px_rgba(0,0,0,0.5)] flex flex-col gap-3"
+                      className={`w-full rounded-2xl p-3.5 shadow-[0_8px_25px_rgba(0,0,0,0.5)] flex flex-col gap-3 ${
+                        isSparked
+                          ? 'bg-gradient-to-r from-amber-950/60 via-[#151821] to-[#111418] border-2 border-amber-400/70 shadow-[0_0_25px_rgba(245,158,11,0.25)]'
+                          : 'bg-[#111418]/95 border border-rose-500/30'
+                      }`}
                     >
+                      {isSparked && (
+                        <div className="flex items-center justify-between">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 text-black text-[10px] font-black uppercase tracking-widest shadow-[0_0_15px_rgba(245,158,11,0.6)] animate-pulse">
+                            ⚡ SPARKED YOU
+                          </span>
+                          <span className="text-[10px] font-bold text-amber-300">
+                            Priority Spark Request
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between gap-3">
                         {/* Clickable Avatar & Name for Mandatory Profile Inspection */}
                         <div
                           onClick={() => onInspectRequesterProfile?.(req)}
                           className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group"
                         >
-                          <div className="relative w-12 h-12 rounded-full overflow-hidden bg-white/10 border-2 border-rose-500/50 flex-shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                          <div
+                            className={`relative w-12 h-12 rounded-full overflow-hidden bg-white/10 border-2 flex-shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform ${
+                              isSparked ? 'border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)]' : 'border-rose-500/50'
+                            }`}
+                          >
                             {senderAvatar ? (
                               <img src={senderAvatar} alt={senderName} className="w-full h-full object-cover" />
                             ) : (
@@ -583,8 +608,8 @@ export default function ChatList({
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-rose-300/90 truncate font-medium mt-0.5">
-                              Sent you a Love request ❤️
+                            <p className={`text-xs truncate font-medium mt-0.5 ${isSparked ? 'text-amber-300' : 'text-rose-300/90'}`}>
+                              {isSparked ? `⚡ @${senderName} spent a Spark on you!` : 'Sent you a Love request ❤️'}
                               {sender?.country ? ` • ${sender.country}` : ''}
                               {sender?.age ? `, ${sender.age}` : ''}
                             </p>
