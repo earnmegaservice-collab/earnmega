@@ -13,6 +13,7 @@ interface NotificationDrawerProps {
 
 interface AppNotification {
   id: string;
+  user_id: string;
   type: 'status_unlock' | 'status_like' | 'gift';
   message: string;
   created_at: Date;
@@ -24,16 +25,20 @@ export default function NotificationDrawer({ isOpen, onClose }: NotificationDraw
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) {
+      setNotifications([]);
+      return;
+    }
 
-    // Load initial notifications (mocked or from db if we had a table for it)
-    // For now we will rely mostly on real-time events since we didn't migrate a notifications table.
+    const currentUserId = user.id;
 
-    const channel = supabase.channel('chat-events')
+    const channel = supabase
+      .channel(`status-chat-events-${currentUserId}`)
       .on('broadcast', { event: 'status_unlocked' }, (payload) => {
-        if (payload.payload.creatorId === user.id) {
+        if (payload?.payload?.creatorId === currentUserId) {
           addNotification({
             id: Date.now().toString(),
+            user_id: currentUserId,
             type: 'status_unlock',
             message: `Someone paid 10 coins to view your status!`,
             created_at: new Date(),
@@ -42,9 +47,10 @@ export default function NotificationDrawer({ isOpen, onClose }: NotificationDraw
         }
       })
       .on('broadcast', { event: 'status_liked' }, (payload) => {
-        if (payload.payload.creatorId === user.id) {
+        if (payload?.payload?.creatorId === currentUserId) {
           addNotification({
             id: Date.now().toString(),
+            user_id: currentUserId,
             type: 'status_like',
             message: `Someone liked your status!`,
             created_at: new Date(),
@@ -53,15 +59,16 @@ export default function NotificationDrawer({ isOpen, onClose }: NotificationDraw
         }
       })
       .on('broadcast', { event: 'gift_sent' }, (payload) => {
-        if (payload.payload.recipientId === user.id || payload.payload.senderId !== user.id && !payload.payload.recipientId) {
-           // In actual logic gift_sent event should ideally specify recipientId, adapting based on ChatInterface.tsx implementation
-           addNotification({
-             id: Date.now().toString(),
-             type: 'gift',
-             message: `You received a ${payload.payload.giftData?.name} gift!`,
-             created_at: new Date(),
-             read: false,
-           });
+        // Strictly require recipientId === currentUserId so no other user's gifts leak
+        if (payload?.payload?.recipientId === currentUserId) {
+          addNotification({
+            id: Date.now().toString(),
+            user_id: currentUserId,
+            type: 'gift',
+            message: `You received a ${payload.payload.giftData?.name || 'special'} gift!`,
+            created_at: new Date(),
+            read: false,
+          });
         }
       })
       .subscribe();
@@ -69,18 +76,23 @@ export default function NotificationDrawer({ isOpen, onClose }: NotificationDraw
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user?.id]);
 
   const addNotification = (notif: AppNotification) => {
+    if (!user?.id || notif.user_id !== user.id) return;
     setNotifications((prev) => [notif, ...prev]);
   };
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'status_unlock': return <Unlock size={18} className="text-yellow-400" />;
-      case 'status_like': return <Heart size={18} className="text-pink-500 fill-pink-500" />;
-      case 'gift': return <Gift size={18} className="text-emerald-400" />;
-      default: return null;
+      case 'status_unlock':
+        return <Unlock size={18} className="text-yellow-400" />;
+      case 'status_like':
+        return <Heart size={18} className="text-pink-500 fill-pink-500" />;
+      case 'gift':
+        return <Gift size={18} className="text-emerald-400" />;
+      default:
+        return null;
     }
   };
 
@@ -107,7 +119,10 @@ export default function NotificationDrawer({ isOpen, onClose }: NotificationDraw
           >
             <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
               <h2 className="text-lg font-bold text-white tracking-wide">Notifications</h2>
-              <button onClick={onClose} className="text-gray-400 hover:text-white p-2 transition-colors rounded-full hover:bg-white/10">
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-white p-2 transition-colors rounded-full hover:bg-white/10"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -115,28 +130,37 @@ export default function NotificationDrawer({ isOpen, onClose }: NotificationDraw
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500 space-y-3">
-                   <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
-                      <Bell size={24} className="text-white/20" />
-                   </div>
-                   <p className="text-sm">No new notifications</p>
+                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
+                    <Bell size={24} className="text-white/20" />
+                  </div>
+                  <p className="text-sm">No new notifications</p>
                 </div>
               ) : (
-                notifications.map((notif) => (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    key={notif.id}
-                    className="flex items-start space-x-3 p-3 bg-white/5 hover:bg-white/10 backdrop-blur-xl rounded-2xl border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.2)] transition-colors"
-                  >
-                    <div className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center shrink-0 border border-white/5">
-                      {getIcon(notif.type)}
-                    </div>
-                    <div className="flex-1 min-w-0 pt-0.5">
-                      <p className="text-sm text-gray-200 font-medium leading-snug">{notif.message}</p>
-                      <p className="text-[10px] text-gray-500 mt-1">{notif.created_at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                    </div>
-                  </motion.div>
-                ))
+                notifications
+                  .filter((n) => n.user_id === user?.id)
+                  .map((notif) => (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      key={notif.id}
+                      className="flex items-start space-x-3 p-3 bg-white/5 hover:bg-white/10 backdrop-blur-xl rounded-2xl border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.2)] transition-colors"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center shrink-0 border border-white/5">
+                        {getIcon(notif.type)}
+                      </div>
+                      <div className="flex-1 min-w-0 pt-0.5">
+                        <p className="text-sm text-gray-200 font-medium leading-snug">
+                          {notif.message}
+                        </p>
+                        <p className="text-[10px] text-gray-500 mt-1">
+                          {notif.created_at.toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                    </motion.div>
+                  ))
               )}
             </div>
           </motion.div>

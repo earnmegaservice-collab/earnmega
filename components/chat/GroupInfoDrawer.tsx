@@ -34,6 +34,12 @@ import {
 import { supabase } from '../../utils/supabase';
 import { useCall } from '../../context/CallContext';
 import { saveGroupSettings, fetchGroupSettings } from '../../utils/groupSettingsStore';
+import {
+  AI_FRIENDS_BOT_ID,
+  SUPPORT_BOT_ID,
+  fetchUserConnectionsAndRequests,
+  insertScopedNotification,
+} from '../../utils/connectionsStore';
 import { toast } from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -609,26 +615,53 @@ export default function GroupInfoDrawer({
     });
   };
 
-  // Search Candidate Users for Add Members Modal
+  // Search Candidate Users for Add Members Modal (STRICTLY from accepted 1-on-1 Chat List connections)
   useEffect(() => {
-    if (!isAddMemberOpen) return;
+    if (!isAddMemberOpen || !effectiveUserId) return;
     let isCancelled = false;
 
     const searchProfiles = async () => {
-      let query = supabase
-        .from('profiles')
-        .select('id, full_name, name, username, avatar_url, bio, is_online')
-        .limit(30);
-
-      if (candidateQuery.trim()) {
-        const q = candidateQuery.trim();
-        query = query.or(`full_name.ilike.%${q}%,username.ilike.%${q}%,name.ilike.%${q}%`);
-      }
-
-      const { data } = await query;
-      if (!isCancelled && data) {
+      try {
+        const { acceptedUserIds } = await fetchUserConnectionsAndRequests(effectiveUserId);
         const existingIds = new Set(participants.map((p) => p.id));
-        setCandidateUsers(data.filter((u: any) => !existingIds.has(u.id)));
+        const eligibleIds = Array.from(acceptedUserIds).filter(
+          (id) =>
+            id !== effectiveUserId &&
+            id !== AI_FRIENDS_BOT_ID &&
+            id !== SUPPORT_BOT_ID &&
+            !existingIds.has(id)
+        );
+
+        if (eligibleIds.length === 0) {
+          if (!isCancelled) setCandidateUsers([]);
+          return;
+        }
+
+        let query = supabase
+          .from('profiles')
+          .select('id, full_name, name, username, avatar_url, bio, is_online, is_bot')
+          .in('id', eligibleIds);
+
+        if (candidateQuery.trim()) {
+          const q = candidateQuery.trim();
+          query = query.or(`full_name.ilike.%${q}%,username.ilike.%${q}%,name.ilike.%${q}%`);
+        }
+
+        const { data } = await query;
+        if (!isCancelled && data) {
+          setCandidateUsers(
+            data.filter(
+              (u: any) =>
+                !existingIds.has(u.id) &&
+                u.id !== AI_FRIENDS_BOT_ID &&
+                u.id !== SUPPORT_BOT_ID &&
+                u.is_bot !== true
+            )
+          );
+        }
+      } catch (err) {
+        console.error('Failed to load accepted friends for group add:', err);
+        if (!isCancelled) setCandidateUsers([]);
       }
     };
 
@@ -636,7 +669,7 @@ export default function GroupInfoDrawer({
     return () => {
       isCancelled = true;
     };
-  }, [isAddMemberOpen, candidateQuery, participants]);
+  }, [isAddMemberOpen, candidateQuery, participants, effectiveUserId]);
 
   // Confirm Add Members (Block 3)
   const handleConfirmAddMembers = async () => {
@@ -644,7 +677,15 @@ export default function GroupInfoDrawer({
     setIsAddingMembers(true);
 
     try {
-      for (const candidate of selectedCandidates) {
+      const allowedIds = new Set(candidateUsers.map((u) => u.id));
+      const validCandidates = selectedCandidates.filter((c) => allowedIds.has(c.id));
+      if (validCandidates.length === 0) {
+        toast.error('Connect with people in Explore or Find first to add them to a group.');
+        setIsAddingMembers(false);
+        return;
+      }
+
+      for (const candidate of validCandidates) {
         await supabase.from('group_members').upsert({
           group_id: groupId,
           user_id: candidate.id,
@@ -665,20 +706,17 @@ export default function GroupInfoDrawer({
           role: 'member'
         });
 
-        // Send global notification
-        await supabase.from('notifications').insert({
-          user_id: candidate.id,
-          actor_id: effectiveUserId,
+        // Send strictly scoped notification
+        await insertScopedNotification({
+          recipientId: candidate.id,
+          senderId: effectiveUserId,
           type: 'GROUP_INVITE',
-          title: `Added to ${displayGroupName}`,
           message: `${currentActorName} added you to "${displayGroupName}"`,
-          reference_id: groupId,
-          is_read: false
         });
       }
 
       // Format combined system message
-      const names = selectedCandidates.map((c) => c.full_name || c.name || c.username || 'User');
+      const names = validCandidates.map((c) => c.full_name || c.name || c.username || 'User');
       let sysText = '';
       if (names.length === 1) {
         sysText = `${currentActorName} added ${names[0]}`;
@@ -689,7 +727,7 @@ export default function GroupInfoDrawer({
       }
 
       await fireSystemMessage(sysText, 'member_added');
-      toast.success(`Added ${selectedCandidates.length} member(s)!`);
+      toast.success(`Added ${validCandidates.length} member(s)!`);
       setSelectedCandidates([]);
       setIsAddMemberOpen(false);
       await fetchParticipants();
@@ -1714,7 +1752,9 @@ export default function GroupInfoDrawer({
                 {/* User Results List */}
                 <div className="space-y-1.5 pt-2">
                   {candidateUsers.length === 0 ? (
-                    <p className="text-center text-xs text-white/40 py-8">No matching users found</p>
+                    <p className="text-center text-xs text-white/50 py-8 px-4 bg-white/[0.03] border border-white/10 rounded-2xl leading-relaxed">
+                      Connect with people in Explore or Find first to add them to a group.
+                    </p>
                   ) : (
                     candidateUsers.map((u) => {
                       const isSelected = selectedCandidates.some((s) => s.id === u.id);

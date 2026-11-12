@@ -4,15 +4,23 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ArrowLeft } from 'lucide-react';
+import { Search, ArrowLeft, Heart, Sparkles } from 'lucide-react';
 import { UserProfileDetails } from '../profile/UserProfileModal';
 import VerifiedBadge from '../ui/VerifiedBadge';
-import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, ShieldAlert, ShieldCheck, Eye, MessageCircle, User, Ban } from 'lucide-react';
+import { MoreVertical, Pin, PinOff, Trash2, Bell, BellOff, Check, X, Users, ShieldAlert, ShieldCheck, Eye } from 'lucide-react';
 import { submitUserReport } from '../../app/actions/submitUserReport';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
-import MessageForwardModal from './MessageForwardModal';
 import { deleteConversationPermanently } from '../../utils/deleteUtils';
+import {
+  AI_FRIENDS_BOT_ID,
+  SUPPORT_BOT_ID,
+  ConnectionRequestItem,
+  isRealPremiumOrVip,
+  isRealVip,
+  isRealPremium,
+  isRealVerified,
+} from '../../utils/connectionsStore';
 
 interface ChatListProps {
   setChats?: React.Dispatch<React.SetStateAction<any[]>>;
@@ -28,6 +36,10 @@ interface ChatListProps {
   activeStatusUsers: Set<string>;
   userStatusMap: Map<string, string[]>;
   blockedUserIds?: Set<string>;
+  incomingRequests?: ConnectionRequestItem[];
+  onAcceptRequest?: (req: ConnectionRequestItem) => Promise<void> | void;
+  onDeclineRequest?: (req: ConnectionRequestItem) => Promise<void> | void;
+  onInspectRequesterProfile?: (req: ConnectionRequestItem) => void;
 }
 
 export default function ChatList({
@@ -43,7 +55,11 @@ export default function ChatList({
   setChats,
   chats,
   userStatusMap,
-  blockedUserIds: parentBlockedUserIds
+  blockedUserIds: parentBlockedUserIds,
+  incomingRequests = [],
+  onAcceptRequest,
+  onDeclineRequest,
+  onInspectRequesterProfile,
 }: ChatListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [navigationError, setNavigationError] = useState<string | null>(null);
@@ -60,7 +76,6 @@ export default function ChatList({
   // Modals
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [showForwardModal, setShowForwardModal] = useState(false);
   const [showThreeDotMenu, setShowThreeDotMenu] = useState(false);
 
   // Deletion state
@@ -74,10 +89,8 @@ export default function ChatList({
   const [reportCategory, setReportCategory] = useState('');
   const [reportDescription, setReportDescription] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'All' | 'Unread' | 'Groups' | 'VIP'>('All');
-
-  // Filter State
-  const [activeFilterTab, setActiveFilterTab] = useState<'All' | 'Unread' | 'Groups'>('All');
+  const [activeFilter, setActiveFilter] = useState<'All' | 'Requests' | 'Unread' | 'Groups' | 'VIP'>('All');
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
   // Blocked State
   const [localBlockedUserIds, setLocalBlockedUserIds] = useState<Set<string>>(new Set(parentBlockedUserIds || []));
@@ -137,6 +150,7 @@ export default function ChatList({
   };
 
   const toggleSelection = (id: string) => {
+    if (id === AI_FRIENDS_BOT_ID) return; // AI Friends is permanently pinned and cannot be deleted
     const newSet = new Set(selectedChats);
     if (newSet.has(id)) {
       newSet.delete(id);
@@ -152,6 +166,7 @@ export default function ChatList({
   // For long press
   const pressTimer = React.useRef<NodeJS.Timeout | null>(null);
   const handleTouchStart = (chatId: string) => {
+    if (chatId === AI_FRIENDS_BOT_ID) return;
     pressTimer.current = setTimeout(() => {
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
       setIsMultiSelectMode(true);
@@ -165,14 +180,30 @@ export default function ChatList({
     if (pressTimer.current) clearTimeout(pressTimer.current);
   };
 
-  const filteredUsers = exploreUsers.filter(u => {
-    if (u.is_bot === true || (u.name || "").toLowerCase().includes("support")) return false;
+  // Deduplicate by id and keep AI Friends permanently pinned, while hiding Support bot
+  const uniqueExploreUsers = React.useMemo(() => {
+    const map = new Map<string, UserProfileDetails>();
+    for (const u of exploreUsers) {
+      if (!u || !u.id) continue;
+      // Hide support bot from main chat list, but ALWAYS allow AI Friends bot
+      if (u.id === SUPPORT_BOT_ID || (u.id !== AI_FRIENDS_BOT_ID && u.is_bot && (u.name || '').toLowerCase().includes('support'))) {
+        continue;
+      }
+      if (!map.has(u.id)) {
+        map.set(u.id, u);
+      }
+    }
+    return Array.from(map.values());
+  }, [exploreUsers]);
+
+  const filteredUsers = uniqueExploreUsers.filter(u => {
     if (!u.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
 
     if (activeFilter === 'All') return true;
+    if (activeFilter === 'Requests') return false; // Requests tab exclusively shows incoming requests
     if (activeFilter === 'Unread') return (u.unreadCount ?? 0) > 0;
-    if (activeFilter === 'Groups') return (u as any).isGroup;
-    if (activeFilter === 'VIP') return u.tier?.toLowerCase() === 'premium' || u.tier?.toLowerCase() === 'pro';
+    if (activeFilter === 'Groups') return Boolean((u as any).isGroup || (u as any).is_group || (u as any).type === 'group' || (u as any).room_type === 'group');
+    if (activeFilter === 'VIP') return isRealPremiumOrVip(u);
 
     return true;
   });
@@ -214,22 +245,18 @@ export default function ChatList({
   };
 
   const confirmPermanentDelete = async () => {
-    if (!currentUserProfile || !chatToDelete) return;
+    if (!currentUserProfile || !chatToDelete || chatToDelete === AI_FRIENDS_BOT_ID) return;
     setIsDeleting(true);
 
     try {
         const chatObj = exploreUsers.find(u => u.id === chatToDelete);
         const isGroup = chatObj?.isGroup === true;
-        // In ChatList, we don't necessarily know if they are an admin here without a query,
-        // but ChatInterface handles full admin group deletion. Here we default to false (which performs exit for groups).
         await deleteConversationPermanently(currentUserProfile.id, chatToDelete, isGroup, false);
 
         if (setChats) {
           setChats(prev => prev.filter((c: any) => c.id !== chatToDelete));
         }
 
-        // Optimistically remove from exploreUsers view by mutating or relying on re-render
-        // The parent component should refetch or we can rely on local blacklist filtering.
         setChatToDelete(null);
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
           navigator.vibrate([50, 100, 50]);
@@ -246,8 +273,7 @@ export default function ChatList({
   const handleDeleteSelected = async () => {
     if (!currentUserProfile) return;
 
-    // 1. Delete from backend
-    const idsArray = Array.from(selectedChats);
+    const idsArray = Array.from(selectedChats).filter(id => id !== AI_FRIENDS_BOT_ID);
     for (const targetUserId of idsArray) {
         const chatObj = exploreUsers.find(u => u.id === targetUserId);
         const isGroup = chatObj?.isGroup === true;
@@ -260,7 +286,6 @@ export default function ChatList({
         }
     }
 
-    // 2. Clear from UI
     if (setChats) {
       setChats(prev => prev.filter((c: any) => !idsArray.includes(c.id)));
     }
@@ -272,7 +297,7 @@ export default function ChatList({
   };
 
   const handleSelectAll = () => {
-    setSelectedChats(new Set(exploreUsers.map(chat => chat.id)));
+    setSelectedChats(new Set(uniqueExploreUsers.filter(c => c.id !== AI_FRIENDS_BOT_ID).map(chat => chat.id)));
     setShowThreeDotMenu(false);
   };
 
@@ -421,50 +446,210 @@ export default function ChatList({
 
         {/* Filters */}
         <div className="flex items-center space-x-2 overflow-x-auto scrollbar-hide select-none w-full" style={{ WebkitOverflowScrolling: 'touch' }}>
-          {(['All', 'Unread', 'Groups', 'VIP'] as const).map(filter => (
-            <button
-              key={filter}
-              onClick={() => {
-                if (navigator.vibrate) navigator.vibrate(10);
-                setActiveFilter(filter);
-              }}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border ${
-                activeFilter === filter
-                  ? 'bg-fuchsia-500 border-fuchsia-500 text-white shadow-[0_0_15px_rgba(217,70,239,0.4)]'
-                  : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
-              }`}
-            >
-              {filter}
-            </button>
-          ))}
+          {(['All', 'Requests', 'Unread', 'Groups', 'VIP'] as const).map(filter => {
+            const isRequestsTab = filter === 'Requests';
+            const reqCount = incomingRequests.length;
+            return (
+              <button
+                key={filter}
+                onClick={() => {
+                  if (navigator.vibrate) navigator.vibrate(10);
+                  setActiveFilter(filter);
+                }}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border flex items-center gap-1.5 ${
+                  activeFilter === filter
+                    ? 'bg-fuchsia-500 border-fuchsia-500 text-white shadow-[0_0_15px_rgba(217,70,239,0.4)]'
+                    : isRequestsTab && reqCount > 0
+                    ? 'bg-rose-500/15 border-rose-500/40 text-rose-300 hover:bg-rose-500/25'
+                    : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+                }`}
+              >
+                {isRequestsTab && <Heart size={12} className={reqCount > 0 ? 'fill-rose-500 text-rose-500' : ''} />}
+                <span>{filter}</span>
+                {isRequestsTab && reqCount > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-black min-w-[18px] text-center shadow-[0_0_8px_rgba(244,63,94,0.6)]">
+                    {reqCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
   );
 
-  const finalFilteredUsers = filteredUsers.filter(u => {
-    if (activeFilterTab === 'Unread') return (u.unreadCount ?? 0) > 0;
-    if (activeFilterTab === 'Groups') return ((u as any).isGroup || (u as any).is_group || (u as any).type === 'group' || (u as any).room_type === 'group');
-    return true;
-  });
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    // PHASE 1: Permanently pin AI Friends chat at the very top of the Chat List for every account
+    const aIsAiFriend = a.id === AI_FRIENDS_BOT_ID;
+    const bIsAiFriend = b.id === AI_FRIENDS_BOT_ID;
+    if (aIsAiFriend && !bIsAiFriend) return -1;
+    if (!aIsAiFriend && bIsAiFriend) return 1;
 
-  const sortedUsers = [...finalFilteredUsers].sort((a, b) => {
     const aPinned = pinnedChats.has(a.id);
     const bPinned = pinnedChats.has(b.id);
     if (aPinned && !bPinned) return -1;
     if (!aPinned && bPinned) return 1;
-    // Fallback to strict chronological order from exploreUsers
     return (b.lastMessageTime || 0) - (a.lastMessageTime || 0);
   });
+
+  const filteredRequests = incomingRequests.filter(req => {
+    if (!searchQuery.trim()) return true;
+    const name = req.senderProfile?.name || req.senderProfile?.username || '';
+    return name.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  const showRequestsSection =
+    (activeFilter === 'All' && filteredRequests.length > 0) ||
+    activeFilter === 'Requests';
 
   return (
     <div className="flex flex-col h-full bg-[#050505] select-none" style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
       {TopBar}
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden w-full pb-20 scrollbar-hide">
+        {/* PHASE 3: INCOMING LOVE / CONNECTION REQUESTS SECTION */}
+        {showRequestsSection && (
+          <div className="w-full px-4 pt-3 pb-2 border-b border-white/10 bg-gradient-to-b from-rose-500/10 via-fuchsia-500/5 to-transparent">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center">
+                  <Heart size={13} className="text-rose-400 fill-rose-400" />
+                </div>
+                <span className="text-xs font-black uppercase tracking-wider text-white">
+                  Connection Requests
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black shadow-[0_0_10px_rgba(244,63,94,0.5)]">
+                  {filteredRequests.length}
+                </span>
+              </div>
+              <span className="text-[11px] text-white/50 font-medium">
+                Tap profile to inspect before accepting
+              </span>
+            </div>
+
+            {filteredRequests.length === 0 ? (
+              <div className="py-10 text-center text-white/40 text-sm font-medium">
+                No pending Love requests right now.
+              </div>
+            ) : (
+              <div className="space-y-2.5 mb-2">
+                {filteredRequests.map((req) => {
+                  const sender = req.senderProfile;
+                  const senderName = sender?.name || sender?.username || 'User';
+                  const senderAvatar = sender?.avatar_url;
+                  const senderVerified = isRealVerified(sender);
+                  const senderVip = isRealVip(sender);
+                  const senderPremium = isRealPremium(sender);
+                  const isBusy = processingRequestId === req.id;
+
+                  return (
+                    <motion.div
+                      key={req.id}
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="w-full rounded-2xl bg-[#111418]/95 border border-rose-500/30 p-3.5 shadow-[0_8px_25px_rgba(0,0,0,0.5)] flex flex-col gap-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        {/* Clickable Avatar & Name for Mandatory Profile Inspection */}
+                        <div
+                          onClick={() => onInspectRequesterProfile?.(req)}
+                          className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group"
+                        >
+                          <div className="relative w-12 h-12 rounded-full overflow-hidden bg-white/10 border-2 border-rose-500/50 flex-shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                            {senderAvatar ? (
+                              <img src={senderAvatar} alt={senderName} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-white font-black text-base">
+                                {senderName.slice(0, 2).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-extrabold text-white truncate group-hover:text-rose-300 transition-colors">
+                                {senderName}
+                              </span>
+                              {senderVerified && <VerifiedBadge />}
+                              {senderVip && (
+                                <span className="text-[9px] bg-gradient-to-r from-amber-400 to-yellow-500 text-black px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest">
+                                  VIP
+                                </span>
+                              )}
+                              {!senderVip && senderPremium && (
+                                <span className="text-[9px] bg-gradient-to-r from-amber-400 to-yellow-500 text-black px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest">
+                                  PREMIUM
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-rose-300/90 truncate font-medium mt-0.5">
+                              Sent you a Love request ❤️
+                              {sender?.country ? ` • ${sender.country}` : ''}
+                              {sender?.age ? `, ${sender.age}` : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Explicit View Profile Button */}
+                        <button
+                          type="button"
+                          onClick={() => onInspectRequesterProfile?.(req)}
+                          className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-[11px] font-bold text-white/90 flex items-center gap-1.5 transition-all active:scale-95 flex-shrink-0"
+                        >
+                          <Eye size={13} className="text-fuchsia-400" />
+                          <span>View Profile</span>
+                        </button>
+                      </div>
+
+                      {/* Accept & Decline Action Buttons */}
+                      <div className="flex items-center gap-2.5 pt-1">
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={async () => {
+                            if (!onAcceptRequest) return;
+                            setProcessingRequestId(req.id);
+                            try {
+                              await onAcceptRequest(req);
+                            } finally {
+                              setProcessingRequestId(null);
+                            }
+                          }}
+                          className="flex-1 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-black text-xs uppercase tracking-wider shadow-[0_0_15px_rgba(16,185,129,0.4)] flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          <Check size={15} strokeWidth={3} />
+                          <span>{isBusy ? 'Accepting...' : 'Accept'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={async () => {
+                            if (!onDeclineRequest) return;
+                            setProcessingRequestId(req.id);
+                            try {
+                              await onDeclineRequest(req);
+                            } finally {
+                              setProcessingRequestId(null);
+                            }
+                          }}
+                          className="flex-1 py-2 rounded-xl bg-white/5 hover:bg-rose-500/20 border border-white/10 hover:border-rose-500/40 text-white/80 hover:text-rose-300 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          <X size={15} />
+                          <span>Decline</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {isLoading ? (
             <div className="flex flex-col w-full px-4 pt-4 gap-4">
-              {[...Array(6)].map((_, i) => (
+              {[...Array(3)].map((_, i) => (
                 <div key={i} className="flex items-center space-x-4 animate-pulse">
                   <div className="w-14 h-14 bg-white/5 rounded-full shrink-0"></div>
                   <div className="flex-1 space-y-3 py-1">
@@ -474,15 +659,21 @@ export default function ChatList({
                 </div>
               ))}
             </div>
-        ) : (
+        ) : activeFilter !== 'Requests' ? (
         <AnimatePresence>
-          {sortedUsers.map((u, i) => {
-            // STRICT FAKE PREMIUM TAG NUKE
-            const isPremiumUser = u.tier?.toLowerCase() === 'premium' || u.tier?.toLowerCase() === 'pro';
+          {sortedUsers.map((u) => {
+            const isAiFriendsChat = u.id === AI_FRIENDS_BOT_ID;
+            // PHASE 5: STRICT REAL BADGE CHECK (No fake PREMIUM or VIP on free users)
+            const isVipUser = isRealVip(u);
+            const isPremiumUser = isRealPremium(u);
+            const hasRealUpgrade = isVipUser || isPremiumUser;
+            const hasRealVerified = isRealVerified(u);
 
             // UNIFIED BOT IDENTITY
-            let displayName = u?.name || (u as any)?.username || (u as any)?.participants?.[0]?.username || "Unknown User";
-            if (u.is_bot) {
+            let displayName = isAiFriendsChat
+              ? 'AI Friends'
+              : (u?.name || (u as any)?.username || (u as any)?.participants?.[0]?.username || "Unknown User");
+            if (u.is_bot && !isAiFriendsChat) {
                 const storedBotName = typeof window !== 'undefined' ? localStorage.getItem(`bot_name_${u.id}`) : null;
                 if (storedBotName) {
                     displayName = storedBotName;
@@ -492,22 +683,25 @@ export default function ChatList({
             return (
               <div key={u.id} className="relative w-full overflow-hidden border-b border-white/5 shadow-inner bg-[#050505]">
                 {/* Background actions layer */}
-                <div className="absolute inset-0 flex z-0">
-                   {/* Left side: Mute/Unmute (Yellow) */}
-                   <div className="w-1/2 h-full bg-amber-500/20 flex items-center justify-start px-6">
-                     {mutedChats.has(u.id) ? <Bell size={24} className="text-amber-500 drop-shadow-md" /> : <BellOff size={24} className="text-amber-500 drop-shadow-md" />}
-                   </div>
-                   {/* Right side: Delete (Red) */}
-                   <div className="w-1/2 h-full bg-rose-600/90 flex items-center justify-end px-6">
-                     <Trash2 size={24} className="text-white drop-shadow-md" />
-                   </div>
-                </div>
+                {!isAiFriendsChat && (
+                  <div className="absolute inset-0 flex z-0">
+                     {/* Left side: Mute/Unmute (Yellow) */}
+                     <div className="w-1/2 h-full bg-amber-500/20 flex items-center justify-start px-6">
+                       {mutedChats.has(u.id) ? <Bell size={24} className="text-amber-500 drop-shadow-md" /> : <BellOff size={24} className="text-amber-500 drop-shadow-md" />}
+                     </div>
+                     {/* Right side: Delete (Red) */}
+                     <div className="w-1/2 h-full bg-rose-600/90 flex items-center justify-end px-6">
+                       <Trash2 size={24} className="text-white drop-shadow-md" />
+                     </div>
+                  </div>
+                )}
 
               <motion.div
                 layout
-                drag="x"
+                drag={isAiFriendsChat ? false : "x"}
                 dragConstraints={{ left: -100, right: 100 }}
                 onDragEnd={(e, info) => {
+                  if (isAiFriendsChat) return;
                   if (info.offset.x < -70) {
                     setChatToDelete(u.id);
                   } else if (info.offset.x > 70) {
@@ -532,7 +726,9 @@ export default function ChatList({
                 className={`w-full relative z-10 bg-[#050505] ${localBlockedUserIds.has(u.id) ? 'opacity-50 grayscale transition-all' : ''}`}
               >
                 <div
-                  className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto relative z-10 border-b border-white/5 select-none ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] rounded-2xl my-1 shadow-inner' : ''}`}
+                  className={`flex items-center w-full px-4 py-3.5 hover:bg-white/5 transition-all duration-300 cursor-pointer group touch-manipulation pointer-events-auto relative z-10 border-b border-white/5 select-none ${
+                    isAiFriendsChat ? 'bg-gradient-to-r from-fuchsia-500/10 via-purple-500/5 to-transparent' : ''
+                  } ${selectedChats.has(u.id) ? 'bg-fuchsia-500/10 border-transparent scale-[0.98] rounded-2xl my-1 shadow-inner' : ''}`}
                   style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
                   onTouchStart={() => handleTouchStart(u.id)}
                   onTouchMove={handleTouchMove}
@@ -548,7 +744,7 @@ export default function ChatList({
                         return;
                       }
                       if (!u.id) throw new Error('Chat ID is missing.');
-                      if ((currentUserProfile as any)?.isVerified === false) {
+                      if ((currentUserProfile as any)?.isVerified === false && !isAiFriendsChat) {
                         e.preventDefault();
                         setShowVerificationGateModal(true);
                         return;
@@ -559,7 +755,7 @@ export default function ChatList({
                     }
                   }}
                 >
-                  {isMultiSelectMode && (
+                  {isMultiSelectMode && !isAiFriendsChat && (
                     <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mr-4 flex-shrink-0">
                       <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all shadow-md ${selectedChats.has(u.id) ? 'bg-fuchsia-500 border-fuchsia-500' : 'border-white/20 bg-black/40'}`}>
                         {selectedChats.has(u.id) && <Check size={14} className="text-white font-bold" />}
@@ -574,11 +770,10 @@ export default function ChatList({
                       e.stopPropagation(); // MANDATORY: PREVENT CHAT NAVIGATION
                       if (navigator.vibrate) navigator.vibrate(20);
 
-                      // Check for status first
                       if (activeStatusUsers.has(u.id)) {
                         const userStatuses = userStatusMap.get(u.id) || [];
                         if (userStatuses.length > 0) {
-                          onStatusClick(u.id, [], u); // ChatInterface will fetch statuses.
+                          onStatusClick(u.id, [], u);
                           return;
                         }
                       }
@@ -589,9 +784,11 @@ export default function ChatList({
                     <div className={`relative w-[64px] h-[64px] rounded-full flex-shrink-0 flex items-center justify-center shadow-xl transition-transform active:scale-90 ${
                       activeStatusUsers.has(u.id) && (userStatusMap.get(u.id) || []).length > 0
                         ? 'p-[3px] bg-gradient-to-tr from-fuchsia-500 via-rose-500 to-amber-400 shadow-[0_0_20px_rgba(217,70,239,0.5)]'
-                        : (isPremiumUser ? 'p-[2px]' : 'border-2 border-white/10 bg-white/5')
+                        : isAiFriendsChat
+                        ? 'p-[2px] bg-gradient-to-tr from-fuchsia-500 via-purple-500 to-cyan-400 shadow-[0_0_15px_rgba(217,70,239,0.4)]'
+                        : (hasRealUpgrade ? 'p-[2px]' : 'border-2 border-white/10 bg-white/5')
                     }`}>
-                      {isPremiumUser && (
+                      {hasRealUpgrade && (
                         <div className="absolute inset-[-2px] rounded-full bg-gradient-to-tr from-amber-400 via-fuchsia-500 to-amber-400 animate-spin-slow shadow-[0_0_15px_rgba(217,70,239,0.3)]" />
                       )}
                       <div className="relative w-full h-full rounded-full bg-[#111418] flex items-center justify-center overflow-hidden z-10 border-2 border-[#050505]">
@@ -616,16 +813,25 @@ export default function ChatList({
                   <div className="flex-1 min-w-0 ml-4 flex flex-col justify-center pointer-events-none">
                     <div className="flex items-center space-x-2">
                       <h3 className={`text-[15px] truncate flex items-center gap-1 ${
-                        u.is_bot ? 'bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 drop-shadow-[0_0_10px_rgba(232,121,249,0.8)] font-extrabold' :
-                        isPremiumUser ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent font-black drop-shadow-md' : 'text-white font-bold'
+                        isAiFriendsChat || u.is_bot ? 'bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 drop-shadow-[0_0_10px_rgba(232,121,249,0.8)] font-extrabold' :
+                        hasRealUpgrade ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent font-black drop-shadow-md' : 'text-white font-bold'
                       }`}>
                         {displayName}
-                        {u.isVerified ? <VerifiedBadge /> : null}
+                        {hasRealVerified ? <VerifiedBadge /> : null}
                       </h3>
-                      {/* NUKE FAKE PREMIUM TAGS: strictly check isPremiumUser boolean */}
-                      {isPremiumUser ? (
+                      {isAiFriendsChat && (
+                        <span className="text-[9px] bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-300 px-2 py-0.5 rounded-full font-black uppercase tracking-widest flex items-center gap-1 flex-shrink-0">
+                          <Sparkles size={10} /> AI Companion
+                        </span>
+                      )}
+                      {/* PHASE 5: Render VIP / PREMIUM badge ONLY when user has real DB upgrade */}
+                      {isVipUser ? (
                         <span className="text-[9px] bg-gradient-to-r from-amber-400 to-yellow-500 text-black px-2 py-0.5 rounded-full font-black uppercase tracking-widest shadow-[0_0_10px_rgba(251,191,36,0.4)] flex-shrink-0">
                           VIP
+                        </span>
+                      ) : isPremiumUser ? (
+                        <span className="text-[9px] bg-gradient-to-r from-amber-400 to-yellow-500 text-black px-2 py-0.5 rounded-full font-black uppercase tracking-widest shadow-[0_0_10px_rgba(251,191,36,0.4)] flex-shrink-0">
+                          PREMIUM
                         </span>
                       ) : null}
                       {localBlockedUserIds.has(u.id) && (
@@ -633,16 +839,18 @@ export default function ChatList({
                       )}
                     </div>
                     <p className="text-[13px] text-white/50 truncate mt-1 font-medium">
-                      Tap to chat with {displayName}
+                      {isAiFriendsChat
+                        ? 'Your 24/7 AI Companion • Tap to chat anytime'
+                        : `Tap to chat with ${displayName}`}
                     </p>
                   </div>
 
                   <div className="flex flex-col items-end justify-center ml-3 flex-shrink-0 space-y-2 pointer-events-none">
                     <span className="text-[11px] text-white/40 font-bold tracking-wider">
-                      {u.isOnline ? 'Now' : '1h'}
+                      {isAiFriendsChat ? 'Pinned' : u.isOnline ? 'Now' : '1h'}
                     </span>
                     <div className="flex items-center space-x-1.5">
-                      {pinnedChats.has(u.id) && <Pin size={14} className="text-white/40 rotate-45" />}
+                      {(isAiFriendsChat || pinnedChats.has(u.id)) && <Pin size={14} className={isAiFriendsChat ? "text-fuchsia-400 rotate-45" : "text-white/40 rotate-45"} />}
                       {mutedChats.has(u.id) && <Bell size={14} className="text-white/40 opacity-50" />}
                     </div>
                     {(u.unreadCount ?? 0) > 0 && (
@@ -662,7 +870,7 @@ export default function ChatList({
             );
           })}
         </AnimatePresence>
-        )}
+        ) : null}
       </div>
 
       {/* --- WHATSAPP-STYLE 4K HD AVATAR VIEWER --- */}
@@ -810,8 +1018,6 @@ export default function ChatList({
                       toast.error('Please provide a reason');
                       return;
                     }
-                    // Add submission logic here, using handleReportUserSubmit if needed, or directly.
-                    // Oh wait, there is handleReportUserSubmit. Let's use it.
                     handleReportUserSubmit(e);
                   }}
                   className={`flex-1 py-3 rounded-xl text-white font-bold transition-all text-sm shadow-[0_0_15px_rgba(244,63,94,0.4)] ${

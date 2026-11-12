@@ -42,6 +42,7 @@ const getNotificationUI = (type: string) => {
         pulseClass: 'bg-amber-500 shadow-[0_0_10px_rgba(251,191,36,0.8)]'
       };
     case 'MATCH_FOUND':
+    case 'LOVE_ACCEPTED':
     case 'match':
       return {
         icon: <Flame size={18} className="text-fuchsia-400" />,
@@ -50,6 +51,15 @@ const getNotificationUI = (type: string) => {
         borderClass: 'border-fuchsia-500/20',
         shadowClass: 'shadow-[0_0_30px_rgba(232,121,249,0.1)]',
         pulseClass: 'bg-fuchsia-500 shadow-[0_0_10px_rgba(232,121,249,0.8)]'
+      };
+    case 'LOVE_REQUEST':
+      return {
+        icon: <Heart size={18} className="text-rose-400 fill-rose-400" />,
+        colorClass: 'rose',
+        bgClass: 'bg-rose-500/10',
+        borderClass: 'border-rose-500/20',
+        shadowClass: 'shadow-[0_0_30px_rgba(251,113,133,0.1)]',
+        pulseClass: 'bg-rose-500 shadow-[0_0_10px_rgba(251,113,133,0.8)]'
       };
     case 'REPORT_SUCCESS':
       return {
@@ -214,11 +224,12 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
               animate="show"
             >
               {notifications.filter(n => {
+                 if (user?.id && n.user_id && n.user_id !== user.id && n.recipient_id !== user.id) return false;
                  if (filter === 'ALL') return true;
                  if (filter === 'LIVE') return n.type === 'LIVE_STARTED';
                  if (filter === 'STATUS') return n.type === 'STATUS_POSTED' || n.type === 'STATUS_LIKED';
-                 if (filter === 'GROUPS') return n.type === 'MESSAGE' && n.room_id;
-                 if (filter === 'DMS') return n.type === 'MESSAGE' && !n.room_id;
+                 if (filter === 'GROUPS') return (n.type === 'MESSAGE' && n.room_id) || n.type === 'GROUP_INVITE';
+                 if (filter === 'DMS') return (n.type === 'MESSAGE' && !n.room_id) || n.type === 'LOVE_REQUEST' || n.type === 'LOVE_ACCEPTED' || n.type === 'MATCH_FOUND';
                  if (filter === 'CHAT_GIFTS') return n.type === 'chat_gift' || n.type === 'GIFT';
                  return true;
               }).length === 0 ? (
@@ -226,11 +237,12 @@ export default function NotificationDrawer({ isOpen, onClose }: { isOpen?: boole
               ) : (
                 <div className="flex flex-col gap-2 p-2">
                   {notifications.filter(n => {
+                     if (user?.id && n.user_id && n.user_id !== user.id && n.recipient_id !== user.id) return false;
                      if (filter === 'ALL') return true;
                      if (filter === 'LIVE') return n.type === 'LIVE_STARTED';
                      if (filter === 'STATUS') return n.type === 'STATUS_POSTED' || n.type === 'STATUS_LIKED';
-                     if (filter === 'GROUPS') return n.type === 'MESSAGE' && n.room_id;
-                     if (filter === 'DMS') return n.type === 'MESSAGE' && !n.room_id;
+                     if (filter === 'GROUPS') return (n.type === 'MESSAGE' && n.room_id) || n.type === 'GROUP_INVITE';
+                     if (filter === 'DMS') return (n.type === 'MESSAGE' && !n.room_id) || n.type === 'LOVE_REQUEST' || n.type === 'LOVE_ACCEPTED' || n.type === 'MATCH_FOUND';
                      if (filter === 'CHAT_GIFTS') return n.type === 'chat_gift' || n.type === 'GIFT';
                      return true;
                   }).map((notif, idx) => {

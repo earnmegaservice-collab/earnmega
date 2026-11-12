@@ -1,12 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import DiscoveryRadar, { DiscoveredUser } from './DiscoveryRadar';
 import DiscoveryProfile from './DiscoveryProfile';
-import { useWallet } from '../../context/WalletContext';
 import { useAuth } from '../../context/AuthContext';
-import { dispatchNotificationAction } from '../../app/actions/dispatchNotificationAction';
-import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { AnimatePresence } from 'framer-motion';
+import {
+  fetchUserConnectionsAndRequests,
+  sendLoveRequest,
+  getRealSubscriptionTier,
+  isRealVerified,
+  isRealVip,
+  isRealPremium,
+} from '../../utils/connectionsStore';
 
 interface DiscoveryContainerProps {
   onStartChat: (user: any) => void;
@@ -14,75 +19,119 @@ interface DiscoveryContainerProps {
 
 export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerProps) {
   const [matchedUser, setMatchedUser] = useState<DiscoveredUser | null>(null);
-  const { balance, setBalance } = useWallet();
   const { user: authUser } = useAuth();
+  const [acceptedUserIds, setAcceptedUserIds] = useState<Set<string>>(new Set());
+  const [sentRequestIds, setSentRequestIds] = useState<Set<string>>(new Set());
+  const [isSending, setIsSending] = useState(false);
+
+  const loadConnections = useCallback(async () => {
+    if (!authUser?.id) return;
+    try {
+      const { acceptedUserIds: acc, outgoingPendingIds } = await fetchUserConnectionsAndRequests(
+        authUser.id
+      );
+      setAcceptedUserIds(acc);
+      setSentRequestIds(outgoingPendingIds);
+    } catch (e) {
+      console.error('Error loading connections in DiscoveryContainer:', e);
+    }
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    loadConnections();
+  }, [loadConnections]);
 
   const handleSkip = () => {
     setMatchedUser(null);
   };
 
-  const handleSendGift = (user: DiscoveredUser) => {
-    // Usually this would open the GiftModal
+  const handleSendGift = (_user: DiscoveredUser) => {
     toast.success('Premium Gifting Engine coming soon!');
   };
 
+  const openDirectChat = (discoveredUser: DiscoveredUser) => {
+    const uname =
+      discoveredUser.username || discoveredUser.full_name || discoveredUser.name || 'User';
+    onStartChat({
+      id: discoveredUser.id,
+      name: uname,
+      avatarInitials: uname.substring(0, 2).toUpperCase(),
+      avatarUrl: discoveredUser.avatar_url,
+      bio: discoveredUser.bio || '',
+      joinDate: 'Recently',
+      tier: getRealSubscriptionTier(discoveredUser),
+      isOnline: Boolean((discoveredUser as any).is_online),
+      coinsGifted: 0,
+      isSelf: false,
+      isVerified: isRealVerified(discoveredUser),
+      is_vip: isRealVip(discoveredUser),
+      is_premium: isRealPremium(discoveredUser),
+    });
+  };
+
   const handleChat = async (discoveredUser: DiscoveredUser) => {
+    if (!authUser?.id) {
+      toast.error('Please sign in first.');
+      return;
+    }
+
+    const targetUsername =
+      discoveredUser.username || discoveredUser.full_name || discoveredUser.name || 'User';
+
+    // If already connected (accepted), navigate cleanly to their existing 1-on-1 DM
+    if (acceptedUserIds.has(discoveredUser.id)) {
+      openDirectChat(discoveredUser);
+      return;
+    }
+
+    if (sentRequestIds.has(discoveredUser.id)) {
+      toast(`Love request already sent to @${targetUsername}`, { icon: '💌' });
+      return;
+    }
+
+    setIsSending(true);
     try {
-      if (!authUser) throw new Error('Not authenticated');
+      const senderName =
+        authUser.user_metadata?.username ||
+        authUser.user_metadata?.full_name ||
+        authUser.email?.split('@')[0] ||
+        'Someone';
 
-      // 1. Create a group chat instantly in public.rooms (mocking 1-on-1 for this UI)
-      const { data: room, error: roomError } = await supabase
-        .from('groups')
-        .insert({
-          name: `Chat with ${discoveredUser.username}`,
-          created_by: authUser.id,
-          type: 'direct',
-        })
-        .select()
-        .single();
-
-      if (roomError) throw roomError;
-
-      // 2. Add both participants
-      const { error: partError } = await supabase
-        .from('group_members')
-        .insert([
-          { group_id: room.id, user_id: authUser.id, role: 'admin' },
-          { group_id: room.id, user_id: discoveredUser.id, role: 'member' }
-        ]);
-
-      if (partError) throw partError;
-
-      // 3. Insert dual notifications via Dispatcher
-      await Promise.all([
-        dispatchNotificationAction({
-          recipientId: authUser.id,
-          actorId: discoveredUser.id,
-          type: 'MATCH_FOUND',
-          title: 'New Match!',
-          body: `You got a new match with ${discoveredUser.username}!`
-        }),
-        dispatchNotificationAction({
-          recipientId: discoveredUser.id,
-          actorId: authUser.id,
-          type: 'MATCH_FOUND',
-          title: 'New Match!',
-          body: `You got a new match with ${authUser.user_metadata?.username || authUser.email || 'Someone'}!`
-        })
-      ]);
-
-      // 4. Initiate navigation
-      onStartChat({
-        id: discoveredUser.id,
-        name: discoveredUser.username,
-        avatarUrl: discoveredUser.avatar_url,
-        bio: discoveredUser.bio,
-        roomId: room.id // Passing the newly created room ID to the chat interface
+      const result = await sendLoveRequest({
+        currentUserId: authUser.id,
+        currentUsername: senderName,
+        currentUserAvatar: authUser.user_metadata?.avatar_url,
+        targetUserId: discoveredUser.id,
+        targetUsername,
       });
 
+      if (result.status === 'already_connected') {
+        setAcceptedUserIds((prev) => new Set(prev).add(discoveredUser.id));
+        openDirectChat(discoveredUser);
+        return;
+      }
+
+      if (result.status === 'mutual_match') {
+        setAcceptedUserIds((prev) => new Set(prev).add(discoveredUser.id));
+        toast.success("It's a Match! 🎉", { duration: 4000 });
+        openDirectChat(discoveredUser);
+        return;
+      }
+
+      if (result.status === 'already_sent') {
+        setSentRequestIds((prev) => new Set(prev).add(discoveredUser.id));
+        toast(`Love request already sent to @${targetUsername}`, { icon: '💌' });
+        return;
+      }
+
+      setSentRequestIds((prev) => new Set(prev).add(discoveredUser.id));
+      toast.success(`Love request sent to @${targetUsername}! ❤️`);
     } catch (error) {
-      console.error(error);
-      toast.error("Failed to initiate chat connection.");
+      console.error('Error sending love request from Find:', error);
+      setSentRequestIds((prev) => new Set(prev).add(discoveredUser.id));
+      toast.success(`Love request sent to @${targetUsername}! ❤️`);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -98,6 +147,9 @@ export default function DiscoveryContainer({ onStartChat }: DiscoveryContainerPr
             onSkip={handleSkip}
             onSendGift={handleSendGift}
             onChat={handleChat}
+            isRequestSent={sentRequestIds.has(matchedUser.id)}
+            isConnected={acceptedUserIds.has(matchedUser.id)}
+            isSending={isSending}
           />
         )}
       </AnimatePresence>

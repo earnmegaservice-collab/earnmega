@@ -66,10 +66,17 @@ export const AppShell: React.FC<AppShellProps> = ({
         const notif = e.detail;
         if (notif.type === 'LIVE_STARTED') setActiveTab('live');
         else if (notif.type === 'STATUS_POSTED' || notif.type === 'STATUS_LIKED') setActiveTab('status');
-        else if (notif.type === 'MESSAGE' || notif.type === 'GROUP_INVITE' || notif.type === 'chat_gift' || notif.type === 'GIFT') {
+        else if (
+          notif.type === 'MESSAGE' ||
+          notif.type === 'GROUP_INVITE' ||
+          notif.type === 'LOVE_REQUEST' ||
+          notif.type === 'LOVE_ACCEPTED' ||
+          notif.type === 'MATCH_FOUND' ||
+          notif.type === 'chat_gift' ||
+          notif.type === 'GIFT'
+        ) {
            setActiveTab('chats');
-           // Try to route to specific chat thread
-           if (notif.actor_id) {
+           if (notif.actor_id && notif.type !== 'LOVE_REQUEST') {
                window.dispatchEvent(new CustomEvent('open_profile', { detail: { id: notif.actor_id } }));
            }
         }

@@ -17,6 +17,21 @@ import { toast } from 'react-hot-toast';
 import { submitUserReport } from '../../app/actions/submitUserReport';
 import { dispatchNotificationAction } from '../../app/actions/dispatchNotificationAction';
 import { deleteConversationPermanently, clearChatPermanently } from '../../utils/deleteUtils';
+import {
+  AI_FRIENDS_BOT_ID,
+  SUPPORT_BOT_ID,
+  ConnectionRequestItem,
+  fetchUserConnectionsAndRequests,
+  acceptLoveRequest,
+  declineLoveRequest,
+  isConnectionRequestControlMessage,
+  isRealVip,
+  isRealPremium,
+  isRealPremiumOrVip,
+  getRealSubscriptionTier,
+  isRealVerified,
+  insertScopedNotification,
+} from '../../utils/connectionsStore';
 
 const UserProfileModal = dynamic(() => import("../../components/profile/UserProfileModal"), { ssr: false });
 const CoinStoreModal = dynamic(() => import("../../components/wallet/CoinStoreModal"), { ssr: false });
@@ -526,18 +541,22 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       setCurrentUserProfile({
         id: user.id,
-        name: data.username || user.email?.split('@')[0] || 'User',
+        name: data.username || data.full_name || user.email?.split('@')[0] || 'User',
+        username: data.username || user.email?.split('@')[0] || 'User',
         avatarInitials: (data.username?.[0] || user.email?.[0] || 'U').toUpperCase() + (data.username?.[1] || user.email?.[1] || 'S').toUpperCase(),
         avatarUrl: data.avatar_url,
-        bio: data.bio || 'Avid HorPal user',
+        bio: data.bio || 'Avid EarnMega user',
         joinDate: data.created_at ? new Date(data.created_at).toLocaleDateString() : 'Oct 2023',
-        tier: subscriptionTier,
+        tier: getRealSubscriptionTier(data),
+        is_premium: Boolean(data.is_premium),
+        is_vip: Boolean(data.is_vip),
+        subscription_tier: data.subscription_tier || 'free',
         phone: data.phone,
         isOnline: true,
         coinsGifted: data.coins_gifted || 0,
         isSelf: true,
-        // Optional verification flag addition, can be useful later
-        isVerified: data.is_verified,
+        isVerified: isRealVerified(data),
+        is_verified: isRealVerified(data),
         ghost_mode: data.ghost_mode || false,
       } as any);
     } else {
@@ -545,12 +564,16 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         id: user.id,
         name: user.email?.split('@')[0] || 'User',
         avatarInitials: (user.email?.[0] || 'U').toUpperCase() + (user.email?.[1] || 'S').toUpperCase(),
-        bio: 'Avid HorPal user',
+        bio: 'Avid EarnMega user',
         joinDate: 'Oct 2023',
-        tier: subscriptionTier,
+        tier: 'FREE',
+        is_premium: false,
+        is_vip: false,
+        subscription_tier: 'free',
         isOnline: true,
-        coinsGifted: 1500,
+        coinsGifted: 0,
         isSelf: true,
+        isVerified: false,
         ghost_mode: false,
       });
     }
@@ -748,12 +771,101 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
 
   const [exploreUsers, setExploreUsers] = useState<UserProfileDetails[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<ConnectionRequestItem[]>([]);
+  const [inspectingRequest, setInspectingRequest] = useState<ConnectionRequestItem | null>(null);
   const [isChatsLoading, setIsChatsLoading] = useState(true);
   const [chatsFetchError, setChatsFetchError] = useState<any>(null);
   const [refreshChatsKey, setRefreshChatsKey] = useState(0);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+  const handleAcceptConnectionRequest = async (req: ConnectionRequestItem) => {
+    if (!user) return;
+    // Optimistically remove from incoming pending requests
+    setIncomingRequests(prev => prev.filter(r => r.id !== req.id && r.sender_id !== req.sender_id));
+
+    await acceptLoveRequest({
+      requestId: req.id,
+      senderId: req.sender_id,
+      receiverId: user.id,
+      receiverUsername: currentUserProfile?.name || user.user_metadata?.username || user.email?.split('@')[0] || 'User',
+      receiverAvatar: currentUserProfile?.avatarUrl,
+    });
+
+    if (req.senderProfile) {
+      const sp = req.senderProfile;
+      const newFriend: UserProfileDetails = {
+        id: sp.id,
+        name: sp.name || sp.username || 'User',
+        username: sp.username || sp.name || 'User',
+        avatarInitials: (sp.name || sp.username || 'US').slice(0, 2).toUpperCase(),
+        avatarUrl: sp.avatar_url,
+        bio: sp.bio || 'EarnMega user',
+        joinDate: sp.created_at ? new Date(sp.created_at).toLocaleDateString() : 'Recent',
+        tier: getRealSubscriptionTier(sp),
+        is_premium: isRealPremium(sp),
+        is_vip: isRealVip(sp),
+        subscription_tier: sp.subscription_tier || 'free',
+        isOnline: onlineUsers.has(sp.id),
+        coinsGifted: sp.coins_gifted || 0,
+        isSelf: false,
+        isVerified: isRealVerified(sp),
+        is_verified: isRealVerified(sp),
+        unreadCount: 0,
+        lastMessageTime: Date.now(),
+      };
+      setExploreUsers(prev => {
+        const filtered = prev.filter(u => u.id !== newFriend.id);
+        return [...filtered, newFriend];
+      });
+    }
+
+    toast.success(`Accepted @${req.senderProfile?.username || req.senderProfile?.name || 'User'}'s Love request! ❤️`);
+    setRefreshChatsKey(prev => prev + 1);
+  };
+
+  const handleDeclineConnectionRequest = async (req: ConnectionRequestItem) => {
+    if (!user) return;
+    setIncomingRequests(prev => prev.filter(r => r.id !== req.id && r.sender_id !== req.sender_id));
+
+    await declineLoveRequest({
+      requestId: req.id,
+      senderId: req.sender_id,
+      receiverId: user.id,
+    });
+
+    toast('Connection request declined', { icon: '👋' });
+    setRefreshChatsKey(prev => prev + 1);
+  };
+
+  const handleInspectRequesterProfile = (req: ConnectionRequestItem) => {
+    const sp = req.senderProfile;
+    const profileDetails: UserProfileDetails = {
+      id: req.sender_id,
+      name: sp?.name || sp?.username || 'User',
+      username: sp?.username || sp?.name || 'User',
+      avatarInitials: (sp?.name || sp?.username || 'US').slice(0, 2).toUpperCase(),
+      avatarUrl: sp?.avatar_url,
+      bio: sp?.bio || '',
+      joinDate: sp?.created_at ? new Date(sp.created_at).toLocaleDateString() : 'Recent',
+      tier: getRealSubscriptionTier(sp),
+      is_premium: isRealPremium(sp),
+      is_vip: isRealVip(sp),
+      subscription_tier: sp?.subscription_tier || 'free',
+      age: sp?.age,
+      country: sp?.country,
+      location: sp?.location,
+      isOnline: onlineUsers.has(req.sender_id),
+      coinsGifted: sp?.coins_gifted || 0,
+      isSelf: false,
+      isVerified: isRealVerified(sp),
+      is_verified: isRealVerified(sp),
+    };
+    setInspectingRequest(req);
+    setSelectedProfile(profileDetails);
+    setIsProfileOpen(true);
+  };
 
 
   useEffect(() => {
@@ -859,8 +971,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   useEffect(() => {
     if (!user) return;
     const channelId = `chat-updates-${Date.now()}`;
-    // Using a more complex filter with postgres_changes isn't natively supported for full .or() strings via realtime filter param natively (it only supports simple eq).
-    // We filter inside the callback to emulate the exact strict `or` condition for isolation.
     const channel = supabase.channel(channelId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload: any) => {
           if (payload.new) {
@@ -868,8 +978,15 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               const otherId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
               if (otherId && blockedUserIdsRef.current.has(otherId)) return;
 
+              // If this is a connection request control row involving the current user, refresh connections & requests and do NOT render as a chat bubble
+              if (isConnectionRequestControlMessage(msg.content, msg.message_type)) {
+                  if (msg.sender_id === user.id || msg.receiver_id === user.id) {
+                      setRefreshChatsKey(prev => prev + 1);
+                  }
+                  return;
+              }
+
               // Strict isolation check to prevent data bleed from other bot chats
-              // Only refresh if the message involves the current user and the current viewing profile (if not a group)
               let isRelevant = false;
               if (currentOtherUserProfile && !(currentOtherUserProfile as any).isGroup) {
                   isRelevant = (msg.sender_id === user.id && msg.receiver_id === currentOtherUserProfile.id) ||
@@ -877,12 +994,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               } else if (currentOtherUserProfile && (currentOtherUserProfile as any).isGroup) {
                   isRelevant = msg.room_id === currentOtherUserProfile.id;
               } else {
-                  // Fallback for general updates (e.g. ChatList) if no specific profile is focused
-                  isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id || msg.room_id;
+                  isRelevant = msg.receiver_id === user.id || msg.sender_id === user.id;
               }
 
               if (isRelevant) {
-                  // Real-Time Message Hydration (Optimistic update for incoming messages)
                   if (msg.sender_id !== user.id) {
                      let senderName;
                      let senderAvatar;
@@ -893,7 +1008,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                             senderName = member.profiles.full_name || member.profiles.username;
                             senderAvatar = member.profiles.avatar_url;
                         } else {
-                            // Fallback fetch
                             supabase.from('profiles').select('full_name, username, avatar_url').eq('id', msg.sender_id).single().then(({data: p}) => {
                                 if (p) {
                                     setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, senderName: p.full_name || p.username, senderAvatar: p.avatar_url } : m));
@@ -903,7 +1017,6 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                      }
 
                      setMessages(prev => {
-                         // Check if already in list
                          if (prev.some(m => m.id === msg.id)) return prev;
                          const newMessage: Message = {
                             id: msg.id,
@@ -942,7 +1055,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   // Dynamically derive `isOnline` for `currentOtherUserProfile` based on `onlineUsers` state
   const currentOtherUserProfile = otherUserProfile ? {
     ...otherUserProfile,
-    isOnline: onlineUsers.has(otherUserProfile.id)
+    isOnline: otherUserProfile.id === AI_FRIENDS_BOT_ID ? true : onlineUsers.has(otherUserProfile.id)
   } : null;
 
   const isGroupAdmin = Boolean(
@@ -969,216 +1082,197 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     if (currentOtherUserProfile === null) {
       const fetchExploreUsers = async () => {
         if (!user) return;
-        let hasCachedData = false;
 
+        // Permanently pinned AI Friends chat object (Phase 1)
+        const aiFriendsChat: UserProfileDetails = {
+          id: AI_FRIENDS_BOT_ID,
+          name: 'AI Friends',
+          username: 'AI Friends',
+          avatarInitials: 'AI',
+          avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Friend&backgroundColor=d946ef',
+          bio: 'Your 24/7 AI Companion — Always here to chat!',
+          joinDate: 'Always',
+          tier: 'FREE',
+          isOnline: true,
+          coinsGifted: 0,
+          isSelf: false,
+          is_bot: true,
+          isVerified: true,
+          is_verified: true,
+          unreadCount: 0,
+          lastMessageTime: Number.MAX_SAFE_INTEGER,
+        };
+
+        // Purge legacy random-discovery caches so old random users or other people's groups never leak
         try {
-            const cachedChats = localStorage.getItem(`horpal_instant_chat_cache_${user.id}`);
-            if (cachedChats) {
-                const parsed = JSON.parse(cachedChats);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    setExploreUsers(parsed);
-                    hasCachedData = true;
-                }
+          localStorage.removeItem(`horpal_instant_chat_cache_${user.id}`);
+          localStorage.removeItem(`horpal_chat_activity_${user.id}`);
+        } catch (e) {}
+
+        let hasCachedData = false;
+        const cleanCacheKey = `earnmega_clean_chat_cache_v3_${user.id}`;
+        try {
+          const cachedChats = localStorage.getItem(cleanCacheKey);
+          if (cachedChats) {
+            const parsed = JSON.parse(cachedChats);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setExploreUsers(parsed);
+              hasCachedData = true;
             }
+          }
         } catch (e) {}
 
         if (!hasCachedData) {
-            setIsChatsLoading(true);
+          setExploreUsers([aiFriendsChat]);
+          setIsChatsLoading(true);
         }
         setChatsFetchError(null);
+
         try {
-          // 1. Fetch Groups the user is part of & Direct Messages concurrently
-          const [roomsResult, chatsResult] = await Promise.all([
+          // 1. Fetch accepted connections, incoming Love requests, and user's explicit group memberships
+          const [connectionsResult, roomsResult] = await Promise.all([
+            fetchUserConnectionsAndRequests(user.id),
             supabase
               .from('room_participants')
-              .select('room_id, is_deleted, rooms ( id, name, created_at, updated_at )')
+              .select('room_id, is_deleted, role, rooms ( id, name, avatar_url, description, created_by, created_at, updated_at )')
               .eq('user_id', user.id),
-            supabase
-              .from('chats')
-              .select('id, user1_id, user2_id, updated_at, unread_count, latest_message_id, user1:profiles!chats_user1_id_fkey(id, username, name, avatar_url, bio, created_at, subscription_tier, is_verified, coins_gifted), user2:profiles!chats_user2_id_fkey(id, username, name, avatar_url, bio, created_at, subscription_tier, is_verified, coins_gifted)')
-              .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
-              .order('updated_at', { ascending: false })
           ]);
 
-          const { data: roomsData, error: roomsError } = roomsResult;
-          const { data: chatsData, error: chatsError } = chatsResult;
+          const { acceptedUserIds, incomingRequests: pendingReqs, connectionTimestamps } = connectionsResult;
+          setIncomingRequests(pendingReqs);
 
-          if (roomsError) throw roomsError;
+          const { data: roomsData, error: roomsError } = roomsResult;
+          if (roomsError) {
+            console.warn('[CHAT LIST] Warning fetching room_participants:', roomsError);
+          }
 
           let localDeletedRooms: string[] = [];
           try {
-             localDeletedRooms = JSON.parse(localStorage.getItem(`earnmega_deleted_rooms_${user.id}`) || '[]');
-          } catch(e) {}
-
-          let rawGroups: any[] = [];
-          (roomsData || [])
-            .filter((gm: any) => gm?.is_deleted !== true && gm?.rooms != null && !localDeletedRooms.includes(gm?.room_id))
-            .forEach((gm: any) => {
-               try {
-                 const nameStr = gm?.rooms?.name || "Unknown Group";
-                 const firstChar = nameStr[0] || "G";
-                 const secondChar = nameStr[1] || "R";
-                 const avatarInitials = firstChar.toUpperCase() + secondChar.toUpperCase();
-                 rawGroups.push({
-                   id: gm?.rooms?.id,
-                   name: nameStr,
-                   avatarInitials: avatarInitials,
-                   avatarUrl: undefined as string | undefined,
-                   bio: 'Group Chat',
-                   joinDate: new Date(gm?.rooms?.created_at || Date.now()).toLocaleDateString(),
-                   tier: 'FREE' as const,
-                   isOnline: true,
-                   coinsGifted: 0,
-                   isSelf: false,
-                   isGroup: true,
-                   unreadCount: 0,
-                   lastMessageTime: new Date(gm?.rooms?.updated_at || gm?.rooms?.created_at || 0).getTime()
-                 });
-               } catch (err) {
-                 console.warn("Failed to parse group row", err);
-               }
-            });
-
-          const roomsFormatted = Array.from(new Map(rawGroups.map(r => [r.id, r])).values());
-
-          const statsMap = new Map<string, { unreadCount: number, lastMessageTime: number }>();
-          let formattedProfiles: UserProfileDetails[] = [];
-
-          if (chatsData && chatsData.length > 0) {
-            chatsData.forEach((chat: any) => {
-              try {
-                const user1Obj = Array.isArray(chat?.user1) ? chat.user1[0] : chat?.user1;
-                const user2Obj = Array.isArray(chat?.user2) ? chat.user2[0] : chat?.user2;
-
-                const otherUser = chat?.user1_id === user.id ? user2Obj : user1Obj;
-                if (otherUser && otherUser.id && !localDeletedRooms.includes(otherUser.id)) {
-                    const time = chat?.updated_at ? new Date(chat.updated_at).getTime() : 0;
-                    statsMap.set(otherUser.id, {
-                        unreadCount: chat?.unread_count || 0,
-                        lastMessageTime: time
-                    });
-                    const displayName = otherUser.username || otherUser.name || 'User';
-                    formattedProfiles.push({
-                        id: otherUser.id,
-                        name: displayName,
-                        avatarInitials: displayName.substring(0, 2).toUpperCase(),
-                        avatarUrl: otherUser.avatar_url,
-                        bio: otherUser.bio || 'HorPal user',
-                        joinDate: otherUser.created_at ? new Date(otherUser.created_at).toLocaleDateString() : 'Unknown',
-                        tier: otherUser.subscription_tier || 'FREE',
-                        isOnline: onlineUsers.has(otherUser.id),
-                        coinsGifted: otherUser.coins_gifted || 0,
-                        isSelf: false,
-                        unreadCount: chat?.unread_count || 0,
-                        lastMessageTime: time,
-                        isVerified: Boolean(otherUser.is_verified)
-                    });
-                }
-              } catch (err) {
-                console.warn("Failed to parse chat row", err);
-              }
-            });
-          }
-
-          // Fallback for new users (Discovery)
-          if (formattedProfiles.length === 0) {
-              const { data: defaultProfiles, error: defaultError } = await supabase
-                .from('profiles')
-                .select('id, username, name, avatar_url, bio, created_at, subscription_tier, is_verified, coins_gifted')
-                .neq('id', user.id)
-                .order('updated_at', { ascending: false })
-                .limit(20);
-
-              if (!defaultError && defaultProfiles) {
-                  formattedProfiles = defaultProfiles.map(u => ({
-                      id: u.id,
-                      name: u.username || u.name || 'User',
-                      avatarInitials: (u.username || u.name || 'U').substring(0, 2).toUpperCase(),
-                      avatarUrl: u.avatar_url,
-                      bio: u.bio || 'HorPal user',
-                      joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
-                      tier: u.subscription_tier || 'FREE',
-                      isOnline: onlineUsers.has(u.id),
-                      coinsGifted: u.coins_gifted || 0,
-                      isSelf: false,
-                      unreadCount: 0,
-                      lastMessageTime: 0,
-                      isVerified: u.is_verified || false
-                  }));
-              }
-          }
-
-          // 5. Unify and Sort WhatsApp Style (newest activity at the absolute top)
-
-          // 4.5 Fetch missing chat partners from recent activity
-          let localActivity2: Record<string, {text: string, timestamp: number}> = {};
-          try {
-             const actStr = localStorage.getItem('horpal_chat_activity_' + user.id);
-             if (actStr) localActivity2 = JSON.parse(actStr);
-          } catch(e) {}
-
-          const existingIds = new Set([...roomsFormatted.map(r => r.id), ...formattedProfiles.map(p => p.id)]);
-          const missingIds = Object.keys(localActivity2).filter(id => !existingIds.has(id));
-
-          if (missingIds.length > 0) {
-             const { data: missingProfiles } = await supabase
-                .from('profiles')
-                .select('id, username, name, avatar_url, bio, created_at, subscription_tier, is_verified, coins_gifted')
-                .in('id', missingIds);
-
-             if (missingProfiles) {
-                 const newFormatted = missingProfiles.map(u => ({
-                      id: u.id,
-                      name: u.username || u.name || 'User',
-                      avatarInitials: (u.username || u.name || 'U').substring(0, 2).toUpperCase(),
-                      avatarUrl: u.avatar_url,
-                      bio: u.bio || 'HorPal user',
-                      joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
-                      tier: u.subscription_tier || 'FREE',
-                      isOnline: onlineUsers.has(u.id),
-                      coinsGifted: u.coins_gifted || 0,
-                      isSelf: false,
-                      unreadCount: 0,
-                      lastMessageTime: 0,
-                      isVerified: u.is_verified || false
-                 }));
-                 formattedProfiles.push(...newFormatted);
-             }
-          }
-
-          let allUsers = [...roomsFormatted, ...formattedProfiles];
-
-          let localActivity: Record<string, {text: string, timestamp: number}> = {};
-          try {
-             const actStr = localStorage.getItem('horpal_chat_activity_' + user.id);
-             if (actStr) localActivity = JSON.parse(actStr);
-          } catch(e) {}
-
-          allUsers = allUsers.map(u => {
-             const stats = statsMap.get(u.id);
-             const unreadCount = stats ? stats.unreadCount : 0;
-             let lastMessageTime = stats ? stats.lastMessageTime : 0;
-
-             // Merge with local activity if newer
-             if (localActivity[u.id] && localActivity[u.id].timestamp > lastMessageTime) {
-                lastMessageTime = localActivity[u.id].timestamp;
-             }
-
-             return { ...u, unreadCount, lastMessageTime };
-          });
-
-          // Sort strictly by lastMessageTime DESCENDING
-          allUsers.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
-
-          try {
-              localStorage.setItem(`horpal_instant_chat_cache_${user.id}`, JSON.stringify(allUsers));
+            localDeletedRooms = JSON.parse(localStorage.getItem(`earnmega_deleted_rooms_${user.id}`) || '[]');
           } catch (e) {}
 
-          console.info("[CHAT LIST] Hydrated Chats:", allUsers);
+          // PHASE 1.4: Group Chat ONLY appears if logged-in user is explicitly an added member or creator (`room_participants` contains `user.id` and `is_deleted !== true`), deduplicated by `group.id`
+          const groupMap = new Map<string, UserProfileDetails>();
+          (roomsData || [])
+            .filter((gm: any) => gm?.is_deleted !== true && gm?.rooms != null && gm?.rooms?.id && !localDeletedRooms.includes(gm?.room_id))
+            .forEach((gm: any) => {
+              try {
+                const room = Array.isArray(gm.rooms) ? gm.rooms[0] : gm.rooms;
+                if (!room || !room.id) return;
+                if (groupMap.has(room.id)) return; // Strict deduplication by group.id
+                const nameStr = room.name || 'Group Chat';
+                const firstChar = nameStr[0] || 'G';
+                const secondChar = nameStr[1] || 'R';
+                const avatarInitials = (firstChar + secondChar).toUpperCase();
+                groupMap.set(room.id, {
+                  id: room.id,
+                  name: nameStr,
+                  avatarInitials,
+                  avatarUrl: room.avatar_url || undefined,
+                  bio: room.description || 'Group Chat',
+                  joinDate: new Date(room.created_at || Date.now()).toLocaleDateString(),
+                  tier: 'FREE',
+                  isOnline: true,
+                  coinsGifted: 0,
+                  isSelf: false,
+                  isGroup: true,
+                  unreadCount: 0,
+                  lastMessageTime: new Date(room.updated_at || room.created_at || 0).getTime(),
+                });
+              } catch (err) {
+                console.warn('Failed to parse group row', err);
+              }
+            });
+
+          const roomsFormatted = Array.from(groupMap.values());
+
+          // PHASE 1.3: Human 1-on-1 DM chat ONLY appears if there is a mutually accepted connection (`status === 'accepted'`)
+          const acceptedIdsArray = Array.from(acceptedUserIds).filter(
+            (id) => id && id !== user.id && id !== AI_FRIENDS_BOT_ID && id !== SUPPORT_BOT_ID && !localDeletedRooms.includes(id)
+          );
+
+          let formattedProfiles: UserProfileDetails[] = [];
+          const statsMap = new Map<string, { unreadCount: number; lastMessageTime: number }>();
+
+          if (acceptedIdsArray.length > 0) {
+            const [{ data: acceptedProfiles }, { data: dmMessages }] = await Promise.all([
+              supabase.from('profiles').select('*').in('id', acceptedIdsArray),
+              supabase
+                .from('messages')
+                .select('id, sender_id, receiver_id, content, message_type, status, is_read, created_at')
+                .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+                .order('created_at', { ascending: false })
+                .limit(250),
+            ]);
+
+            if (Array.isArray(dmMessages)) {
+              for (const m of dmMessages) {
+                if (isConnectionRequestControlMessage(m.content, m.message_type)) continue;
+                const partnerId = m.sender_id === user.id ? m.receiver_id : m.sender_id;
+                if (!partnerId || !acceptedUserIds.has(partnerId)) continue;
+                const msgTime = new Date(m.created_at || 0).getTime();
+                const current = statsMap.get(partnerId) || {
+                  unreadCount: 0,
+                  lastMessageTime: connectionTimestamps.get(partnerId) || 0,
+                };
+                if (msgTime > current.lastMessageTime) {
+                  current.lastMessageTime = msgTime;
+                }
+                if (m.receiver_id === user.id && m.sender_id === partnerId && m.is_read === false && m.status !== 'read') {
+                  current.unreadCount += 1;
+                }
+                statsMap.set(partnerId, current);
+              }
+            }
+
+            if (Array.isArray(acceptedProfiles)) {
+              formattedProfiles = acceptedProfiles
+                .filter((u: any) => u && u.id && !u.is_bot && u.id !== AI_FRIENDS_BOT_ID && u.id !== SUPPORT_BOT_ID)
+                .map((u: any) => {
+                  const displayName = u.username || u.full_name || u.name || 'User';
+                  const st = statsMap.get(u.id);
+                  const fallbackTime = connectionTimestamps.get(u.id) || new Date(u.updated_at || u.created_at || 0).getTime();
+                  return {
+                    id: u.id,
+                    name: displayName,
+                    username: u.username || displayName,
+                    avatarInitials: displayName.substring(0, 2).toUpperCase(),
+                    avatarUrl: u.avatar_url,
+                    bio: u.bio || 'EarnMega user',
+                    joinDate: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
+                    // PHASE 5: Strict real badge verification
+                    tier: getRealSubscriptionTier(u),
+                    is_premium: isRealPremium(u),
+                    is_vip: isRealVip(u),
+                    subscription_tier: u.subscription_tier || 'free',
+                    isOnline: onlineUsers.has(u.id),
+                    coinsGifted: u.coins_gifted || 0,
+                    isSelf: false,
+                    unreadCount: st ? st.unreadCount : 0,
+                    lastMessageTime: st ? st.lastMessageTime : fallbackTime,
+                    isVerified: isRealVerified(u),
+                    is_verified: isRealVerified(u),
+                  };
+                });
+            }
+          }
+
+          // Combine rooms + accepted human DMs, sorted by newest activity, with AI Friends permanently pinned at index 0
+          const humanAndGroups = [...roomsFormatted, ...formattedProfiles].sort(
+            (a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0)
+          );
+
+          const allUsers: UserProfileDetails[] = [aiFriendsChat, ...humanAndGroups];
+
+          try {
+            localStorage.setItem(cleanCacheKey, JSON.stringify(allUsers));
+          } catch (e) {}
+
           setExploreUsers(allUsers);
         } catch (error) {
-          console.error("[CHAT LIST ERROR] Failed to fetch conversations:", error);
+          console.error('[CHAT LIST ERROR] Failed to fetch conversations:', error);
           setChatsFetchError(error);
+          setExploreUsers([aiFriendsChat]);
         } finally {
           setIsChatsLoading(false);
         }
@@ -1234,6 +1328,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                  if (msgTime < currentClearedAt) return false;
              }
              if (isGroupConfigRow(msg.content || msg.text)) return false;
+             if (isConnectionRequestControlMessage(msg.content || msg.text, msg.message_type)) return false;
              return true;
           }).map(msg => {
             let text = msg.content || '';
@@ -1645,6 +1740,32 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           setMessages(prev => prev.filter(msg => msg.id !== payload.payload.messageId));
         }
       })
+      .on('broadcast', { event: 'connection_request' }, (payload) => {
+        const reqData = payload?.payload;
+        if (!reqData || reqData.receiver_id !== user.id) return;
+        toast(`@${reqData.sender_name || 'Someone'} sent you a Love request! ❤️`, { icon: '💌' });
+        setRefreshChatsKey(prev => prev + 1);
+      })
+      .on('broadcast', { event: 'connection_accepted' }, (payload) => {
+        const accData = payload?.payload;
+        if (!accData) return;
+        if (accData.sender_id !== user.id && accData.receiver_id !== user.id) return;
+        if (accData.sender_id === user.id) {
+          toast.success(
+            accData.is_mutual_match
+              ? `It's a Match with @${accData.accepter_name || 'Someone'}! 🎉`
+              : `@${accData.accepter_name || 'Someone'} accepted your Love request! Tap to chat.`
+          );
+        }
+        setRefreshChatsKey(prev => prev + 1);
+      })
+      .on('broadcast', { event: 'connection_declined' }, (payload) => {
+        const decData = payload?.payload;
+        if (!decData) return;
+        if (decData.sender_id === user.id || decData.receiver_id === user.id) {
+          setRefreshChatsKey(prev => prev + 1);
+        }
+      })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           channelRef.current = channel;
@@ -1951,18 +2072,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       bumpChatToTop(currentOtherUserProfile.id, finalContentToSave, false);
 
-      if (!(currentOtherUserProfile as any).isGroup) {
-         try {
-           await supabase.from('notifications').insert({
-             user_id: currentOtherUserProfile.id,
-             actor_id: user.id,
-             type: 'MESSAGE',
-             content: `New message: ${finalContentToSave.substring(0, 50)}`,
-             is_read: false
-           });
-         } catch (e) {
-           console.error("Failed to insert notification for DM", e);
-         }
+      if (!(currentOtherUserProfile as any).isGroup && !currentOtherUserProfile.is_bot) {
+         await insertScopedNotification({
+           recipientId: currentOtherUserProfile.id,
+           senderId: user.id,
+           type: 'MESSAGE',
+           message: `New message: ${finalContentToSave.substring(0, 50)}`,
+         });
       }
 
       // Dynamically set status based on recipient's online state
@@ -2358,14 +2474,19 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     try {
       const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
       if (data && !error) {
+        setInspectingRequest(null);
         openProfile({
           id: data.id,
           name: data.username || data.full_name || "User",
           avatarInitials: (data.username || data.full_name || "U").substring(0, 2).toUpperCase(),
           avatarUrl: data.avatar_url,
-          bio: data.bio || "Avid HorPal user",
-          tier: data.subscription_tier,
-          isVerified: data.is_verified,
+          bio: data.bio || "Avid EarnMega user",
+          tier: getRealSubscriptionTier(data),
+          is_premium: isRealPremium(data),
+          is_vip: isRealVip(data),
+          subscription_tier: data.subscription_tier || 'free',
+          isVerified: isRealVerified(data),
+          is_verified: isRealVerified(data),
           ...data
         });
       }
@@ -2478,24 +2599,31 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                           setShowVerificationGateModal(true);
                           return;
                       }
+                      setRefreshChatsKey(prev => prev + 1);
                       setOtherUserProfile(u);
+                      setAppTab('chats');
                    }}
                    currentUserProfile={currentUserProfile}
                 />
               )}
 
-                        {activeTab === 'find' && (
-              <DiscoveryContainer
-                onStartChat={(u) => {
-                  setSelectedProfile(u);
-                  setAppTab('chats');
-                  setIsDrawerOpen(false);
-                }}
-              />
-            )}
+              {activeTab === 'find' && (
+                <DiscoveryContainer
+                  onStartChat={(u) => {
+                    if ((currentUserProfile as any)?.isVerified === false) {
+                        setShowVerificationGateModal(true);
+                        return;
+                    }
+                    setRefreshChatsKey(prev => prev + 1);
+                    setOtherUserProfile(u);
+                    setAppTab('chats');
+                    setIsDrawerOpen(false);
+                  }}
+                />
+              )}
 
             {activeTab === 'chats' && (
-              <div className={`h-full relative ${selectedProfile || currentOtherUserProfile ? 'hidden md:block md:w-1/3 border-r border-white/5' : 'flex w-full'}`}>
+              <div className={`h-full relative ${ currentOtherUserProfile ? 'hidden md:block md:w-1/3 border-r border-white/5' : 'flex w-full'}`}>
                 <ChatList
                   exploreUsers={exploreUsers}
                   chats={exploreUsers}
@@ -2510,10 +2638,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                   activeStatusUsers={activeStatusUsers}
                   userStatusMap={userStatusMap}
                   blockedUserIds={blockedUserIdsRef.current}
+                  incomingRequests={incomingRequests}
+                  onAcceptRequest={handleAcceptConnectionRequest}
+                  onDeclineRequest={handleDeclineConnectionRequest}
+                  onInspectRequesterProfile={handleInspectRequesterProfile}
                 />
                 <button
                    onClick={() => {
-                     console.log('Create Group Button Tapped - State Updated');
                      setIsGroupModalOpen(true);
                    }}
                    className="absolute bottom-6 right-6 w-14 h-14 bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] rounded-full flex items-center justify-center transition-all z-[9999] touch-manipulation cursor-pointer pointer-events-auto"
@@ -2643,6 +2774,54 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               onClose={() => setIsStoreOpen(false)}
               initialTab={storeTab}
             />
+            <UserProfileModal
+              isOpen={isProfileOpen}
+              onClose={() => {
+                setIsProfileOpen(false);
+                setInspectingRequest(null);
+              }}
+              user={selectedProfile}
+              pendingRequest={inspectingRequest}
+              onAcceptRequest={handleAcceptConnectionRequest}
+              onDeclineRequest={handleDeclineConnectionRequest}
+              onUpgradeClick={() => {
+                setIsProfileOpen(false);
+                setStoreTab('UPGRADES');
+                setIsStoreOpen(true);
+              }}
+            />
+            <AnimatePresence>
+              {isGroupModalOpen && (
+                <CreateGroupModal
+                  isOpen={isGroupModalOpen}
+                  onClose={() => setIsGroupModalOpen(false)}
+                  userId={user?.id || ''}
+                  acceptedFriends={exploreUsers.filter(
+                    (u) => !u.isGroup && !u.is_bot && u.id !== AI_FRIENDS_BOT_ID && u.id !== SUPPORT_BOT_ID
+                  )}
+                  onGroupCreated={(room, members) => {
+                    setIsGroupModalOpen(false);
+                    setRefreshChatsKey((prev) => prev + 1);
+                    if (room) {
+                      const groupProfile = {
+                        id: room.id,
+                        name: room.name,
+                        avatarInitials: (room.name || 'GR').substring(0, 2).toUpperCase(),
+                        avatarUrl: room.avatar_url,
+                        bio: room.description || 'Group Chat',
+                        isGroup: true,
+                        isOnline: true,
+                      };
+                      setOtherUserProfile(groupProfile as any);
+                      setGroupDetails(room);
+                      if (members) {
+                        setGroupMembers(members);
+                      }
+                    }
+                  }}
+                />
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
@@ -2735,8 +2914,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       <UserProfileModal
         isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
+        onClose={() => {
+          setIsProfileOpen(false);
+          setInspectingRequest(null);
+        }}
         user={selectedProfile}
+        pendingRequest={inspectingRequest}
+        onAcceptRequest={handleAcceptConnectionRequest}
+        onDeclineRequest={handleDeclineConnectionRequest}
         onUpgradeClick={() => {
           setIsProfileOpen(false);
           setStoreTab('UPGRADES');
@@ -2865,12 +3050,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         <div
           onClick={(e) => { e.stopPropagation(); if (isGroupChat) setIsGroupInfoOpen(true); else openProfile(currentOtherUserProfile); }}
           className={`relative w-8 h-8 rounded-full flex items-center justify-center shadow-lg mr-3 shrink-0 cursor-pointer ${
-            currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[2px]' :
-            currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[2px]' :
-            'border border-white/10 p-1 bg-white/5'
+            isRealPremiumOrVip(currentOtherUserProfile) ? 'p-[2px]' : 'border border-white/10 p-1 bg-white/5'
           } ${getStatusRingClass(currentOtherUserProfile.id)}`}
         >
-           {currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
+           {isRealPremiumOrVip(currentOtherUserProfile) && (
              <div className="absolute inset-[-2px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
            )}
            <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
@@ -2885,29 +3068,28 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           <div className="flex items-center">
             <h1 className={`text-base leading-tight truncate drop-shadow-sm mr-2 ${
               currentOtherUserProfile.is_bot ? 'bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 via-purple-400 to-cyan-400 drop-shadow-[0_0_10px_rgba(232,121,249,0.8)] font-extrabold' :
-              currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
-              currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'text-amber-400 font-bold' :
+              isRealPremiumOrVip(currentOtherUserProfile) ? 'bg-gradient-to-r from-purple-400 via-pink-500 to-amber-400 bg-[length:200%_auto] animate-pulse bg-clip-text text-transparent font-extrabold' :
               'text-neutral-200 font-bold'
             }`}>
               {currentOtherUserProfile.is_bot && typeof window !== 'undefined' && localStorage.getItem(`bot_name_${currentOtherUserProfile.id}`) ? localStorage.getItem(`bot_name_${currentOtherUserProfile.id}`) : currentOtherUserProfile.name}
             </h1>
-            {currentOtherUserProfile.isVerified && <VerifiedBadge />}
-            {currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
+            {isRealVerified(currentOtherUserProfile) && <VerifiedBadge />}
+            {isRealVip(currentOtherUserProfile) && (
+               <motion.span
+                 animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
+                 transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                 className="px-1.5 py-0.5 rounded-sm text-[8px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_10px_rgba(250,204,21,0.5)] border border-yellow-400/50"
+               >
+                 VIP
+               </motion.span>
+            )}
+            {!isRealVip(currentOtherUserProfile) && isRealPremium(currentOtherUserProfile) && (
                <motion.span
                  animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
                  transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
                  className="px-1.5 py-0.5 rounded-sm text-[8px] font-black tracking-widest uppercase bg-gradient-to-r from-yellow-300 via-yellow-600 to-yellow-300 bg-[length:200%_auto] text-black shadow-[0_0_10px_rgba(250,204,21,0.5)] border border-yellow-400/50"
                >
                  PREMIUM
-               </motion.span>
-            )}
-            {currentOtherUserProfile.tier?.toLowerCase() === 'pro' && (
-               <motion.span
-                 animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
-                 transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-                 className="px-1.5 py-0.5 rounded-sm text-[8px] font-black tracking-widest uppercase bg-gradient-to-r from-blue-300 via-blue-600 to-blue-300 bg-[length:200%_auto] text-white shadow-[0_0_10px_rgba(96,165,250,0.5)] border border-blue-400/50"
-               >
-                 PRO
                </motion.span>
             )}
           </div>
@@ -3278,11 +3460,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
               key={message.id}
               className={`flex flex-col group ${isUser ? 'items-end' : 'items-start'}`}
             >
-              {/* Sender Name and Badge (Pro/Premium) */}
+              {/* Sender Name and Real Badge (VIP / Premium ONLY when DB verified) */}
               {!isUser && (
               <div className={`flex items-center space-x-1.5 mb-1 ${isUser ? 'mr-1' : 'ml-9'}`}>
-                {isUser && (subscriptionTier?.toLowerCase() === 'premium' || subscriptionTier?.toLowerCase() === 'pro') && (
-                   <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(251,191,36,0.4)] border border-amber-400/50">VIP</motion.span>
+                {isUser && isRealPremiumOrVip(currentUserProfile) && (
+                   <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(251,191,36,0.4)] border border-amber-400/50">
+                     {isRealVip(currentUserProfile) ? 'VIP' : 'PREMIUM'}
+                   </motion.span>
                 )}
 
                 <span
@@ -3293,15 +3477,17 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       }
                     }}
                     className={`text-xs drop-shadow-sm font-bold ${!isUser && isGroupChat ? 'cursor-pointer hover:underline ' + getDeterministicColor(message.senderId) : ''} ${
-                  (isUser && (subscriptionTier?.toLowerCase() === 'premium' || subscriptionTier?.toLowerCase() === 'pro')) || (!isUser && !isGroupChat && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro'))
+                  (isUser && isRealPremiumOrVip(currentUserProfile)) || (!isUser && !isGroupChat && isRealPremiumOrVip(currentOtherUserProfile))
                     ? 'bg-gradient-to-r from-fuchsia-400 via-pink-400 to-amber-400 bg-clip-text text-transparent drop-shadow-md font-black'
                     : (!isUser && isGroupChat ? '' : 'text-white/70')
                 }`}>
                   {isUser && currentUserProfile ? currentUserProfile.name : (isGroupChat ? (message.senderName || 'User') : currentOtherUserProfile.name)}
                 </span>
 
-                {!isUser && !isGroupChat && (currentOtherUserProfile.tier?.toLowerCase() === 'premium' || currentOtherUserProfile.tier?.toLowerCase() === 'pro') && (
-                   <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(251,191,36,0.4)] border border-amber-400/50">VIP</motion.span>
+                {!isUser && !isGroupChat && isRealPremiumOrVip(currentOtherUserProfile) && (
+                   <motion.span animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ duration: 3, repeat: Infinity, ease: 'linear' }} className="px-1 py-0.5 rounded-sm text-[7px] font-black tracking-widest uppercase bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300 bg-[length:200%_auto] text-black shadow-[0_0_5px_rgba(251,191,36,0.4)] border border-amber-400/50">
+                     {isRealVip(currentOtherUserProfile) ? 'VIP' : 'PREMIUM'}
+                   </motion.span>
                 )}
               </div>
 
@@ -3323,12 +3509,11 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                       }
                     }}
                     className={`relative w-6 h-6 rounded-full flex items-center justify-center shrink-0 mb-1 cursor-pointer transition-colors shadow-[0_4px_16px_rgba(0,0,0,0.3)] ${
-                      !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'premium' ? 'p-[1.5px]' :
-                      !isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'pro' ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 p-[1.5px]' :
+                      !isGroupChat && isRealPremiumOrVip(currentOtherUserProfile) ? 'p-[1.5px]' :
                       'border border-white/20 hover:border-white/40 bg-white/5 backdrop-blur-md'
                     }`}
                   >
-                    {!isGroupChat && currentOtherUserProfile.tier?.toLowerCase() === 'premium' && (
+                    {!isGroupChat && isRealPremiumOrVip(currentOtherUserProfile) && (
                       <div className="absolute inset-[-1.5px] rounded-full bg-gradient-to-r from-amber-400 via-purple-500 to-amber-400 animate-spin-slow" />
                     )}
                     <div className="relative w-full h-full rounded-full bg-neutral-900 flex items-center justify-center overflow-hidden z-10">
@@ -3921,6 +4106,9 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                isOpen={isGroupModalOpen}
                onClose={() => setIsGroupModalOpen(false)}
                userId={user?.id || ''}
+               acceptedFriends={exploreUsers.filter(
+                 (u) => !u.isGroup && !u.is_bot && u.id !== AI_FRIENDS_BOT_ID && u.id !== SUPPORT_BOT_ID
+               )}
                onGroupCreated={(room, members) => {
                    setIsGroupModalOpen(false);
                    setRefreshChatsKey(prev => prev + 1);
