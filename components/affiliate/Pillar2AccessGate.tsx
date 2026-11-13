@@ -345,7 +345,7 @@ export default function Pillar2AccessGate({
               <Sparkles size={16} className="text-amber-300 shrink-0" />
               <span>
                 🚀 Activate your <strong>GH₵ 90.00 Affiliate License</strong> below to unlock{' '}
-                <strong className="text-white">{interceptBanner}</strong> and full 80% commissions!
+                <strong className="text-white">{interceptBanner}</strong> and full 50% commissions!
               </span>
             </div>
           )}
@@ -362,7 +362,7 @@ export default function Pillar2AccessGate({
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300 block">
-                  1-Year Official License Activation • 80% Commission Tier
+                  1-Year Official License Activation • 50% Commission Tier
                 </span>
                 <div className="flex items-baseline gap-2 mt-0.5 flex-wrap">
                   <span className="text-3xl sm:text-4xl font-black text-white tracking-tight">GH₵ 90.00</span>
@@ -465,7 +465,7 @@ export default function Pillar2AccessGate({
             <ul className="space-y-1.5 text-xs text-zinc-200 pt-1">
               <li className="flex items-center gap-2">
                 <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
-                <span>Earn 80% Instant Verified Commission (GH₵ 80 – GH₵ 200 per sale)</span>
+                <span>Earn 50% Instant Verified Commission (GH₵ 80 – GH₵ 200 per sale)</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />

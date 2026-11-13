@@ -18,11 +18,11 @@ function AffiliatePageContent() {
   const [session, setSession] = useState<any>(null);
   const [pendingPaidPass, setPendingPaidPass] = useState<PaidPillar2PassData | null>(null);
 
-  const directBuyerProdParam = searchParams.get("prod");
+  const directBuyerProdParam = searchParams.get("prod") || searchParams.get("product");
 
   useEffect(() => {
-    const ref = searchParams.get("ref");
-    const prod = searchParams.get("prod");
+    const ref = searchParams.get("ref") || searchParams.get("aff");
+    const prod = searchParams.get("prod") || searchParams.get("product");
     if (ref) {
       try {
         sessionStorage.setItem("horpal_active_ref", ref);

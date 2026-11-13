@@ -65,7 +65,7 @@ const SHOWROOM_PRODUCTS = [
     category: 'Artificial Intelligence',
     priceGhs: 230,
     commissionGhs: 184,
-    tag: '⚡ High Ticket 80%',
+    tag: '⚡ High Ticket 50%',
     salesCount: '980+ Sales',
     gradient: 'from-amber-500/25 via-yellow-500/15 to-emerald-500/20',
   },
@@ -284,7 +284,7 @@ export default function Pillar2LuxuryShowroomModal({
                 </h1>
                 <p className="text-xs sm:text-sm text-zinc-300 mt-2 max-w-2xl leading-relaxed">
                   Every sale of HorPal Digital Academy courses pays you an instant{' '}
-                  <strong className="text-emerald-300">80% direct commission</strong> straight into your verified
+                  <strong className="text-emerald-300">50% direct commission</strong> straight into your verified
                   Paystack ledger. Zero inventory, zero coding—just share your custom shortlink.
                 </p>
               </div>
@@ -304,7 +304,7 @@ export default function Pillar2LuxuryShowroomModal({
                   className="w-full sm:w-auto min-h-[52px] px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/15 border border-amber-400/40 text-amber-200 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer touch-manipulation"
                 >
                   <Share2 size={16} />
-                  Copy My 80% Referral Link
+                  Copy My 50% Referral Link
                 </button>
               </div>
             </div>
@@ -325,7 +325,7 @@ export default function Pillar2LuxuryShowroomModal({
                   accent: 'text-amber-300 border-amber-500/35 bg-amber-500/10',
                 },
                 {
-                  label: 'Closed Course Sales (80% Cut)',
+                  label: 'Closed Course Sales (50% Cut)',
                   value: '112 Verified Sales',
                   sub: 'Avg. GH₵ 164.73 per sale',
                   accent: 'text-teal-200 border-teal-500/35 bg-teal-500/10',
@@ -402,13 +402,13 @@ export default function Pillar2LuxuryShowroomModal({
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-6">
               <div>
                 <span className="text-[11px] font-black uppercase tracking-widest text-emerald-300 flex items-center gap-1.5">
-                  <GraduationCap size={15} /> 9 High-Converting Digital Courses • 80% Commission Vault
+                  <GraduationCap size={15} /> 9 High-Converting Digital Courses • 50% Commission Vault
                 </span>
                 <h2 className="text-xl sm:text-2xl font-black text-white mt-1">
                   The 9 Digital Product Vault Cards
                 </h2>
                 <p className="text-xs sm:text-sm text-zinc-400">
-                  Tap any course below to promote for an instant 80% commission or open the 10-Module Academy Classroom.
+                  Tap any course below to promote for an instant 50% commission or open the 10-Module Academy Classroom.
                 </p>
               </div>
               <span className="px-3.5 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-black">
@@ -442,7 +442,7 @@ export default function Pillar2LuxuryShowroomModal({
                         <p className="text-sm font-black text-white">GH₵ {product.priceGhs}.00</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-[10px] text-emerald-300 uppercase font-black">Your 80% Cut</p>
+                        <p className="text-[10px] text-emerald-300 uppercase font-black">Your 50% Cut</p>
                         <p className="text-base font-black text-emerald-300">+GH₵ {product.commissionGhs}.00</p>
                       </div>
                     </div>
@@ -455,7 +455,7 @@ export default function Pillar2LuxuryShowroomModal({
                       className="min-h-[40px] px-3 py-2 rounded-xl bg-emerald-400 text-black font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer touch-manipulation"
                     >
                       <Copy size={13} />
-                      Copy 80% Link
+                      Copy 50% Link
                     </button>
                     <button
                       type="button"
@@ -512,7 +512,7 @@ export default function Pillar2LuxuryShowroomModal({
                 </div>
                 <div className="p-2.5 rounded-xl bg-white/5 border border-white/10">
                   <p className="text-[10px] text-zinc-400 font-bold uppercase">Commission Split</p>
-                  <p className="text-xs font-black text-emerald-300 mt-0.5">80% Instant</p>
+                  <p className="text-xs font-black text-emerald-300 mt-0.5">50% Instant</p>
                 </div>
               </div>
             </div>
@@ -559,7 +559,7 @@ export default function Pillar2LuxuryShowroomModal({
           {/* Bottom High-Converting CTA Banner */}
           <div className="rounded-3xl p-6 sm:p-8 bg-gradient-to-r from-emerald-500/25 via-amber-500/20 to-emerald-500/25 border border-amber-400/50 text-center space-y-4">
             <h3 className="text-xl sm:text-3xl font-black text-white">
-              Ready to Unlock Your Own 80% Commission Console?
+              Ready to Unlock Your Own 50% Commission Console?
             </h3>
             <p className="text-xs sm:text-sm text-zinc-300 max-w-xl mx-auto">
               Activate your official 1-Year HorPal Pillar 2 Affiliate License for just{' '}

@@ -1436,7 +1436,7 @@ export default function HorPalAffiliatePillar({
         }
       }
 
-      // 1. Strict User-Scoped Financial Sales Ledger (public.pillar2_sales + legacy affiliate_sales)
+      // 1. Strict User-Scoped Financial Sales Ledger (live from public.pillar2_sales)
       const p2SalesFilter = resolvedAffiliateCode
         ? `affiliate_user_id.eq.${activeUid},affiliate_code.eq.${resolvedAffiliateCode}`
         : `affiliate_user_id.eq.${activeUid}`;
@@ -1446,24 +1446,9 @@ export default function HorPalAffiliatePillar({
         .or(p2SalesFilter)
         .order('created_at', { ascending: false });
 
-      const legacySalesFilter = resolvedAffiliateCode
-        ? `affiliate_id.eq.${activeUid},affiliate_user_id.eq.${activeUid},affiliate_code.eq.${resolvedAffiliateCode}`
-        : `affiliate_id.eq.${activeUid},affiliate_user_id.eq.${activeUid}`;
-      const { data: legacySalesRows } = await supabase
-        .from('affiliate_sales')
-        .select('*')
-        .or(legacySalesFilter)
-        .order('created_at', { ascending: false });
-
-      const combinedMap = new Map<string, any>();
-      (p2SalesRows || []).forEach((r: any) => {
-        combinedMap.set(r.paystack_reference || r.id, r);
-      });
-      (legacySalesRows || []).forEach((r: any) => {
-        const key = r.paystack_reference || r.id;
-        if (!combinedMap.has(key)) combinedMap.set(key, r);
-      });
-      const salesRows = Array.from(combinedMap.values());
+      const salesRows = (p2SalesRows || []).filter(
+        (r: any) => !String(r.paystack_reference || '').toUpperCase().startsWith('HP_TEST_')
+      );
 
       let saleNotifs: Array<{
         id: string;
@@ -1475,30 +1460,28 @@ export default function HorPalAffiliatePillar({
       }> = [];
 
       if (salesRows && salesRows.length > 0) {
-        const dbSalesCount = Number(prof?.affiliate_total_sales ?? prof?.sales_count ?? 0);
+        const dbSalesCount = Number(prof?.affiliate_total_sales ?? 0);
         setTotalSalesCount(Math.max(dbSalesCount, salesRows.length));
         const totalComm = salesRows.reduce(
           (acc: number, row: any) =>
-            acc + Number(row.commission_amount_ghs ?? row.commission_ghs ?? 0),
+            acc + Number(row.commission_amount_ghs ?? 0),
           0
         );
-        const dbTotalEarnings = Number(
-          prof?.affiliate_total_earned ?? prof?.total_earnings_ghs ?? 0
-        );
+        const dbTotalEarnings = Number(prof?.affiliate_total_earned ?? 0);
         setTotalEarningsGHS(Math.max(dbTotalEarnings, totalComm));
 
         const mappedTx = salesRows.map((row: any, idx: number) => ({
           id: row.id || `tx-${idx}`,
           orderUid: `ORD-${(row.id || '889120').toString().slice(0, 6).toUpperCase()}`,
           reference: row.paystack_reference || `HP-REF-${idx}`,
-          productTitle: row.product_title || row.product_name || 'HorPal Digital Asset',
-          amountGHS: Number(row.gross_amount_ghs || row.amount_paid_ghs || 240),
-          commissionGHS: Number(row.commission_amount_ghs ?? row.commission_ghs ?? 120),
+          productTitle: row.product_title || 'HorPal Digital Asset',
+          amountGHS: Number(row.gross_amount_ghs || 0),
+          commissionGHS: Number(row.commission_amount_ghs ?? 0),
           buyerName: row.buyer_name || 'Verified Customer',
           buyerEmail: row.buyer_email || '',
-          buyerPhone: row.buyer_phone || row.sub_id || '',
+          buyerPhone: row.buyer_phone || '',
           date: new Date(row.created_at).toISOString().replace('T', ' ').substring(0, 16),
-          status: (row.status || 'COMPLETED').toUpperCase()
+          status: 'COMPLETED'
         }));
         setTransactions(mappedTx);
 
@@ -1511,12 +1494,12 @@ export default function HorPalAffiliatePillar({
           read: false
         }));
       } else {
-        setTotalSalesCount(Number(prof?.affiliate_total_sales ?? prof?.sales_count ?? 0));
-        setTotalEarningsGHS(Number(prof?.affiliate_total_earned ?? prof?.total_earnings_ghs ?? 0));
+        setTotalSalesCount(Number(prof?.affiliate_total_sales ?? 0));
+        setTotalEarningsGHS(Number(prof?.affiliate_total_earned ?? 0));
         setTransactions([]);
       }
 
-      // 1B. Hydrate Buyer's Unlocked Courses from public.pillar2_unlocked_courses + affiliate_sales
+      // 1B. Hydrate Buyer's Unlocked Courses & Exam Certificates from public.pillar2_unlocked_courses
       try {
         const resolvedBuyerEmail = (activeMail || prof?.email || prof?.pillar2_email || '')
           .trim()
@@ -1526,24 +1509,29 @@ export default function HorPalAffiliatePillar({
           : `user_id.eq.${activeUid}`;
         const { data: p2UnlockedRows } = await supabase
           .from('pillar2_unlocked_courses')
-          .select('product_id')
+          .select('product_id, exam_passed, certificate_id, paystack_reference')
           .or(unlockedCourseFilter);
 
-        const buyerFilter = resolvedBuyerEmail
-          ? `buyer_user_id.eq.${activeUid},buyer_email.eq.${resolvedBuyerEmail}`
-          : `buyer_user_id.eq.${activeUid}`;
-        const { data: unlockedRows } = await supabase
-          .from('affiliate_sales')
-          .select('product_id')
-          .or(buyerFilter);
+        const validUnlockedRows = (p2UnlockedRows || []).filter(
+          (r: any) =>
+            Boolean(r.product_id) &&
+            r.product_id !== 'pillar2_direct_90' &&
+            !String(r.paystack_reference || '').toUpperCase().startsWith('HP_TEST_')
+        );
 
-        const mergedUnlocked = [
-          ...(p2UnlockedRows || []).map((r: any) => r.product_id),
-          ...(unlockedRows || []).map((r: any) => r.product_id),
-        ].filter((pid: any) => Boolean(pid) && pid !== 'pillar2_direct_90');
+        const mergedUnlocked = validUnlockedRows.map((r: any) => String(r.product_id));
+        setUnlockedProductIds(Array.from(new Set(mergedUnlocked)));
 
-        if (mergedUnlocked.length > 0) {
-          setUnlockedProductIds((prev) => Array.from(new Set([...prev, ...mergedUnlocked])));
+        const certMap: Record<string, string> = {};
+        validUnlockedRows.forEach((r: any) => {
+          if (r.exam_passed && r.certificate_id) {
+            certMap[String(r.product_id)] = String(r.certificate_id);
+          }
+        });
+        setPassedCourseCertificates(certMap);
+        if (certMap[examProductId]) {
+          setCertificateCode(certMap[examProductId]);
+          setCertificateUnlocked(true);
         }
       } catch (_) {}
 
@@ -1791,165 +1779,201 @@ export default function HorPalAffiliatePillar({
     setCheckoutStep(2);
   };
 
-  const completeVerifiedPurchaseRecord = async (reference: string) => {
-    const isDirect = isDirectEnrollmentCheckout;
-    const prod = activeSalesPageProduct || products[0] || INITIAL_PRODUCTS[0];
-    const baseGHS = isDirect ? DIRECT_ENROLLMENT_GHS : prod.priceGHS + (includeOrderBump ? 80 : 0);
+  const completeVerifiedPurchaseRecord = async (reference: string, overrideMeta?: any) => {
+    const cleanRef = String(reference || '').trim();
+    if (!cleanRef || cleanRef.toUpperCase().startsWith('HP_TEST_')) {
+      toast.error('Test purchases are disabled. Please complete real Paystack verification.');
+      return;
+    }
+
+    const isDirect = overrideMeta?.isDirect ?? isDirectEnrollmentCheckout;
+    const targetProductId = overrideMeta?.productId || activeSalesPageProduct?.id;
+    const prod =
+      products.find((p) => p.id === targetProductId) ||
+      activeSalesPageProduct ||
+      products[0] ||
+      INITIAL_PRODUCTS[0];
+    const baseGHS =
+      overrideMeta?.payableGHS ??
+      (isDirect ? DIRECT_ENROLLMENT_GHS : prod.priceGHS + (includeOrderBump ? 80 : 0));
     const commGHS = isDirect ? 0 : Number((baseGHS * 0.5).toFixed(2));
     const uniqueOrderUid = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
-    const fullPhone = `${buyerDialCode}${buyerPhone.replace(/^0+/, '')}`;
-    const activeRef = (attributedRefCode || userAffiliateCode || '').trim();
+    const resolvedFullName = overrideMeta?.buyerName || buyerFullName || `${firstName} ${lastName}`.trim() || 'Verified Customer';
+    const resolvedBuyerEmail = (overrideMeta?.buyerEmail || buyerEmail || pillar2Email || currentProfile?.email || '').trim().toLowerCase();
+    const fullPhone = overrideMeta?.buyerPhone || `${buyerDialCode}${buyerPhone.replace(/^0+/, '')}`;
+    const activeRef = (overrideMeta?.affiliateCode || attributedRefCode || userAffiliateCode || '').trim();
 
-    let serverRecordedOk = false;
-    try {
-      const recordRes = await fetch('/api/affiliate/record-sale', {
+    if (isDirect) {
+      const verifyRes = await fetch('/api/paystack/verify-pillar2-pass', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          paystackReference: reference,
-          reference,
-          productId: isDirect ? 'pillar2_direct_90' : prod.id,
-          productTitle: isDirect ? 'HorPal Pillar 2 Direct Enrollment (No Product)' : prod.title,
-          buyerUserId: userId,
-          buyerName: buyerFullName,
-          buyerEmail,
-          buyerPhone: fullPhone,
-          affiliateCode: activeRef,
-          amountGHS: baseGHS,
-          grossAmountGHS: baseGHS,
-          commissionGHS: commGHS,
-          deliveryUrl: isDirect ? '' : prod.deliveryUrl,
-          isDirectEnrollment: isDirect
-        })
+          reference: cleanRef,
+          email: resolvedBuyerEmail,
+          userId,
+          passType: 'registration_1yr',
+        }),
       });
-      serverRecordedOk = recordRes.ok;
-    } catch (_) {}
-
-    if (!serverRecordedOk) {
-      try {
-        await supabase.rpc('record_verified_affiliate_sale', {
-          p_paystack_ref: reference,
-          p_product_id: isDirect ? 'pillar2_direct_90' : prod.id,
-          p_product_title: isDirect ? 'HorPal Pillar 2 Direct Enrollment (No Product)' : prod.title,
-          p_buyer_user_id: userId,
-          p_buyer_name: buyerFullName,
-          p_buyer_email: buyerEmail,
-          p_affiliate_code: activeRef,
-          p_sub_id: fullPhone,
-          p_gross_ghs: baseGHS,
-          p_gross_usd: Number((baseGHS / 16).toFixed(2)),
-          p_commission_ghs: commGHS,
-          p_commission_usd: Number((commGHS / 16).toFixed(2)),
-          p_delivery_url: isDirect ? '' : prod.deliveryUrl
-        });
-      } catch (_) {}
-    }
-
-    if (!isDirect) {
-      // Phase 5 Fix #4: Unlock course immediately in buyer's Unlocked Courses / Marketplace Drive button
-      setUnlockedProductIds((prev) => (prev.includes(prod.id) ? prev : [...prev, prod.id]));
-
-      // Immediate client ledger sync when testing on own affiliate code or unreferred local purchase
-      const isSelfOrLocalSale =
-        !activeRef ||
-        !userAffiliateCode ||
-        activeRef.toUpperCase() === userAffiliateCode.toUpperCase();
-
-      if (isSelfOrLocalSale) {
-        const txItem = {
-          id: `tx-${Date.now()}`,
-          orderUid: uniqueOrderUid,
-          reference,
-          productTitle: prod.title,
-          amountGHS: baseGHS,
-          commissionGHS: commGHS,
-          buyerName: buyerFullName || firstName || 'Verified Customer',
-          buyerEmail: buyerEmail || pillar2Email,
-          buyerPhone: fullPhone,
-          date: new Date().toISOString().replace('T', ' ').substring(0, 16),
-          status: 'COMPLETED'
-        };
-        setTransactions((prev) => [txItem, ...prev]);
-        setAvailableBalanceGHS((prev) => Number((prev + commGHS).toFixed(2)));
-        setTotalEarningsGHS((prev) => Number((prev + commGHS).toFixed(2)));
-        setTotalSalesCount((prev) => prev + 1);
-        setNotificationsList((prev) => [
-          {
-            id: `notif-${Date.now()}`,
-            title: `Sale Commission for ${prod.title}`,
-            subtitle: `Buyer: ${buyerFullName} (${buyerEmail}) • Unique ID: ${uniqueOrderUid}`,
-            amountGHS: commGHS,
-            timeAgo: 'Just now',
-            read: false
-          },
-          ...prev
-        ]);
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData?.success) {
+        toast.error(verifyData?.error || 'Could not verify Pillar 2 enrollment payment.');
+        return;
       }
+      const paidMs = verifyData.pillar2_paid_at ? new Date(verifyData.pillar2_paid_at).getTime() : Date.now();
+      const expMs = verifyData.pillar2_expires_at ? new Date(verifyData.pillar2_expires_at).getTime() : paidMs + 365 * 24 * 60 * 60 * 1000;
+      setHasActivePaidLicense(true);
+      setLicenseActivatedAt(paidMs);
+      setLicenseExpiresAt(expMs);
+      setCheckoutStep(null);
+      setActiveSalesPageProduct(null);
+      setTimeout(() => {
+        loadSupabaseData();
+      }, 400);
+      onRefreshProfile?.();
+      toast.success('Direct Pillar 2 Affiliate License Activated for 365 Days!');
+      return;
     }
+
+    // Verify Product Purchase server-side via /api/pillar2/verify-product-purchase
+    const verifyRes = await fetch('/api/pillar2/verify-product-purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reference: cleanRef,
+        productId: prod.id,
+        productTitle: prod.title,
+        grossAmountGHS: baseGHS,
+        affiliateCode: activeRef,
+        buyerUserId: userId,
+        buyerName: resolvedFullName,
+        buyerEmail: resolvedBuyerEmail,
+        buyerPhone: fullPhone,
+      }),
+    });
+
+    const verifyData = await verifyRes.json();
+    if (!verifyRes.ok || !verifyData?.success) {
+      toast.error(verifyData?.error || 'Paystack could not verify this product purchase.');
+      return;
+    }
+
+    // 1. Unlock course immediately in buyer's My Unlocked Courses & Drive Vault
+    setUnlockedProductIds((prev) => (prev.includes(prod.id) ? prev : [...prev, prod.id]));
+
+    // 2. Grant Buyer full Pillar 2 Affiliate Hub access automatically (no separate GH₵ 90 fee needed!)
+    const paidMs = verifyData.pillar2_paid_at ? new Date(verifyData.pillar2_paid_at).getTime() : Date.now();
+    const expMs = verifyData.pillar2_expires_at ? new Date(verifyData.pillar2_expires_at).getTime() : paidMs + 365 * 24 * 60 * 60 * 1000;
+    setHasActivePaidLicense(true);
+    setLicenseActivatedAt(paidMs);
+    setLicenseExpiresAt(expMs);
+    setIsLockedDashboardModalOpen(false);
 
     setCheckoutStep(null);
-    setActiveSalesPageProduct(null);
     setTimeout(() => {
       loadSupabaseData();
-    }, 600);
+    }, 400);
     onRefreshProfile?.();
 
-    if (isDirect) {
-      alert(
-        `✅ Direct Enrollment Confirmed!\n\nProfile Created For: ${buyerFullName} (${buyerEmail})\nYou now have full access to the HorPal Pillar 2 Affiliate Hub (Direct Entry = App Access Only, No Bundled Product).`
-      );
-    } else {
-      alert(
-        `✅ Payment Confirmed!\n\nUnique Purchase ID: ${uniqueOrderUid}\nBuyer: ${buyerFullName} (${buyerEmail})\nProduct Unlocked: ${prod.title}\nAffiliate (${activeRef}) Credited Instantly: GH₵ ${commGHS.toFixed(2)}\n\nOpening your product access portal & Pillar 2 Dashboard!`
-      );
-      window.open(prod.deliveryUrl, '_blank', 'noopener,noreferrer');
-    }
+    toast.success(
+      `Payment Verified! "${prod.title}" is now unlocked in your Drive Vault & your Pillar 2 Affiliate Hub is active!`
+    );
+    alert(
+      `✅ Verified Paystack Purchase Confirmed!\n\nOrder ID: ${uniqueOrderUid}\nReference: ${cleanRef}\nBuyer: ${resolvedFullName} (${resolvedBuyerEmail})\nCourse Unlocked: ${prod.title}\n50% Affiliate Commission Credited (${activeRef || 'DIRECT'}): GH₵ ${(verifyData.commissionCreditedGHS ?? commGHS).toFixed(2)}\n\nYour course is now unlocked inside My Unlocked Courses & Drive Vault, and your full Pillar 2 Affiliate Hub access is now ACTIVE!`
+    );
   };
 
-  const handleLivePaystackCheckout = () => {
+  const handleLivePaystackCheckout = async () => {
     const isDirect = isDirectEnrollmentCheckout;
     const prod = activeSalesPageProduct || products[0] || INITIAL_PRODUCTS[0];
     const payableGHS = isDirect ? DIRECT_ENROLLMENT_GHS : prod.priceGHS + (includeOrderBump ? 80 : 0);
     const ref = `HP_P2_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const activeRef = (attributedRefCode || userAffiliateCode || '').trim();
+    const cleanPayEmail = (buyerEmail || pillar2Email || currentProfile?.email || '').trim().toLowerCase();
+    const fullPhone = `${buyerDialCode}${buyerPhone.replace(/^0+/, '')}`;
+
+    if (!cleanPayEmail || !cleanPayEmail.includes('@')) {
+      toast.error('Please enter a valid email address before proceeding to Paystack.');
+      return;
+    }
+
+    const metadata: any = {
+      user_id: userId,
+      email: cleanPayEmail,
+      payment_type: isDirect ? 'P2_LICENSE' : 'PRODUCT_PURCHASE',
+      product_id: isDirect ? 'pillar2_direct_90' : prod.id,
+      product_title: isDirect ? 'HorPal Pillar 2 Direct Enrollment' : prod.title,
+      affiliate_code: activeRef,
+      buyer_name: buyerFullName || `${firstName} ${lastName}`.trim(),
+      buyer_phone: fullPhone,
+    };
+
+    try {
+      sessionStorage.setItem(
+        'horpal_pending_p2_product_purchase',
+        JSON.stringify({
+          isDirect,
+          productId: prod.id,
+          productTitle: prod.title,
+          payableGHS,
+          affiliateCode: activeRef,
+          buyerName: buyerFullName || `${firstName} ${lastName}`.trim(),
+          buyerEmail: cleanPayEmail,
+          buyerPhone: fullPhone,
+        })
+      );
+    } catch (_) {}
+
+    const redirectViaStandardPaystack = async () => {
+      try {
+        const initRes = await fetch('/api/paystack/initialize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanPayEmail,
+            amount: Math.round(payableGHS * 100),
+            currency: 'GHS',
+            reference: ref,
+            callback_url: typeof window !== 'undefined' ? window.location.href : undefined,
+            metadata,
+          }),
+        });
+        const initData = await initRes.json();
+        if (initRes.ok && initData?.authorization_url) {
+          window.location.href = initData.authorization_url;
+          return;
+        }
+        toast.error(initData?.error || 'Unable to launch Paystack checkout. Please try again.');
+      } catch (err: any) {
+        toast.error(err?.message || 'Network error initializing Paystack.');
+      }
+    };
 
     const openPopup = () => {
       const PaystackPop = (window as any).PaystackPop;
       if (!PaystackPop || !PAYSTACK_PUBLIC_KEY) {
-        // Fallback instant verification if test environment lacks live key
-        completeVerifiedPurchaseRecord(ref);
+        redirectViaStandardPaystack();
         return;
       }
-      const metadata: any = {
-        user_id: userId,
-        email: buyerEmail || pillar2Email,
-        payment_type: isDirect ? 'P2_LICENSE' : 'PRODUCT_PURCHASE',
-      };
-      if (!isDirect) {
-        metadata.product_id = prod.id;
-        metadata.product_title = prod.title;
-        metadata.affiliate_code = activeRef;
+      try {
+        const handler = PaystackPop.setup({
+          key: PAYSTACK_PUBLIC_KEY,
+          email: cleanPayEmail,
+          amount: Math.round(payableGHS * 100),
+          currency: 'GHS',
+          ref,
+          metadata,
+          callback: (response: any) => {
+            const actualRef = response?.reference || ref;
+            try {
+              sessionStorage.removeItem('horpal_pending_p2_product_purchase');
+            } catch (_) {}
+            completeVerifiedPurchaseRecord(actualRef);
+          },
+        });
+        handler.openIframe();
+      } catch (_) {
+        redirectViaStandardPaystack();
       }
-      const handler = PaystackPop.setup({
-        key: PAYSTACK_PUBLIC_KEY,
-        email: buyerEmail || pillar2Email,
-        amount: Math.round(payableGHS * 100),
-        currency: 'GHS',
-        ref,
-        metadata: metadata,
-        callback: async (response: any) => {
-          const actualRef = response?.reference || ref;
-          try {
-            await fetch('/api/paystack/verify-deposit', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ reference: actualRef })
-            });
-          } catch (_) {}
-          await completeVerifiedPurchaseRecord(actualRef);
-        }
-      });
-      handler.openIframe();
     };
 
     if (typeof window !== 'undefined' && !(window as any).PaystackPop) {
@@ -1957,7 +1981,9 @@ export default function HorPalAffiliatePillar({
       script.src = 'https://js.paystack.co/v1/inline.js';
       script.async = true;
       script.onload = openPopup;
-      script.onerror = () => completeVerifiedPurchaseRecord(ref);
+      script.onerror = () => {
+        redirectViaStandardPaystack();
+      };
       document.body.appendChild(script);
     } else {
       openPopup();
@@ -2306,6 +2332,11 @@ export default function HorPalAffiliatePillar({
   // ============================================================================
   const handleGradeExamStep = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!unlockedProductIds.includes(examProductId)) {
+      toast.error('Please unlock this course via verified purchase before taking its certification exam.');
+      return;
+    }
+
     const stepData = FIVE_STEP_EXAM_BANK[currentExamStep];
     if (!stepData) return;
 
@@ -2327,22 +2358,38 @@ export default function HorPalAffiliatePillar({
         const nextStep = currentExamStep + 1;
         if (unlockedExamStep < nextStep) setUnlockedExamStep(nextStep);
       } else {
-        // Passed all 5 steps with >= 90%!
-        const newCertCode = `HP-CERT-${Math.floor(100000 + Math.random() * 900000)}`;
-        setCertificateCode(newCertCode);
-        setCertificateUnlocked(true);
+        // Passed all 5 steps with >= 90%! Update public.pillar2_unlocked_courses in Supabase
+        const generatedCertCode = `HP-CERT-${Math.floor(100000 + Math.random() * 900000)}`;
         const selectedCourse =
           products.find((p) => p.id === examProductId) || INITIAL_PRODUCTS[0];
+        let finalCertCode = generatedCertCode;
+
+        try {
+          const { data: rpcCert } = await supabase.rpc('mark_pillar2_exam_passed_rpc', {
+            p_user_id: userId,
+            p_email: (pillar2Email || currentProfile?.email || '').trim().toLowerCase(),
+            p_product_id: selectedCourse.id,
+            p_certificate_id: generatedCertCode,
+          });
+          if (rpcCert?.certificate_id) {
+            finalCertCode = String(rpcCert.certificate_id);
+          }
+        } catch (_) {}
+
         try {
           await supabase.from('affiliate_certificates').insert({
             user_id: userId,
             student_name: `${firstName} ${lastName}`.trim(),
             product_id: selectedCourse.id,
             product_title: selectedCourse.title,
-            certificate_code: newCertCode,
+            certificate_code: finalCertCode,
             final_score_percent: scorePercent
           });
         } catch (_) {}
+
+        setCertificateCode(finalCertCode);
+        setPassedCourseCertificates((prev) => ({ ...prev, [selectedCourse.id]: finalCertCode }));
+        setCertificateUnlocked(true);
       }
     }
   };
@@ -3057,37 +3104,17 @@ export default function HorPalAffiliatePillar({
     } catch (_) {}
 
     // Clear state immediately when userId changes to prevent cross-account bleed
-    setAvailableBalanceGHS(Number(currentProfile?.affiliate_balance || 0));
-    setTotalEarningsGHS(0);
-    setWithdrawnBalanceGHS(Number(currentProfile?.total_withdrawn || 0));
-    setTotalSalesCount(0);
-    setTotalClicksCount(0);
+    // All financial & sales metrics are strictly hydrated from Supabase (profiles & pillar2_sales)
+    setAvailableBalanceGHS(Number(currentProfile?.affiliate_balance ?? 0));
+    setTotalEarningsGHS(Number(currentProfile?.affiliate_total_earned ?? 0));
+    setWithdrawnBalanceGHS(Number(currentProfile?.affiliate_withdrawn ?? 0));
+    setTotalSalesCount(Number(currentProfile?.affiliate_total_sales ?? 0));
+    setTotalClicksCount(Number(currentProfile?.affiliate_link_clicks ?? 0));
     setTransactions([]);
     setWalletHistory([]);
     setUnlockedProductIds([]);
     setNotificationsList([]);
     setAbandonedLeads([]);
-
-    if (!userId) return;
-
-    try {
-      const stored =
-        localStorage.getItem(`horpal_p2_state_v3_${userId}`) ||
-        localStorage.getItem(`horpal_p2_user_state_${userId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.availableBalanceGHS !== undefined) setAvailableBalanceGHS(parsed.availableBalanceGHS);
-        if (parsed.totalEarningsGHS !== undefined) setTotalEarningsGHS(parsed.totalEarningsGHS);
-        if (parsed.withdrawnBalanceGHS !== undefined) setWithdrawnBalanceGHS(parsed.withdrawnBalanceGHS);
-        if (parsed.totalSalesCount !== undefined) setTotalSalesCount(parsed.totalSalesCount);
-        if (parsed.totalClicksCount !== undefined) setTotalClicksCount(parsed.totalClicksCount);
-        if (parsed.transactions !== undefined) setTransactions(parsed.transactions);
-        if (parsed.walletHistory !== undefined) setWalletHistory(parsed.walletHistory);
-        if (parsed.unlockedProductIds !== undefined) setUnlockedProductIds(parsed.unlockedProductIds);
-        if (parsed.notificationsList !== undefined) setNotificationsList(parsed.notificationsList);
-        if (parsed.abandonedLeads !== undefined) setAbandonedLeads(parsed.abandonedLeads);
-      }
-    } catch (_) {}
   }, [userId]);
 
   useEffect(() => {
@@ -3103,12 +3130,6 @@ export default function HorPalAffiliatePillar({
           pillar2Phone,
           pillar2Country,
           profile_completed: profileCompleted,
-          availableBalanceGHS,
-          totalEarningsGHS,
-          withdrawnBalanceGHS,
-          totalSalesCount,
-          totalClicksCount,
-          transactions,
           walletHistory,
           unlockedProductIds,
           notificationsList,
@@ -3228,24 +3249,13 @@ export default function HorPalAffiliatePillar({
   };
 
   // ============================================================================
-  // HORPAL AI BUSINESS BRAIN BOT HANDLER ("1-CLICK ORDER BUMP" FALLBACK)
+  // PILLAR 2 HELP DESK CHAT HANDLER (SILENT & EMPTY — ZERO AUTOMATED REPLY)
   // ============================================================================
   const handleAiBotSend = (customPrompt?: string) => {
     const query = (customPrompt || aiInput).trim();
     if (!query) return;
 
-    const lower = query.toLowerCase();
-    let reply = '';
-
-    if (lower === 'hi' || lower === 'hello' || lower === 'hey' || lower.includes('good morning') || lower.includes('good afternoon')) {
-      reply = `Hello ${firstName || 'Partner'}! 👋 Welcome to the HorPal AI Business Brain. You can ask me anything about HorPal, your unique product links, Friday payouts, or how to close more sales!`;
-    } else if (lower.includes('horpal') || lower.includes('commission') || lower.includes('payout') || lower.includes('friday') || lower.includes('link')) {
-      reply = `On HorPal Pillar 2, every product by Moses pays an instant 50% commission into your Available Balance the moment Paystack verifies payment. Your unique tracking link (${userAffiliateCode}) records the buyer's Full Name, Gmail, and Unique Order ID. Withdrawals are processed every Friday via Instant Paystack Transfer or Global Manual Settlement!`;
-    } else {
-      reply = `RECOMMENDATION:\nTo maximize conversions on "${query}", pair your offer with a **1-Click Order Bump** at checkout, enable automated WhatsApp customer sync, and offer an affiliate commission of 50% to incentivize top promoters!\n\nWant me to write the complete WhatsApp broadcast sequence or TikTok hook for this?`;
-    }
-
-    setAiMessages((prev) => [...prev, { sender: 'user', text: query }, { sender: 'bot', text: reply }]);
+    setAiMessages((prev) => [...prev, { sender: 'user', text: query }]);
     if (!customPrompt) setAiInput('');
   };
 
@@ -3351,17 +3361,72 @@ export default function HorPalAffiliatePillar({
             )}
             <button
               onClick={() => {
+                const isAuthorizedPillar2User = Boolean(
+                  hasActivePaidLicense ||
+                    currentProfile?.has_paid_pillar2 === true ||
+                    unlockedProductIds.length > 0
+                );
+                if (!isAuthorizedPillar2User) {
+                  setIsLockedDashboardModalOpen(true);
+                  return;
+                }
                 setActiveSalesPageProduct(null);
                 if (isMandatoryProfileCompletion) {
                   setActiveSettingsModal('pillar2_onboarding');
                 }
               }}
-              className="text-xs bg-amber-500 hover:bg-amber-400 text-black font-bold px-3 py-1 rounded-lg"
+              className="text-xs bg-amber-500 hover:bg-amber-400 text-black font-bold px-3.5 py-1.5 rounded-lg shadow-md transition-all"
             >
-              ← Return to Affiliate Hub
+              Enter Affiliate Dashboard
             </button>
           </div>
         </div>
+
+        {isLockedDashboardModalOpen && (
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+            <div className="bg-[#0d1322] border border-amber-500/40 rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl text-center space-y-5">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center mx-auto text-2xl">
+                🔒
+              </div>
+              <h3 className="text-lg md:text-xl font-black text-white">
+                🔒 Affiliate Hub Locked
+              </h3>
+              <p className="text-sm text-gray-300 leading-relaxed">
+                🔒 Affiliate Hub Locked — Complete your product purchase below (which includes free Affiliate Hub access!) OR pay the GH₵ 90.00 Affiliate Registration Fee to enter the Dashboard.
+              </p>
+              <div className="space-y-3 pt-2">
+                <button
+                  onClick={() => {
+                    setIsLockedDashboardModalOpen(false);
+                    setIsDirectEnrollmentCheckout(false);
+                    setCheckoutStep(1);
+                  }}
+                  className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm transition-all"
+                >
+                  Complete Product Purchase Below (Includes Free Affiliate Access)
+                </button>
+                <button
+                  onClick={() => {
+                    setIsLockedDashboardModalOpen(false);
+                    try {
+                      sessionStorage.removeItem('horpal_active_prod');
+                    } catch (_) {}
+                    window.location.href = '/affiliate';
+                  }}
+                  className="w-full py-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-bold text-xs transition-all"
+                >
+                  Pay GH₵ 90.00 Affiliate Registration Fee
+                </button>
+                <button
+                  onClick={() => setIsLockedDashboardModalOpen(false)}
+                  className="w-full py-2 text-xs text-gray-400 hover:text-white"
+                >
+                  Stay on Product Page
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="max-w-3xl mx-auto px-4 py-10">
           <div className="bg-[#0d1322] border border-emerald-500/30 rounded-3xl p-6 md:p-10 shadow-2xl group">
@@ -4253,7 +4318,13 @@ export default function HorPalAffiliatePillar({
                     setUnlockedExamStep(1);
                     setExamAnswers({});
                     setExamStepResult(null);
-                    setCertificateUnlocked(false);
+                    if (passedCourseCertificates[e.target.value]) {
+                      setCertificateCode(passedCourseCertificates[e.target.value]);
+                      setCertificateUnlocked(true);
+                    } else {
+                      setCertificateCode('');
+                      setCertificateUnlocked(false);
+                    }
                   }}
                   className="bg-[#141d30] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none min-w-[250px]"
                 >
@@ -6678,10 +6749,10 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
         <div className="fixed bottom-24 left-4 z-50 w-[340px] max-w-[calc(100vw-32px)] bg-[#0f172a] rounded-3xl overflow-hidden border border-emerald-500/30 shadow-[0_0_40px_rgba(16,185,129,0.15)] animate-in slide-in-from-bottom-8">
            <div className="p-4 bg-gradient-to-r from-[#141d30] to-emerald-950/40 border-b border-white/10 flex justify-between items-center">
              <div className="flex items-center gap-2">
-               <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/40 text-lg">🤖</div>
+               <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/40 text-lg">💬</div>
                <div>
-                 <span className="text-sm font-bold text-white block">HorPal AI Brain</span>
-                 <span className="text-[10px] text-emerald-400 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div> Online</span>
+                 <span className="text-sm font-bold text-white block">Pillar 2 Help Desk</span>
+                 <span className="text-[10px] text-emerald-400 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div> Direct Support</span>
                </div>
              </div>
              <button onClick={() => setIsAiBotOpen(false)} className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10">
@@ -6700,19 +6771,12 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
            </div>
 
            <div className="p-3 border-t border-white/10 bg-[#141d30]">
-             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-3 mb-1">
-               {["Analyze my sales", "How do Friday payouts work?", "Write WhatsApp status hook", "1-Click Order Bump strategy"].map(chip => (
-                 <button key={chip} onClick={() => handleAiBotSend(chip)} className="shrink-0 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-emerald-300 hover:bg-white/10 transition-colors whitespace-nowrap">
-                   {chip}
-                 </button>
-               ))}
-             </div>
              <form onSubmit={(e) => { e.preventDefault(); handleAiBotSend(); }} className="flex gap-2 relative">
                <input
                  type="text"
                  value={aiInput}
                  onChange={(e) => setAiInput(e.target.value)}
-                 placeholder="Ask HorPal AI..."
+                 placeholder="Type your message..."
                  className="flex-1 bg-[#0b111e] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500/50"
                />
                <button type="submit" disabled={!aiInput.trim()} className="w-10 flex items-center justify-center rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
@@ -7098,33 +7162,14 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
         </div>
       )}
 
-      {/* Floating AI Bot */}
+      {/* Floating Pillar 2 Help Bot (Silent Help Desk Window — Detached from Pillar 1 Store) */}
       <button
         onClick={() => {
-          const tier = String(currentProfile?.subscription_tier || '').toLowerCase();
-          const isProOrPremium =
-            tier === 'pro' ||
-            tier === 'premium' ||
-            currentProfile?.is_pro === true ||
-            currentProfile?.is_premium === true;
-
-          if (!isProOrPremium) {
-            toast(
-              '🤖 Upgrade to Pro or Premium to access the 24/7 HorPal AI Business Brain!',
-              { icon: '👑', duration: 4000 }
-            );
-            openCoinStore({
-              initialTab: 'UPGRADES',
-              promptMessage:
-                '🤖 Unlock Your 24/7 AI Companion — Upgrade to Pro or Premium for Unlimited AI Chat',
-            });
-            return;
-          }
           setIsAiBotOpen((prev) => !prev);
         }}
         className="fixed bottom-20 left-4 z-[9999] w-12 h-12 rounded-full bg-[#020202]/90 backdrop-blur-xl border border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center hover:scale-110 transition-transform"
       >
-        🤖
+        💬
       </button>
 
     </div>
