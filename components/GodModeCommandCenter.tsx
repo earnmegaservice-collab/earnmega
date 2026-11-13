@@ -1109,6 +1109,35 @@ function SubscriptionsAlertModule() {
     }
   };
 
+  const handleManagePillar3 = async (
+    userId: string,
+    alertId: string,
+    mode: 'revoke' | 'extend',
+    days?: number
+  ) => {
+    setActionLoading(alertId + mode + (days || ''));
+    try {
+      const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'MANAGE_PILLAR3_ACCESS',
+          payload: { userId, alertId, mode, days },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(mode === 'revoke' ? 'Pillar 3 access revoked.' : `Pillar 3 extended by ${days} days.`);
+        fetchAlerts();
+      } else {
+        toast.error(data.error || 'Pillar 3 action failed');
+      }
+    } catch (e) {
+      toast.error('Network error managing Pillar 3');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleBulkDowngrade = async () => {
     const unacknowledged = alerts.filter(a => !a.admin_acknowledged);
     if (unacknowledged.length === 0) {
@@ -1224,7 +1253,7 @@ function SubscriptionsAlertModule() {
                             : 'bg-blue-900/40 text-blue-300 border-blue-500/40'
                         }`}
                       >
-                        {alert.previous_tier === 'premium' ? '👑 Premium 1-Year' : '⚡ Pro 1-Month'}
+                        {({ premium: '👑 Premium 1-Year', pro: '⚡ Pro 1-Month', pillar3_weekly: '⚡ Pillar 3 Weekly', pillar3_pro: '🚀 Pillar 3 Pro Monthly', pillar3_premium: '👑 Pillar 3 Premium Annual' } as Record<string, string>)[alert.previous_tier] || alert.previous_tier}
                       </span>
                     </td>
                     <td className="p-4 text-gray-400 text-xs font-mono">
@@ -1242,6 +1271,27 @@ function SubscriptionsAlertModule() {
                       </span>
                     </td>
                     <td className="p-4 text-right">
+                      {String(alert.previous_tier || '').startsWith('pillar3_') ? (
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          {[7, 30, 365].map((d) => (
+                            <button
+                              key={d}
+                              onClick={() => handleManagePillar3(alert.user_id, alert.id, 'extend', d)}
+                              disabled={actionLoading !== null}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white font-bold text-[11px] uppercase tracking-wider transition border border-emerald-500/30"
+                            >
+                              +{d}d
+                            </button>
+                          ))}
+                          <button
+                            onClick={() => handleManagePillar3(alert.user_id, alert.id, 'revoke')}
+                            disabled={actionLoading !== null}
+                            className="px-2.5 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-600 text-white font-bold text-[11px] uppercase tracking-wider transition border border-red-500/30"
+                          >
+                            Revoke P3
+                          </button>
+                        </div>
+                      ) : (
                       <button
                         onClick={() => handleForceDowngrade(alert.user_id, alert.id)}
                         disabled={actionLoading === alert.id}
@@ -1249,6 +1299,7 @@ function SubscriptionsAlertModule() {
                       >
                         {actionLoading === alert.id ? 'Processing...' : 'Force Move to Free / Remove Access'}
                       </button>
+                      )}
                     </td>
                   </tr>
                 ))

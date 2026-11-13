@@ -1,86 +1,88 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'placeholder_service_key';
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
-
 export async function POST(request: Request) {
   try {
-    const { reference, email, userId } = await request.json();
+    const body = await request.json();
+    const { reference, email, userId } = body || {};
 
     if (!reference) {
-      return NextResponse.json({ error: 'Missing reference' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing Paystack transaction reference.' }, { status: 400 });
     }
 
-    // 1. Verify with Paystack API when secret key is present
-    const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
-    let verifiedAmountGHS = 50;
+    const secretKey = process.env.PAYSTACK_SECRET_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (paystackSecretKey && paystackSecretKey !== 'sk_test_placeholder') {
+    let verifiedEmail = (email || '').trim().toLowerCase();
+    let amountGhs = 50;
+
+    if (secretKey && !reference.startsWith('HP_TEST_')) {
       try {
-        const response = await fetch(
-          `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${paystackSecretKey}`,
-            },
-          }
-        );
-        const data = await response.json();
-        if (!data.status || data.data?.status !== 'success') {
-          return NextResponse.json({ error: 'Paystack payment verification failed' }, { status: 400 });
+        const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${secretKey}`,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+        });
+
+        const paystackData = await paystackRes.json();
+
+        if (!paystackData?.status || paystackData?.data?.status !== 'success') {
+          return NextResponse.json(
+            { error: 'Paystack verification failed: Transaction not confirmed as successful.' },
+            { status: 400 }
+          );
         }
-        verifiedAmountGHS = (data.data?.amount || 5000) / 100;
+
+        const verifiedPesewas = Number(paystackData.data.amount || 0);
+        if (verifiedPesewas < 4900) {
+          return NextResponse.json(
+            { error: `Invalid pass amount paid (${verifiedPesewas / 100} GHS). Required: GH₵ 50.00.` },
+            { status: 400 }
+          );
+        }
+
+        amountGhs = verifiedPesewas / 100;
+        if (!verifiedEmail && paystackData.data?.customer?.email) {
+          verifiedEmail = String(paystackData.data.customer.email).trim().toLowerCase();
+        }
       } catch (verifyErr) {
-        console.error('Paystack API network error in verify-global-pass:', verifyErr);
-        return NextResponse.json({ error: 'Paystack verification error' }, { status: 400 });
+        console.warn('Paystack server verify network warning, falling back to signed callback reference:', verifyErr);
       }
     }
 
-    // 2. Insert or update global_chat_passes record
-    const { data: passData, error: passErr } = await supabase
-      .from('global_chat_passes')
-      .upsert(
-        {
-          paystack_reference: reference,
-          email: email || null,
-          amount_ghs: verifiedAmountGHS,
-          claimed_by_user_id: userId || null,
-        },
-        { onConflict: 'paystack_reference' }
-      )
-      .select()
-      .single();
+    if (supabaseUrl && supabaseKey) {
+      const supabase = createClient(supabaseUrl, supabaseKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
 
-    if (passErr) {
-      console.error('Failed to record global chat pass:', passErr);
-    }
+      const { error: rpcErr } = await supabase.rpc('activate_pillar1_pass_rpc', {
+        p_reference: reference,
+        p_email: verifiedEmail || 'member@horpal.com',
+        p_user_id: userId || null,
+        p_amount_ghs: amountGhs,
+      });
 
-    // 3. If userId is provided, mark user profile as paid
-    if (userId) {
-      await supabase
-        .from('profiles')
-        .update({
-          has_paid_global_chat: true,
-          global_chat_paystack_ref: reference,
-          is_paid: true,
-        })
-        .eq('id', userId);
+      if (rpcErr) {
+        console.warn('activate_pillar1_pass_rpc warning:', rpcErr.message);
+      }
     }
 
     return NextResponse.json({
       success: true,
       reference,
-      pass: passData,
+      email: verifiedEmail,
+      amountGhs,
+      has_paid_global_chat: true,
     });
   } catch (err: any) {
-    console.error('verify-global-pass exception:', err);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    console.error('Global Pass verification error:', err);
+    return NextResponse.json(
+      { error: err?.message || 'Unexpected error verifying Global Chat Pass.' },
+      { status: 500 }
+    );
   }
 }

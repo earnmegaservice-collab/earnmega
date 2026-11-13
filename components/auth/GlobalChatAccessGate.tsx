@@ -42,6 +42,8 @@ interface GlobalChatAccessGateProps {
   onPaidLoginSuccess?: (user: any, profile: any) => void;
   onUnpaidDenied?: (email: string) => void;
   onClose?: () => void;
+  currentUser?: any;
+  currentProfile?: any;
 }
 
 const VIP_FEATURES = [
@@ -93,6 +95,8 @@ export default function GlobalChatAccessGate({
   onPaidLoginSuccess,
   onUnpaidDenied,
   onClose,
+  currentUser,
+  currentProfile,
 }: GlobalChatAccessGateProps) {
   const [viewMode, setViewMode] = useState<'gate' | 'login'>('gate');
   const [email, setEmail] = useState('');
@@ -107,6 +111,7 @@ export default function GlobalChatAccessGate({
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [deniedEmailBanner, setDeniedEmailBanner] = useState<string | null>(null);
+  const [pillarStatusNotice, setPillarStatusNotice] = useState<string | null>(null);
 
   // Worldwide Currency Converter State (anchored to GH₵ 50.00 base settlement)
   const [selectedCurrency, setSelectedCurrency] = useState<string>('GHS');
@@ -138,6 +143,28 @@ export default function GlobalChatAccessGate({
     };
   }, [isOpen]);
 
+  // Pre-fill email & show strict 3-pillar isolation notice if logged in via Pillar 2 or Pillar 3
+  useEffect(() => {
+    if (!isOpen) return;
+    const uEmail = currentUser?.email || currentProfile?.email || '';
+    if (uEmail) {
+      setEmail((prev) => prev || uEmail);
+      setLoginEmail((prev) => prev || uEmail);
+    }
+    if (currentUser && currentProfile && currentProfile.has_paid_global_chat !== true) {
+      const p2 = currentProfile.has_paid_pillar2 || currentProfile.is_pillar2_paid ? '✅' : '❌';
+      const p3 =
+        currentProfile.has_paid_pillar3 &&
+        currentProfile.pillar3_expires_at &&
+        new Date(currentProfile.pillar3_expires_at) > new Date()
+          ? '✅'
+          : '❌';
+      setPillarStatusNotice(
+        `🚫 Pillar 1 Access Required: Your account (${uEmail || 'this account'}) has [Pillar 2: ${p2}] [Pillar 3: ${p3}], but has NOT paid the GH₵ 50.00 Pillar 1 Lifetime Pass yet.`
+      );
+    }
+  }, [isOpen, currentUser, currentProfile]);
+
   // Pick up any unpaid OAuth return banner stored before sign-out
   useEffect(() => {
     if (!isOpen || typeof window === 'undefined') return;
@@ -153,7 +180,6 @@ export default function GlobalChatAccessGate({
 
   const makeSafeTap = (fn: () => void) => ({
     onMouseDown: (e: React.MouseEvent) => {
-      // Prevent background text inputs from keeping or stealing focus during button taps
       e.preventDefault();
     },
     onTouchStart: (e: React.TouchEvent) => {
@@ -165,7 +191,7 @@ export default function GlobalChatAccessGate({
       const t = e.changedTouches[0];
       touchStartRef.current = null;
       if (start && t && (Math.abs(t.clientX - start.x) > 10 || Math.abs(t.clientY - start.y) > 10)) {
-        return; // Ignore swipe/scroll gestures on mobile
+        return;
       }
       e.stopPropagation();
       touchHandledRef.current = Date.now();
@@ -188,6 +214,7 @@ export default function GlobalChatAccessGate({
 
   const clearDeniedBanner = () => {
     setDeniedEmailBanner(null);
+    setPillarStatusNotice(null);
     try {
       sessionStorage.removeItem(DENIED_GATE_EMAIL_STORAGE_KEY);
     } catch (_) {}
@@ -202,7 +229,11 @@ export default function GlobalChatAccessGate({
     : 'GH₵ 50.00';
 
   const triggerPayment = () => {
-    const payEmail = email.trim() || deniedEmailBanner || 'guest_' + Date.now() + '@earnmega.com';
+    const payEmail =
+      email.trim() ||
+      currentUser?.email ||
+      deniedEmailBanner ||
+      'guest_' + Date.now() + '@earnmega.com';
     const reference = `pass_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     setPaymentConfig({
@@ -260,9 +291,16 @@ export default function GlobalChatAccessGate({
   }, [paymentConfig, initializePayment, onSuccess]);
 
   const verifyPaidPassOrSack = async (authUser: any, fallbackEmail?: string) => {
+    try {
+      await supabase.rpc('claim_paid_passes_for_user_rpc', {
+        p_user_id: authUser.id,
+        p_email: authUser?.email || fallbackEmail || '',
+      });
+    } catch (_) {}
+
     const { data: profileRow, error: profileErr } = await supabase
       .from('profiles')
-      .select('has_paid_global_chat, subscription_tier')
+      .select('has_paid_global_chat, has_paid_pillar2, is_pillar2_paid, has_paid_pillar3, pillar3_expires_at, subscription_tier')
       .eq('id', authUser.id)
       .maybeSingle();
 
@@ -281,8 +319,20 @@ export default function GlobalChatAccessGate({
       return;
     }
 
-    // Strict Database Verification: SACK every unpaid account immediately
+    // Strict 3-Pillar Isolation: SACK any Pillar 2 / Pillar 3 / Unpaid account trying to enter Pillar 1
     const blockedEmail = authUser?.email || fallbackEmail || 'this account';
+    const p2 = profileRow?.has_paid_pillar2 || profileRow?.is_pillar2_paid ? '✅' : '❌';
+    const p3 =
+      profileRow?.has_paid_pillar3 &&
+      profileRow?.pillar3_expires_at &&
+      new Date(profileRow.pillar3_expires_at) > new Date()
+        ? '✅'
+        : '❌';
+
+    setPillarStatusNotice(
+      `🚫 Pillar 1 Access Required: Your account (${blockedEmail}) has [Pillar 2: ${p2}] [Pillar 3: ${p3}], but has NOT paid the GH₵ 50.00 Pillar 1 Lifetime Pass yet.`
+    );
+
     try {
       localStorage.removeItem(GATE_LOGIN_ATTEMPT_STORAGE_KEY);
       sessionStorage.setItem(DENIED_GATE_EMAIL_STORAGE_KEY, blockedEmail);
@@ -299,7 +349,7 @@ export default function GlobalChatAccessGate({
     setLoginPassword('');
     setViewMode('gate');
     onUnpaidDenied?.(blockedEmail);
-    toast.error(`Access Denied: ${blockedEmail} has not paid the GH₵ 50 pass yet.`, {
+    toast.error(`Access Denied: ${blockedEmail} has not paid the GH₵ 50 Pillar 1 pass yet.`, {
       duration: 5000,
     });
   };
@@ -518,13 +568,19 @@ export default function GlobalChatAccessGate({
             </div>
 
             {/* Bold Red Sacked/Unpaid Warning Banner */}
-            {deniedEmailBanner && (
+            {(pillarStatusNotice || deniedEmailBanner) && (
               <div className="mb-6 p-4 rounded-2xl bg-rose-950/90 border-2 border-rose-500 text-rose-100 shadow-[0_0_30px_rgba(244,63,94,0.45)] flex items-start gap-3">
                 <AlertTriangle size={22} className="text-rose-400 shrink-0 mt-0.5" />
                 <div className="text-xs sm:text-sm font-bold leading-relaxed">
-                  🚫 Access Denied: This account (<span className="underline text-white">{deniedEmailBanner}</span>) has
-                  NOT paid the GH₵ 50 Lifetime Entry Pass yet. Please complete your one-time GH₵ 50 payment below to
-                  activate Global Chat.
+                  {pillarStatusNotice ? (
+                    pillarStatusNotice
+                  ) : (
+                    <>
+                      🚫 Access Denied: This account (<span className="underline text-white">{deniedEmailBanner}</span>) has
+                      NOT paid the GH₵ 50 Lifetime Entry Pass yet. Please complete your one-time GH₵ 50 payment below to
+                      activate Global Chat.
+                    </>
+                  )}
                 </div>
               </div>
             )}

@@ -80,7 +80,20 @@ export async function syncAuthenticatedUserProfile(user: any) {
         .select("*")
         .maybeSingle();
 
-      return syncedGoogle || { ...existingProfile, ...minimalPayload, profile_completed: false };
+      try {
+        await supabase.rpc("claim_paid_passes_for_user_rpc", {
+          p_user_id: user.id,
+          p_email: user.email || existingProfile?.email || "",
+        });
+      } catch (_) {}
+
+      const { data: refreshedGoogle } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      return refreshedGoogle || syncedGoogle || { ...existingProfile, ...minimalPayload, profile_completed: false };
     }
 
     const metaFullName = (meta.full_name || meta.name || "").trim();
@@ -163,6 +176,13 @@ export async function syncAuthenticatedUserProfile(user: any) {
       .select("*")
       .maybeSingle();
 
+    try {
+      await supabase.rpc("claim_paid_passes_for_user_rpc", {
+        p_user_id: user.id,
+        p_email: user.email || existingProfile?.email || "",
+      });
+    } catch (_) {}
+
     // Best-effort profile_completed sync if column exists
     if (existingCompleted) {
       try {
@@ -170,7 +190,13 @@ export async function syncAuthenticatedUserProfile(user: any) {
       } catch (_) {}
     }
 
-    return syncedProfile || { ...existingProfile, ...upsertPayload, profile_completed: existingCompleted };
+    const { data: refreshedProfile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    return refreshedProfile || syncedProfile || { ...existingProfile, ...upsertPayload, profile_completed: existingCompleted };
   } catch (err) {
     console.error("[HorPalAuthGate] Profile sync error:", err);
     return null;
@@ -179,17 +205,21 @@ export async function syncAuthenticatedUserProfile(user: any) {
 
 interface HorPalAuthGateProps {
   defaultTargetPillar?: "1" | "2" | "3";
+  initialEmail?: string;
+  initialMode?: "login" | "signup";
   onAuthenticated?: (user: any, profile?: any) => void;
   onBackToHub?: () => void;
 }
 
 export default function HorPalAuthGate({
   defaultTargetPillar = "1",
+  initialEmail = "",
+  initialMode = "login",
   onAuthenticated,
   onBackToHub,
 }: HorPalAuthGateProps) {
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "signup">(initialMode);
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");

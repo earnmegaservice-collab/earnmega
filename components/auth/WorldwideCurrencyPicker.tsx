@@ -19,6 +19,8 @@ interface WorldwideCurrencyPickerProps {
   selectedCode: string;
   onSelect: (code: string) => void;
   liveRates: Record<string, number> | null;
+  baseAmountGhs?: number;
+  ratesSource?: 'live' | 'fallback';
 }
 
 export default function WorldwideCurrencyPicker({
@@ -27,6 +29,7 @@ export default function WorldwideCurrencyPicker({
   selectedCode,
   onSelect,
   liveRates,
+  baseAmountGhs = BASE_PASS_AMOUNT_GHS,
 }: WorldwideCurrencyPickerProps) {
   const [mounted, setMounted] = useState(false);
   const [query, setQuery] = useState('');
@@ -234,7 +237,7 @@ export default function WorldwideCurrencyPicker({
               ) : (
                 filteredCurrencies.map((c) => {
                   const isSelected = selectedCode === c.code;
-                  const converted = formatConvertedPrice(BASE_PASS_AMOUNT_GHS, c.code, liveRates);
+                  const converted = formatConvertedPrice(baseAmountGhs, c.code, liveRates);
                   return (
                     <button
                       key={c.code}
@@ -260,7 +263,7 @@ export default function WorldwideCurrencyPicker({
                       <div className="flex items-center gap-2.5 shrink-0">
                         <div className="text-right">
                           <div className="text-xs sm:text-sm font-black text-amber-300">
-                            {c.code === 'GHS' ? 'GH₵ 50.00' : `≈ ${converted.formattedValue}`}
+                            {c.code === 'GHS' ? `GH₵ ${baseAmountGhs.toFixed(2)}` : `≈ ${converted.formattedValue}`}
                           </div>
                           <div className="text-[10px] text-zinc-500 font-mono">{c.symbol}</div>
                         </div>

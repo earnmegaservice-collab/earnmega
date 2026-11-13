@@ -403,6 +403,63 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
+    if (action === 'MANAGE_PILLAR3_ACCESS') {
+      const { userId, alertId, mode, days } = payload;
+      if (!userId) return NextResponse.json({ success: false, error: 'Missing userId' });
+
+      if (mode === 'revoke') {
+        const { error: revErr } = await adminSupabase
+          .from('profiles')
+          .update({
+            has_paid_pillar3: false,
+            pillar3_tier: 'none',
+            pillar3_expires_at: new Date().toISOString(),
+          })
+          .eq('id', userId);
+        if (revErr) return NextResponse.json({ success: false, error: revErr.message });
+      } else if (mode === 'extend') {
+        const addDays = [7, 30, 365].includes(Number(days)) ? Number(days) : 0;
+        if (!addDays) return NextResponse.json({ success: false, error: 'Invalid days (7, 30 or 365)' });
+
+        const { data: prof } = await adminSupabase
+          .from('profiles')
+          .select('has_paid_pillar3, pillar3_expires_at, pillar3_started_at')
+          .eq('id', userId)
+          .maybeSingle();
+
+        const nowMs = Date.now();
+        const curExp = prof?.pillar3_expires_at ? new Date(prof.pillar3_expires_at).getTime() : 0;
+        const baseMs = prof?.has_paid_pillar3 && curExp > nowMs ? curExp : nowMs;
+        const newExp = new Date(baseMs + addDays * 86400000).toISOString();
+        const tier = addDays === 7 ? 'weekly' : addDays === 30 ? 'pro' : 'premium';
+
+        const { error: extErr } = await adminSupabase
+          .from('profiles')
+          .update({
+            has_paid_pillar3: true,
+            pillar3_tier: tier,
+            pillar3_started_at: prof?.pillar3_started_at || new Date(nowMs).toISOString(),
+            pillar3_expires_at: newExp,
+          })
+          .eq('id', userId);
+        if (extErr) return NextResponse.json({ success: false, error: extErr.message });
+      } else {
+        return NextResponse.json({ success: false, error: 'Invalid mode' });
+      }
+
+      if (alertId) {
+        await adminSupabase
+          .from('admin_subscription_alerts')
+          .update({
+            admin_acknowledged: true,
+            action_taken: mode === 'revoke' ? 'pillar3_revoked_by_admin' : 'pillar3_extended_by_admin',
+          })
+          .eq('id', alertId);
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
     if (action === 'BULK_FORCE_DOWNGRADE') {
       const { userIds, alertIds } = payload;
       if (Array.isArray(userIds) && userIds.length > 0) {

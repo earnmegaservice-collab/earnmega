@@ -895,34 +895,43 @@ export default function HorPalAffiliatePillar({
     }>
   >([]);
 
-  // 1-Year License Timer State (Block 2) — Reflects Real DB License State (No Fake 365-Day Default)
+  // 1-Year License Timer State — Reads pillar2_paid_at & pillar2_expires_at from Supabase
   const initialHasLicense = Boolean(
-    currentProfile?.is_pillar2_paid || currentProfile?.license_expires_at
+    currentProfile?.has_paid_pillar2 ||
+      currentProfile?.pillar2_expires_at ||
+      currentProfile?.is_pillar2_paid ||
+      currentProfile?.license_expires_at
   );
-  const initialExpiresMs = currentProfile?.license_expires_at
-    ? new Date(currentProfile.license_expires_at).getTime()
-    : currentProfile?.is_pillar2_paid
-    ? Date.now() + 365 * 24 * 60 * 60 * 1000
+  const rawExpiresIso =
+    currentProfile?.pillar2_expires_at || currentProfile?.license_expires_at || null;
+  const rawPaidAtIso =
+    currentProfile?.pillar2_paid_at || currentProfile?.license_activated_at || null;
+  const initialActivatedMs = rawPaidAtIso ? new Date(rawPaidAtIso).getTime() : Date.now();
+  const initialExpiresMs = rawExpiresIso
+    ? new Date(rawExpiresIso).getTime()
+    : initialHasLicense
+    ? initialActivatedMs + 365 * 24 * 60 * 60 * 1000
     : 0;
+  const initialDiffMs = Math.max(0, initialExpiresMs - Date.now());
   const [hasActivePaidLicense, setHasActivePaidLicense] = useState<boolean>(initialHasLicense);
   const [licenseActivatedAt, setLicenseActivatedAt] = useState<number>(
-    currentProfile?.license_activated_at
-      ? new Date(currentProfile.license_activated_at).getTime()
-      : 0
+    initialHasLicense ? initialActivatedMs : 0
   );
   const [licenseExpiresAt, setLicenseExpiresAt] = useState<number>(initialExpiresMs);
   const [timeRemaining, setTimeRemaining] = useState({
-    days: initialHasLicense && initialExpiresMs > Date.now()
-      ? Math.floor((initialExpiresMs - Date.now()) / (1000 * 60 * 60 * 24))
-      : 0,
-    hours: 0,
-    minutes: 0,
-    seconds: 0,
-    expired: false,
+    days: initialHasLicense ? Math.floor(initialDiffMs / (1000 * 60 * 60 * 24)) : 364,
+    hours: initialHasLicense
+      ? Math.floor((initialDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+      : 23,
+    minutes: initialHasLicense
+      ? Math.floor((initialDiffMs % (1000 * 60 * 60)) / (1000 * 60))
+      : 59,
+    seconds: initialHasLicense ? Math.floor((initialDiffMs % (1000 * 60)) / 1000) : 59,
+    expired: Boolean(initialHasLicense && initialExpiresMs > 0 && initialExpiresMs <= Date.now()),
   });
   const expiryAlertSentRef = useRef<boolean>(false);
 
-  // Renewal Gate State (Block 3)
+  // Renewal Gate State (Strictly hidden while NOW() < pillar2_expires_at)
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState<boolean>(false);
 
   // Marketplace Search, Filter & Modals
@@ -1359,19 +1368,24 @@ export default function HorPalAffiliatePillar({
           } catch (_) {}
         }
 
-        // Reflect real database license state (do NOT grant fake 365-day license to unpaid users)
-        const dbPaid = Boolean(prof?.is_pillar2_paid || prof?.license_expires_at);
+        // Reflect real database license state (pillar2_paid_at & pillar2_expires_at)
+        const dbPaid = Boolean(
+          prof?.has_paid_pillar2 ||
+            prof?.pillar2_expires_at ||
+            prof?.is_pillar2_paid ||
+            prof?.license_expires_at
+        );
         setHasActivePaidLicense(dbPaid);
-        if (prof?.license_expires_at) {
-          const expMs = new Date(prof.license_expires_at).getTime();
+        const resolvedExpiresIso = prof?.pillar2_expires_at || prof?.license_expires_at || null;
+        const resolvedPaidIso = prof?.pillar2_paid_at || prof?.license_activated_at || null;
+        if (resolvedExpiresIso) {
+          const expMs = new Date(resolvedExpiresIso).getTime();
           setLicenseExpiresAt(expMs);
-          if (prof?.license_activated_at) {
-            setLicenseActivatedAt(new Date(prof.license_activated_at).getTime());
+          if (resolvedPaidIso) {
+            setLicenseActivatedAt(new Date(resolvedPaidIso).getTime());
           }
-        } else if (prof?.is_pillar2_paid) {
-          const actMs = prof?.license_activated_at
-            ? new Date(prof.license_activated_at).getTime()
-            : Date.now();
+        } else if (dbPaid) {
+          const actMs = resolvedPaidIso ? new Date(resolvedPaidIso).getTime() : Date.now();
           setLicenseActivatedAt(actMs);
           setLicenseExpiresAt(actMs + 365 * 24 * 60 * 60 * 1000);
         } else {
@@ -1384,8 +1398,9 @@ export default function HorPalAffiliatePillar({
         }
 
         setUserAffiliateCode(resolvedAffiliateCode);
-        setAvailableBalanceGHS(Number(prof?.available_balance_ghs ?? prof?.affiliate_balance ?? 0));
-        setWithdrawnBalanceGHS(Number(prof?.total_withdrawn || 0));
+        setAvailableBalanceGHS(Number(prof?.affiliate_balance ?? prof?.available_balance_ghs ?? 0));
+        setWithdrawnBalanceGHS(Number(prof?.affiliate_withdrawn ?? prof?.total_withdrawn ?? 0));
+        setTotalClicksCount(Number(prof?.affiliate_link_clicks ?? 0));
       } else {
         setUserAffiliateCode(resolvedAffiliateCode);
         if (activeMail) {
@@ -1394,15 +1409,34 @@ export default function HorPalAffiliatePillar({
         }
       }
 
-      // 1. Strict User-Scoped Financial Sales Ledger (affiliate_sales ONLY)
-      const salesFilter = resolvedAffiliateCode
+      // 1. Strict User-Scoped Financial Sales Ledger (public.pillar2_sales + legacy affiliate_sales)
+      const p2SalesFilter = resolvedAffiliateCode
+        ? `affiliate_user_id.eq.${activeUid},affiliate_code.eq.${resolvedAffiliateCode}`
+        : `affiliate_user_id.eq.${activeUid}`;
+      const { data: p2SalesRows } = await supabase
+        .from('pillar2_sales')
+        .select('*')
+        .or(p2SalesFilter)
+        .order('created_at', { ascending: false });
+
+      const legacySalesFilter = resolvedAffiliateCode
         ? `affiliate_id.eq.${activeUid},affiliate_user_id.eq.${activeUid},affiliate_code.eq.${resolvedAffiliateCode}`
         : `affiliate_id.eq.${activeUid},affiliate_user_id.eq.${activeUid}`;
-      const { data: salesRows } = await supabase
+      const { data: legacySalesRows } = await supabase
         .from('affiliate_sales')
         .select('*')
-        .or(salesFilter)
+        .or(legacySalesFilter)
         .order('created_at', { ascending: false });
+
+      const combinedMap = new Map<string, any>();
+      (p2SalesRows || []).forEach((r: any) => {
+        combinedMap.set(r.paystack_reference || r.id, r);
+      });
+      (legacySalesRows || []).forEach((r: any) => {
+        const key = r.paystack_reference || r.id;
+        if (!combinedMap.has(key)) combinedMap.set(key, r);
+      });
+      const salesRows = Array.from(combinedMap.values());
 
       let saleNotifs: Array<{
         id: string;
@@ -1414,13 +1448,16 @@ export default function HorPalAffiliatePillar({
       }> = [];
 
       if (salesRows && salesRows.length > 0) {
-        const dbSalesCount = Number(prof?.sales_count || 0);
+        const dbSalesCount = Number(prof?.affiliate_total_sales ?? prof?.sales_count ?? 0);
         setTotalSalesCount(Math.max(dbSalesCount, salesRows.length));
         const totalComm = salesRows.reduce(
-          (acc: number, row: any) => acc + Number(row.commission_ghs || 0),
+          (acc: number, row: any) =>
+            acc + Number(row.commission_amount_ghs ?? row.commission_ghs ?? 0),
           0
         );
-        const dbTotalEarnings = Number(prof?.total_earnings_ghs || 0);
+        const dbTotalEarnings = Number(
+          prof?.affiliate_total_earned ?? prof?.total_earnings_ghs ?? 0
+        );
         setTotalEarningsGHS(Math.max(dbTotalEarnings, totalComm));
 
         const mappedTx = salesRows.map((row: any, idx: number) => ({
@@ -1429,10 +1466,10 @@ export default function HorPalAffiliatePillar({
           reference: row.paystack_reference || `HP-REF-${idx}`,
           productTitle: row.product_title || row.product_name || 'HorPal Digital Asset',
           amountGHS: Number(row.gross_amount_ghs || row.amount_paid_ghs || 240),
-          commissionGHS: Number(row.commission_ghs || 120),
+          commissionGHS: Number(row.commission_amount_ghs ?? row.commission_ghs ?? 120),
           buyerName: row.buyer_name || 'Verified Customer',
           buyerEmail: row.buyer_email || '',
-          buyerPhone: row.sub_id || '',
+          buyerPhone: row.buyer_phone || row.sub_id || '',
           date: new Date(row.created_at).toISOString().replace('T', ' ').substring(0, 16),
           status: (row.status || 'COMPLETED').toUpperCase()
         }));
@@ -1447,14 +1484,24 @@ export default function HorPalAffiliatePillar({
           read: false
         }));
       } else {
-        setTotalSalesCount(Number(prof?.sales_count || 0));
-        setTotalEarningsGHS(Number(prof?.total_earnings_ghs || 0));
+        setTotalSalesCount(Number(prof?.affiliate_total_sales ?? prof?.sales_count ?? 0));
+        setTotalEarningsGHS(Number(prof?.affiliate_total_earned ?? prof?.total_earnings_ghs ?? 0));
         setTransactions([]);
       }
 
-      // 1B. Hydrate Buyer's Unlocked Courses from Supabase affiliate_sales
+      // 1B. Hydrate Buyer's Unlocked Courses from public.pillar2_unlocked_courses + affiliate_sales
       try {
-        const resolvedBuyerEmail = activeMail || prof?.email || prof?.pillar2_email || '';
+        const resolvedBuyerEmail = (activeMail || prof?.email || prof?.pillar2_email || '')
+          .trim()
+          .toLowerCase();
+        const unlockedCourseFilter = resolvedBuyerEmail
+          ? `user_id.eq.${activeUid},buyer_email.eq.${resolvedBuyerEmail}`
+          : `user_id.eq.${activeUid}`;
+        const { data: p2UnlockedRows } = await supabase
+          .from('pillar2_unlocked_courses')
+          .select('product_id')
+          .or(unlockedCourseFilter);
+
         const buyerFilter = resolvedBuyerEmail
           ? `buyer_user_id.eq.${activeUid},buyer_email.eq.${resolvedBuyerEmail}`
           : `buyer_user_id.eq.${activeUid}`;
@@ -1462,13 +1509,14 @@ export default function HorPalAffiliatePillar({
           .from('affiliate_sales')
           .select('product_id')
           .or(buyerFilter);
-        if (unlockedRows && unlockedRows.length > 0) {
-          const dbUnlocked = unlockedRows
-            .map((r: any) => r.product_id)
-            .filter((pid: any) => Boolean(pid) && pid !== 'pillar2_direct_90');
-          if (dbUnlocked.length > 0) {
-            setUnlockedProductIds((prev) => Array.from(new Set([...prev, ...dbUnlocked])));
-          }
+
+        const mergedUnlocked = [
+          ...(p2UnlockedRows || []).map((r: any) => r.product_id),
+          ...(unlockedRows || []).map((r: any) => r.product_id),
+        ].filter((pid: any) => Boolean(pid) && pid !== 'pillar2_direct_90');
+
+        if (mergedUnlocked.length > 0) {
+          setUnlockedProductIds((prev) => Array.from(new Set([...prev, ...mergedUnlocked])));
         }
       } catch (_) {}
 
@@ -2402,13 +2450,26 @@ export default function HorPalAffiliatePillar({
     return () => clearInterval(interval);
   }, []);
 
-  const handleCompleteRenewal = async () => {
+  const handleCompleteRenewal = async (newExpiresAtIso?: string, updatedBalance?: number) => {
     const nowMs = Date.now();
-    const nextExpMs = nowMs + 365 * 24 * 60 * 60 * 1000;
+    const nextExpMs = newExpiresAtIso
+      ? new Date(newExpiresAtIso).getTime()
+      : nowMs + 365 * 24 * 60 * 60 * 1000;
     // 1. Activate and reset timer for 365 days
     setHasActivePaidLicense(true);
     setLicenseActivatedAt(nowMs);
     setLicenseExpiresAt(nextExpMs);
+    if (typeof updatedBalance === 'number') {
+      setAvailableBalanceGHS(updatedBalance);
+    }
+    const diffMs = Math.max(0, nextExpMs - nowMs);
+    setTimeRemaining({
+      days: Math.floor(diffMs / (1000 * 60 * 60 * 24)),
+      hours: Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+      minutes: Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)),
+      seconds: Math.floor((diffMs % (1000 * 60)) / 1000),
+      expired: false,
+    });
     expiryAlertSentRef.current = false;
 
     if (userId) {
@@ -2416,6 +2477,9 @@ export default function HorPalAffiliatePillar({
         await supabase
           .from('profiles')
           .update({
+            has_paid_pillar2: true,
+            pillar2_paid_at: new Date(nowMs).toISOString(),
+            pillar2_expires_at: new Date(nextExpMs).toISOString(),
             is_pillar2_paid: true,
             license_activated_at: new Date(nowMs).toISOString(),
             license_expires_at: new Date(nextExpMs).toISOString(),
@@ -2451,7 +2515,8 @@ export default function HorPalAffiliatePillar({
     } catch (_) {}
 
     setIsRenewalModalOpen(false);
-    alert('✅ License Successfully Renewed for 1 Year!\n\nYour HorPal Affiliate Dashboard has been unlocked. Keep building!');
+    onRefreshProfile?.();
+    alert('✅ License Successfully Renewed for 1 Year!\n\nYour HorPal Affiliate Dashboard has been unlocked for another 365 days!');
   };
 
   // ============================================================================
@@ -2878,6 +2943,7 @@ export default function HorPalAffiliatePillar({
   // ============================================================================
   useEffect(() => {
     if (!userId || !hasActivePaidLicense) return;
+    if (currentProfile?.pillar2_expires_at || currentProfile?.license_expires_at) return;
     try {
       const storedLicenseStr = localStorage.getItem(`horpal_p2_license_${userId}`);
       if (storedLicenseStr) {
@@ -2886,7 +2952,7 @@ export default function HorPalAffiliatePillar({
         if (parsed.licenseExpiresAt) setLicenseExpiresAt(parsed.licenseExpiresAt);
       }
     } catch (_) {}
-  }, [userId, hasActivePaidLicense]);
+  }, [userId, hasActivePaidLicense, currentProfile?.pillar2_expires_at, currentProfile?.license_expires_at]);
 
   useEffect(() => {
     if (!userId || !hasActivePaidLicense || !licenseExpiresAt) return;
@@ -2907,7 +2973,7 @@ export default function HorPalAffiliatePillar({
       return;
     }
 
-    const timer = setInterval(() => {
+    const computeTick = () => {
       const now = Date.now();
       const remainingMs = licenseExpiresAt - now;
 
@@ -2946,7 +3012,10 @@ export default function HorPalAffiliatePillar({
         setTimeRemaining({ days, hours, minutes, seconds, expired: false });
         expiryAlertSentRef.current = false;
       }
-    }, 1000);
+    };
+
+    computeTick();
+    const timer = setInterval(computeTick, 1000);
     return () => clearInterval(timer);
   }, [hasActivePaidLicense, licenseExpiresAt, firstName, lastName, currentProfile?.email, pillar2Email, userAffiliateCode, pillar2Phone]);
 
@@ -3667,33 +3736,36 @@ export default function HorPalAffiliatePillar({
               </div>
             </div>
 
-            {/* Subtle License Pill Status Bar */}
-            <div className="bg-[#0f172a] border border-emerald-500/30 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
-              <div className="flex items-center gap-2 text-xs md:text-sm font-bold text-gray-200">
-                <span>
-                  🛡️ Annual Affiliate License:{' '}
-                  {!hasActivePaidLicense ? (
-                    <span className="text-amber-400">Inactive (Unpaid Account)</span>
-                  ) : timeRemaining.expired ? (
-                    <span className="text-rose-400">Expired (0d left)</span>
-                  ) : (
-                    <span className="text-emerald-400">Active ({timeRemaining.days}d left)</span>
-                  )}{' '}
-                  —
-                </span>
-                <button
-                  onClick={() => setIsRenewalModalOpen(true)}
-                  className="text-emerald-300 hover:text-emerald-200 underline decoration-emerald-500/60 font-black transition-all"
-                >
-                  {hasActivePaidLicense ? '[Extend +1 Yr]' : '[Activate License]'}
-                </button>
+            {/* Sleek Emerald Annual Affiliate License Active Badge (Hides Renewal Until 1 Year Ends) */}
+            {!timeRemaining.expired ? (
+              <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.12)]">
+                <div className="flex items-center gap-2 text-xs md:text-sm font-black text-emerald-300">
+                  <span>
+                    ✅ Annual Affiliate License Active • [
+                    {timeRemaining.days}d {String(timeRemaining.hours).padStart(2, '0')}h{' '}
+                    {String(timeRemaining.minutes).padStart(2, '0')}m{' '}
+                    {String(timeRemaining.seconds).padStart(2, '0')}s] Remaining
+                  </span>
+                </div>
+                {licenseExpiresAt > 0 && (
+                  <span className="text-[11px] text-emerald-400/80 font-mono">
+                    Valid Until: {new Date(licenseExpiresAt).toLocaleDateString()}
+                  </span>
+                )}
               </div>
-              <span className="text-[11px] text-gray-400 font-mono">
-                {hasActivePaidLicense && licenseExpiresAt
-                  ? `Expires: ${new Date(licenseExpiresAt).toLocaleDateString()}`
-                  : 'Status: No Active Annual License'}
-              </span>
-            </div>
+            ) : (
+              <div className="bg-rose-950/40 border border-rose-500/50 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-2 text-xs md:text-sm font-bold text-rose-300">
+                  <span>🔴 Annual Affiliate License Expired (00:00:00 Remaining)</span>
+                  <button
+                    onClick={() => setIsRenewalModalOpen(true)}
+                    className="text-emerald-300 hover:text-emerald-200 underline font-black transition-all ml-2"
+                  >
+                    Renew Annual License — GH₵ 45.00 (50% Discount)
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Affiliate Milestone Progress Bar (Digitstem Style) */}
             <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-5">
@@ -5929,33 +6001,25 @@ export default function HorPalAffiliatePillar({
             <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-5 shadow-xl relative overflow-hidden">
                <div className="flex items-center justify-between mb-4 relative z-10">
                  <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                   AFFILIATE ANNUAL LICENSE & RENEWAL TIMER
+                   AFFILIATE ANNUAL LICENSE TIMER
                  </span>
-                 {!hasActivePaidLicense ? (
-                    <span className="text-[10px] font-black bg-amber-500/20 text-amber-300 px-3 py-1 rounded-full border border-amber-500/30">
-                      ⚪ INACTIVE / UNPAID
-                    </span>
-                 ) : timeRemaining.expired ? (
+                 {timeRemaining.expired ? (
                     <span className="text-[10px] font-black bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full border border-rose-500/30">
                       🔴 LICENSE EXPIRED
                     </span>
-                 ) : timeRemaining.days <= 14 ? (
-                    <span className="text-[10px] font-black bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full border border-orange-500/30 animate-pulse">
-                      🟠 EXPIRING SOON
-                    </span>
                  ) : (
                     <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/30">
-                      🟢 ACTIVE
+                      ✅ ANNUAL LICENSE ACTIVE
                     </span>
                  )}
                </div>
 
                <div className="grid grid-cols-4 gap-2 mb-4 relative z-10">
                  {[
-                   { label: 'DAYS', val: hasActivePaidLicense ? timeRemaining.days : 0 },
-                   { label: 'HOURS', val: (hasActivePaidLicense ? timeRemaining.hours : 0).toString().padStart(2, '0') },
-                   { label: 'MINS', val: (hasActivePaidLicense ? timeRemaining.minutes : 0).toString().padStart(2, '0') },
-                   { label: 'SECS', val: (hasActivePaidLicense ? timeRemaining.seconds : 0).toString().padStart(2, '0') }
+                   { label: 'DAYS', val: timeRemaining.days },
+                   { label: 'HOURS', val: timeRemaining.hours.toString().padStart(2, '0') },
+                   { label: 'MINS', val: timeRemaining.minutes.toString().padStart(2, '0') },
+                   { label: 'SECS', val: timeRemaining.seconds.toString().padStart(2, '0') }
                  ].map((t, idx) => (
                    <div key={idx} className="bg-[#141d30] border border-emerald-500/20 rounded-xl p-3 flex flex-col items-center justify-center">
                      <span className="text-2xl md:text-3xl font-black text-emerald-400 font-mono tracking-wider">{t.val}</span>
@@ -5964,39 +6028,27 @@ export default function HorPalAffiliatePillar({
                  ))}
                </div>
 
-               <div className="bg-black/30 border border-white/5 rounded-xl p-3 mb-4 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-2 text-[10px] font-medium text-gray-400">
-                 <div>
-                   <span className="block mb-1">First-Time Registration: <span className="line-through">GH₵ 90.00 / Yr</span></span>
-                   <span className="block text-emerald-300">Discounted Renewal Rate: GH₵ 45.00 / Yr (50% OFF)</span>
+               <div className="bg-black/30 border border-white/5 rounded-xl p-3 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-2 text-[10px] font-medium text-gray-400">
+                 <div className="text-emerald-300 font-bold">
+                   ✅ Annual Affiliate License Active • [{timeRemaining.days}d {String(timeRemaining.hours).padStart(2, '0')}h {String(timeRemaining.minutes).padStart(2, '0')}m {String(timeRemaining.seconds).padStart(2, '0')}s] Remaining
                  </div>
                  <div className="text-left md:text-right font-mono bg-white/5 px-2 py-1 rounded">
-                   {hasActivePaidLicense && licenseExpiresAt
+                   {licenseExpiresAt > 0
                      ? `Expires: ${new Date(licenseExpiresAt).toLocaleDateString()}`
-                     : 'Status: Not Activated'}
+                     : 'Active'}
                  </div>
                </div>
 
-               <div className="flex flex-col md:flex-row gap-3 relative z-10">
-                 <button
-                   onClick={() => setIsRenewalModalOpen(true)}
-                   className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-                 >
-                   {hasActivePaidLicense
-                     ? 'Renew / Extend +1 Year (GH₵ 45.00)'
-                     : 'Activate Annual License (GH₵ 45.00)'}
-                 </button>
-                 {isAdminUser && (
+               {timeRemaining.expired && (
+                 <div className="mt-4 flex flex-col md:flex-row gap-3 relative z-10">
                    <button
-                     onClick={() => {
-                       setHasActivePaidLicense(true);
-                       setLicenseExpiresAt(Date.now() - 1000);
-                     }}
-                     className="md:w-auto px-4 py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-rose-500/30 text-rose-400 font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                     onClick={() => setIsRenewalModalOpen(true)}
+                     className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]"
                    >
-                     <Clock className="w-3.5 h-3.5" /> ⚡ Simulate Expiry
+                     Renew Annual License — GH₵ 45.00 (50% Renewal Discount)
                    </button>
-                 )}
-               </div>
+                 </div>
+               )}
             </div>
           </div>
         )}
@@ -6665,9 +6717,9 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
       )}
 
       {/* ==================================================================== */}
-      {/* FULL-SCREEN RENEWAL GATE LOCK */}
+      {/* FULL-SCREEN RENEWAL GATE LOCK (ONLY SHOWN WHEN 1-YEAR LICENSE EXPIRES) */}
       {/* ==================================================================== */}
-      {(timeRemaining.expired || isRenewalModalOpen) && (
+      {timeRemaining.expired && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/95 backdrop-blur-md p-4">
           <div className="bg-[#0f172a] w-full max-w-lg rounded-3xl overflow-hidden border border-rose-500/50 animate-in zoom-in-95 shadow-[0_0_80px_rgba(244,63,94,0.2)] relative">
             <div className="absolute top-0 left-0 w-48 h-48 bg-rose-500/10 blur-[60px] pointer-events-none"></div>
@@ -6676,23 +6728,20 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
                <div className="w-16 h-16 bg-rose-500/10 border-2 border-rose-500/50 rounded-full flex items-center justify-center mx-auto mb-4">
                  <Lock className="w-8 h-8 text-rose-400" />
                </div>
-               <h2 className="text-2xl font-black text-white uppercase tracking-wider mb-2">
-                 {timeRemaining.expired ? "License Expired" : "Renew License"}
+               <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-wider mb-2">
+                 Renew Annual License — GH₵ 45.00 (50% Renewal Discount)
                </h2>
                <p className="text-sm text-gray-400">
-                 {timeRemaining.expired
-                   ? "Your 1-Year HorPal Affiliate License has reached its 365-day expiration date. An alert has been dispatched to the HorPal Admin Control Centre and your workspace access is paused until renewal."
-                   : "Renew your license now to guarantee uninterrupted 365-day access to your affiliate hub."
-                 }
+                 Your 1-Year HorPal Affiliate License has reached its 365-day expiration date (`00:00:00`). Renew now at your 50% discount to unlock your Affiliate Hub for another full year.
                </p>
             </div>
 
             <div className="p-6 relative z-10 bg-[#141d30]">
                <div className="flex flex-col gap-1 mb-6 text-center border-b border-white/5 pb-6">
-                 <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">Renewal Fee</span>
+                 <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">Annual Renewal Fee</span>
                  <span className="text-gray-500 line-through text-sm">First-Time Registration: GH₵ 90.00</span>
                  <span className="text-3xl font-black text-emerald-400 mt-1">
-                   GH₵ 45.00 <span className="text-sm font-bold text-emerald-400/80 uppercase">(50% Discount)</span>
+                   GH₵ 45.00 <span className="text-sm font-bold text-emerald-400/80 uppercase">(50% Renewal Discount)</span>
                  </span>
                  <span className="text-xs text-emerald-400/60 mt-2 font-mono">({formatAmount(45)})</span>
                </div>
@@ -6700,26 +6749,52 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
                <div className="space-y-3">
                  <button
                    onClick={() => {
-                     // Launch Paystack (mocked)
+                     const activeEmail = (pillar2Email || currentProfile?.email || 'affiliate@horpal.com').trim();
+                     const txRef = `HP_REN_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+                     const verifyRenewalOnServer = async (reference: string) => {
+                       try {
+                         const res = await fetch('/api/paystack/verify-pillar2-pass', {
+                           method: 'POST',
+                           headers: { 'Content-Type': 'application/json' },
+                           body: JSON.stringify({
+                             reference,
+                             email: activeEmail,
+                             userId: userId || null,
+                             passType: 'renewal_1yr',
+                           }),
+                         });
+                         const data = await res.json();
+                         if (!res.ok || !data?.success) {
+                           alert(data?.error || 'Could not verify Paystack renewal transaction.');
+                           return;
+                         }
+                         await handleCompleteRenewal(data.pillar2_expires_at);
+                       } catch (err: any) {
+                         alert(err?.message || 'Error verifying renewal payment.');
+                       }
+                     };
+
                      const openPopup = () => {
                        const PaystackPop = (window as any).PaystackPop;
                        if (!PaystackPop || !PAYSTACK_PUBLIC_KEY) {
-                         // Fallback instant verification if test environment lacks live key
-                         handleCompleteRenewal();
+                         alert('Paystack checkout is initializing. Please try again in 2 seconds.');
                          return;
                        }
                        const handler = PaystackPop.setup({
                          key: PAYSTACK_PUBLIC_KEY,
-                         email: pillar2Email,
-                         amount: 4500,
+                         email: activeEmail,
+                         amount: 45 * 100, // 4500 pesewas = GH₵ 45.00
                          currency: 'GHS',
-                         ref: `HP_REN_${Date.now()}`,
+                         ref: txRef,
                          metadata: {
                            user_id: userId,
-                           email: pillar2Email,
-                           payment_type: 'P2_RENEWAL'
+                           email: activeEmail,
+                           payment_type: 'P2_RENEWAL_45_GHS',
                          },
-                         callback: () => handleCompleteRenewal()
+                         callback: (response: { reference?: string }) => {
+                           verifyRenewalOnServer(response?.reference || txRef);
+                         },
                        });
                        handler.openIframe();
                      };
@@ -6729,40 +6804,54 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
                        script.src = 'https://js.paystack.co/v1/inline.js';
                        script.async = true;
                        script.onload = openPopup;
-                       script.onerror = () => handleCompleteRenewal();
                        document.body.appendChild(script);
                      } else {
                        openPopup();
                      }
                    }}
-                   className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.2)]"
+                   className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.2)] cursor-pointer"
                  >
                    <CreditCard className="w-5 h-5" /> Pay GH₵ 45.00 via Paystack
                  </button>
 
                  <button
-                   onClick={() => {
-                     if (availableBalanceGHS >= 45) {
-                       setAvailableBalanceGHS(prev => prev - 45);
-                       handleCompleteRenewal();
-                     } else {
-                       alert(`Insufficient Available Balance (GH₵ ${availableBalanceGHS.toFixed(2)}). You need GH₵ 45.00 to renew from balance.`);
+                   onClick={async () => {
+                     if (availableBalanceGHS < 45) {
+                       alert(
+                         `Insufficient Verified Affiliate Balance (GH₵ ${availableBalanceGHS.toFixed(
+                           2
+                         )}). You need at least GH₵ 45.00 in your verified balance to deduct renewal.`
+                       );
+                       return;
+                     }
+                     if (!userId) {
+                       alert('Please ensure you are signed in to deduct from your Supabase balance.');
+                       return;
+                     }
+                     try {
+                       const res = await fetch('/api/pillar2/renew-balance', {
+                         method: 'POST',
+                         headers: { 'Content-Type': 'application/json' },
+                         body: JSON.stringify({ userId }),
+                       });
+                       const data = await res.json();
+                       if (!res.ok || !data?.success) {
+                         alert(data?.error || 'Could not deduct GH₵ 45.00 from affiliate balance.');
+                         return;
+                       }
+                       await handleCompleteRenewal(
+                         data.pillar2_expires_at,
+                         typeof data.new_balance === 'number' ? data.new_balance : availableBalanceGHS - 45
+                       );
+                     } catch (err: any) {
+                       alert(err?.message || 'Network error renewing from balance.');
                      }
                    }}
-                   className="w-full py-4 rounded-xl bg-[#0f172a] hover:bg-[#1a2541] border border-white/10 text-white font-bold transition-all flex items-center justify-center gap-2"
+                   className="w-full py-4 rounded-xl bg-[#0f172a] hover:bg-[#1a2541] border border-white/10 text-white font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
                  >
-                   <DollarSign className="w-5 h-5" /> Deduct GH₵ 45.00 from Balance
+                   <DollarSign className="w-5 h-5" /> Deduct GH₵ 45.00 from Balance (Available: GH₵ {availableBalanceGHS.toFixed(2)})
                  </button>
                </div>
-
-               {!timeRemaining.expired && (
-                 <button
-                   onClick={() => setIsRenewalModalOpen(false)}
-                   className="w-full mt-4 py-3 rounded-xl bg-transparent hover:bg-white/5 text-gray-400 font-bold transition-all text-xs"
-                 >
-                   Cancel & Return to Hub
-                 </button>
-               )}
             </div>
           </div>
         </div>

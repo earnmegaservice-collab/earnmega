@@ -10,8 +10,10 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { HorPalLandingGateway } from "../components/home/HorPalLandingGateway";
 import { RadarActivationModal } from "../components/location/RadarActivationModal";
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../components/auth/HorPalAuthGate";
+import { hasActivePillar3Access } from "../utils/pillar3Access";
 
 const GlobalChatAccessGate = dynamic(() => import("../components/auth/GlobalChatAccessGate"), { ssr: false });
+const Pillar3AccessGate = dynamic(() => import("../components/auth/Pillar3AccessGate"), { ssr: false });
 
 function HomeContent() {
   const { isLoading } = useAuth();
@@ -23,6 +25,7 @@ function HomeContent() {
   const [isGateLoading, setIsGateLoading] = useState(true);
   const [hasMounted, setHasMounted] = useState(false);
   const [showGlobalChatGate, setShowGlobalChatGate] = useState(false);
+  const [showPillar3Gate, setShowPillar3Gate] = useState(false);
   const [pendingPassRef, setPendingPassRef] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,7 +89,7 @@ function HomeContent() {
         .eq("id", activeSession.user.id)
         .single();
 
-      // Strict Phase 3 Gate Verification: SACK unpaid Google OAuth / Gate login attempts immediately
+      // Strict Gate Verification: SACK unpaid Google OAuth / Gate login attempts immediately
       if (typeof window !== "undefined" && localStorage.getItem("horpal_gate_login_attempt") === "1") {
         localStorage.removeItem("horpal_gate_login_attempt");
         if (data?.has_paid_global_chat !== true) {
@@ -178,23 +181,15 @@ function HomeContent() {
             }
           }}
           onEnterPillar2={() => {
-            localStorage.setItem("horpal_target_pillar", "2");
-            setTargetPillar("2");
-            if (session?.user) {
-              localStorage.removeItem("horpal_target_pillar");
-              window.location.href = "/affiliate";
-            } else {
-              setShowGateway(false);
-            }
+            localStorage.removeItem("horpal_target_pillar");
+            window.location.href = "/affiliate";
           }}
           onEnterPillar3={() => {
-            localStorage.setItem("horpal_target_pillar", "3");
-            setTargetPillar("3");
-            if (session?.user) {
-              localStorage.removeItem("horpal_target_pillar");
+            localStorage.removeItem("horpal_target_pillar");
+            if (session?.user && hasActivePillar3Access(profileState)) {
               window.location.href = "/horpal-ai";
             } else {
-              setShowGateway(false);
+              setShowPillar3Gate(true);
             }
           }}
         />
@@ -202,6 +197,8 @@ function HomeContent() {
         <GlobalChatAccessGate
           isOpen={showGlobalChatGate}
           onClose={() => setShowGlobalChatGate(false)}
+          currentUser={session?.user}
+          currentProfile={profileState}
           onLoginClick={() => {
             setShowGlobalChatGate(false);
             setShowGateway(false);
@@ -236,6 +233,19 @@ function HomeContent() {
             } else {
               setShowGateway(false);
             }
+          }}
+        />
+
+        <Pillar3AccessGate
+          isOpen={showPillar3Gate}
+          onClose={() => setShowPillar3Gate(false)}
+          currentUser={session?.user}
+          currentProfile={profileState}
+          onAccessGranted={(authedUser, updatedProfile) => {
+            setSession({ user: authedUser });
+            setProfileState(updatedProfile);
+            setShowPillar3Gate(false);
+            window.location.href = "/horpal-ai";
           }}
         />
       </>
@@ -283,12 +293,14 @@ function HomeContent() {
     );
   }
 
-  // If user is logged in and target is Pillar 1, check has_paid_global_chat
-  if (targetPillar === "1" && profileState?.has_paid_global_chat !== true) {
+  // Strictly enforce Pillar 1 payment (has_paid_global_chat === true) for all users entering Pillar 1
+  if (profileState?.has_paid_global_chat !== true) {
     return (
       <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4">
         <GlobalChatAccessGate
           isOpen={true}
+          currentUser={session?.user}
+          currentProfile={profileState}
           onLoginClick={() => {}}
           onPaidLoginSuccess={(_authUser, prof) => {
             setShowGlobalChatGate(false);
