@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import { findOtherPillarConflict } from '../../../../lib/server/paywall';
 
 const getSupabaseClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    // Service-role ONLY: record_pillar2_sale_rpc is not executable by anon/authenticated.
     process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
   return createClient(url, key, {
@@ -110,6 +111,15 @@ export async function POST(req: Request) {
         { error: 'Supabase configuration is missing.' },
         { status: 500 }
       );
+    }
+
+    const crossPillarConflict = await findOtherPillarConflict(
+      supabase,
+      cleanRef,
+      verifyJson.data?.metadata || null
+    );
+    if (crossPillarConflict) {
+      return NextResponse.json({ error: crossPillarConflict }, { status: 409 });
     }
 
     const cleanAffCode =

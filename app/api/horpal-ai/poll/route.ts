@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
+import { paywallErrorResponse, requirePillarAccess } from '@/lib/server/paywall';
 
 export async function GET(req: Request) {
   try {
+    await requirePillarAccess(req, 3);
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const type = searchParams.get('type') || 'image'; // image or video
@@ -40,7 +42,10 @@ export async function GET(req: Request) {
        error: data.error || null
     });
 
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === 'PaywallError') {
+      return paywallErrorResponse(error);
+    }
     console.error('Error polling horpal-ai:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }

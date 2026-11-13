@@ -35,6 +35,16 @@ import {
 } from '../../utils/worldCurrencies';
 import { syncAuthenticatedUserProfile } from './HorPalAuthGate';
 import { hasActivePillar3Access } from '../../utils/pillar3Access';
+import { authFetch } from '../../utils/authFetch';
+import {
+  auditAccount,
+  EntitlementRow,
+  hasPillar3Access,
+  purgeLegacyAccessFlags,
+  startGoogleVerification,
+} from '../../utils/pillarAccess';
+import PillarAuditBanner, { signOutToSwitchAccount } from './PillarAuditBanner';
+import PaystackReferenceRecovery from './PaystackReferenceRecovery';
 
 export type Pillar3TierId = 'weekly' | 'pro' | 'premium';
 
@@ -126,15 +136,11 @@ const QUICK_CURRENCY_CHIPS = [
   { code: 'CAD', flag: '🇨🇦' },
 ];
 
-export const PILLAR3_DENIED_STORAGE_KEY = 'earnmega_pillar3_denied_diag';
-export const PILLAR3_LOGIN_ATTEMPT_KEY = 'earnmega_pillar3_login_attempt';
-
 export { hasActivePillar3Access };
 
-interface DiagnosticInfo {
+interface DeniedAuditState {
   email: string;
-  hasPillar1: boolean;
-  hasPillar2: boolean;
+  entitlements: EntitlementRow | null;
 }
 
 interface Pillar3AccessGateProps {
@@ -142,6 +148,8 @@ interface Pillar3AccessGateProps {
   onClose?: () => void;
   currentUser?: any;
   currentProfile?: any;
+  currentEntitlements?: EntitlementRow | null;
+  initialDeniedAudit?: DeniedAuditState | null;
   expiredMessage?: string | null;
   isUpgradeMode?: boolean;
   onAccessGranted: (user: any, updatedProfile: any) => void;
@@ -152,6 +160,8 @@ export default function Pillar3AccessGate({
   onClose,
   currentUser,
   currentProfile,
+  currentEntitlements,
+  initialDeniedAudit,
   expiredMessage,
   isUpgradeMode = false,
   onAccessGranted,
@@ -188,8 +198,8 @@ export default function Pillar3AccessGate({
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  // Account Access Diagnostic Badge State (Phase 2.2)
-  const [diagnosticBadge, setDiagnosticBadge] = useState<DiagnosticInfo | null>(null);
+  // Forensic 3-Pillar Audit State (Phase 5)
+  const [deniedAudit, setDeniedAudit] = useState<DeniedAuditState | null>(null);
 
   // Worldwide Currency Converter State (Phase 4)
   const [selectedCurrency, setSelectedCurrency] = useState<string>('GHS');
@@ -197,6 +207,7 @@ export default function Pillar3AccessGate({
   const [detectedCurrency, setDetectedCurrency] = useState<string>('GHS');
   const [isCurrencyPickerOpen, setIsCurrencyPickerOpen] = useState(false);
 
+  const paySectionRef = useRef<HTMLDivElement | null>(null);
   const touchHandledRef = useRef(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -208,39 +219,43 @@ export default function Pillar3AccessGate({
     }
   );
 
-  // Pre-fill email & diagnostic badge if user is already logged in (e.g. Pillar 1 or Pillar 2 user trying to enter Pillar 3)
+  const scrollToPaySection = () => {
+    setTimeout(() => {
+      paySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+  };
+
+  // Pre-fill email & audit badge if user is already logged in without Pillar 3 access
   useEffect(() => {
     if (!isOpen) return;
-    const uEmail = currentUser?.email || currentProfile?.email || '';
+    purgeLegacyAccessFlags();
+
+    const uEmail =
+      initialDeniedAudit?.email || currentUser?.email || currentProfile?.email || '';
     if (uEmail) {
       setEmail((prev) => prev || uEmail);
       setLoginEmail((prev) => prev || uEmail);
     }
 
-    if (currentUser && currentProfile && !isUpgradeMode && !hasActivePillar3Access(currentProfile)) {
-      setDiagnosticBadge({
-        email: uEmail || 'your account',
-        hasPillar1: Boolean(currentProfile.has_paid_global_chat),
-        hasPillar2: Boolean(currentProfile.has_paid_pillar2 || currentProfile.is_pillar2_paid),
-      });
-    }
-  }, [isOpen, currentUser, currentProfile, isUpgradeMode]);
-
-  // Restore any stored diagnostic badge from OAuth redirect
-  useEffect(() => {
-    if (!isOpen || typeof window === 'undefined') return;
-    try {
-      const raw = sessionStorage.getItem(PILLAR3_DENIED_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.email) {
-          setDiagnosticBadge(parsed);
-          setEmail((prev) => prev || parsed.email);
-          setViewMode('gate');
-        }
+    if (!isUpgradeMode) {
+      const liveEnt = (currentEntitlements || currentProfile) as EntitlementRow | null;
+      if (initialDeniedAudit && !hasPillar3Access(initialDeniedAudit.entitlements)) {
+        setDeniedAudit(initialDeniedAudit);
+      } else if (currentUser && !hasPillar3Access(liveEnt)) {
+        setDeniedAudit({
+          email: uEmail || 'your account',
+          entitlements: liveEnt || null,
+        });
       }
-    } catch (_) {}
-  }, [isOpen]);
+    }
+  }, [
+    isOpen,
+    currentUser,
+    currentProfile,
+    currentEntitlements,
+    initialDeniedAudit,
+    isUpgradeMode,
+  ]);
 
   // Load live exchange rates + detect local currency
   useEffect(() => {
@@ -289,11 +304,8 @@ export default function Pillar3AccessGate({
     setIsCurrencyPickerOpen(true);
   };
 
-  const clearDiagnosticBadge = () => {
-    setDiagnosticBadge(null);
-    try {
-      sessionStorage.removeItem(PILLAR3_DENIED_STORAGE_KEY);
-    } catch (_) {}
+  const clearDeniedAudit = () => {
+    setDeniedAudit(null);
   };
 
   const activeTierObj =
@@ -311,7 +323,7 @@ export default function Pillar3AccessGate({
     const payEmail =
       email.trim() ||
       currentUser?.email ||
-      diagnosticBadge?.email ||
+      deniedAudit?.email ||
       `ai_member_${Date.now()}@earnmega.com`;
 
     if (!email.trim() && !currentUser?.email) {
@@ -349,13 +361,11 @@ export default function Pillar3AccessGate({
         setIsVerifying(true);
         try {
           const referenceId = ref?.reference || paymentConfig.reference;
-          const res = await fetch('/api/pillar3/verify-pass', {
+          const res = await authFetch('/api/pillar3/verify-pass', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               reference: referenceId,
               email: paymentConfig.email,
-              userId: currentUser?.id || null,
               planTier: selectedTier,
             }),
           });
@@ -366,34 +376,26 @@ export default function Pillar3AccessGate({
             return;
           }
 
-          clearDiagnosticBadge();
+          clearDeniedAudit();
 
-          // Case 1: User is already logged in -> update profile & enter Pillar 3 immediately
+          // Case 1: User is already logged in -> audit live Supabase DB & enter Pillar 3 ONLY if verified
           if (currentUser?.id) {
-            const { data: updatedProf } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', currentUser.id)
-              .maybeSingle();
+            const liveEnt = await auditAccount(currentUser.id, paymentConfig.email).catch(
+              () => null
+            );
+            const liveProfile = liveEnt
+              ? { ...(currentProfile || {}), ...liveEnt }
+              : currentProfile;
 
-            const mergedProfile = {
-              ...(currentProfile || {}),
-              ...(updatedProf || {}),
-              has_paid_pillar3: true,
-              pillar3_tier: data.pillar3_tier || selectedTier,
-              pillar3_started_at: data.pillar3_started_at || new Date().toISOString(),
-              pillar3_expires_at:
-                data.pillar3_expires_at ||
-                new Date(
-                  Date.now() + activeTierObj.durationDays * 24 * 60 * 60 * 1000
-                ).toISOString(),
-              pillar3_paystack_ref: referenceId,
-            };
+            if (!hasPillar3Access(liveEnt)) {
+              toast.error('Payment recorded, verifying account license in Supabase...');
+              return;
+            }
 
             toast.success(
               `🎉 ${activeTierObj.name} Activated! Welcome to Earnmega AI Studio.`
             );
-            onAccessGranted(currentUser, mergedProfile);
+            onAccessGranted(currentUser, liveProfile);
           } else {
             // Case 2: User is not logged in yet -> show inline Create Account / Complete Setup form
             setVerifiedPassReceipt({
@@ -433,51 +435,29 @@ export default function Pillar3AccessGate({
 
   const verifyPillar3LoginOrSack = async (authUser: any, fallbackEmail?: string) => {
     const cleanEmail = (authUser?.email || fallbackEmail || '').trim();
+    const liveEnt = await auditAccount(authUser.id, cleanEmail).catch(() => null);
 
-    // First claim any unclaimed pillar3_passes for this email
-    try {
-      await supabase.rpc('claim_paid_passes_for_user_rpc', {
-        p_user_id: authUser.id,
-        p_email: cleanEmail,
-      });
-    } catch (_) {}
-
-    const { data: profileRow } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', authUser.id)
-      .maybeSingle();
-
-    if (hasActivePillar3Access(profileRow)) {
-      clearDiagnosticBadge();
-      try {
-        localStorage.removeItem(PILLAR3_LOGIN_ATTEMPT_KEY);
-      } catch (_) {}
+    if (hasPillar3Access(liveEnt)) {
+      clearDeniedAudit();
       toast.success('✅ Pillar 3 AI Studio Pass verified! Entering now...');
-      onAccessGranted(authUser, profileRow);
+      onAccessGranted(authUser, liveEnt);
       return;
     }
 
-    // Strict 3-Pillar Isolation: SACK Pillar 1 / Pillar 2 / Unpaid users trying to sneak into Pillar 3
-    const diag: DiagnosticInfo = {
-      email: cleanEmail || 'this account',
-      hasPillar1: Boolean(profileRow?.has_paid_global_chat),
-      hasPillar2: Boolean(profileRow?.has_paid_pillar2 || profileRow?.is_pillar2_paid),
-    };
-
-    try {
-      localStorage.removeItem(PILLAR3_LOGIN_ATTEMPT_KEY);
-      sessionStorage.setItem(PILLAR3_DENIED_STORAGE_KEY, JSON.stringify(diag));
-    } catch (_) {}
-
-    setDiagnosticBadge(diag);
-    if (cleanEmail) setEmail(cleanEmail);
+    // Strict 3-Pillar Isolation: SACK & BOUNCE unpaid or other-pillar users back to Paywall
+    const resolvedEmail = cleanEmail || '';
+    setDeniedAudit({
+      email: resolvedEmail,
+      entitlements: liveEnt,
+    });
+    if (resolvedEmail) setEmail(resolvedEmail);
     setLoginPassword('');
     setViewMode('gate');
     toast.error(
-      `🚫 Pillar 3 Access Required: ${diag.email} does not have an active Pillar 3 AI Studio pass.`,
+      `🚫 Pillar 3 Access Required: ${resolvedEmail || 'this account'} does not have an active Pillar 3 AI Studio pass.`,
       { duration: 5500 }
     );
+    scrollToPaySection();
   };
 
   const handleInlineLoginSubmit = async (e: React.FormEvent) => {
@@ -514,17 +494,7 @@ export default function Pillar3AccessGate({
     setLoginError(null);
     setIsLoggingIn(true);
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('horpal_target_pillar', '3');
-        localStorage.setItem(PILLAR3_LOGIN_ATTEMPT_KEY, '1');
-      }
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo:
-            typeof window !== 'undefined' ? `${window.location.origin}/horpal-ai` : undefined,
-        },
-      });
+      const { error } = await startGoogleVerification(3);
       if (error) throw error;
     } catch (err: any) {
       setLoginError(err?.message || 'Google Sign-In failed.');
@@ -615,40 +585,24 @@ export default function Pillar3AccessGate({
 
       await syncAuthenticatedUserProfile(authedUser);
 
-      // Bind the verified Pillar 3 pass strictly to Pillar 3 on their profile
-      const bindRes = await fetch('/api/pillar3/verify-pass', {
+      // Bind the verified Pillar 3 pass strictly to Pillar 3 via hardened server API
+      const bindRes = await authFetch('/api/pillar3/verify-pass', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reference: verifiedPassReceipt.reference,
           email: targetEmail,
-          userId: authedUser.id,
           planTier: verifiedPassReceipt.planTier,
         }),
       });
-      const bindData = await bindRes.json();
+      await bindRes.json().catch(() => ({}));
 
-      const { data: finalProf } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authedUser.id)
-        .maybeSingle();
-
-      const merged = {
-        ...(finalProf || {}),
-        has_paid_pillar3: true,
-        pillar3_tier: bindData?.pillar3_tier || verifiedPassReceipt.planTier,
-        pillar3_started_at: bindData?.pillar3_started_at || new Date().toISOString(),
-        pillar3_expires_at:
-          bindData?.pillar3_expires_at ||
-          new Date(
-            Date.now() + verifiedPassReceipt.durationDays * 24 * 60 * 60 * 1000
-          ).toISOString(),
-        pillar3_paystack_ref: verifiedPassReceipt.reference,
-      };
+      const liveEnt = await auditAccount(authedUser.id, targetEmail).catch(() => null);
+      if (!hasPillar3Access(liveEnt)) {
+        throw new Error('Pass verified, please use Paystack Reference Recovery below to bind your receipt.');
+      }
 
       toast.success('🚀 Account bound & Pillar 3 AI Studio unlocked!');
-      onAccessGranted(authedUser, merged);
+      onAccessGranted(authedUser, liveEnt);
     } catch (err: any) {
       setSetupError(err?.message || 'Failed to complete setup.');
     } finally {
@@ -854,13 +808,13 @@ export default function Pillar3AccessGate({
             <div className="mb-6">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 text-[11px] font-bold uppercase tracking-wider mb-3">
                 <ShieldCheck size={14} className="text-cyan-400" />
-                Pillar 3 Pass Verification
+                Already Paid? Log In / Verify Paid Account
               </div>
               <h2 className="text-2xl sm:text-3xl font-black text-white mb-1.5">
-                Log In to Earnmega AI Studio
+                Verify Paid Pillar 3 Account
               </h2>
               <p className="text-xs sm:text-sm text-zinc-400">
-                Strict 3-Pillar Isolation: Only accounts with an active, unexpired Pillar 3 pass (Weekly, Pro, or Premium) can enter.
+                Strict 3-Pillar Isolation: Live database verification confirms your account holds an active, unexpired Pillar 3 pass before opening Earnmega AI Studio.
               </p>
             </div>
 
@@ -929,7 +883,7 @@ export default function Pillar3AccessGate({
               >
                 <LogIn size={18} />
                 <span>
-                  {isLoggingIn ? 'Verifying Pillar 3 Pass...' : 'Log In & Verify Pillar 3 Pass'}
+                  {isLoggingIn ? 'VERIFYING PILLAR 3 ACCESS...' : 'VERIFY & ENTER PILLAR 3 HUB →'}
                 </span>
               </button>
             </form>
@@ -944,6 +898,7 @@ export default function Pillar3AccessGate({
               type="button"
               disabled={isLoggingIn}
               {...makeSafeTap(handleGoogleSignIn)}
+              data-testid="pillar3-google-verify-btn"
               className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-white text-black font-extrabold text-sm hover:bg-zinc-100 active:scale-[0.98] disabled:opacity-60 transition flex items-center justify-center gap-3 cursor-pointer touch-manipulation shadow-lg"
             >
               <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
@@ -964,8 +919,22 @@ export default function Pillar3AccessGate({
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                 />
               </svg>
-              <span>Continue with Google</span>
+              <span>🔵 Continue with Google to Verify Pillar 3 Access</span>
             </button>
+
+            <PaystackReferenceRecovery
+              pillar={3}
+              onRecovered={async (res) => {
+                if (res.entitlements && hasPillar3Access(res.entitlements)) {
+                  const { data: sessData } = await supabase.auth.getSession();
+                  if (sessData?.session?.user) {
+                    clearDeniedAudit();
+                    toast.success('🚀 Pillar 3 Receipt Verified! Unlocking Earnmega AI Studio...');
+                    onAccessGranted(sessData.session.user, res.entitlements);
+                  }
+                }
+              }}
+            />
           </div>
         ) : (
           /* ================= MAIN PILLAR 3 3-TIER LUXURY PAYWALL VIEW ================= */
@@ -987,7 +956,7 @@ export default function Pillar3AccessGate({
                   className="min-h-[48px] px-5 py-2.5 rounded-2xl border border-cyan-400/50 bg-cyan-500/15 hover:bg-cyan-500/25 active:scale-[0.98] text-cyan-200 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer touch-manipulation transition shadow-[0_0_20px_rgba(34,211,238,0.18)]"
                 >
                   <LogIn size={16} className="text-cyan-300 shrink-0" />
-                  <span>Already Paid for Pillar 3? Log In →</span>
+                  <span>Already Paid? Log In / Verify Account →</span>
                 </button>
               )}
             </div>
@@ -1012,21 +981,21 @@ export default function Pillar3AccessGate({
               </div>
             )}
 
-            {/* Account Access Diagnostic Badge (Phase 2.2: Sacking Pillar 1 & Pillar 2 Sneak Attempts) */}
-            {diagnosticBadge && !isUpgradeMode && (
-              <div className="mb-5 p-4 rounded-2xl bg-rose-950/95 border-2 border-rose-500 text-rose-100 shadow-[0_0_35px_rgba(244,63,94,0.45)] flex items-start gap-3">
-                <AlertTriangle size={22} className="text-rose-400 shrink-0 mt-0.5" />
-                <div className="text-xs sm:text-sm font-bold leading-relaxed">
-                  🚫 Pillar 3 Access Required: Your account (
-                  <span className="underline text-white">{diagnosticBadge.email}</span>) has{' '}
-                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-black/50 border border-white/15 text-white font-mono text-xs mx-0.5">
-                    [Pillar 1: {diagnosticBadge.hasPillar1 ? '✅' : '❌'}]
-                  </span>{' '}
-                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-black/50 border border-white/15 text-white font-mono text-xs mx-0.5">
-                    [Pillar 2: {diagnosticBadge.hasPillar2 ? '✅' : '❌'}]
-                  </span>
-                  , but you do NOT have an active Pillar 3 AI Studio pass. Choose a plan below to enter Pillar 3.
-                </div>
+            {/* Forensic 3-Pillar Payment Receipt Scorecard (Phase 5) */}
+            {deniedAudit && !isUpgradeMode && (
+              <div className="mb-5">
+                <PillarAuditBanner
+                  pillar={3}
+                  email={deniedAudit.email}
+                  entitlements={deniedAudit.entitlements}
+                  onSwitchAccount={async () => {
+                    await signOutToSwitchAccount();
+                    clearDeniedAudit();
+                    setEmail('');
+                    setLoginEmail('');
+                    toast.success('Signed out. Enter or choose another paid account.');
+                  }}
+                />
               </div>
             )}
 
@@ -1210,7 +1179,7 @@ export default function Pillar3AccessGate({
             </div>
 
             {/* Email Input + Paystack Checkout + View AI Studio Showroom Button */}
-            <div className="max-w-2xl mx-auto">
+            <div ref={paySectionRef} className="max-w-2xl mx-auto">
               <div className="mb-4">
                 <label className="block text-xs font-mono text-zinc-300 uppercase tracking-widest mb-1.5 text-center">
                   Your Email (Gmail) for Instant Pillar 3 Pass Activation

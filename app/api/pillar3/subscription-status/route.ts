@@ -1,38 +1,16 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'placeholder_service_key';
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+import { getAdminClient, paywallErrorResponse, profileHasPillar, requireAuthedUser } from '@/lib/server/paywall';
 
 export async function POST(request: Request) {
   try {
-    const { userId: bodyUserId } = await request.json().catch(() => ({}));
+    const admin = getAdminClient();
+    const user = await requireAuthedUser(request, admin);
+    const userId = user.id;
 
-    let userId: string | null = null;
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      const {
-        data: { user },
-      } = await supabase.auth.getUser(token);
-      if (user?.id) userId = user.id;
-    }
-    if (!userId && bodyUserId) userId = bodyUserId;
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = await admin
       .from('profiles')
       .select(
-        'id, username, email, has_paid_pillar3, pillar3_tier, pillar3_started_at, pillar3_expires_at'
+        'id, username, email, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
       )
       .eq('id', userId)
       .maybeSingle();
@@ -57,7 +35,7 @@ export async function POST(request: Request) {
           ? currentTier
           : 'pro';
 
-      await supabase
+      await admin
         .from('profiles')
         .update({
           has_paid_pillar3: false,
@@ -68,7 +46,7 @@ export async function POST(request: Request) {
 
       // Avoid duplicate unacknowledged alerts within the last 5 minutes for the same user
       const fiveMinAgo = new Date(now - 5 * 60 * 1000).toISOString();
-      const { data: existingAlert } = await supabase
+      const { data: existingAlert } = await admin
         .from('admin_subscription_alerts')
         .select('id')
         .eq('user_id', userId)
@@ -77,7 +55,7 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (!existingAlert) {
-        await supabase.from('admin_subscription_alerts').insert({
+        await admin.from('admin_subscription_alerts').insert({
           user_id: userId,
           username: profile.username || (profile.email ? profile.email.split('@')[0] : 'user'),
           email: profile.email || null,
@@ -102,13 +80,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       expired: false,
-      has_paid_pillar3: Boolean(profile.has_paid_pillar3 && expiresAtMs && expiresAtMs > now),
+      has_paid_pillar3: profileHasPillar(3, profile),
       tier: currentTier,
       startedAt: profile.pillar3_started_at,
       expiresAt: profile.pillar3_expires_at,
       remainingMs: expiresAtMs ? Math.max(0, expiresAtMs - now) : 0,
     });
   } catch (err: any) {
+    if (err?.name === 'PaywallError') return paywallErrorResponse(err);
     console.error('pillar3 subscription-status error:', err);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }

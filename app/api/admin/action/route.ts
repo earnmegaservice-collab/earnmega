@@ -326,11 +326,24 @@ export async function POST(request: Request) {
     if (action === 'UPDATE_LICENSE') {
        const { userId, type } = payload;
        if (!userId || typeof userId !== 'string' || !type) return NextResponse.json({ success: false, error: 'Invalid request' });
+       const { data: existingProf } = await adminSupabase
+         .from('profiles')
+         .select('pillar2_paystack_ref')
+         .eq('id', userId)
+         .maybeSingle();
        let updates: any = {};
        if (type === 'expire') {
-          updates = { is_pillar2_paid: false, pillar2_expires_at: new Date(Date.now() - 1000).toISOString() };
+          const expiredIso = new Date(Date.now() - 1000).toISOString();
+          updates = { has_paid_pillar2: false, is_pillar2_paid: false, pillar2_expires_at: expiredIso, license_expires_at: expiredIso };
        } else if (type === 'extend') {
-          updates = { is_pillar2_paid: true, pillar2_expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() };
+          const extendedIso = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+          updates = {
+            has_paid_pillar2: true,
+            is_pillar2_paid: true,
+            pillar2_expires_at: extendedIso,
+            license_expires_at: extendedIso,
+            pillar2_paystack_ref: existingProf?.pillar2_paystack_ref || `ADMIN_EXTEND_${Date.now()}`,
+          };
        }
        await adminSupabase.from('profiles').update(updates).eq('id', userId);
        return NextResponse.json({ success: true });
@@ -423,7 +436,7 @@ export async function POST(request: Request) {
 
         const { data: prof } = await adminSupabase
           .from('profiles')
-          .select('has_paid_pillar3, pillar3_expires_at, pillar3_started_at')
+          .select('has_paid_pillar3, pillar3_expires_at, pillar3_started_at, pillar3_paystack_ref')
           .eq('id', userId)
           .maybeSingle();
 
@@ -440,6 +453,7 @@ export async function POST(request: Request) {
             pillar3_tier: tier,
             pillar3_started_at: prof?.pillar3_started_at || new Date(nowMs).toISOString(),
             pillar3_expires_at: newExp,
+            pillar3_paystack_ref: prof?.pillar3_paystack_ref || `ADMIN_EXTEND_${nowMs}`,
           })
           .eq('id', userId);
         if (extErr) return NextResponse.json({ success: false, error: extErr.message });
@@ -484,6 +498,109 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'FETCH_P2_PAYOUT_REQUESTS') {
+      const { data, error } = await adminSupabase
+        .from('pillar2_payout_requests')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      return NextResponse.json({ success: true, requests: data || [] });
+    }
+
+    if (action === 'UPDATE_P2_PAYOUT_STATUS') {
+      const { requestId, status, adminNote } = payload || {};
+      if (!requestId || !['processing', 'paid', 'rejected'].includes(status)) {
+        return NextResponse.json({ success: false, error: 'Invalid payout update payload' }, { status: 400 });
+      }
+      const { data: rpcData, error: rpcErr } = await adminSupabase.rpc('admin_update_pillar2_payout_rpc', {
+        p_request_id: requestId,
+        p_next_status: status,
+        p_admin_note: typeof adminNote === 'string' && adminNote.trim() ? adminNote.trim() : null,
+      });
+      if (rpcErr || !rpcData?.success) {
+        return NextResponse.json({ success: false, error: rpcErr?.message || rpcData?.error || 'Failed to update payout status' }, { status: 400 });
+      }
+      const updatedReq = rpcData.request;
+      if (updatedReq?.user_id) {
+        const titleMap: Record<string, string> = {
+          processing: `🔵 Payout Processing: GH₵ ${Number(updatedReq.amount_ghs || 0).toFixed(2)}`,
+          paid: `🟢 Payout Settled: GH₵ ${Number(updatedReq.amount_ghs || 0).toFixed(2)}`,
+          rejected: `🔴 Payout Declined & Refunded: GH₵ ${Number(updatedReq.amount_ghs || 0).toFixed(2)}`,
+        };
+        try {
+          await adminSupabase.from('affiliate_notifications').insert({
+            user_id: updatedReq.user_id,
+            title: titleMap[status] || 'Payout Status Updated',
+            subtitle: updatedReq.admin_status_note || `Updated by Admin (${status})`,
+            amount_ghs: status === 'rejected' ? Number(updatedReq.amount_ghs || 0) : 0,
+            read: false,
+          });
+        } catch (_) {}
+      }
+      return NextResponse.json({
+        success: true,
+        request: updatedReq,
+        affiliate_balance: rpcData.affiliate_balance,
+        affiliate_withdrawn: rpcData.affiliate_withdrawn,
+      });
+    }
+
+    if (action === 'FETCH_P2_CONTEST_SUBMISSIONS') {
+      const { data, error } = await adminSupabase
+        .from('pillar2_contest_submissions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      return NextResponse.json({ success: true, submissions: data || [] });
+    }
+
+    if (action === 'UPDATE_P2_CONTEST_STATUS') {
+      const { submissionId, status, adminNote } = payload || {};
+      if (!submissionId || !['pending_review', 'processing', 'approved_winner', 'rejected'].includes(status)) {
+        return NextResponse.json({ success: false, error: 'Invalid contest status update payload' }, { status: 400 });
+      }
+      const defaultNotes: Record<string, string> = {
+        pending_review: 'Queued for Admin review',
+        processing: 'Verification in progress by Admin team',
+        approved_winner: 'Congratulations! Verified & Approved Contest Winner',
+        rejected: 'Declined — did not meet contest qualification requirements',
+      };
+      const nextNote = typeof adminNote === 'string' && adminNote.trim() ? adminNote.trim() : defaultNotes[status];
+      const { data: updatedSub, error: subErr } = await adminSupabase
+        .from('pillar2_contest_submissions')
+        .update({
+          status,
+          admin_note: nextNote,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', submissionId)
+        .select('*')
+        .single();
+      if (subErr || !updatedSub) {
+        return NextResponse.json({ success: false, error: subErr?.message || 'Failed to update submission' }, { status: 400 });
+      }
+      if (updatedSub.user_id) {
+        const titleMap: Record<string, string> = {
+          processing: `🔄 Contest Entry Processing: ${updatedSub.contest_title}`,
+          approved_winner: `🏆 Approved Winner! ${updatedSub.contest_title}`,
+          rejected: `❌ Contest Entry Declined: ${updatedSub.contest_title}`,
+          pending_review: `⏳ Contest Entry Under Review: ${updatedSub.contest_title}`,
+        };
+        try {
+          await adminSupabase.from('affiliate_notifications').insert({
+            user_id: updatedSub.user_id,
+            title: titleMap[status] || 'Contest Status Updated',
+            subtitle: nextNote,
+            amount_ghs: 0,
+            read: false,
+          });
+        } catch (_) {}
+      }
+      return NextResponse.json({ success: true, submission: updatedSub });
     }
 
     return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });

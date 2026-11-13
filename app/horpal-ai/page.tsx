@@ -17,11 +17,15 @@ import {
 import toast from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { syncAuthenticatedUserProfile } from '../../components/auth/HorPalAuthGate';
+import PillarAccessGuard from '../../components/auth/PillarAccessGuard';
+import { authFetch } from '../../utils/authFetch';
 import {
-  hasActivePillar3Access,
-  PILLAR3_DENIED_STORAGE_KEY,
-  PILLAR3_LOGIN_ATTEMPT_KEY,
-} from '../../utils/pillar3Access';
+  auditAccount,
+  consumeVerifyReturn,
+  EntitlementRow,
+  hasPillar3Access,
+  purgeLegacyAccessFlags,
+} from '../../utils/pillarAccess';
 
 const Pillar3AccessGate = dynamic(
   () => import('../../components/auth/Pillar3AccessGate'),
@@ -181,6 +185,11 @@ export default function HorpalAIPage() {
   const [authChecking, setAuthChecking] = useState(true);
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [deniedAudit, setDeniedAudit] = useState<{
+    email: string;
+    entitlements: EntitlementRow | null;
+  } | null>(null);
+  const returningFromOAuthRef = useRef(false);
 
   // Upgrade / Renewal Modal State
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -209,37 +218,41 @@ export default function HorpalAIPage() {
   // Load user & profile + verify Pillar 3 access
   useEffect(() => {
     let mounted = true;
+    purgeLegacyAccessFlags();
+    const verifyReturn = consumeVerifyReturn();
+    if (verifyReturn === 3) {
+      returningFromOAuthRef.current = true;
+    }
 
     const loadSessionAndProfile = async (activeSession: any) => {
       if (!activeSession?.user) {
         if (mounted) {
           setSession(null);
           setProfile(null);
+          setDeniedAudit(null);
           setAuthChecking(false);
         }
         return;
       }
 
-      const synced = await syncAuthenticatedUserProfile(activeSession.user);
-      let prof = synced;
-      if (!prof) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', activeSession.user.id)
-          .maybeSingle();
-        prof = data;
-      }
+      const [synced, initialEnt] = await Promise.all([
+        syncAuthenticatedUserProfile(activeSession.user),
+        auditAccount(activeSession.user.id, activeSession.user.email || '').catch(() => null),
+      ]);
+
+      let liveEnt = initialEnt;
+      let prof: any = liveEnt
+        ? { ...(synced || {}), ...liveEnt }
+        : synced;
 
       // Check server-side subscription status in case timer already expired while away
       if (prof?.has_paid_pillar3 && prof?.pillar3_expires_at) {
         const expMs = new Date(prof.pillar3_expires_at).getTime();
         if (Number.isFinite(expMs) && Date.now() >= expMs) {
           try {
-            const res = await fetch('/api/pillar3/subscription-status', {
+            const res = await authFetch('/api/pillar3/subscription-status', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: activeSession.user.id }),
+              body: JSON.stringify({}),
             });
             const statusData = await res.json();
             if (statusData?.expired) {
@@ -247,37 +260,30 @@ export default function HorpalAIPage() {
               setExpiredMessage(
                 `⏰ Your Pillar 3 ${prevTierLabel} Pass has expired! Select a plan to continue using Earnmega AI Studio.`
               );
-              prof = {
-                ...prof,
-                has_paid_pillar3: false,
-                pillar3_tier: 'none',
-              };
+              liveEnt = await auditAccount(activeSession.user.id, activeSession.user.email || '').catch(
+                () => null
+              );
+              prof = liveEnt
+                ? { ...(prof || {}), ...liveEnt }
+                : {
+                    ...prof,
+                    has_paid_pillar3: false,
+                    pillar3_tier: 'none',
+                  };
             }
           } catch (_) {}
         }
       }
 
-      // If returning from Google OAuth login attempt on Pillar 3 without active pass, store diagnostic badge
-      if (
-        typeof window !== 'undefined' &&
-        localStorage.getItem(PILLAR3_LOGIN_ATTEMPT_KEY) === '1'
-      ) {
-        localStorage.removeItem(PILLAR3_LOGIN_ATTEMPT_KEY);
-        if (!hasActivePillar3Access(prof)) {
-          try {
-            sessionStorage.setItem(
-              PILLAR3_DENIED_STORAGE_KEY,
-              JSON.stringify({
-                email: activeSession.user.email || prof?.email || 'your account',
-                hasPillar1: Boolean(prof?.has_paid_global_chat),
-                hasPillar2: Boolean(prof?.has_paid_pillar2 || prof?.is_pillar2_paid),
-              })
-            );
-          } catch (_) {}
-        }
-      }
-
       if (mounted) {
+        if (hasPillar3Access(liveEnt)) {
+          setDeniedAudit(null);
+        } else if (returningFromOAuthRef.current) {
+          setDeniedAudit({
+            email: activeSession.user.email || synced?.email || '',
+            entitlements: liveEnt,
+          });
+        }
         setSession(activeSession);
         setProfile(prof);
         setAuthChecking(false);
@@ -342,21 +348,10 @@ export default function HorpalAIPage() {
     setShowUpgradeModal(false);
 
     try {
-      await fetch('/api/pillar3/subscription-status', {
+      await authFetch('/api/pillar3/subscription-status', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: session.user.id }),
+        body: JSON.stringify({}),
       });
-    } catch (_) {}
-
-    try {
-      await supabase
-        .from('profiles')
-        .update({
-          has_paid_pillar3: false,
-          pillar3_tier: 'none',
-        })
-        .eq('id', session.user.id);
     } catch (_) {}
 
     setProfile((prev: any) =>
@@ -463,9 +458,7 @@ export default function HorpalAIPage() {
     } catch (err) {
       console.error('Error signing out of horpal.ai:', err);
     }
-    try {
-      localStorage.removeItem('horpal_target_pillar');
-    } catch (_) {}
+    purgeLegacyAccessFlags();
     window.location.href = '/';
   };
 
@@ -562,7 +555,7 @@ export default function HorpalAIPage() {
   const pollJobStatus = async (jobId: string, type: 'image' | 'video', msgId: string) => {
     const pollInterval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/horpal-ai/poll?id=${jobId}&type=${type}`);
+        const res = await authFetch(`/api/horpal-ai/poll?id=${jobId}&type=${type}`);
         if (res.ok) {
           const data = await res.json();
           if (
@@ -615,7 +608,7 @@ export default function HorpalAIPage() {
     if (!text.trim() && attachedFiles.length === 0) return;
 
     // Double-check active pass before sending
-    if (!hasActivePillar3Access(profile)) {
+    if (!hasPillar3Access(profile)) {
       handleInstantExpiryLockout();
       return;
     }
@@ -646,9 +639,8 @@ export default function HorpalAIPage() {
     }
 
     try {
-      const response = await fetch('/api/horpal-ai/generate', {
+      const response = await authFetch('/api/horpal-ai/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: userMessage,
           mode: activeMode,
@@ -794,23 +786,33 @@ export default function HorpalAIPage() {
     );
   }
 
-  // STRICT PILLAR 3 ENTRY RULE (PHASE 2 & PHASE 3):
-  // User can ONLY enter Pillar 3 if session?.user && profile.has_paid_pillar3 === true && new Date(profile.pillar3_expires_at) > new Date()
-  if (!session?.user || !hasActivePillar3Access(profile)) {
+  // STRICT PILLAR 3 ENTRY RULE:
+  // User can ONLY enter Pillar 3 if session?.user && hasPillar3Access(profile) (has_paid_pillar3 === true && ref && expires > now)
+  if (!session?.user || !hasPillar3Access(profile)) {
+    const activeEmail = session?.user?.email || profile?.email || '';
     return (
       <div className="min-h-screen bg-[#06070B]">
         <Pillar3AccessGate
           isOpen={true}
           currentUser={session?.user}
           currentProfile={profile}
+          currentEntitlements={profile}
+          initialDeniedAudit={
+            deniedAudit ||
+            (session?.user
+              ? {
+                  email: activeEmail,
+                  entitlements: profile,
+                }
+              : null)
+          }
           expiredMessage={expiredMessage}
           onClose={() => {
-            try {
-              localStorage.removeItem('horpal_target_pillar');
-            } catch (_) {}
+            purgeLegacyAccessFlags();
             window.location.href = '/';
           }}
           onAccessGranted={(authedUser, updatedProfile) => {
+            setDeniedAudit(null);
             setExpiredMessage(null);
             expiryLockTriggeredRef.current = false;
             setSession({ user: authedUser });
@@ -824,7 +826,40 @@ export default function HorpalAIPage() {
   const tierMeta = getTierHeaderMeta(profile?.pillar3_tier);
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#06070B] text-zinc-100 font-sans relative overflow-hidden">
+    <PillarAccessGuard
+      pillar={3}
+      renderPaywall={({ user, entitlements, recheck }) => {
+        const guardEmail = user.email || '';
+        return (
+          <div className="min-h-screen bg-[#06070B]">
+            <Pillar3AccessGate
+              isOpen={true}
+              currentUser={user}
+              currentProfile={entitlements}
+              currentEntitlements={entitlements}
+              initialDeniedAudit={{
+                email: guardEmail,
+                entitlements,
+              }}
+              expiredMessage={expiredMessage}
+              onClose={() => {
+                purgeLegacyAccessFlags();
+                window.location.href = '/';
+              }}
+              onAccessGranted={async (authedUser, updatedProfile) => {
+                setDeniedAudit(null);
+                setExpiredMessage(null);
+                expiryLockTriggeredRef.current = false;
+                setSession({ user: authedUser });
+                setProfile(updatedProfile);
+                await recheck();
+              }}
+            />
+          </div>
+        );
+      }}
+    >
+      <div className="flex flex-col min-h-screen bg-[#06070B] text-zinc-100 font-sans relative overflow-hidden">
       {/* Ambient Aurora Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute top-[-20%] left-[-10%] w-[120%] h-[120%] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-900/15 via-[#06070B] to-[#06070B] mix-blend-screen opacity-60 blur-[100px]" />
@@ -1296,6 +1331,7 @@ export default function HorpalAIPage() {
           setProfile(updatedProfile);
         }}
       />
-    </div>
+      </div>
+    </PillarAccessGuard>
   );
 }

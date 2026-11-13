@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { paywallErrorResponse, requirePillarAccess } from '../../../../lib/server/paywall';
 
 const PERSONA_SYSTEM_PROMPTS: Record<string, string> = {
   general:
@@ -13,6 +14,14 @@ const PERSONA_SYSTEM_PROMPTS: Record<string, string> = {
 
 export async function POST(req: Request) {
   try {
+    // Server-side Pillar 3 license check (live from public.profiles) - the AI engine is never
+    // reachable by an unpaid, expired, or anonymous caller, whatever the browser UI shows.
+    try {
+      await requirePillarAccess(req, 3);
+    } catch (accessErr) {
+      return paywallErrorResponse(accessErr);
+    }
+
     const { prompt, mode, persona, userProfile, tier } = await req.json();
     const apiKey = process.env.MAGIC_HOUR_API_KEY;
 

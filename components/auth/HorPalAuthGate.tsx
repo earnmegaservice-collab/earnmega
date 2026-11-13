@@ -2,6 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../utils/supabase";
+import {
+  oauthRedirectFor,
+  PillarId,
+  purgeLegacyAccessFlags,
+  VERIFY_TARGET_KEY,
+} from "../../utils/pillarAccess";
 import { countries } from "countries-list";
 import { ArrowLeft, ShieldCheck, Sparkles, TrendingUp, MessageSquare } from "lucide-react";
 
@@ -234,20 +240,8 @@ export default function HorPalAuthGate({
   const [targetPillar, setTargetPillar] = useState<"1" | "2" | "3">(defaultTargetPillar);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      // Purge any legacy mock/test localStorage keys immediately
-      localStorage.removeItem("horpal_p2_state_v3");
-      localStorage.removeItem("horpal_p2_user_state_test_bypass_id");
-      localStorage.removeItem("horpal_p2_license_test_bypass_id");
-
-      const storedTarget = localStorage.getItem("horpal_target_pillar");
-      if (storedTarget === "1" || storedTarget === "2" || storedTarget === "3") {
-        setTargetPillar(storedTarget);
-      } else {
-        setTargetPillar(defaultTargetPillar);
-        localStorage.setItem("horpal_target_pillar", defaultTargetPillar);
-      }
-    }
+    purgeLegacyAccessFlags();
+    setTargetPillar(defaultTargetPillar);
   }, [defaultTargetPillar]);
 
   const handleCountryCodeChange = (newCode: string, selectedName?: string) => {
@@ -266,15 +260,9 @@ export default function HorPalAuthGate({
   const routeAfterAuth = async (authenticatedUser: any) => {
     const syncedProfile = await syncAuthenticatedUserProfile(authenticatedUser);
 
-    const activeDestination =
-      (typeof window !== "undefined"
-        ? (localStorage.getItem("horpal_target_pillar") as "1" | "2" | "3" | null)
-        : null) ||
-      targetPillar ||
-      defaultTargetPillar;
+    const activeDestination = targetPillar || defaultTargetPillar;
 
     if (typeof window !== "undefined") {
-      localStorage.removeItem("horpal_target_pillar");
       const currentPath = window.location.pathname;
 
       if (activeDestination === "2") {
@@ -356,9 +344,9 @@ export default function HorPalAuthGate({
 
         if (signUpData?.user) {
           const deterministicCode = `HP-${signUpData.user.id.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
-          await supabase.from("profiles").upsert(
-            {
-              id: signUpData.user.id,
+          await supabase
+            .from("profiles")
+            .update({
               email: cleanEmail,
               username: cleanUsername,
               full_name: fullName,
@@ -375,11 +363,9 @@ export default function HorPalAuthGate({
               pillar2_email: cleanEmail,
               pillar2_phone: fullPhone || null,
               pillar2_country: countryName,
-              is_pillar2_paid: false,
               updated_at: new Date().toISOString(),
-            },
-            { onConflict: "id" }
-          );
+            })
+            .eq("id", signUpData.user.id);
           try {
             await supabase
               .from("profiles")
@@ -440,27 +426,16 @@ export default function HorPalAuthGate({
   };
 
   const handleGoogleSignIn = async () => {
-    const activeDestination =
-      (typeof window !== "undefined"
-        ? (localStorage.getItem("horpal_target_pillar") as "1" | "2" | "3" | null)
-        : null) ||
-      targetPillar ||
-      defaultTargetPillar;
+    const activeDestination = targetPillar || defaultTargetPillar;
+    const pillarNum = Number(activeDestination) as PillarId;
 
-    if (typeof window !== "undefined") {
-      localStorage.setItem("horpal_target_pillar", activeDestination);
-    }
-
-    const redirectPath =
-      activeDestination === "2"
-        ? "/affiliate"
-        : activeDestination === "3"
-        ? "/horpal-ai"
-        : "/";
+    try {
+      sessionStorage.setItem(VERIFY_TARGET_KEY, `pillar${pillarNum}`);
+    } catch (_) {}
 
     await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}${redirectPath}` },
+      options: { redirectTo: oauthRedirectFor(pillarNum) },
     });
   };
 
@@ -497,9 +472,9 @@ export default function HorPalAuthGate({
         <button
           type="button"
           onClick={() => {
-            if (typeof window !== "undefined") {
-              localStorage.removeItem("horpal_target_pillar");
-            }
+            try {
+              sessionStorage.removeItem(VERIFY_TARGET_KEY);
+            } catch (_) {}
             if (onBackToHub) {
               onBackToHub();
             } else {

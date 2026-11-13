@@ -1,16 +1,27 @@
 "use client";
 
-import React, { useState, useEffect, Suspense, startTransition } from "react";
+import React, { useState, useEffect, Suspense, startTransition, useRef } from "react";
 import dynamic from "next/dynamic";
 import OnboardingFlow from "../components/profile/OnboardingFlow";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../utils/supabase";
+import { authFetch } from "../utils/authFetch";
 import ChatInterface from "../components/chat/ChatInterface";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { HorPalLandingGateway } from "../components/home/HorPalLandingGateway";
 import { RadarActivationModal } from "../components/location/RadarActivationModal";
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../components/auth/HorPalAuthGate";
-import { hasActivePillar3Access } from "../utils/pillar3Access";
+import PillarAccessGuard from "../components/auth/PillarAccessGuard";
+import {
+  auditAccount,
+  consumeVerifyReturn,
+  EntitlementRow,
+  fetchLiveEntitlements,
+  hasPillar1Access,
+  hasPillar3Access,
+  PillarId,
+  purgeLegacyAccessFlags,
+} from "../utils/pillarAccess";
 
 const GlobalChatAccessGate = dynamic(() => import("../components/auth/GlobalChatAccessGate"), { ssr: false });
 const Pillar3AccessGate = dynamic(() => import("../components/auth/Pillar3AccessGate"), { ssr: false });
@@ -27,6 +38,8 @@ function HomeContent() {
   const [showGlobalChatGate, setShowGlobalChatGate] = useState(false);
   const [showPillar3Gate, setShowPillar3Gate] = useState(false);
   const [pendingPassRef, setPendingPassRef] = useState<string | null>(null);
+  const [p1DeniedAudit, setP1DeniedAudit] = useState<{ email: string; entitlements: EntitlementRow | null } | null>(null);
+  const pendingVerifyRef = useRef<PillarId | null>(null);
 
   useEffect(() => {
     setHasMounted(true);
@@ -35,7 +48,11 @@ function HomeContent() {
   useEffect(() => {
     const handleOpenPillar1 = () => {
       setTargetPillar("1");
-      setShowGateway(false);
+      if (hasPillar1Access(profileState)) {
+        setShowGateway(false);
+      } else {
+        setShowGlobalChatGate(true);
+      }
     };
     const handleReturnHome = () => setShowGateway(true);
 
@@ -46,10 +63,26 @@ function HomeContent() {
       window.removeEventListener("earnmega:open-pillar-1", handleOpenPillar1);
       window.removeEventListener("earnmega:return-home", handleReturnHome);
     };
-  }, []);
+  }, [profileState]);
 
   useEffect(() => {
     let isMounted = true;
+    purgeLegacyAccessFlags();
+
+    const verifyTarget = consumeVerifyReturn();
+    if (verifyTarget === 2) {
+      window.location.href = "/affiliate?verify_pillar=2";
+      return;
+    }
+    if (verifyTarget === 3) {
+      window.location.href = "/horpal-ai?verify_pillar=3";
+      return;
+    }
+    if (verifyTarget === 1) {
+      pendingVerifyRef.current = 1;
+      setShowGateway(true);
+      setShowGlobalChatGate(true);
+    }
 
     const loadUserAndProfile = async (activeSession: any) => {
       if (!activeSession?.user?.id) {
@@ -65,23 +98,13 @@ function HomeContent() {
 
       await syncAuthenticatedUserProfile(activeSession.user);
 
-      if (typeof window !== "undefined") {
-        const pendingTarget = localStorage.getItem("horpal_target_pillar");
-        if (pendingTarget === "2") {
-          localStorage.removeItem("horpal_target_pillar");
-          window.location.href = "/affiliate";
-          return;
-        }
-        if (pendingTarget === "3") {
-          localStorage.removeItem("horpal_target_pillar");
-          window.location.href = "/horpal-ai";
-          return;
-        }
-        if (pendingTarget === "1") {
-          localStorage.removeItem("horpal_target_pillar");
-          setShowGateway(false);
-        }
-      }
+      let liveEnt: EntitlementRow | null = null;
+      try {
+        liveEnt =
+          pendingVerifyRef.current === 1
+            ? await auditAccount(activeSession.user.id, activeSession.user.email)
+            : await fetchLiveEntitlements(activeSession.user.id);
+      } catch (_) {}
 
       const { data, error } = await supabase
         .from("profiles")
@@ -89,22 +112,37 @@ function HomeContent() {
         .eq("id", activeSession.user.id)
         .single();
 
-      // Strict Gate Verification: SACK unpaid Google OAuth / Gate login attempts immediately
-      if (typeof window !== "undefined" && localStorage.getItem("horpal_gate_login_attempt") === "1") {
-        localStorage.removeItem("horpal_gate_login_attempt");
-        if (data?.has_paid_global_chat !== true) {
-          const deniedEmail = activeSession.user.email || "this account";
-          try {
-            sessionStorage.setItem("horpal_denied_gate_email", deniedEmail);
-          } catch (_) {}
-          try {
-            await supabase.auth.signOut();
-          } catch (_) {}
-          setProfileState(null);
-          setShowGateway(true);
-          setShowGlobalChatGate(true);
+      const merged = data || liveEnt ? { ...(data || {}), ...(liveEnt || {}) } : null;
+
+      // Strict Google OAuth / Gate Verification for Pillar 1
+      if (pendingVerifyRef.current === 1) {
+        pendingVerifyRef.current = null;
+        if (hasPillar1Access(merged)) {
+          if (isMounted) {
+            startTransition(() => {
+              setSession(activeSession);
+              setProfileState(merged);
+              setP1DeniedAudit(null);
+              setShowGlobalChatGate(false);
+              setShowGateway(false);
+              setIsGateLoading(false);
+            });
+          }
           return;
         }
+
+        const deniedEmail = activeSession.user.email || "this account";
+        if (isMounted) {
+          startTransition(() => {
+            setSession(activeSession);
+            setProfileState(merged);
+            setP1DeniedAudit({ email: deniedEmail, entitlements: liveEnt || merged });
+            setShowGateway(true);
+            setShowGlobalChatGate(true);
+            setIsGateLoading(false);
+          });
+        }
+        return;
       }
 
       if (error && error.code !== "PGRST116") {
@@ -114,7 +152,7 @@ function HomeContent() {
       if (isMounted) {
         startTransition(() => {
           setSession(activeSession);
-          setProfileState(data);
+          setProfileState(merged);
           setIsGateLoading(false);
         });
       }
@@ -168,25 +206,18 @@ function HomeContent() {
       <>
         <HorPalLandingGateway
           onEnterPillar1={() => {
-            localStorage.setItem("horpal_target_pillar", "1");
             setTargetPillar("1");
-            if (session?.user) {
-              if (profileState?.has_paid_global_chat === true) {
-                setShowGateway(false);
-              } else {
-                setShowGlobalChatGate(true);
-              }
+            if (session?.user && hasPillar1Access(profileState)) {
+              setShowGateway(false);
             } else {
               setShowGlobalChatGate(true);
             }
           }}
           onEnterPillar2={() => {
-            localStorage.removeItem("horpal_target_pillar");
             window.location.href = "/affiliate";
           }}
           onEnterPillar3={() => {
-            localStorage.removeItem("horpal_target_pillar");
-            if (session?.user && hasActivePillar3Access(profileState)) {
+            if (session?.user && hasPillar3Access(profileState)) {
               window.location.href = "/horpal-ai";
             } else {
               setShowPillar3Gate(true);
@@ -199,38 +230,49 @@ function HomeContent() {
           onClose={() => setShowGlobalChatGate(false)}
           currentUser={session?.user}
           currentProfile={profileState}
+          initialDeniedAudit={p1DeniedAudit}
           onLoginClick={() => {
+            if (session?.user && hasPillar1Access(profileState)) {
+              setShowGlobalChatGate(false);
+              setShowGateway(false);
+            }
+          }}
+          onPaidLoginSuccess={async (authUser, prof) => {
+            setSession({ user: authUser });
+            const freshEnt = await fetchLiveEntitlements(authUser.id).catch(() => prof);
+            if (!hasPillar1Access(freshEnt)) {
+              setP1DeniedAudit({ email: authUser?.email || "this account", entitlements: freshEnt });
+              return;
+            }
+            const { data: fullProf } = await supabase.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
+            setProfileState({ ...(fullProf || {}), ...(freshEnt || {}) });
+            setP1DeniedAudit(null);
             setShowGlobalChatGate(false);
             setShowGateway(false);
           }}
-          onPaidLoginSuccess={(_authUser, prof) => {
-            setShowGlobalChatGate(false);
-            setShowGateway(false);
-            setProfileState((prev: any) => ({
-              ...(prev || {}),
-              ...(prof || {}),
-              has_paid_global_chat: true,
-            }));
-          }}
-          onUnpaidDenied={() => {
-            setProfileState(null);
+          onUnpaidDenied={(deniedEmail, ents) => {
+            setP1DeniedAudit({ email: deniedEmail, entitlements: ents ?? null });
             setShowGateway(true);
             setShowGlobalChatGate(true);
           }}
           onSuccess={async (ref) => {
             setPendingPassRef(ref);
-            setShowGlobalChatGate(false);
-            if (session?.user) {
-              await supabase
+            if (session?.user?.id) {
+              const freshEnt = await fetchLiveEntitlements(session.user.id).catch(() => null);
+              const { data: fullProf } = await supabase
                 .from("profiles")
-                .update({
-                  has_paid_global_chat: true,
-                  global_chat_paystack_ref: ref,
-                })
-                .eq("id", session.user.id);
-              setProfileState((prev: any) => ({ ...prev, has_paid_global_chat: true }));
-              setShowGateway(false);
+                .select("*")
+                .eq("id", session.user.id)
+                .maybeSingle();
+              const merged = { ...(fullProf || {}), ...(freshEnt || {}) };
+              setProfileState(merged);
+              if (hasPillar1Access(merged)) {
+                setP1DeniedAudit(null);
+                setShowGlobalChatGate(false);
+                setShowGateway(false);
+              }
             } else {
+              setShowGlobalChatGate(false);
               setShowGateway(false);
             }
           }}
@@ -270,20 +312,19 @@ function HomeContent() {
         onAuthenticated={async (authedUser) => {
           setSession({ user: authedUser });
           if (pendingPassRef) {
-            await supabase
-              .from("profiles")
-              .update({
-                has_paid_global_chat: true,
-                global_chat_paystack_ref: pendingPassRef,
-              })
-              .eq("id", authedUser.id);
+            await authFetch('/api/paystack/verify-global-pass', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reference: pendingPassRef, email: authedUser?.email }),
+            }).catch(() => {});
           }
+          const ent = await auditAccount(authedUser.id, authedUser.email).catch(() => null);
           const { data } = await supabase
             .from("profiles")
             .select("*")
             .eq("id", authedUser.id)
             .single();
-          setProfileState(data);
+          setProfileState({ ...(data || {}), ...(ent || {}) });
           setShowGateway(false);
         }}
         onBackToHub={() => {
@@ -293,66 +334,56 @@ function HomeContent() {
     );
   }
 
-  // Strictly enforce Pillar 1 payment (has_paid_global_chat === true) for all users entering Pillar 1
-  if (profileState?.has_paid_global_chat !== true) {
-    return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4">
-        <GlobalChatAccessGate
-          isOpen={true}
-          currentUser={session?.user}
-          currentProfile={profileState}
-          onLoginClick={() => {}}
-          onPaidLoginSuccess={(_authUser, prof) => {
-            setShowGlobalChatGate(false);
-            setShowGateway(false);
-            setProfileState((prev: any) => ({
-              ...(prev || {}),
-              ...(prof || {}),
-              has_paid_global_chat: true,
-            }));
-          }}
-          onUnpaidDenied={() => {
-            setProfileState(null);
-            setShowGateway(true);
-            setShowGlobalChatGate(true);
-          }}
-          onSuccess={async (ref) => {
-            await supabase
-              .from("profiles")
-              .update({
-                has_paid_global_chat: true,
-                global_chat_paystack_ref: ref,
-              })
-              .eq("id", session.user.id);
-            setProfileState((prev: any) => ({ ...prev, has_paid_global_chat: true }));
-          }}
-        />
-      </div>
-    );
-  }
-
   const isProfileComplete = Boolean(profileState?.gender);
 
-  if (!isProfileComplete) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
-        <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
-        <Suspense
-          fallback={
-            <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shadow-[0_0_30px_rgba(99,102,241,0.5)]"></div>
-          }
-        >
-          <OnboardingFlow onComplete={() => window.location.reload()} />
-        </Suspense>
-      </div>
-    );
-  }
-
   return (
-    <ErrorBoundary>
-      <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
-      <RadarActivationModal />
-    </ErrorBoundary>
+    <PillarAccessGuard
+      pillar={1}
+      renderPaywall={({ user: guardUser, entitlements, recheck }) => (
+        <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4">
+          <GlobalChatAccessGate
+            isOpen={true}
+            currentUser={guardUser}
+            currentProfile={entitlements}
+            initialDeniedAudit={
+              guardUser ? { email: guardUser.email || "this account", entitlements } : p1DeniedAudit
+            }
+            onLoginClick={() => void recheck()}
+            onPaidLoginSuccess={async (authUser, prof) => {
+              setSession({ user: authUser });
+              setProfileState((prev: any) => ({ ...(prev || {}), ...(prof || {}) }));
+              setP1DeniedAudit(null);
+              await recheck();
+            }}
+            onUnpaidDenied={(deniedEmail, ents) => {
+              setP1DeniedAudit({ email: deniedEmail, entitlements: ents ?? null });
+            }}
+            onSuccess={async () => {
+              setP1DeniedAudit(null);
+              await recheck();
+            }}
+          />
+        </div>
+      )}
+    >
+      {!isProfileComplete ? (
+        <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
+          <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
+          <Suspense
+            fallback={
+              <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shadow-[0_0_30px_rgba(99,102,241,0.5)]"></div>
+            }
+          >
+            <OnboardingFlow onComplete={() => window.location.reload()} />
+          </Suspense>
+        </div>
+      ) : (
+        <ErrorBoundary>
+          <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
+          <RadarActivationModal />
+        </ErrorBoundary>
+      )}
+    </PillarAccessGuard>
   );
 }
 

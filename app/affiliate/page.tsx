@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../utils/supabase";
 import HorPalAffiliatePillar from "../../components/affiliate/HorPalAffiliatePillar";
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../../components/auth/HorPalAuthGate";
-import Pillar2AccessGate, {
-  PaidPillar2PassData,
-  PILLAR2_PASS_STORAGE_KEY,
-} from "../../components/affiliate/Pillar2AccessGate";
+import Pillar2AccessGate, { PaidPillar2PassData } from "../../components/affiliate/Pillar2AccessGate";
+import PillarAccessGuard from "../../components/auth/PillarAccessGuard";
+import { authFetch } from "../../utils/authFetch";
+import {
+  auditAccount,
+  consumeVerifyReturn,
+  EntitlementRow,
+  hasPillar2Access,
+  purgeLegacyAccessFlags,
+} from "../../utils/pillarAccess";
 
 function AffiliatePageContent() {
   const router = useRouter();
@@ -17,10 +23,21 @@ function AffiliatePageContent() {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<any>(null);
   const [pendingPaidPass, setPendingPaidPass] = useState<PaidPillar2PassData | null>(null);
+  const [deniedAudit, setDeniedAudit] = useState<{
+    email: string;
+    entitlements: EntitlementRow | null;
+  } | null>(null);
+  const returningFromOAuthRef = useRef(false);
 
   const directBuyerProdParam = searchParams.get("prod") || searchParams.get("product");
 
   useEffect(() => {
+    purgeLegacyAccessFlags();
+    const verifyReturn = consumeVerifyReturn();
+    if (verifyReturn === 2) {
+      returningFromOAuthRef.current = true;
+    }
+
     const ref = searchParams.get("ref") || searchParams.get("aff");
     const prod = searchParams.get("prod") || searchParams.get("product");
     if (ref) {
@@ -44,10 +61,28 @@ function AffiliatePageContent() {
       } catch (_) {}
     }
 
-    // Purge any legacy test bypass caches
-    localStorage.removeItem("horpal_p2_state_v3");
-    localStorage.removeItem("horpal_p2_user_state_test_bypass_id");
-    localStorage.removeItem("horpal_p2_license_test_bypass_id");
+    const hydrateAndAudit = async (userObj: any) => {
+      const [synced, liveEnt] = await Promise.all([
+        syncAuthenticatedUserProfile(userObj),
+        auditAccount(userObj.id, userObj.email || "").catch(() => null),
+      ]);
+      const mergedProfile = liveEnt
+        ? { ...(synced || {}), ...liveEnt }
+        : synced || {
+            id: userObj.id,
+            email: userObj.email || "",
+            has_paid_pillar2: false,
+          };
+      setProfile(mergedProfile);
+      if (hasPillar2Access(liveEnt)) {
+        setDeniedAudit(null);
+      } else if (returningFromOAuthRef.current) {
+        setDeniedAudit({
+          email: userObj.email || synced?.email || "",
+          entitlements: liveEnt,
+        });
+      }
+    };
 
     const checkAuth = async () => {
       try {
@@ -57,28 +92,10 @@ function AffiliatePageContent() {
 
         if (activeSession?.user) {
           setSession(activeSession);
-          localStorage.removeItem("horpal_target_pillar");
-          const synced = await syncAuthenticatedUserProfile(activeSession.user);
-          if (synced) {
-            setProfile(synced);
-          } else {
-            const { data: profileData } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", activeSession.user.id)
-              .maybeSingle();
-            setProfile(
-              profileData || {
-                id: activeSession.user.id,
-                email: activeSession.user.email || "",
-                has_paid_pillar2: false,
-              }
-            );
-          }
+          await hydrateAndAudit(activeSession.user);
         } else {
           setSession(null);
           setProfile(null);
-          localStorage.setItem("horpal_target_pillar", "2");
         }
       } catch (err) {
         console.error("Affiliate auth check error:", err);
@@ -93,12 +110,11 @@ function AffiliatePageContent() {
       async (_event, nextSession) => {
         if (nextSession?.user) {
           setSession(nextSession);
-          localStorage.removeItem("horpal_target_pillar");
-          const synced = await syncAuthenticatedUserProfile(nextSession.user);
-          if (synced) setProfile(synced);
+          await hydrateAndAudit(nextSession.user);
         } else {
           setSession(null);
           setProfile(null);
+          setDeniedAudit(null);
         }
         setLoading(false);
       }
@@ -143,11 +159,12 @@ function AffiliatePageContent() {
             setPendingPaidPass(passData);
           }}
           onAlreadyPaidLoginVerified={(authedUser, verifiedProfile) => {
+            setDeniedAudit(null);
             setSession({ user: authedUser });
             setProfile(verifiedProfile);
           }}
           onBackToHome={() => {
-            localStorage.removeItem("horpal_target_pillar");
+            purgeLegacyAccessFlags();
             router.push("/");
           }}
         />
@@ -161,32 +178,29 @@ function AffiliatePageContent() {
         initialMode="signup"
         onAuthenticated={async (authedUser, syncedProf) => {
           setSession({ user: authedUser });
-          // Ensure their pre-paid Pillar 2 pass is bound to their user ID
+          // Verify and bind their pre-paid Pillar 2 pass via hardened server API
           try {
-            await supabase.rpc("activate_pillar2_license_rpc", {
-              p_reference: pendingPaidPass.reference,
-              p_email: pendingPaidPass.email || authedUser.email || "",
-              p_user_id: authedUser.id,
-              p_amount_ghs: 90,
-              p_pass_type: "registration_1yr",
+            const verifyRes = await authFetch("/api/paystack/verify-pillar2-pass", {
+              method: "POST",
+              body: JSON.stringify({
+                reference: pendingPaidPass.reference,
+                email: pendingPaidPass.email || authedUser.email || "",
+                passType: "registration_1yr",
+              }),
             });
-            localStorage.removeItem(PILLAR2_PASS_STORAGE_KEY);
+            await verifyRes.json().catch(() => ({}));
           } catch (_) {}
 
-          const { data: refreshed } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", authedUser.id)
-            .maybeSingle();
-
-          setProfile(
-            refreshed || {
-              ...(syncedProf || {}),
-              has_paid_pillar2: true,
-              pillar2_paid_at: pendingPaidPass.paidAt,
-              pillar2_expires_at: pendingPaidPass.expiresAt,
-            }
-          );
+          const liveEnt = await auditAccount(
+            authedUser.id,
+            authedUser.email || pendingPaidPass.email || ""
+          ).catch(() => null);
+          if (liveEnt) {
+            setProfile({ ...(syncedProf || {}), ...liveEnt });
+          } else if (syncedProf) {
+            setProfile(syncedProf);
+          }
+          setPendingPaidPass(null);
         }}
         onBackToHub={() => {
           setPendingPaidPass(null);
@@ -195,14 +209,41 @@ function AffiliatePageContent() {
     );
   }
 
+  // Direct Course Buyer flow (?prod=prod_X) when not yet holding full Pillar 2 Affiliate License:
+  // HorPalAffiliatePillar displays ONLY that course sales page and locks Dashboard access behind hasPillar2Access.
+  if (directBuyerProdParam && !hasPillar2Access(profile)) {
+    return (
+      <div className="min-h-screen bg-[#050508] relative">
+        <HorPalAffiliatePillar
+          currentProfile={profile}
+          onRefreshProfile={async () => {
+            const {
+              data: { session: activeSession },
+            } = await supabase.auth.getSession();
+            if (activeSession?.user) {
+              const liveEnt = await auditAccount(
+                activeSession.user.id,
+                activeSession.user.email || ""
+              ).catch(() => null);
+              if (liveEnt) {
+                setProfile((prev: any) => ({ ...(prev || {}), ...liveEnt }));
+              }
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   // Strict 3-Pillar Isolation:
-  // If user is logged in (e.g., paid for Pillar 1 or Pillar 3) but has_paid_pillar2 !== true,
-  // SACK them immediately back to the Pillar 2 GH₵ 90.00 paywall!
-  if (profile?.has_paid_pillar2 !== true && !directBuyerProdParam) {
-    const userEmail = session.user.email || profile?.email || "your account";
-    const p1Status = profile?.has_paid_global_chat ? "✅" : "❌";
+  // If user is logged in (e.g., unpaid or paid only for Pillar 1 / Pillar 3) without active Pillar 2 license + ref,
+  // SACK them immediately back to the Pillar 2 GH₵ 90.00 paywall with the Red 3-Pillar Forensic Scorecard!
+  if (!hasPillar2Access(profile)) {
+    const userEmail = session.user.email || profile?.email || "";
+    const p1Status = profile?.has_paid_global_chat && profile?.global_chat_paystack_ref ? "✅" : "❌";
     const p3Status =
       profile?.has_paid_pillar3 &&
+      profile?.pillar3_paystack_ref &&
       profile?.pillar3_expires_at &&
       new Date(profile.pillar3_expires_at) > new Date()
         ? "✅"
@@ -211,29 +252,28 @@ function AffiliatePageContent() {
       <Pillar2AccessGate
         initialEmail={userEmail}
         currentUserId={session.user.id}
-        sackedNotice={`🚫 Pillar 2 Access Required: Your account (${userEmail}) has [Pillar 1: ${p1Status}] [Pillar 3: ${p3Status}], but you have not activated your Pillar 2 Affiliate License (GH₵ 90.00) yet.`}
-        onPassVerified={async (passData) => {
-          const { data: updatedProf } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .maybeSingle();
-          setProfile(
-            updatedProf || {
-              ...(profile || {}),
-              has_paid_pillar2: true,
-              pillar2_paid_at: passData.paidAt,
-              pillar2_expires_at: passData.expiresAt,
-              pillar2_paystack_ref: passData.reference,
-            }
-          );
+        currentEntitlements={profile}
+        initialDeniedAudit={
+          deniedAudit || {
+            email: userEmail,
+            entitlements: profile,
+          }
+        }
+        sackedNotice={`🚫 Pillar 2 Access Required: Your account (${userEmail || "verified user"}) has [Pillar 1: ${p1Status}] [Pillar 3: ${p3Status}], but has NOT paid for Pillar 2 Affiliate License (GH₵ 90.00).`}
+        onPassVerified={async () => {
+          const liveEnt = await auditAccount(session.user.id, userEmail).catch(() => null);
+          if (liveEnt) {
+            setDeniedAudit(null);
+            setProfile((prev: any) => ({ ...(prev || {}), ...liveEnt }));
+          }
         }}
         onAlreadyPaidLoginVerified={(authedUser, verifiedProfile) => {
+          setDeniedAudit(null);
           setSession({ user: authedUser });
           setProfile(verifiedProfile);
         }}
         onBackToHome={() => {
-          localStorage.removeItem("horpal_target_pillar");
+          purgeLegacyAccessFlags();
           router.push("/");
         }}
       />
@@ -241,24 +281,61 @@ function AffiliatePageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-[#050508] relative">
-      <HorPalAffiliatePillar
-        currentProfile={profile}
-        onRefreshProfile={async () => {
-          const {
-            data: { session: activeSession },
-          } = await supabase.auth.getSession();
-          if (activeSession?.user) {
-            const { data } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", activeSession.user.id)
-              .maybeSingle();
-            if (data) setProfile(data);
-          }
-        }}
-      />
-    </div>
+    <PillarAccessGuard
+      pillar={2}
+      renderPaywall={({ user, entitlements, recheck }) => {
+        const guardEmail = user.email || "";
+        return (
+          <Pillar2AccessGate
+            initialEmail={guardEmail}
+            currentUserId={user.id}
+            currentEntitlements={entitlements}
+            initialDeniedAudit={{
+              email: guardEmail,
+              entitlements,
+            }}
+            onPassVerified={async () => {
+              await recheck();
+              const liveEnt = await auditAccount(user.id, guardEmail).catch(() => null);
+              if (liveEnt) {
+                setProfile((prev: any) => ({ ...(prev || {}), ...liveEnt }));
+              }
+            }}
+            onAlreadyPaidLoginVerified={async (authedUser, verifiedProfile) => {
+              setSession({ user: authedUser });
+              setProfile(verifiedProfile);
+              await recheck();
+            }}
+            onBackToHome={() => {
+              purgeLegacyAccessFlags();
+              router.push("/");
+            }}
+          />
+        );
+      }}
+    >
+      <div className="min-h-screen bg-[#050508] relative">
+        <HorPalAffiliatePillar
+          currentProfile={profile}
+          onRefreshProfile={async () => {
+            const {
+              data: { session: activeSession },
+            } = await supabase.auth.getSession();
+            if (activeSession?.user) {
+              const [synced, liveEnt] = await Promise.all([
+                syncAuthenticatedUserProfile(activeSession.user),
+                auditAccount(activeSession.user.id, activeSession.user.email || "").catch(() => null),
+              ]);
+              if (liveEnt) {
+                setProfile({ ...(synced || {}), ...liveEnt });
+              } else if (synced) {
+                setProfile(synced);
+              }
+            }
+          }}
+        />
+      </div>
+    </PillarAccessGuard>
   );
 }
 

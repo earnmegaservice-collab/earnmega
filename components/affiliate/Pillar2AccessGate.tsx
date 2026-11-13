@@ -18,6 +18,16 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
+import { authFetch } from '../../utils/authFetch';
+import {
+  auditAccount,
+  EntitlementRow,
+  hasPillar2Access,
+  purgeLegacyAccessFlags,
+  startGoogleVerification,
+} from '../../utils/pillarAccess';
+import PillarAuditBanner, { signOutToSwitchAccount } from '../auth/PillarAuditBanner';
+import PaystackReferenceRecovery from '../auth/PaystackReferenceRecovery';
 import {
   ALL_WORLD_CURRENCIES,
   POPULAR_CURRENCY_CODES,
@@ -36,7 +46,6 @@ const safeTap = (fn: () => void) => ({
   },
 });
 
-export const PILLAR2_PASS_STORAGE_KEY = 'horpal_pillar2_paid_pass_v1';
 export const PILLAR2_LICENSE_AMOUNT_GHS = 90;
 export const PILLAR2_LICENSE_AMOUNT_PESEWAS = 90 * 100; // 9000 pesewas = GH₵ 90.00
 
@@ -52,6 +61,8 @@ export interface PaidPillar2PassData {
 interface Pillar2AccessGateProps {
   initialEmail?: string;
   currentUserId?: string;
+  currentEntitlements?: EntitlementRow | null;
+  initialDeniedAudit?: { email: string; entitlements: EntitlementRow | null } | null;
   sackedNotice?: string | null;
   onPassVerified: (passData: PaidPillar2PassData) => void;
   onAlreadyPaidLoginVerified: (user: any, profile: any) => void;
@@ -61,6 +72,8 @@ interface Pillar2AccessGateProps {
 export default function Pillar2AccessGate({
   initialEmail = '',
   currentUserId,
+  currentEntitlements = null,
+  initialDeniedAudit = null,
   sackedNotice = null,
   onPassVerified,
   onAlreadyPaidLoginVerified,
@@ -74,7 +87,11 @@ export default function Pillar2AccessGate({
   // Luxury Showroom View Mode state
   const [showroomOpen, setShowroomOpen] = useState(false);
   const [interceptBanner, setInterceptBanner] = useState<string | null>(null);
+  const [deniedAudit, setDeniedAudit] = useState<{ email: string; entitlements: EntitlementRow | null } | null>(
+    initialDeniedAudit
+  );
   const emailInputRef = useRef<HTMLInputElement | null>(null);
+  const paySectionRef = useRef<HTMLDivElement | null>(null);
 
   // Inline Login Mode ("Already Paid for Pillar 2? Log In →")
   const [showInlineLogin, setShowInlineLogin] = useState(false);
@@ -87,6 +104,29 @@ export default function Pillar2AccessGate({
   const [liveRates, setLiveRates] = useState<Record<string, number> | null>(null);
   const [loadingRates, setLoadingRates] = useState<boolean>(false);
   const [currencyModalOpen, setCurrencyModalOpen] = useState<boolean>(false);
+
+  const scrollToPaySection = () => {
+    if (typeof window === 'undefined') return;
+    window.setTimeout(() => {
+      paySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  };
+
+  useEffect(() => {
+    purgeLegacyAccessFlags();
+  }, []);
+
+  useEffect(() => {
+    if (initialDeniedAudit) {
+      setDeniedAudit(initialDeniedAudit);
+      if (initialDeniedAudit.email) {
+        setEmail((prev) => prev || initialDeniedAudit.email);
+        setLoginEmail((prev) => prev || initialDeniedAudit.email);
+      }
+      setShowInlineLogin(false);
+      scrollToPaySection();
+    }
+  }, [initialDeniedAudit]);
 
   useEffect(() => {
     if (initialEmail && !email) {
@@ -139,13 +179,12 @@ export default function Pillar2AccessGate({
     setError('');
     try {
       const cleanEmail = payerEmail.trim().toLowerCase();
-      const res = await fetch('/api/paystack/verify-pillar2-pass', {
+      const res = await authFetch('/api/paystack/verify-pillar2-pass', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reference,
           email: cleanEmail,
-          userId: currentUserId || null,
           passType: 'registration_1yr',
         }),
       });
@@ -168,10 +207,7 @@ export default function Pillar2AccessGate({
         amountGhs: PILLAR2_LICENSE_AMOUNT_GHS,
       };
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(PILLAR2_PASS_STORAGE_KEY, JSON.stringify(passData));
-      }
-
+      setDeniedAudit(null);
       onPassVerified(passData);
     } catch (err: any) {
       setError(err?.message || 'Payment verification failed. Please contact support with your reference.');
@@ -263,35 +299,40 @@ export default function Pillar2AccessGate({
         throw new Error(signInErr?.message || 'Invalid email or password.');
       }
 
-      await supabase.rpc('claim_paid_passes_for_user_rpc', {
-        p_user_id: signInData.user.id,
-        p_email: cleanEmail,
-      });
+      const entitlements = await auditAccount(signInData.user.id, cleanEmail);
 
-      const { data: profile, error: profErr } = await supabase
+      // STRICT PILLAR 2 CHECK (Phase 3): requires paid flag, receipt ref, and unexpired timestamp
+      if (!hasPillar2Access(entitlements)) {
+        const verifiedEmail = signInData.user.email || cleanEmail;
+        setEmail(verifiedEmail);
+        setLoginPassword('');
+        setDeniedAudit({ email: verifiedEmail, entitlements });
+        setShowInlineLogin(false);
+        scrollToPaySection();
+        return;
+      }
+
+      const { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', signInData.user.id)
         .maybeSingle();
 
-      if (profErr) {
-        throw new Error(profErr.message);
-      }
-
-      // STRICT PILLAR 2 CHECK (GERALD SCENARIO):
-      if (!profile || profile.has_paid_pillar2 !== true) {
-        setEmail(cleanEmail);
-        setShowInlineLogin(false);
-        setError(
-          `🚫 Access Denied: Your account (${cleanEmail}) is active on Pillar 1, but you have not activated your Pillar 2 Affiliate License (GH₵ 90.00) yet.`
-        );
-        return;
-      }
-
-      onAlreadyPaidLoginVerified(signInData.user, profile);
+      setDeniedAudit(null);
+      onAlreadyPaidLoginVerified(signInData.user, { ...(profile || {}), ...(entitlements || {}) });
     } catch (err: any) {
       setError(err?.message || 'Could not verify account.');
     } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleGoogleVerify = async () => {
+    setError('');
+    setLoginLoading(true);
+    const { error: oauthErr } = await startGoogleVerification(2);
+    if (oauthErr) {
+      setError(oauthErr);
       setLoginLoading(false);
     }
   };
@@ -348,6 +389,22 @@ export default function Pillar2AccessGate({
                 <strong className="text-white">{interceptBanner}</strong> and full 50% commissions!
               </span>
             </div>
+          )}
+
+          {(deniedAudit || (currentUserId && !hasPillar2Access(currentEntitlements))) && (
+            <PillarAuditBanner
+              pillar={2}
+              email={deniedAudit?.email || initialEmail || email || 'unknown account'}
+              entitlements={deniedAudit?.entitlements ?? currentEntitlements}
+              onSwitchAccount={async () => {
+                await signOutToSwitchAccount();
+                setDeniedAudit(null);
+                setError('');
+                setEmail('');
+                setLoginEmail('');
+                setLoginPassword('');
+              }}
+            />
           )}
 
           {error && (
@@ -502,7 +559,7 @@ export default function Pillar2AccessGate({
           </div>
 
           {/* Primary Action Buttons: Pay GH₵ 90.00 + Glowing "👁️ View Affiliate Hub" */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+          <div ref={paySectionRef} className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
             <button
               type="button"
               disabled={loadingPaystack || verifyingServer}
@@ -547,13 +604,10 @@ export default function Pillar2AccessGate({
                 <span>Already Paid for Pillar 2? Log In →</span>
               </button>
             ) : (
-              <form
-                onSubmit={handleInlineLoginCheck}
-                className="p-4 rounded-2xl bg-black/60 border border-emerald-500/30 space-y-3"
-              >
+              <div className="p-4 rounded-2xl bg-black/60 border border-emerald-500/30 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black uppercase tracking-wider text-emerald-300">
-                    Verify Paid Pillar 2 Affiliate Account
+                    VERIFY PAID PILLAR 2 AFFILIATE ACCOUNT
                   </span>
                   <button
                     type="button"
@@ -564,31 +618,68 @@ export default function Pillar2AccessGate({
                   </button>
                 </div>
 
-                <input
-                  type="email"
-                  required
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="Your registered Gmail / Email"
-                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-black/80 border border-white/15 text-white text-sm focus:outline-none focus:border-emerald-400"
-                />
-                <input
-                  type="password"
-                  required
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="Your account password"
-                  className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-black/80 border border-white/15 text-white text-sm focus:outline-none focus:border-emerald-400"
-                />
+                <form onSubmit={handleInlineLoginCheck} className="space-y-3">
+                  <input
+                    type="email"
+                    required
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="Your registered Gmail / Email"
+                    className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-black/80 border border-white/15 text-white text-sm focus:outline-none focus:border-emerald-400"
+                  />
+                  <input
+                    type="password"
+                    required
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="Your account password"
+                    className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl bg-black/80 border border-white/15 text-white text-sm focus:outline-none focus:border-emerald-400"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={loginLoading}
+                    className="w-full min-h-[46px] py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider transition cursor-pointer disabled:opacity-60"
+                  >
+                    {loginLoading ? 'Verifying Pillar 2 License in Supabase...' : 'VERIFY & ENTER PILLAR 2 HUB →'}
+                  </button>
+                </form>
+
+                <div className="flex items-center gap-3 py-1">
+                  <div className="h-px flex-1 bg-white/10" />
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase">OR</span>
+                  <div className="h-px flex-1 bg-white/10" />
+                </div>
 
                 <button
-                  type="submit"
+                  type="button"
                   disabled={loginLoading}
-                  className="w-full min-h-[46px] py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider transition cursor-pointer disabled:opacity-60"
+                  onClick={() => void handleGoogleVerify()}
+                  data-testid="pillar2-google-verify-btn"
+                  className="w-full min-h-[46px] py-2.5 px-4 rounded-xl bg-white hover:bg-zinc-100 text-black font-extrabold text-xs sm:text-sm transition flex items-center justify-center gap-2.5 cursor-pointer touch-manipulation shadow-lg disabled:opacity-60"
                 >
-                  {loginLoading ? 'Verifying Pillar 2 License in Supabase...' : 'Verify & Enter Pillar 2 Hub →'}
+                  <span>🔵</span>
+                  <span>Continue with Google to Verify Pillar 2 Access</span>
                 </button>
-              </form>
+
+                <PaystackReferenceRecovery
+                  pillar={2}
+                  onRecovered={(result) => {
+                    setDeniedAudit(null);
+                    setError('');
+                    onPassVerified({
+                      paid: true,
+                      reference: result.reference,
+                      email: result.email || loginEmail || email,
+                      paidAt: new Date().toISOString(),
+                      expiresAt:
+                        result.entitlements?.pillar2_expires_at ||
+                        new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+                      amountGhs: result.amountGhs || PILLAR2_LICENSE_AMOUNT_GHS,
+                    });
+                  }}
+                />
+              </div>
             )}
           </div>
 

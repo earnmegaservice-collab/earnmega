@@ -25,6 +25,16 @@ import {
 import { usePaystackPayment } from 'react-paystack';
 import toast from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
+import { authFetch } from '../../utils/authFetch';
+import {
+  auditAccount,
+  EntitlementRow,
+  hasPillar1Access,
+  purgeLegacyAccessFlags,
+  startGoogleVerification,
+} from '../../utils/pillarAccess';
+import PillarAuditBanner, { signOutToSwitchAccount } from './PillarAuditBanner';
+import PaystackReferenceRecovery from './PaystackReferenceRecovery';
 import LiveAppPreviewModal from './LiveAppPreviewModal';
 import WorldwideCurrencyPicker from './WorldwideCurrencyPicker';
 import {
@@ -40,10 +50,12 @@ interface GlobalChatAccessGateProps {
   onSuccess: (reference: string) => void;
   onLoginClick: () => void;
   onPaidLoginSuccess?: (user: any, profile: any) => void;
-  onUnpaidDenied?: (email: string) => void;
+  onUnpaidDenied?: (email: string, entitlements?: EntitlementRow | null) => void;
   onClose?: () => void;
   currentUser?: any;
   currentProfile?: any;
+  initialViewMode?: 'gate' | 'login';
+  initialDeniedAudit?: { email: string; entitlements: EntitlementRow | null } | null;
 }
 
 const VIP_FEATURES = [
@@ -85,9 +97,6 @@ const VIP_FEATURES = [
   },
 ];
 
-export const DENIED_GATE_EMAIL_STORAGE_KEY = 'horpal_denied_gate_email';
-export const GATE_LOGIN_ATTEMPT_STORAGE_KEY = 'horpal_gate_login_attempt';
-
 export default function GlobalChatAccessGate({
   isOpen,
   onSuccess,
@@ -97,8 +106,10 @@ export default function GlobalChatAccessGate({
   onClose,
   currentUser,
   currentProfile,
+  initialViewMode = 'gate',
+  initialDeniedAudit = null,
 }: GlobalChatAccessGateProps) {
-  const [viewMode, setViewMode] = useState<'gate' | 'login'>('gate');
+  const [viewMode, setViewMode] = useState<'gate' | 'login'>(initialViewMode);
   const [email, setEmail] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState<any>(null);
@@ -110,8 +121,9 @@ export default function GlobalChatAccessGate({
   const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [deniedEmailBanner, setDeniedEmailBanner] = useState<string | null>(null);
-  const [pillarStatusNotice, setPillarStatusNotice] = useState<string | null>(null);
+  const [deniedAudit, setDeniedAudit] = useState<{ email: string; entitlements: EntitlementRow | null } | null>(
+    initialDeniedAudit
+  );
 
   // Worldwide Currency Converter State (anchored to GH₵ 50.00 base settlement)
   const [selectedCurrency, setSelectedCurrency] = useState<string>('GHS');
@@ -121,6 +133,7 @@ export default function GlobalChatAccessGate({
 
   const touchHandledRef = useRef(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const payButtonRef = useRef<HTMLDivElement | null>(null);
 
   const initializePayment = usePaystackPayment(
     paymentConfig || {
@@ -130,9 +143,17 @@ export default function GlobalChatAccessGate({
     }
   );
 
+  const scrollToPayButton = () => {
+    if (typeof window === 'undefined') return;
+    window.setTimeout(() => {
+      payButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  };
+
   // Load live exchange rates + detect local timezone currency when gate opens
   useEffect(() => {
     if (!isOpen) return;
+    purgeLegacyAccessFlags();
     let active = true;
     setDetectedCurrency(detectCurrencyFromTimezone());
     fetchLiveGhsRates().then((rates) => {
@@ -143,7 +164,22 @@ export default function GlobalChatAccessGate({
     };
   }, [isOpen]);
 
-  // Pre-fill email & show strict 3-pillar isolation notice if logged in via Pillar 2 or Pillar 3
+  useEffect(() => {
+    if (!isOpen) return;
+    if (initialDeniedAudit) {
+      setDeniedAudit(initialDeniedAudit);
+      if (initialDeniedAudit.email) {
+        setEmail((prev) => prev || initialDeniedAudit.email);
+        setLoginEmail((prev) => prev || initialDeniedAudit.email);
+      }
+      setViewMode('gate');
+      scrollToPayButton();
+    } else if (initialViewMode === 'login') {
+      setViewMode('login');
+    }
+  }, [isOpen, initialDeniedAudit, initialViewMode]);
+
+  // Pre-fill email & show strict 3-pillar isolation notice if signed in without Pillar 1 access
   useEffect(() => {
     if (!isOpen) return;
     const uEmail = currentUser?.email || currentProfile?.email || '';
@@ -151,32 +187,15 @@ export default function GlobalChatAccessGate({
       setEmail((prev) => prev || uEmail);
       setLoginEmail((prev) => prev || uEmail);
     }
-    if (currentUser && currentProfile && currentProfile.has_paid_global_chat !== true) {
-      const p2 = currentProfile.has_paid_pillar2 || currentProfile.is_pillar2_paid ? '✅' : '❌';
-      const p3 =
-        currentProfile.has_paid_pillar3 &&
-        currentProfile.pillar3_expires_at &&
-        new Date(currentProfile.pillar3_expires_at) > new Date()
-          ? '✅'
-          : '❌';
-      setPillarStatusNotice(
-        `🚫 Pillar 1 Access Required: Your account (${uEmail || 'this account'}) has [Pillar 2: ${p2}] [Pillar 3: ${p3}], but has NOT paid the GH₵ 50.00 Pillar 1 Lifetime Pass yet.`
+    if (currentUser && !hasPillar1Access(currentProfile)) {
+      setDeniedAudit((prev) =>
+        prev || {
+          email: uEmail || 'this account',
+          entitlements: currentProfile || null,
+        }
       );
     }
   }, [isOpen, currentUser, currentProfile]);
-
-  // Pick up any unpaid OAuth return banner stored before sign-out
-  useEffect(() => {
-    if (!isOpen || typeof window === 'undefined') return;
-    try {
-      const denied = sessionStorage.getItem(DENIED_GATE_EMAIL_STORAGE_KEY);
-      if (denied) {
-        setDeniedEmailBanner(denied);
-        setEmail((prev) => prev || denied);
-        setViewMode('gate');
-      }
-    } catch (_) {}
-  }, [isOpen]);
 
   const makeSafeTap = (fn: () => void) => ({
     onMouseDown: (e: React.MouseEvent) => {
@@ -213,11 +232,7 @@ export default function GlobalChatAccessGate({
   };
 
   const clearDeniedBanner = () => {
-    setDeniedEmailBanner(null);
-    setPillarStatusNotice(null);
-    try {
-      sessionStorage.removeItem(DENIED_GATE_EMAIL_STORAGE_KEY);
-    } catch (_) {}
+    setDeniedAudit(null);
   };
 
   const selectedMeta = getCurrencyMeta(selectedCurrency);
@@ -232,7 +247,7 @@ export default function GlobalChatAccessGate({
     const payEmail =
       email.trim() ||
       currentUser?.email ||
-      deniedEmailBanner ||
+      deniedAudit?.email ||
       'guest_' + Date.now() + '@earnmega.com';
     const reference = `pass_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -259,7 +274,7 @@ export default function GlobalChatAccessGate({
           setIsVerifying(true);
           try {
             const referenceId = ref.reference || paymentConfig.reference;
-            const res = await fetch('/api/paystack/verify-global-pass', {
+            const res = await authFetch('/api/paystack/verify-global-pass', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -291,25 +306,16 @@ export default function GlobalChatAccessGate({
   }, [paymentConfig, initializePayment, onSuccess]);
 
   const verifyPaidPassOrSack = async (authUser: any, fallbackEmail?: string) => {
+    let profileRow: EntitlementRow | null = null;
     try {
-      await supabase.rpc('claim_paid_passes_for_user_rpc', {
-        p_user_id: authUser.id,
-        p_email: authUser?.email || fallbackEmail || '',
-      });
-    } catch (_) {}
+      profileRow = await auditAccount(authUser.id, authUser?.email || fallbackEmail);
+    } catch {
+      setLoginError('Could not verify your Pillar 1 license in Supabase. Please try again.');
+      return;
+    }
 
-    const { data: profileRow, error: profileErr } = await supabase
-      .from('profiles')
-      .select('has_paid_global_chat, has_paid_pillar2, is_pillar2_paid, has_paid_pillar3, pillar3_expires_at, subscription_tier')
-      .eq('id', authUser.id)
-      .maybeSingle();
-
-    if (!profileErr && profileRow?.has_paid_global_chat === true) {
+    if (hasPillar1Access(profileRow)) {
       clearDeniedBanner();
-      try {
-        localStorage.setItem('horpal_target_pillar', '1');
-        localStorage.removeItem(GATE_LOGIN_ATTEMPT_STORAGE_KEY);
-      } catch (_) {}
       toast.success('✅ Lifetime Global Chat Pass verified! Entering now...');
       if (onPaidLoginSuccess) {
         onPaidLoginSuccess(authUser, profileRow);
@@ -319,36 +325,16 @@ export default function GlobalChatAccessGate({
       return;
     }
 
-    // Strict 3-Pillar Isolation: SACK any Pillar 2 / Pillar 3 / Unpaid account trying to enter Pillar 1
+    // Strict 3-Pillar Isolation: Bounce any Pillar 2 / Pillar 3 / Unpaid account back to Paywall
     const blockedEmail = authUser?.email || fallbackEmail || 'this account';
-    const p2 = profileRow?.has_paid_pillar2 || profileRow?.is_pillar2_paid ? '✅' : '❌';
-    const p3 =
-      profileRow?.has_paid_pillar3 &&
-      profileRow?.pillar3_expires_at &&
-      new Date(profileRow.pillar3_expires_at) > new Date()
-        ? '✅'
-        : '❌';
-
-    setPillarStatusNotice(
-      `🚫 Pillar 1 Access Required: Your account (${blockedEmail}) has [Pillar 2: ${p2}] [Pillar 3: ${p3}], but has NOT paid the GH₵ 50.00 Pillar 1 Lifetime Pass yet.`
-    );
-
-    try {
-      localStorage.removeItem(GATE_LOGIN_ATTEMPT_STORAGE_KEY);
-      sessionStorage.setItem(DENIED_GATE_EMAIL_STORAGE_KEY, blockedEmail);
-    } catch (_) {}
-
-    try {
-      await supabase.auth.signOut();
-    } catch (_) {}
-
-    setDeniedEmailBanner(blockedEmail);
+    setDeniedAudit({ email: blockedEmail, entitlements: profileRow });
     if (authUser?.email || fallbackEmail) {
       setEmail(authUser?.email || fallbackEmail || '');
     }
     setLoginPassword('');
     setViewMode('gate');
-    onUnpaidDenied?.(blockedEmail);
+    scrollToPayButton();
+    onUnpaidDenied?.(blockedEmail, profileRow);
     toast.error(`Access Denied: ${blockedEmail} has not paid the GH₵ 50 Pillar 1 pass yet.`, {
       duration: 5000,
     });
@@ -387,21 +373,12 @@ export default function GlobalChatAccessGate({
     setLoginError(null);
     setIsLoggingIn(true);
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('horpal_target_pillar', '1');
-        localStorage.setItem(GATE_LOGIN_ATTEMPT_STORAGE_KEY, '1');
+      const { error } = await startGoogleVerification(1);
+      if (error) {
+        setLoginError(error);
+        setIsLoggingIn(false);
       }
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/` : undefined,
-        },
-      });
-      if (error) throw error;
     } catch (err: any) {
-      try {
-        localStorage.removeItem(GATE_LOGIN_ATTEMPT_STORAGE_KEY);
-      } catch (_) {}
       setLoginError(err?.message || 'Google Sign-In failed.');
       setIsLoggingIn(false);
     }
@@ -519,7 +496,7 @@ export default function GlobalChatAccessGate({
                 className="w-full min-h-[48px] py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-600 text-black font-black text-sm tracking-wide shadow-[0_0_25px_rgba(245,158,11,0.45)] hover:scale-[1.01] active:scale-[0.98] disabled:opacity-60 transition flex items-center justify-center gap-2 cursor-pointer touch-manipulation"
               >
                 <LogIn size={18} />
-                <span>{isLoggingIn ? 'Verifying Lifetime Pass...' : 'Log In & Verify Paid Pass'}</span>
+                <span>{isLoggingIn ? 'Verifying Lifetime Pass...' : 'VERIFY & ENTER PILLAR 1 HUB →'}</span>
               </button>
             </form>
 
@@ -533,28 +510,25 @@ export default function GlobalChatAccessGate({
               type="button"
               disabled={isLoggingIn}
               {...makeSafeTap(handleGoogleSignIn)}
+              data-testid="pillar1-google-verify-btn"
               className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-white text-black font-extrabold text-sm hover:bg-zinc-100 active:scale-[0.98] disabled:opacity-60 transition flex items-center justify-center gap-3 cursor-pointer touch-manipulation shadow-lg"
             >
-              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                />
-              </svg>
-              <span>Continue with Google</span>
+              <span>🔵</span>
+              <span>Continue with Google to Verify Pillar 1 Access</span>
             </button>
+
+            <PaystackReferenceRecovery
+              pillar={1}
+              onRecovered={(result) => {
+                clearDeniedBanner();
+                toast.success('Paystack receipt verified! Entering Global Chat...');
+                if (onPaidLoginSuccess && result.entitlements) {
+                  onPaidLoginSuccess(currentUser || { id: '', email: result.email }, result.entitlements);
+                } else {
+                  onSuccess(result.reference);
+                }
+              }}
+            />
           </div>
         ) : (
           /* ================= MAIN GH₵ 50 LIFETIME GATE VIEW ================= */
@@ -567,22 +541,20 @@ export default function GlobalChatAccessGate({
               </div>
             </div>
 
-            {/* Bold Red Sacked/Unpaid Warning Banner */}
-            {(pillarStatusNotice || deniedEmailBanner) && (
-              <div className="mb-6 p-4 rounded-2xl bg-rose-950/90 border-2 border-rose-500 text-rose-100 shadow-[0_0_30px_rgba(244,63,94,0.45)] flex items-start gap-3">
-                <AlertTriangle size={22} className="text-rose-400 shrink-0 mt-0.5" />
-                <div className="text-xs sm:text-sm font-bold leading-relaxed">
-                  {pillarStatusNotice ? (
-                    pillarStatusNotice
-                  ) : (
-                    <>
-                      🚫 Access Denied: This account (<span className="underline text-white">{deniedEmailBanner}</span>) has
-                      NOT paid the GH₵ 50 Lifetime Entry Pass yet. Please complete your one-time GH₵ 50 payment below to
-                      activate Global Chat.
-                    </>
-                  )}
-                </div>
-              </div>
+            {/* PHASE 5: Forensic 3-Pillar Payment Receipt Scorecard when bounced */}
+            {(deniedAudit || (currentUser && !hasPillar1Access(currentProfile))) && (
+              <PillarAuditBanner
+                pillar={1}
+                email={deniedAudit?.email || currentUser?.email || email || 'unknown account'}
+                entitlements={deniedAudit?.entitlements ?? currentProfile}
+                onSwitchAccount={async () => {
+                  await signOutToSwitchAccount();
+                  clearDeniedBanner();
+                  setEmail('');
+                  setLoginEmail('');
+                  setLoginPassword('');
+                }}
+              />
             )}
 
             {/* Headline & Subheadline + Interactive Worldwide Currency Switcher */}
@@ -692,7 +664,7 @@ export default function GlobalChatAccessGate({
             )}
 
             {/* Action Buttons: Pay GH₵ 50 & View Inside App */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3.5 max-w-xl mx-auto mb-4">
+            <div ref={payButtonRef} className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3.5 max-w-xl mx-auto mb-4">
               <button
                 type="button"
                 disabled={isVerifying}

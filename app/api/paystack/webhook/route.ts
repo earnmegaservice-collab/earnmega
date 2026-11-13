@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder_key';
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+import type { User } from '@supabase/supabase-js';
+import {
+  bindVerifiedPayment,
+  findOtherPillarConflict,
+  getAdminClient,
+  PaywallError,
+  PaystackTx,
+  PillarNumber,
+  priceForPayment,
+} from '@/lib/server/paywall';
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -23,50 +28,86 @@ export async function POST(req: Request) {
     const secret = process.env.PAYSTACK_SECRET_KEY || '';
     const signature = req.headers.get('x-paystack-signature');
 
-    if (!secret) {
-      console.warn("PAYSTACK_SECRET_KEY not set");
+    if (!secret || secret === 'sk_test_placeholder') {
+      return NextResponse.json({ error: 'Paystack webhook secret not configured' }, { status: 503 });
     }
 
     const expectedHash = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+    const sigBuf = signature ? Buffer.from(signature, 'utf8') : null;
+    const expBuf = Buffer.from(expectedHash, 'utf8');
 
-    if (!signature || signature !== expectedHash) {
+    if (!sigBuf || sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
       return NextResponse.json({ error: 'Invalid Paystack signature' }, { status: 401 });
     }
 
+    const admin = getAdminClient();
     const event = JSON.parse(rawBody);
 
     if (event.event === 'charge.success') {
       const data = event.data;
-      const reference = data.reference;
-      const amountGHS = data.amount / 100;
-      const customerEmail = data.customer?.email;
+      const reference = String(data.reference || '').trim();
+      const amountGHS = Number(data.amount || 0) / 100;
+      const customerEmail = data.customer?.email ? String(data.customer.email).trim().toLowerCase() : '';
       const metadata = data.metadata || {};
 
-      const paymentType = metadata.payment_type || '';
-      const userId = metadata.user_id;
+      const paymentType = String(metadata.payment_type || '').toUpperCase();
+      const userId = metadata.user_id ? String(metadata.user_id).trim() : null;
 
       // Idempotency check in both tables
-      const { data: existingTx } = await supabase
+      const { data: existingTx } = await admin
         .from('wallet_transactions')
         .select('id')
         .eq('reference', reference)
         .in('status', ['completed', 'verified', 'VERIFIED'])
-        .single();
+        .maybeSingle();
 
       if (existingTx) {
         return NextResponse.json({ status: 'already_processed' }, { status: 200 });
       }
 
-      const { data: existingSale } = await supabase
+      const { data: existingSale } = await admin
         .from('affiliate_sales')
         .select('id')
         .eq('paystack_reference', reference)
         .in('status', ['completed', 'verified', 'VERIFIED'])
-        .single();
+        .maybeSingle();
 
       if (existingSale) {
         return NextResponse.json({ status: 'already_processed' }, { status: 200 });
       }
+
+      const resolveVerifiedUser = async (): Promise<User | null> => {
+        if (!userId) return null;
+        const { data: profRow } = await admin
+          .from('profiles')
+          .select('id, email')
+          .eq('id', userId)
+          .maybeSingle();
+        if (!profRow?.id) return null;
+        return { id: profRow.id, email: profRow.email || customerEmail } as User;
+      };
+
+      const bindPillarWebhook = async (pillar: PillarNumber) => {
+        const txFromWebhook: PaystackTx = {
+          reference,
+          amountPesewas: Number(data.amount || 0),
+          currency: String(data.currency || 'GHS').toUpperCase(),
+          email: customerEmail,
+          metadata,
+          paidAt: data.paid_at || null,
+        };
+        try {
+          const price = priceForPayment(pillar, txFromWebhook);
+          const targetUser = await resolveVerifiedUser();
+          await bindVerifiedPayment(admin, pillar, txFromWebhook, price, targetUser);
+        } catch (err) {
+          if (err instanceof PaywallError && err.status === 409) {
+            console.warn('[webhook] pillar binding conflict ignored:', err.message);
+            return;
+          }
+          throw err;
+        }
+      };
 
       // Fulfillment routing
       if (paymentType === 'P1_REGISTRATION' || paymentType === 'P1_UPGRADE') {
@@ -77,13 +118,12 @@ export async function POST(req: Request) {
         const now = new Date();
         let expiresAt: Date | null = null;
         if (targetTier === 'PRO') {
-          expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+          expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
         } else if (targetTier === 'PREMIUM') {
-          expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000); // 365 days
+          expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
         }
 
         const tierPayload = {
-          is_paid: true,
           subscription_tier: targetTier.toLowerCase(),
           is_pro: isPro,
           is_premium: isPremium,
@@ -92,99 +132,51 @@ export async function POST(req: Request) {
         };
 
         if (userId) {
-          const { error: upErr } = await supabase
-            .from('profiles')
-            .update(tierPayload)
-            .eq('id', userId);
+          const { error: upErr } = await admin.from('profiles').update(tierPayload).eq('id', userId);
           if (upErr) {
-            await supabase
-              .from('profiles')
-              .update({ is_paid: true, subscription_tier: targetTier.toLowerCase() })
-              .eq('id', userId);
+            await admin.from('profiles').update({ subscription_tier: targetTier.toLowerCase() }).eq('id', userId);
           }
         } else if (customerEmail) {
-          const { error: upErr } = await supabase
-            .from('profiles')
-            .update(tierPayload)
-            .eq('email', customerEmail);
+          const { error: upErr } = await admin.from('profiles').update(tierPayload).eq('email', customerEmail);
           if (upErr) {
-            await supabase
-              .from('profiles')
-              .update({ is_paid: true, subscription_tier: targetTier.toLowerCase() })
-              .eq('email', customerEmail);
+            await admin.from('profiles').update({ subscription_tier: targetTier.toLowerCase() }).eq('email', customerEmail);
           }
         }
       }
       else if (paymentType === 'GLOBAL_CHAT_PASS' || paymentType === 'P1_LIFETIME_PASS') {
-        const amountGHS = (event.data?.amount || 5000) / 100;
-        await supabase
-          .from('global_chat_passes')
-          .upsert(
-            {
-              paystack_reference: reference,
-              email: customerEmail || null,
-              amount_ghs: amountGHS,
-              claimed_by_user_id: userId || null,
-            },
-            { onConflict: 'paystack_reference' }
-          );
-
-        if (userId) {
-          await supabase
-            .from('profiles')
-            .update({
-              has_paid_global_chat: true,
-              global_chat_paystack_ref: reference,
-              is_paid: true,
-            })
-            .eq('id', userId);
-        } else if (customerEmail) {
-          await supabase
-            .from('profiles')
-            .update({
-              has_paid_global_chat: true,
-              global_chat_paystack_ref: reference,
-              is_paid: true,
-            })
-            .eq('email', customerEmail);
-        }
+        await bindPillarWebhook(1);
       }
       else if (paymentType === 'COIN_PURCHASE') {
         if (userId) {
           const coinsAmount = Number(metadata.coins_amount || 0);
-          const { data: prof } = await supabase.from('profiles').select('coin_balance, coins').eq('id', userId).single();
+          const { data: prof } = await admin.from('profiles').select('coin_balance, coins').eq('id', userId).maybeSingle();
           if (prof) {
              const currentCoins = prof.coins || prof.coin_balance || 0;
              const newTotal = currentCoins + coinsAmount;
-             const { error: coinErr } = await supabase.from('profiles').update({ coin_balance: newTotal, coins: newTotal }).eq('id', userId);
+             const { error: coinErr } = await admin.from('profiles').update({ coin_balance: newTotal, coins: newTotal }).eq('id', userId);
              if (coinErr) {
-               await supabase.from('profiles').update({ coins: newTotal }).eq('id', userId);
+               await admin.from('profiles').update({ coins: newTotal }).eq('id', userId);
              }
           }
         }
       }
-      else if (paymentType === 'P2_LICENSE' || paymentType === 'P2_RENEWAL') {
-        if (userId) {
-          const { data: prof } = await supabase.from('profiles').select('pillar2_expires_at').eq('id', userId).single();
-          let currentExpiry = Date.now();
-          if (prof && prof.pillar2_expires_at && new Date(prof.pillar2_expires_at).getTime() > Date.now()) {
-            currentExpiry = new Date(prof.pillar2_expires_at).getTime();
-          }
-          const newExpiry = new Date(currentExpiry + 365 * 24 * 60 * 60 * 1000).toISOString();
-          await supabase.from('profiles').update({ is_pillar2_paid: true, pillar2_expires_at: newExpiry }).eq('id', userId);
-        }
+      else if (paymentType === 'P2_LICENSE' || paymentType === 'P2_RENEWAL' || paymentType.startsWith('PILLAR2')) {
+        await bindPillarWebhook(2);
+      }
+      else if (paymentType.startsWith('PILLAR3') || paymentType.startsWith('P3_')) {
+        await bindPillarWebhook(3);
       }
       else if (paymentType === 'WALLET_DEPOSIT') {
         if (userId) {
-          const { data: prof } = await supabase.from('profiles').select('available_balance_ghs, affiliate_balance').eq('id', userId).single();
+          const { data: prof } = await admin.from('profiles').select('available_balance_ghs, affiliate_balance').eq('id', userId).maybeSingle();
           if (prof) {
             const currentBal = Number(prof.available_balance_ghs || prof.affiliate_balance || 0);
-            await supabase.from('profiles').update({
+            await admin.from('profiles').update({
               available_balance_ghs: currentBal + amountGHS,
               affiliate_balance: currentBal + amountGHS
             }).eq('id', userId);
 
-            await supabase.from('wallet_transactions').insert({
+            await admin.from('wallet_transactions').insert({
               user_id: userId,
               reference: reference,
               type: 'deposit',
@@ -196,27 +188,26 @@ export async function POST(req: Request) {
         }
       }
       else if (paymentType === 'PRODUCT_PURCHASE') {
-        if (userId && metadata.product_id) {
-          // Unlock product (in a real app, maybe insert into 'user_products' table)
-          // For now, if there's an affiliate, pay them 50%
+        const conflict = await findOtherPillarConflict(admin, reference, metadata);
+        if (!conflict && userId && metadata.product_id) {
           if (metadata.affiliate_code) {
-             const { data: affProf } = await supabase.from('profiles').select('id, affiliate_balance, available_balance_ghs, total_earnings_ghs, sales_count').ilike('affiliate_code', metadata.affiliate_code).maybeSingle();
+             const { data: affProf } = await admin.from('profiles').select('id, affiliate_balance, available_balance_ghs, total_earnings_ghs, sales_count').ilike('affiliate_code', metadata.affiliate_code).maybeSingle();
              if (affProf) {
                const commission = Number((amountGHS * 0.5).toFixed(2));
                const newAffiliateBal = Number((Number(affProf.available_balance_ghs ?? affProf.affiliate_balance ?? 0) + commission).toFixed(2));
                const newEarn = Number((Number(affProf.total_earnings_ghs || 0) + commission).toFixed(2));
-               await supabase.from('profiles').update({
+               await admin.from('profiles').update({
                  affiliate_balance: newAffiliateBal,
                  available_balance_ghs: newAffiliateBal,
                  total_earnings_ghs: newEarn
                }).eq('id', affProf.id);
                try {
-                 await supabase.from('profiles').update({
+                 await admin.from('profiles').update({
                    sales_count: Number(affProf.sales_count || 0) + 1
                  }).eq('id', affProf.id);
                } catch (_) {}
 
-               await supabase.from('affiliate_sales').insert({
+               await admin.from('affiliate_sales').insert({
                  affiliate_id: affProf.id,
                  affiliate_code: metadata.affiliate_code,
                  paystack_reference: reference,

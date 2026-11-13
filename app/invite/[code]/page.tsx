@@ -1,14 +1,21 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '../../../utils/supabase';
 import { useAuth } from '../../../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import { Users, AlertCircle, ArrowLeft, CheckCircle, X } from 'lucide-react';
 import { motion } from 'framer-motion';
+import PillarAccessGuard from '../../../components/auth/PillarAccessGuard';
 
-export default function InvitePage() {
+const GlobalChatAccessGate = dynamic(
+  () => import('../../../components/auth/GlobalChatAccessGate'),
+  { ssr: false }
+);
+
+function InvitePageInner() {
     const { code } = useParams();
     const router = useRouter();
     const { user } = useAuth();
@@ -201,4 +208,31 @@ export default function InvitePage() {
             </motion.div>
         </div>
     );
+}
+
+export default function InvitePage() {
+  return (
+    <PillarAccessGuard
+      pillar={1}
+      renderPaywall={({ user, entitlements, recheck }) => (
+        <GlobalChatAccessGate
+          isOpen={true}
+          currentUser={user}
+          currentProfile={entitlements}
+          initialDeniedAudit={
+            user ? { email: user.email || 'this account', entitlements } : null
+          }
+          onLoginClick={() => void recheck()}
+          onPaidLoginSuccess={async () => {
+            await recheck();
+          }}
+          onSuccess={async () => {
+            await recheck();
+          }}
+        />
+      )}
+    >
+      <InvitePageInner />
+    </PillarAccessGuard>
+  );
 }

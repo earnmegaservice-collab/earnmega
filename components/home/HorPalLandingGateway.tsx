@@ -283,7 +283,6 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
 
           <button
             onClick={() => {
-              localStorage.setItem('horpal_target_pillar', '2');
               if (onEnterPillar2) {
                 onEnterPillar2();
               } else {
@@ -303,7 +302,6 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
 
           <button
             onClick={() => {
-              localStorage.setItem('horpal_target_pillar', '3');
               if (onEnterPillar3) {
                 onEnterPillar3();
               } else {
@@ -436,7 +434,6 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
 
             <button
               onClick={() => {
-                localStorage.setItem('horpal_target_pillar', '2');
                 if (onEnterPillar2) {
                   onEnterPillar2();
                 } else {

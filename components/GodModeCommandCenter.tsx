@@ -5,7 +5,8 @@ import { supabase } from '../utils/supabase';
 import {
   ShieldAlert, Activity, Users, Video, MessageSquare, Gift,
   DollarSign, GraduationCap, Gavel, Power, Lock,
-  Globe, AlertTriangle, Eye, Shield, Send, Menu, X
+  Globe, AlertTriangle, Eye, Shield, Send, Menu, X,
+  Copy, Check, RefreshCw, Trophy, ExternalLink, Clock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -554,93 +555,250 @@ function GiftsLedgerModule() {
 
 function PayoutsModule() {
   const [requests, setRequests] = useState<any[]>([]);
-  const [otpSent, setOtpSent] = useState(false);
-  const [otp, setOtp] = useState('');
-  const [otpVerified, setOtpVerified] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'processing' | 'paid' | 'rejected'>('all');
+  const [notesById, setNotesById] = useState<Record<string, string>>({});
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchRequests = async () => {
-       const { data } = await supabase.from('wallet_transactions')
-         .select('*, profiles!wallet_transactions_user_id_fkey(username, email)')
-         .eq('type', 'withdrawal')
-         .eq('status', 'pending')
-         .order('created_at', { ascending: false });
-       setRequests(data || []);
-    };
-    fetchRequests();
-  }, []);
-
-  const sendOtp = async () => {
-    toast.loading('Dispatching OTP...', { id: 'otp' });
-    const res = await apiFetch('/api/admin/action', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'SEND_PAYOUT_OTP', payload: {} })
-    });
-    const data = await res.json();
-    if (data.success) {
-      toast.success(`OTP Sent! (Test fallback: ${data.otp})`, { id: 'otp' });
-      setOtpSent(true);
-    } else {
-      toast.error('Failed to send OTP', { id: 'otp' });
+  const loadPayoutRequests = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'FETCH_P2_PAYOUT_REQUESTS', payload: {} }),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.requests)) {
+        setRequests(data.requests);
+      } else {
+        toast.error(data.error || 'Failed to load Pillar 2 payout requests');
+      }
+    } catch {
+      toast.error('Error fetching payout requests');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handlePayout = async (id: string, action: 'approve' | 'reject') => {
-      if (!otpVerified) {
-          toast.error('Verify OTP first');
-          return;
-      }
-      toast.loading(`Processing payout ${action}...`, { id: 'payout' });
-      const res = await apiFetch('/api/admin/action', {
-         method: 'POST',
-         body: JSON.stringify({ action: 'PROCESS_PAYOUT', payload: { requestId: id, actionType: action } })
-      });
-      if (res.ok) {
-         toast.success(`Payout ${action}d!`, { id: 'payout' });
-         setRequests(prev => prev.filter(r => r.id !== id));
-      } else {
-         toast.error(`Failed to process payout`, { id: 'payout' });
-      }
+  useEffect(() => {
+    loadPayoutRequests();
+  }, []);
+
+  const handleCopyAccount = async (id: string, num: string) => {
+    try {
+      await navigator.clipboard.writeText(num);
+      setCopiedId(id);
+      toast.success('Copied MoMo / Bank number!');
+      setTimeout(() => setCopiedId(null), 1800);
+    } catch {
+      toast.error('Copy failed');
+    }
   };
+
+  const handleUpdatePayoutStatus = async (
+    requestId: string,
+    nextStatus: 'processing' | 'paid' | 'rejected'
+  ) => {
+    const customNote = (notesById[requestId] || '').trim();
+    const labelMap: Record<string, string> = {
+      processing: 'Processing...',
+      paid: 'Paid & Settled',
+      rejected: 'Rejected & Refunded',
+    };
+    setUpdatingId(requestId);
+    toast.loading(`Updating payout to ${labelMap[nextStatus]}...`, { id: 'p2payout' });
+    try {
+      const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'UPDATE_P2_PAYOUT_STATUS',
+          payload: { requestId, status: nextStatus, adminNote: customNote },
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.request) {
+        setRequests((prev) => prev.map((r) => (r.id === requestId ? data.request : r)));
+        toast.success(`Payout marked as ${labelMap[nextStatus]}!`, { id: 'p2payout' });
+      } else {
+        toast.error(data.error || 'Update failed', { id: 'p2payout' });
+      }
+    } catch {
+      toast.error('Network error updating payout', { id: 'p2payout' });
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const filteredRequests =
+    statusFilter === 'all' ? requests : requests.filter((r) => r.status === statusFilter);
+  const pendingTotal = requests
+    .filter((r) => r.status === 'pending' || r.status === 'processing')
+    .reduce((acc, r) => acc + Number(r.amount_ghs || 0), 0);
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-[#1e293b]/50 p-4 rounded-xl border border-[#334155]">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#1e293b]/60 p-5 rounded-2xl border border-[#334155]">
         <div>
-          <h3 className="font-bold text-white">Friday Payout Desk</h3>
-          <p className="text-xs text-gray-400">Total Pending: GH₵ {requests.reduce((a, b) => a + (b.amount_ghs || 0), 0)}</p>
+          <h3 className="text-lg font-black text-white flex items-center gap-2">
+            <span>💸 Pillar 2 Payout Requests Command</span>
+          </h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Active Pending / Processing Queue: <strong className="text-amber-400">GH₵ {pendingTotal.toFixed(2)}</strong> • Updates reflect live on the affiliate’s dashboard
+          </p>
         </div>
-        {!otpSent && !otpVerified && (
-           <button onClick={sendOtp} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm">
-             🛡️ Request Payout OTP
-           </button>
-        )}
-        {otpSent && !otpVerified && (
-            <div className="flex gap-2 w-full sm:w-auto">
-               <input type="text" value={otp} onChange={e => setOtp(e.target.value)} placeholder="Enter OTP" className="w-full sm:w-32 bg-[#0B1120] border border-[#334155] p-2 rounded text-sm text-white" />
-               <button onClick={() => setOtpVerified(true)} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-bold text-sm shrink-0">Verify</button>
-            </div>
-        )}
-        {otpVerified && <div className="text-green-500 font-bold text-sm">✅ Session Authorized</div>}
+        <button
+          onClick={loadPayoutRequests}
+          className="bg-[#0B1120] hover:bg-[#162036] border border-[#334155] text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${loading ? 'animate-spin' : ''}`} />
+          <span>Refresh Queue</span>
+        </button>
       </div>
 
-      <div className="space-y-2">
-        {requests.length === 0 ? <div className="text-gray-500 text-center py-4">No pending payouts.</div> : requests.map(r => (
-          <div key={r.id} className="bg-[#0B1120] border border-[#1e293b] p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <div className="font-bold text-white">@{r.profiles?.username}</div>
-              <div className="text-xs text-gray-400">{r.profiles?.email} • {new Date(r.created_at).toLocaleString()}</div>
-            </div>
-            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-4 w-full sm:w-auto">
-              <div className="font-mono text-lg text-[#F59E0B]">GH₵ {r.amount_ghs || 0}</div>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button onClick={() => handlePayout(r.id, 'approve')} disabled={!otpVerified} className="flex-1 sm:flex-none bg-green-500/10 text-green-500 text-xs px-3 py-2 sm:py-1.5 rounded font-bold hover:bg-green-500/20 disabled:opacity-50">✓ Approve</button>
-                <button onClick={() => handlePayout(r.id, 'reject')} disabled={!otpVerified} className="flex-1 sm:flex-none bg-red-500/10 text-red-500 text-xs px-3 py-2 sm:py-1.5 rounded font-bold hover:bg-red-500/20 disabled:opacity-50">✗ Reject & Refund</button>
-              </div>
-            </div>
-          </div>
+      <div className="flex flex-wrap gap-2">
+        {(['all', 'pending', 'processing', 'paid', 'rejected'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setStatusFilter(tab)}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border transition-all ${
+              statusFilter === tab
+                ? 'bg-amber-500 text-black border-amber-400'
+                : 'bg-[#1e293b] text-gray-400 border-[#334155] hover:text-white'
+            }`}
+          >
+            {tab} ({tab === 'all' ? requests.length : requests.filter((r) => r.status === tab).length})
+          </button>
         ))}
       </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400 text-sm">Loading Pillar 2 payout requests...</div>
+      ) : filteredRequests.length === 0 ? (
+        <div className="bg-[#0B1120] border border-[#1e293b] rounded-2xl p-10 text-center text-gray-500 text-sm">
+          No payout requests found in this queue.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredRequests.map((r) => {
+            const isTerminal = r.status === 'paid' || r.status === 'rejected';
+            return (
+              <div
+                key={r.id}
+                className="bg-[#0B1120] border border-[#1e293b] hover:border-[#334155] p-5 rounded-2xl space-y-4 transition-all"
+              >
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-black text-white text-base">{r.affiliate_name}</span>
+                      <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-mono font-bold">
+                        {r.affiliate_code || 'N/A'}
+                      </span>
+                      {r.status === 'pending' && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/40 text-xs font-black">
+                          🟡 Pending Review
+                        </span>
+                      )}
+                      {r.status === 'processing' && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/50 text-xs font-black animate-pulse inline-flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          ⏳ Processing...
+                        </span>
+                      )}
+                      {r.status === 'paid' && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 text-xs font-black">
+                          ✅ Paid & Settled
+                        </span>
+                      )}
+                      {r.status === 'rejected' && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/40 text-xs font-black">
+                          ❌ Rejected & Refunded
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {r.affiliate_email} {r.affiliate_phone ? `• ${r.affiliate_phone}` : ''} • {new Date(r.created_at).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="text-left lg:text-right">
+                    <div className="text-2xl font-black text-emerald-400 font-mono">
+                      GH₵ {Number(r.amount_ghs || 0).toFixed(2)}
+                    </div>
+                    <div className="text-[11px] text-gray-400 font-mono">
+                      Bal After: GH₵ {Number(r.balance_after_ghs ?? 0).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Settlement Destination & 1-Tap Copy */}
+                <div className="bg-[#11192c] border border-[#1e293b] rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="text-xs space-y-1">
+                    <div className="text-gray-400">
+                      Method: <strong className="text-white">{r.payout_method}</strong>
+                      {r.bank_or_network && r.bank_or_network !== r.payout_method ? ` (${r.bank_or_network})` : ''}
+                    </div>
+                    <div className="text-gray-300">
+                      Account Name: <strong className="text-white">{r.account_name}</strong> • Number:{' '}
+                      <strong className="text-amber-300 font-mono text-sm">{r.account_number}</strong>
+                    </div>
+                    {r.admin_status_note && (
+                      <div className="text-[11px] text-sky-300 italic">Note: {r.admin_status_note}</div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyAccount(r.id, r.account_number)}
+                    className="px-3.5 py-2 rounded-lg bg-[#1e293b] hover:bg-[#334155] border border-[#475569] text-xs font-black text-white flex items-center gap-1.5 shrink-0"
+                  >
+                    {copiedId === r.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
+                    <span>{copiedId === r.id ? 'Copied Number!' : 'Copy MoMo/Bank Number'}</span>
+                  </button>
+                </div>
+
+                {/* Admin Custom Note & 3 Instant Action Buttons */}
+                {!isTerminal && (
+                  <div className="flex flex-col xl:flex-row gap-3 pt-1">
+                    <input
+                      type="text"
+                      value={notesById[r.id] ?? ''}
+                      onChange={(e) => setNotesById((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                      placeholder='Custom Status Note (e.g. "Processing via Paystack Transfer — arrives in 15 mins")'
+                      className="flex-1 bg-[#141d30] border border-[#334155] px-3.5 py-2.5 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-400"
+                    />
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={updatingId === r.id}
+                        onClick={() => handleUpdatePayoutStatus(r.id, 'processing')}
+                        className="px-3.5 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/40 text-sky-300 font-black text-xs transition-all disabled:opacity-50"
+                      >
+                        🔄 Set to &quot;Processing...&quot;
+                      </button>
+                      <button
+                        type="button"
+                        disabled={updatingId === r.id}
+                        onClick={() => handleUpdatePayoutStatus(r.id, 'paid')}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all disabled:opacity-50"
+                      >
+                        ✅ Mark as &quot;Paid &amp; Settled&quot;
+                      </button>
+                      <button
+                        type="button"
+                        disabled={updatingId === r.id}
+                        onClick={() => handleUpdatePayoutStatus(r.id, 'rejected')}
+                        className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 font-black text-xs transition-all disabled:opacity-50"
+                      >
+                        ❌ Reject &amp; Refund Balance
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -721,10 +879,214 @@ function LicenseModule() {
 }
 
 function ContestsModule() {
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending_review' | 'processing' | 'approved_winner' | 'rejected'>('all');
+  const [notesById, setNotesById] = useState<Record<string, string>>({});
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const loadSubmissions = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'FETCH_P2_CONTEST_SUBMISSIONS', payload: {} }),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.submissions)) {
+        setSubmissions(data.submissions);
+      } else {
+        toast.error(data.error || 'Failed to load contest submissions');
+      }
+    } catch {
+      toast.error('Error loading contest submissions');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSubmissions();
+  }, []);
+
+  const handleUpdateContestStatus = async (
+    submissionId: string,
+    nextStatus: 'processing' | 'approved_winner' | 'rejected'
+  ) => {
+    const customNote = (notesById[submissionId] || '').trim();
+    setUpdatingId(submissionId);
+    toast.loading('Updating contest entry...', { id: 'p2contest' });
+    try {
+      const res = await apiFetch('/api/admin/action', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'UPDATE_P2_CONTEST_STATUS',
+          payload: { submissionId, status: nextStatus, adminNote: customNote },
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.submission) {
+        setSubmissions((prev) => prev.map((s) => (s.id === submissionId ? data.submission : s)));
+        toast.success('Contest submission status updated!', { id: 'p2contest' });
+      } else {
+        toast.error(data.error || 'Update failed', { id: 'p2contest' });
+      }
+    } catch {
+      toast.error('Network error updating contest status', { id: 'p2contest' });
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const filtered =
+    statusFilter === 'all' ? submissions : submissions.filter((s) => s.status === statusFilter);
+
   return (
-    <div className="bg-[#1e293b]/50 border border-[#334155] rounded-xl p-8 text-center text-gray-400">
-      <GraduationCap className="w-12 h-12 mx-auto mb-4 opacity-50" />
-      <p>Contests & Certificate proofs will appear here.</p>
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#1e293b]/60 p-5 rounded-2xl border border-[#334155]">
+        <div>
+          <h3 className="text-lg font-black text-white flex items-center gap-2">
+            <Trophy className="w-5 h-5 text-amber-400" />
+            <span>🏆 Contest Submissions &amp; Winner Verification</span>
+          </h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Verify TikTok/IG 100K video links and Paystack milestone claims in real time
+          </p>
+        </div>
+        <button
+          onClick={loadSubmissions}
+          className="bg-[#0B1120] hover:bg-[#162036] border border-[#334155] text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} />
+          <span>Refresh Entries</span>
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {(['all', 'pending_review', 'processing', 'approved_winner', 'rejected'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setStatusFilter(tab)}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider border transition-all ${
+              statusFilter === tab
+                ? 'bg-cyan-500 text-black border-cyan-400'
+                : 'bg-[#1e293b] text-gray-400 border-[#334155] hover:text-white'
+            }`}
+          >
+            {tab.replace('_', ' ')} ({tab === 'all' ? submissions.length : submissions.filter((s) => s.status === tab).length})
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400 text-sm">Loading contest submissions...</div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-[#0B1120] border border-[#1e293b] rounded-2xl p-10 text-center text-gray-500 text-sm">
+          No contest submissions found in this view.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filtered.map((s) => (
+            <div key={s.id} className="bg-[#0B1120] border border-[#1e293b] p-5 rounded-2xl space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-black text-white text-base">{s.contest_title}</span>
+                    {s.status === 'pending_review' && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/40 text-xs font-black">
+                        ⏳ Under Review
+                      </span>
+                    )}
+                    {s.status === 'processing' && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/50 text-xs font-black animate-pulse">
+                        🔄 Processing...
+                      </span>
+                    )}
+                    {s.status === 'approved_winner' && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 text-xs font-black">
+                        🏆 Approved Winner
+                      </span>
+                    )}
+                    {s.status === 'rejected' && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/40 text-xs font-black">
+                        ❌ Rejected
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-300">
+                    <strong>{s.full_name}</strong> ({s.affiliate_code || 'N/A'}) • {s.email} {s.phone ? `• ${s.phone}` : ''}
+                  </div>
+                  <div className="text-xs text-gray-400 font-mono">
+                    Verified Supabase Sales: <strong className="text-emerald-400">{s.verified_sales_count ?? 0}</strong> • Submitted {new Date(s.created_at).toLocaleString()}
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:items-end gap-1.5">
+                  {s.platform_handle && (
+                    <span className="text-xs font-mono text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2.5 py-1 rounded-lg">
+                      Handle: {s.platform_handle}
+                    </span>
+                  )}
+                  {s.video_or_proof_url && (
+                    <a
+                      href={s.video_or_proof_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-black text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 px-3 py-1.5 rounded-lg"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open Video / Proof Link</span>
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {(s.notes || s.admin_note) && (
+                <div className="bg-[#11192c] border border-[#1e293b] rounded-xl p-3 text-xs space-y-1">
+                  {s.notes && <div className="text-gray-300"><strong>Affiliate Notes:</strong> {s.notes}</div>}
+                  {s.admin_note && <div className="text-sky-300"><strong>Admin Note:</strong> {s.admin_note}</div>}
+                </div>
+              )}
+
+              <div className="flex flex-col xl:flex-row gap-3">
+                <input
+                  type="text"
+                  value={notesById[s.id] ?? ''}
+                  onChange={(e) => setNotesById((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                  placeholder="Optional verification note for affiliate..."
+                  className="flex-1 bg-[#141d30] border border-[#334155] px-3.5 py-2 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400"
+                />
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={updatingId === s.id}
+                    onClick={() => handleUpdateContestStatus(s.id, 'processing')}
+                    className="px-3.5 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/40 text-sky-300 font-black text-xs transition-all disabled:opacity-50"
+                  >
+                    🔄 Processing...
+                  </button>
+                  <button
+                    type="button"
+                    disabled={updatingId === s.id}
+                    onClick={() => handleUpdateContestStatus(s.id, 'approved_winner')}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all disabled:opacity-50"
+                  >
+                    🏆 Approved Winner
+                  </button>
+                  <button
+                    type="button"
+                    disabled={updatingId === s.id}
+                    onClick={() => handleUpdateContestStatus(s.id, 'rejected')}
+                    className="px-3.5 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 font-black text-xs transition-all disabled:opacity-50"
+                  >
+                    ❌ Rejected
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

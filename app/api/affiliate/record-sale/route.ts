@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import { findOtherPillarConflict } from '../../../../lib/server/paywall';
 
 const getSupabaseClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    // Service-role ONLY: record_pillar2_sale_rpc is not executable by anon/authenticated.
     process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
   return createClient(url, key, {
@@ -51,8 +52,17 @@ export async function POST(req: Request) {
 
     const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
     let verifiedGrossGHS = Number(grossAmountGHS) || 0;
+    let verifiedMetadata: any = null;
 
-    if (paystackSecret) {
+    if (!paystackSecret) {
+      // Fail closed: never record a sale (which also unlocks Pillar 2 for the buyer) unverified.
+      return NextResponse.json(
+        { error: 'Payment verification is temporarily unavailable.' },
+        { status: 503 }
+      );
+    }
+
+    {
       const verifyRes = await fetch(
         `https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`,
         {
@@ -79,6 +89,7 @@ export async function POST(req: Request) {
       }
 
       verifiedGrossGHS = Number((Number(verifyJson.data.amount || 0) / 100).toFixed(2));
+      verifiedMetadata = verifyJson.data?.metadata || null;
     }
 
     const commissionCreditedGHS = Number((verifiedGrossGHS * 0.5).toFixed(2));
@@ -96,6 +107,11 @@ export async function POST(req: Request) {
         { error: 'Supabase configuration is missing.' },
         { status: 500 }
       );
+    }
+
+    const crossPillarConflict = await findOtherPillarConflict(supabase, cleanRef, verifiedMetadata);
+    if (crossPillarConflict) {
+      return NextResponse.json({ error: crossPillarConflict }, { status: 409 });
     }
 
     const { data: rpcData, error: rpcError } = await supabase.rpc(

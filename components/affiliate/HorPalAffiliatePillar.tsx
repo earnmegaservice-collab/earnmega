@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
+import { authFetch } from '../../utils/authFetch';
+import { hasPillar2Access, purgeLegacyAccessFlags } from '../../utils/pillarAccess';
 import { toast } from 'react-hot-toast';
 import { ShieldCheck,
   Sparkles,
@@ -134,7 +136,7 @@ const COUNTRY_DIAL_CODES = [
 ];
 
 // ============================================================================
-// MARKETPLACE PRODUCTS (OWNED BY GEE MINGS (CREATOR))
+// MARKETPLACE PRODUCTS (7 BY GERALD (CREATOR), 2 BY MOSES (PRODUCT CREATOR))
 // ============================================================================
 export interface MarketplaceProduct {
   epc?: string;
@@ -177,7 +179,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_faceless_ai',
     shortCode: 'FACELESS-AI',
     title: 'The AI Faceless Video Engine',
-    creator: 'Moses (Creator)',
+    creator: 'Gerald (Creator)',
     category: 'AI & Tech',
     badges: ['TOP PICK', 'HIGH CONVERTING', 'SALE'],
     rating: 4.9,
@@ -205,7 +207,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Stop spending 6 hours editing videos. The AI Faceless Video Engine builds high-retention clips on autopilot!'
       ],
       whatsapp: [
-        'Hey! I just got access to The AI Faceless Video Engine by Moses. It shows you how to run profitable faceless TikTok & YouTube channels with AI. Check out the official page here: {LINK}',
+        'Hey! I just got access to The AI Faceless Video Engine by Gerald. It shows you how to run profitable faceless TikTok & YouTube channels with AI. Check out the official page here: {LINK}',
         'Want to monetize short-form video without showing your face on camera? Grab The AI Faceless Video Engine here: {LINK}'
       ]
     }
@@ -214,7 +216,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_mmm_system',
     shortCode: 'MMM-ENGINE',
     title: 'The Mega Messaging Machine (MMM)',
-    creator: 'Moses (Creator)',
+    creator: 'Gerald (Creator)',
     category: 'Sales',
     badges: ['TOP PICK', 'HIGH CONVERTING'],
     rating: 4.9,
@@ -242,7 +244,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Turn your WhatsApp DMs into an automated cash machine with The Mega Messaging Machine!'
       ],
       whatsapp: [
-        'Tired of people asking for prices and disappearing? The Mega Messaging Machine (MMM) by Moses fixes your DM conversions immediately: {LINK}',
+        'Tired of people asking for prices and disappearing? The Mega Messaging Machine (MMM) by Gerald fixes your DM conversions immediately: {LINK}',
         'Copy-paste these exact WhatsApp closing scripts to double your daily sales: {LINK}'
       ]
     }
@@ -251,7 +253,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_day_trading',
     shortCode: 'TRADING-ROADMAP',
     title: "Day Trading Beginner's Roadmap",
-    creator: 'Moses (Creator)',
+    creator: 'Moses (Product Creator)',
     category: 'Trading & Finance',
     badges: ['HIGH CONVERTING', 'SALE'],
     rating: 4.8,
@@ -287,7 +289,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_snapsell',
     shortCode: 'SNAPSELL-PRO',
     title: 'SnapSell: Rapid Digital Product Blueprint',
-    creator: 'Moses (Creator)',
+    creator: 'Gerald (Creator)',
     category: 'Sales',
     badges: ['TOP PICK', 'HIGH CONVERTING'],
     rating: 4.9,
@@ -314,7 +316,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'The fastest way to launch a digital asset that pays you daily in Cedis and Dollars!'
       ],
       whatsapp: [
-        'Want to launch your own digital product and keep 100% of the profit? Check out SnapSell by Moses here: {LINK}',
+        'Want to launch your own digital product and keep 100% of the profit? Check out SnapSell by Gerald here: {LINK}',
         'How to build and automate a digital product funnel this weekend: {LINK}'
       ]
     }
@@ -323,7 +325,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_status_cash',
     shortCode: 'WA-STATUS-CASH',
     title: 'WhatsApp Status Cash Machine',
-    creator: 'Moses (Creator)',
+    creator: 'Gerald (Creator)',
     category: 'Sales',
     badges: ['HIGH CONVERTING', 'SALE'],
     rating: 4.7,
@@ -350,7 +352,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Stop posting memes on your status. Post this 24-hour sequence instead and watch orders roll in!'
       ],
       whatsapp: [
-        'Turn your WhatsApp status viewers into paying customers every day with the WhatsApp Status Cash Machine by Moses: {LINK}',
+        'Turn your WhatsApp status viewers into paying customers every day with the WhatsApp Status Cash Machine by Gerald: {LINK}',
         'Here is how top affiliates turn 100 status views into daily commissions: {LINK}'
       ]
     }
@@ -359,7 +361,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_ai_agency',
     shortCode: 'AI-DOLLAR-AGENCY',
     title: 'AI Freelancing & Remote Dollar Agency Blueprint',
-    creator: 'Moses (Creator)',
+    creator: 'Gerald (Creator)',
     category: 'AI & Tech',
     badges: ['TOP PICK', 'HIGH CONVERTING'],
     rating: 4.9,
@@ -386,7 +388,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'How to land $500/month foreign retainer clients without coding!'
       ],
       whatsapp: [
-        'Ready to earn in USD from home using AI tools to fulfill client work? Check out the AI Remote Dollar Agency Blueprint by Moses: {LINK}',
+        'Ready to earn in USD from home using AI tools to fulfill client work? Check out the AI Remote Dollar Agency Blueprint by Gerald: {LINK}',
         'Step-by-step client acquisition and AI service delivery system: {LINK}'
       ]
     }
@@ -395,7 +397,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_viral_hooks_50',
     shortCode: 'VIRAL-HOOKS-50',
     title: 'TikTok & Reels Viral Hook Vault (500+ AI Prompts)',
-    creator: 'Moses (Creator)',
+    creator: 'Gerald (Creator)',
     category: 'AI & Tech',
     badges: ['NEW LAUNCH', 'HIGH CONVERTING', 'GH₵ 50 OFFER'],
     rating: 4.9,
@@ -422,7 +424,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Steal these 500+ plug-and-play viral hooks and AI script prompts to turn views into daily Paystack alerts!'
       ],
       whatsapp: [
-        'Want 500+ proven TikTok & Reels viral hooks + ChatGPT script prompts for just GH₵ 50? Unlock the Viral Hook Vault by Moses here: {LINK}',
+        'Want 500+ proven TikTok & Reels viral hooks + ChatGPT script prompts for just GH₵ 50? Unlock the Viral Hook Vault by Gerald here: {LINK}',
         'Stop struggling with what to post. Grab the 500+ Viral Hook Vault & earn 50% instant commission promoting it too: {LINK}'
       ]
     }
@@ -431,7 +433,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_canva_capcut_50',
     shortCode: 'CANVA-CAPCUT-50',
     title: 'Canva & CapCut Mobile Cashflow Kit',
-    creator: 'Moses (Creator)',
+    creator: 'Moses (Product Creator)',
     category: 'Sales',
     badges: ['TOP PICK', 'HIGH CONVERTING', 'GH₵ 50 OFFER'],
     rating: 4.9,
@@ -467,7 +469,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_ai_ecommerce_100',
     shortCode: 'ECOM-AI-100',
     title: 'AI E-Commerce & Mini-Importation Empire Blueprint',
-    creator: 'Moses (Creator)',
+    creator: 'Gerald (Creator)',
     category: 'Trading & Finance',
     badges: ['TOP PICK', 'HIGH CONVERTING', 'BEST VALUE'],
     rating: 5.0,
@@ -494,7 +496,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Source winning products from verified factories and launch your AI E-Commerce brand today for GH₵ 100!'
       ],
       whatsapp: [
-        'Ready to start a profitable mini-importation & AI e-commerce brand without fake orders? Grab Moses’ AI E-Commerce Empire Blueprint here: {LINK}',
+        'Ready to start a profitable mini-importation & AI e-commerce brand without fake orders? Grab Gerald’s AI E-Commerce Empire Blueprint here: {LINK}',
         'Learn verified supplier sourcing, landed-cost math, and AI video ads for GH₵ 100 (and earn GH₵ 50 per referral!): {LINK}'
       ]
     }
@@ -518,7 +520,7 @@ const FIVE_STEP_EXAM_BANK: Record<number, { title: string; subtitle: string; que
       { q: 'How does HorPal identify which affiliate referred a paying customer?', options: ['By guessing from social media', 'Via the affiliate’s unique product tracking link (?prod=...&ref=HP-XXXX)', 'By asking the customer a week later', 'Everyone shares the same link'], correctIndex: 1 },
       { q: 'When is an affiliate commission officially credited to your HorPal Available Balance?', options: ['When someone clicks the link only', 'When someone views a WhatsApp status', 'Immediately upon verified Paystack purchase completion', 'Before the customer pays'], correctIndex: 2 },
       { q: 'What is the standard affiliate commission rate across HorPal core digital products?', options: ['10%', '25%', '50%', '5%'], correctIndex: 2 },
-      { q: 'Who is the official creator of the core digital products in the HorPal Marketplace?', options: ['Moses (Creator)', 'Anonymous Vendor', 'External Broker', 'Random User'], correctIndex: 0 },
+      { q: 'Who is the official Founder & primary creator of the core digital products in the HorPal Marketplace?', options: ['Gerald (Creator)', 'Anonymous Vendor', 'External Broker', 'Random User'], correctIndex: 0 },
       { q: 'If a buyer purchases a product through your unique affiliate link, what do they receive?', options: ['Only the affiliate dashboard', 'Both the Digital Product access AND unlocked HorPal Pillar 2 Affiliate access', 'Nothing until next month', 'Only a receipt'], correctIndex: 1 },
       { q: 'If a user pays the GH₵ 90 direct registration fee without buying a product through an affiliate product link, what do they unlock?', options: ['All 9 products for free', 'The HorPal Pillar 2 Affiliate Portal only (no product included)', 'Only Pillar 1 social chat', 'A physical book'], correctIndex: 1 },
       { q: 'Why must every product have a unique affiliate link per promoter?', options: ['So the system attributes the exact product price, 50% commission, and buyer ID to the right affiliate', 'Just for decoration', 'To slow down checkout', 'It is not needed'], correctIndex: 0 },
@@ -895,41 +897,40 @@ export default function HorPalAffiliatePillar({
     }>
   >([]);
 
-  // 1-Year License Timer State — Reads pillar2_paid_at & pillar2_expires_at from Supabase
-  const initialHasLicense = Boolean(
-    currentProfile?.has_paid_pillar2 ||
-      currentProfile?.pillar2_expires_at ||
-      currentProfile?.is_pillar2_paid ||
-      currentProfile?.license_expires_at
-  );
+  // 1-Year License Timer State — Strictly derived from live verified Supabase profile
+  const initialHasLicense =
+    hasPillar2Access(currentProfile) ||
+    Boolean(currentProfile?.has_paid_pillar2 || currentProfile?.is_pillar2_paid);
   const rawExpiresIso =
     currentProfile?.pillar2_expires_at || currentProfile?.license_expires_at || null;
   const rawPaidAtIso =
     currentProfile?.pillar2_paid_at || currentProfile?.license_activated_at || null;
   const initialActivatedMs = rawPaidAtIso ? new Date(rawPaidAtIso).getTime() : Date.now();
-  const initialExpiresMs = rawExpiresIso
-    ? new Date(rawExpiresIso).getTime()
-    : initialHasLicense
-    ? initialActivatedMs + 365 * 24 * 60 * 60 * 1000
-    : 0;
-  const initialDiffMs = Math.max(0, initialExpiresMs - Date.now());
+  const parsedExpiresMs = rawExpiresIso ? new Date(rawExpiresIso).getTime() : 0;
+  const fallbackYearMs = Date.now() + 365 * 24 * 60 * 60 * 1000;
+  const initialExpiresMs =
+    parsedExpiresMs > Date.now()
+      ? parsedExpiresMs
+      : initialHasLicense
+      ? fallbackYearMs
+      : 0;
+  const initialDiffMs = initialHasLicense
+    ? Math.max(0, initialExpiresMs - Date.now())
+    : 365 * 24 * 60 * 60 * 1000 - 1000;
   const [hasActivePaidLicense, setHasActivePaidLicense] = useState<boolean>(initialHasLicense);
   const [licenseActivatedAt, setLicenseActivatedAt] = useState<number>(
     initialHasLicense ? initialActivatedMs : 0
   );
   const [licenseExpiresAt, setLicenseExpiresAt] = useState<number>(initialExpiresMs);
   const [timeRemaining, setTimeRemaining] = useState({
-    days: initialHasLicense ? Math.floor(initialDiffMs / (1000 * 60 * 60 * 24)) : 364,
-    hours: initialHasLicense
-      ? Math.floor((initialDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-      : 23,
-    minutes: initialHasLicense
-      ? Math.floor((initialDiffMs % (1000 * 60 * 60)) / (1000 * 60))
-      : 59,
-    seconds: initialHasLicense ? Math.floor((initialDiffMs % (1000 * 60)) / 1000) : 59,
-    expired: Boolean(initialHasLicense && initialExpiresMs > 0 && initialExpiresMs <= Date.now()),
+    days: Math.floor(initialDiffMs / (1000 * 60 * 60 * 24)),
+    hours: Math.floor((initialDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+    minutes: Math.floor((initialDiffMs % (1000 * 60 * 60)) / (1000 * 60)),
+    seconds: Math.floor((initialDiffMs % (1000 * 60)) / 1000),
+    expired: false,
   });
   const expiryAlertSentRef = useRef<boolean>(false);
+  const hasSyncedMissingExpiryRef = useRef<boolean>(false);
 
   // Renewal Gate State (Strictly hidden while NOW() < pillar2_expires_at)
   const [isRenewalModalOpen, setIsRenewalModalOpen] = useState<boolean>(false);
@@ -1023,9 +1024,9 @@ export default function HorPalAffiliatePillar({
   const [certificateStudentName, setCertificateStudentName] = useState<string>('');
   const [certificateCode, setCertificateCode] = useState<string>('');
 
-  // Contests & 100K Views TikTok/IG Challenge State
+  // Contests & 100K Views TikTok/IG Challenge + Live Payout Requests State
   const [registeredContests, setRegisteredContests] = useState<string[]>([]);
-  const [contestModalOpen, setContestModalOpen] = useState<null | 'register_sales' | 'viral_100k' | 'sales_50' | 'sales_100'>(null);
+  const [contestModalOpen, setContestModalOpen] = useState<null | 'viral_100k' | 'sales_50' | 'sales_100' | 'weekly_top3'>(null);
   const [contestFullName, setContestFullName] = useState<string>('');
   const [contestPhone, setContestPhone] = useState<string>('');
   const [contestSocialHandle, setContestSocialHandle] = useState<string>('');
@@ -1033,6 +1034,51 @@ export default function HorPalAffiliatePillar({
   const [contestBankMomoDetails, setContestBankMomoDetails] = useState<string>('');
   const [contestStatusBanner, setContestStatusBanner] = useState<string | null>(null);
   const [adminMilestoneAlertSent, setAdminMilestoneAlertSent] = useState<boolean>(false);
+  const [isSubmittingContest, setIsSubmittingContest] = useState<boolean>(false);
+  const [expandedContestRules, setExpandedContestRules] = useState<Record<string, boolean>>({});
+  const [contestSubmissions, setContestSubmissions] = useState<Array<{
+    id: string;
+    user_id?: string | null;
+    affiliate_code?: string | null;
+    full_name: string;
+    email: string;
+    phone?: string | null;
+    contest_id: string;
+    contest_title: string;
+    video_or_proof_url?: string | null;
+    platform_handle?: string | null;
+    verified_sales_count: number;
+    notes?: string | null;
+    status: 'pending_review' | 'processing' | 'approved_winner' | 'rejected';
+    admin_note?: string | null;
+    created_at: string;
+  }>>([]);
+  const [contestParticipantCounts, setContestParticipantCounts] = useState<Record<string, number>>({
+    viral_100k: 0,
+    sales_50: 0,
+    sales_100: 0,
+    weekly_top3: 0,
+  });
+  const [weeklySalesCount, setWeeklySalesCount] = useState<number>(0);
+  const [payoutRequests, setPayoutRequests] = useState<Array<{
+    id: string;
+    user_id?: string | null;
+    affiliate_code?: string | null;
+    affiliate_name: string;
+    affiliate_email: string;
+    affiliate_phone?: string | null;
+    amount_ghs: number;
+    payout_method: string;
+    account_name: string;
+    account_number: string;
+    bank_or_network?: string | null;
+    balance_before_ghs?: number | null;
+    balance_after_ghs?: number | null;
+    status: 'pending' | 'processing' | 'paid' | 'rejected';
+    admin_status_note?: string | null;
+    processed_at?: string | null;
+    created_at: string;
+  }>>([]);
 
   // ============================================================================
   // DUAL-CORRIDOR FRIDAY PAYOUT DESK & GLOBAL MANUAL SETTLEMENT STATE
@@ -1395,33 +1441,39 @@ export default function HorPalAffiliatePillar({
           } catch (_) {}
         }
 
-        // Reflect real database license state (pillar2_paid_at & pillar2_expires_at)
-        const dbPaid = Boolean(
-          prof?.has_paid_pillar2 ||
-            prof?.pillar2_expires_at ||
-            prof?.is_pillar2_paid ||
-            prof?.license_expires_at
-        );
+        // Reflect real database license state (strictly verified Pillar 2 payment + ref + expiry)
+        const dbPaid =
+          hasPillar2Access(prof) ||
+          Boolean(prof?.has_paid_pillar2 || prof?.is_pillar2_paid);
         setHasActivePaidLicense(dbPaid);
         const resolvedExpiresIso = prof?.pillar2_expires_at || prof?.license_expires_at || null;
         const resolvedPaidIso = prof?.pillar2_paid_at || prof?.license_activated_at || null;
-        if (resolvedExpiresIso) {
-          const expMs = new Date(resolvedExpiresIso).getTime();
-          setLicenseExpiresAt(expMs);
+        const resolvedExpMs = resolvedExpiresIso ? new Date(resolvedExpiresIso).getTime() : 0;
+        if (dbPaid && resolvedExpMs > Date.now()) {
+          setLicenseExpiresAt(resolvedExpMs);
           if (resolvedPaidIso) {
             setLicenseActivatedAt(new Date(resolvedPaidIso).getTime());
           }
         } else if (dbPaid) {
+          const fallbackExpMs = Date.now() + 365 * 24 * 60 * 60 * 1000;
           const actMs = resolvedPaidIso ? new Date(resolvedPaidIso).getTime() : Date.now();
           setLicenseActivatedAt(actMs);
-          setLicenseExpiresAt(actMs + 365 * 24 * 60 * 60 * 1000);
+          setLicenseExpiresAt(fallbackExpMs);
+          if (!hasSyncedMissingExpiryRef.current) {
+            hasSyncedMissingExpiryRef.current = true;
+            authFetch('/api/pillar2/sync-license', { method: 'POST' })
+              .then((r) => r.json())
+              .then((syncJson) => {
+                if (syncJson?.pillar2_expires_at) {
+                  setLicenseExpiresAt(new Date(syncJson.pillar2_expires_at).getTime());
+                }
+              })
+              .catch(() => {});
+          }
         } else {
           setLicenseActivatedAt(0);
           setLicenseExpiresAt(0);
           setTimeRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, expired: false });
-          try {
-            localStorage.removeItem(`horpal_p2_license_${activeUid}`);
-          } catch (_) {}
         }
 
         setUserAffiliateCode(resolvedAffiliateCode);
@@ -1460,6 +1512,24 @@ export default function HorPalAffiliatePillar({
       }> = [];
 
       if (salesRows && salesRows.length > 0) {
+        const nowUtc = new Date();
+        const dayOfWeekUtc = nowUtc.getUTCDay();
+        const daysSinceMonday = dayOfWeekUtc === 0 ? 6 : dayOfWeekUtc - 1;
+        const mondayStartMs = Date.UTC(
+          nowUtc.getUTCFullYear(),
+          nowUtc.getUTCMonth(),
+          nowUtc.getUTCDate() - daysSinceMonday,
+          0,
+          0,
+          0,
+          0
+        );
+        const computedWeeklyCount = salesRows.filter((row: any) => {
+          const ts = row?.created_at ? new Date(row.created_at).getTime() : 0;
+          return ts >= mondayStartMs;
+        }).length;
+        setWeeklySalesCount(computedWeeklyCount);
+
         const dbSalesCount = Number(prof?.affiliate_total_sales ?? 0);
         setTotalSalesCount(Math.max(dbSalesCount, salesRows.length));
         const totalComm = salesRows.reduce(
@@ -1494,6 +1564,7 @@ export default function HorPalAffiliatePillar({
           read: false
         }));
       } else {
+        setWeeklySalesCount(0);
         setTotalSalesCount(Number(prof?.affiliate_total_sales ?? 0));
         setTotalEarningsGHS(Number(prof?.affiliate_total_earned ?? 0));
         setTransactions([]);
@@ -1617,6 +1688,46 @@ export default function HorPalAffiliatePillar({
       } else {
         setAbandonedLeads([]);
       }
+
+      // 5. Strict User-Scoped Contest Submissions & Live Participant Counts
+      try {
+        const contestRes = await authFetch('/api/pillar2/contest-submit');
+        if (contestRes.ok) {
+          const contestJson = await contestRes.json().catch(() => null);
+          if (contestJson?.success) {
+            const subs = Array.isArray(contestJson.submissions) ? contestJson.submissions : [];
+            setContestSubmissions(subs);
+            setRegisteredContests(
+              Array.from(new Set(subs.map((s: any) => String(s.contest_id || '')).filter(Boolean)))
+            );
+            if (contestJson.participantCounts) {
+              setContestParticipantCounts({
+                viral_100k: Number(contestJson.participantCounts.viral_100k || 0),
+                sales_50: Number(contestJson.participantCounts.sales_50 || 0),
+                sales_100: Number(contestJson.participantCounts.sales_100 || 0),
+                weekly_top3: Number(contestJson.participantCounts.weekly_top3 || 0),
+              });
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 6. Strict User-Scoped Payout Requests History (public.pillar2_payout_requests)
+      try {
+        const payoutRes = await authFetch('/api/pillar2/request-payout');
+        if (payoutRes.ok) {
+          const payoutJson = await payoutRes.json().catch(() => null);
+          if (payoutJson?.success) {
+            setPayoutRequests(Array.isArray(payoutJson.requests) ? payoutJson.requests : []);
+            if (typeof payoutJson.affiliate_balance === 'number') {
+              setAvailableBalanceGHS(payoutJson.affiliate_balance);
+            }
+            if (typeof payoutJson.affiliate_withdrawn === 'number') {
+              setWithdrawnBalanceGHS(payoutJson.affiliate_withdrawn);
+            }
+          }
+        }
+      } catch (_) {}
     } catch (e) {
       console.error('Error loading Pillar 2 data:', e);
     }
@@ -1641,20 +1752,28 @@ export default function HorPalAffiliatePillar({
           const nextProf = payload?.new;
           if (nextProf) {
             setAvailableBalanceGHS(
-              Number(nextProf.available_balance_ghs ?? nextProf.affiliate_balance ?? 0)
+              Number(nextProf.affiliate_balance ?? nextProf.available_balance_ghs ?? 0)
             );
-            if (nextProf.total_earnings_ghs !== undefined) {
+            if (nextProf.affiliate_total_earned !== undefined || nextProf.total_earnings_ghs !== undefined) {
               setTotalEarningsGHS((prev) =>
-                Math.max(prev, Number(nextProf.total_earnings_ghs || 0))
+                Math.max(prev, Number(nextProf.affiliate_total_earned ?? nextProf.total_earnings_ghs ?? 0))
               );
             }
-            if (nextProf.total_withdrawn !== undefined) {
-              setWithdrawnBalanceGHS(Number(nextProf.total_withdrawn || 0));
+            if (nextProf.affiliate_withdrawn !== undefined || nextProf.total_withdrawn !== undefined) {
+              setWithdrawnBalanceGHS(
+                Number(nextProf.affiliate_withdrawn ?? nextProf.total_withdrawn ?? 0)
+              );
             }
-            if (nextProf.sales_count !== undefined) {
+            if (nextProf.affiliate_total_sales !== undefined || nextProf.sales_count !== undefined) {
               setTotalSalesCount((prev) =>
-                Math.max(prev, Number(nextProf.sales_count || 0))
+                Math.max(prev, Number(nextProf.affiliate_total_sales ?? nextProf.sales_count ?? 0))
               );
+            }
+            if (nextProf.pillar2_expires_at) {
+              const nextExpMs = new Date(nextProf.pillar2_expires_at).getTime();
+              if (nextExpMs > Date.now()) {
+                setLicenseExpiresAt(nextExpMs);
+              }
             }
           }
         }
@@ -1665,6 +1784,42 @@ export default function HorPalAffiliatePillar({
           event: 'INSERT',
           schema: 'public',
           table: 'affiliate_sales',
+        },
+        () => {
+          loadSupabaseData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'pillar2_sales',
+          filter: `affiliate_user_id=eq.${userId}`,
+        },
+        () => {
+          loadSupabaseData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'pillar2_payout_requests',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          loadSupabaseData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'pillar2_contest_submissions',
+          filter: `user_id=eq.${userId}`,
         },
         () => {
           loadSupabaseData();
@@ -1804,13 +1959,11 @@ export default function HorPalAffiliatePillar({
     const activeRef = (overrideMeta?.affiliateCode || attributedRefCode || userAffiliateCode || '').trim();
 
     if (isDirect) {
-      const verifyRes = await fetch('/api/paystack/verify-pillar2-pass', {
+      const verifyRes = await authFetch('/api/paystack/verify-pillar2-pass', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reference: cleanRef,
           email: resolvedBuyerEmail,
-          userId,
           passType: 'registration_1yr',
         }),
       });
@@ -1835,9 +1988,8 @@ export default function HorPalAffiliatePillar({
     }
 
     // Verify Product Purchase server-side via /api/pillar2/verify-product-purchase
-    const verifyRes = await fetch('/api/pillar2/verify-product-purchase', {
+    const verifyRes = await authFetch('/api/pillar2/verify-product-purchase', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         reference: cleanRef,
         productId: prod.id,
@@ -2216,13 +2368,13 @@ export default function HorPalAffiliatePillar({
       ctx.textAlign = 'center';
       ctx.fillStyle = '#FDE68A';
       ctx.font = 'italic 50px serif';
-      ctx.fillText('Moses', 400, 1180);
+      ctx.fillText('Gerald', 400, 1180);
       ctx.strokeStyle = '#6B7280';
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(250, 1200); ctx.lineTo(550, 1200); ctx.stroke();
       ctx.fillStyle = '#9CA3AF';
       ctx.font = '20px sans-serif';
-      ctx.fillText('MOSES • FOUNDER & CEO, HORPAL', 400, 1230);
+      ctx.fillText('GERALD • FOUNDER & CEO, HORPAL', 400, 1230);
 
       // Center - 3D Gold Seal
       ctx.beginPath();
@@ -2399,54 +2551,63 @@ export default function HorPalAffiliatePillar({
   // ============================================================================
   const handleContestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isViral = contestModalOpen === 'viral_100k';
-    const type = isViral ? 'VIRAL_VIDEO_CONTEST_CLAIM' : 'CONTEST_REGISTRATION';
+    if (!contestModalOpen || isSubmittingContest) return;
+    setIsSubmittingContest(true);
+
+    const contestTitles: Record<string, string> = {
+      viral_100k: 'TikTok & IG 100K Views Challenge (GH₵ 10,000)',
+      sales_50: '50-Sales Executive Sprint (GH₵ 3,500)',
+      sales_100: '100-Sales Grand Producer Challenge (MacBook Pro M3 + GH₵ 10,000)',
+      weekly_top3: 'Weekly Friday Fast-Start Top 3 Pool (GH₵ 2,000 / Week)',
+    };
+    const resolvedContestTitle = contestTitles[contestModalOpen] || contestModalOpen;
+    const resolvedFullName =
+      (contestFullName || `${firstName} ${lastName}`.trim() || 'HorPal Affiliate').trim();
+    const resolvedEmail = (pillar2Email || currentProfile?.email || '').trim();
+    const resolvedPhone = (contestPhone || pillar2Phone || '').trim();
 
     try {
-      await supabase.from('affiliate_contest_entries').insert({
-        user_id: userId,
-        affiliate_code: userAffiliateCode,
-        contest_type: type,
-        full_name: contestFullName || `${firstName} ${lastName}`,
-        email: pillar2Email,
-        phone: contestPhone || pillar2Phone,
-        social_handle: contestSocialHandle,
-        video_url: contestVideoUrl,
-        payout_details: contestBankMomoDetails,
-        sales_count: totalSalesCount
-      });
-
-      await fetch('/api/affiliate/notify', {
+      const res = await authFetch('/api/pillar2/contest-submit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type,
-          payload: {
-            fullName: contestFullName || `${firstName} ${lastName}`,
-            affiliateCode: userAffiliateCode,
-            email: pillar2Email,
-            phone: contestPhone || pillar2Phone,
-            contestTitle: isViral
-              ? '100K Views TikTok/IG Promotional Video Challenge (GH₵ 10,000)'
-              : 'HorPal 50-Sales Velocity Challenge',
-            socialHandle: contestSocialHandle,
-            videoUrl: contestVideoUrl,
-            payoutDetails: contestBankMomoDetails,
-            salesCount: totalSalesCount
-          }
-        })
+          contestId: contestModalOpen,
+          contestTitle: resolvedContestTitle,
+          fullName: resolvedFullName,
+          email: resolvedEmail,
+          phone: resolvedPhone,
+          platformHandle: contestSocialHandle,
+          videoOrProofUrl: contestVideoUrl,
+          notes: contestBankMomoDetails,
+        }),
       });
-    } catch (_) {}
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        toast.error(json?.error || 'Could not submit contest entry.');
+        return;
+      }
 
-    if (!isViral) {
-      setRegisteredContests((prev) => [...prev, 'sales_50']);
+      if (json.submission) {
+        setContestSubmissions((prev) => [json.submission, ...prev]);
+      }
+      setRegisteredContests((prev) =>
+        prev.includes(contestModalOpen) ? prev : [...prev, contestModalOpen]
+      );
+      setContestParticipantCounts((prev) => ({
+        ...prev,
+        [contestModalOpen]: Math.max(1, (prev[contestModalOpen] || 0) + 1),
+      }));
+      setContestStatusBanner(
+        `✅ ${resolvedContestTitle} entry saved & dispatched to Admin! Track status live on the contest card below.`
+      );
+      toast.success('Contest submission saved & Admin notified!');
+      setContestModalOpen(null);
+      setContestVideoUrl('');
+      setContestBankMomoDetails('');
+    } catch (err: any) {
+      toast.error(err?.message || 'Network error while submitting contest entry.');
+    } finally {
+      setIsSubmittingContest(false);
     }
-    setContestModalOpen(null);
-    setContestStatusBanner(
-      isViral
-        ? `🎉 Your 100K Views Video application (Prize: ${formatAmount(VIRAL_CONTEST_PRIZE_GHS)}) has been sent to ${SUPPORT_EMAIL_PRIMARY}!`
-        : `✅ You are officially registered for the Sales Challenge! Details sent to ${SUPPORT_EMAIL_PRIMARY}.`
-    );
   };
 
   const triggerAdminMilestoneAlert = async () => {
@@ -2546,21 +2707,7 @@ export default function HorPalAffiliatePillar({
     });
     expiryAlertSentRef.current = false;
 
-    if (userId) {
-      try {
-        await supabase
-          .from('profiles')
-          .update({
-            has_paid_pillar2: true,
-            pillar2_paid_at: new Date(nowMs).toISOString(),
-            pillar2_expires_at: new Date(nextExpMs).toISOString(),
-            is_pillar2_paid: true,
-            license_activated_at: new Date(nowMs).toISOString(),
-            license_expires_at: new Date(nextExpMs).toISOString(),
-          })
-          .eq('id', userId);
-      } catch (_) {}
-    }
+    onRefreshProfile?.();
 
     // 2. Record renewal in walletHistory (strictly separated from Financial Sales Ledger)
     const walletEntry = {
@@ -2753,17 +2900,9 @@ export default function HorPalAffiliatePillar({
     e.preventDefault();
     setPayoutFeedback(null);
 
-    if (!isFridayGMT) {
-      setPayoutFeedback({
-        type: 'error',
-        text: '🔒 Payout Desk is locked. Withdrawals can only be submitted on Fridays (00:00 – 23:59 GMT).'
-      });
-      return;
-    }
-
     const amount = parseFloat(payoutAmountGHS);
-    if (isNaN(amount) || amount < 90) {
-      setPayoutFeedback({ type: 'error', text: 'Minimum Friday withdrawal threshold is GH₵ 90.00.' });
+    if (isNaN(amount) || amount <= 0) {
+      setPayoutFeedback({ type: 'error', text: 'Please enter a valid withdrawal amount greater than GH₵ 0.00.' });
       return;
     }
     if (amount > availableBalanceGHS) {
@@ -2789,54 +2928,58 @@ export default function HorPalAffiliatePillar({
         : currentCountryProviders.LOCAL_BANK;
     const matchedProvider = methodList.find((p) => p.code === paystackBankCode);
 
+    const codeUpper = String(paystackBankCode || '').toUpperCase();
+    const resolvedPayoutMethod =
+      paystackSettlementMethod === 'LOCAL_BANK'
+        ? 'Bank Transfer'
+        : codeUpper === 'MTN'
+        ? 'MTN Mobile Money'
+        : codeUpper === 'VOD' || codeUpper === 'TELECEL'
+        ? 'Telecel Cash'
+        : codeUpper === 'ATL' || codeUpper === 'AT'
+        ? 'AT Money'
+        : matchedProvider?.name || 'Mobile Money';
+
+    const resolvedBankOrNetwork = `${paystackEligibleCountry} • ${matchedProvider?.name || paystackBankCode}`;
+
     setIsSubmittingPayout(true);
     try {
-      const response = await fetch('/api/affiliate/payout', {
+      const response = await authFetch('/api/pillar2/request-payout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          payoutMode: 'PAYSTACK_AUTO',
-          userId,
-          affiliateCode: userAffiliateCode,
-          affiliateName: `${firstName} ${lastName}`.trim() || accountHolderName,
-          affiliateEmail: pillar2Email,
-          phone: pillar2Phone,
-          country: paystackEligibleCountry,
-          amount,
           amountGHS: amount,
-          settlementMethod: paystackSettlementMethod,
-          bankCode: paystackBankCode,
-          providerName: matchedProvider?.name || paystackBankCode,
+          payoutMethod: resolvedPayoutMethod,
+          accountName: accountHolderName.trim(),
           accountNumber: paystackAccountNumber.trim(),
-          accountHolderName: accountHolderName.trim()
+          bankOrNetwork: resolvedBankOrNetwork,
+          phone: pillar2Phone,
+          affiliateName: `${firstName} ${lastName}`.trim() || accountHolderName.trim(),
+          affiliateEmail: (pillar2Email || currentProfile?.email || '').trim(),
         })
       });
 
       const resData = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      if (!response.ok || !resData?.success) {
         setPayoutFeedback({
           type: 'error',
-          text: resData?.error || 'Failed to submit Paystack transfer request. Please check your details.'
+          text: resData?.error || 'Failed to submit payout request. Please verify your available balance and details.'
         });
-        setIsSubmittingPayout(false);
         return;
       }
 
-      setAvailableBalanceGHS((prev) =>
-        typeof resData?.newBalance === 'number' ? resData.newBalance : Number((prev - amount).toFixed(2))
-      );
-      setWithdrawnBalanceGHS((prev) =>
-        typeof resData?.newTotalWithdrawn === 'number' ? resData.newTotalWithdrawn : Number((prev + amount).toFixed(2))
-      );
+      if (typeof resData?.balance_after_ghs === 'number') {
+        setAvailableBalanceGHS(resData.balance_after_ghs);
+      } else {
+        setAvailableBalanceGHS((prev) => Number(Math.max(0, prev - amount).toFixed(2)));
+      }
+      if (resData?.request) {
+        setPayoutRequests((prev) => [resData.request, ...prev]);
+      }
       setPayoutAmountGHS('');
-      setPayoutFeedback({
-        type: 'success',
-        text:
-          resData?.message ||
-          `⚡ Instant Paystack Transfer request of GH₵ ${amount.toFixed(2)} (${paystackEligibleCountry} • ${
-            matchedProvider?.name || paystackBankCode
-          } • ${paystackAccountNumber}) submitted for automated settlement!`
-      });
+      const msg =
+        `💸 Payout Request of GH₵ ${amount.toFixed(2)} (${resolvedPayoutMethod} • ${paystackAccountNumber.trim()}) submitted! Track live Admin status below.`;
+      setPayoutFeedback({ type: 'success', text: msg });
+      toast.success('Payout request submitted & Admin notified!');
     } catch (_) {
       setPayoutFeedback({
         type: 'error',
@@ -2863,17 +3006,9 @@ export default function HorPalAffiliatePillar({
     e.preventDefault();
     setPayoutFeedback(null);
 
-    if (!isFridayGMT) {
-      setPayoutFeedback({
-        type: 'error',
-        text: '🔒 Payout Desk is locked. International Manual Settlements can only be submitted on Fridays (00:00 – 23:59 GMT).'
-      });
-      return;
-    }
-
     const amount = parseFloat(payoutAmountGHS);
-    if (isNaN(amount) || amount < 90) {
-      setPayoutFeedback({ type: 'error', text: 'Minimum withdrawal threshold is GH₵ 90.00.' });
+    if (isNaN(amount) || amount <= 0) {
+      setPayoutFeedback({ type: 'error', text: 'Please enter a valid withdrawal amount greater than GH₵ 0.00.' });
       return;
     }
     if (amount > availableBalanceGHS) {
@@ -2933,75 +3068,68 @@ export default function HorPalAffiliatePillar({
     const estEUR = Number((amount / GLOBAL_CURRENCIES.EUR.rateToGHS).toFixed(2));
     const estGBP = Number((amount / GLOBAL_CURRENCIES.GBP.rateToGHS).toFixed(2));
 
+    const resolvedGlobalMethod =
+      globalSettlementRail === 'BANK_WIRE'
+        ? 'Bank Transfer'
+        : globalSettlementRail === 'CRYPTO_USDT'
+        ? 'USDT Crypto'
+        : 'Regional Wallet';
+    const resolvedGlobalAccount =
+      globalSettlementRail === 'BANK_WIRE'
+        ? globalIbanOrAccount.trim()
+        : globalSettlementRail === 'CRYPTO_USDT'
+        ? globalCryptoAddress.trim()
+        : globalWalletAccountTag.trim();
+    const resolvedGlobalBankOrNetwork =
+      globalSettlementRail === 'BANK_WIRE'
+        ? `${globalResidenceCountry} • ${globalBankName.trim()} (SWIFT: ${globalSwiftBic.trim()})`
+        : globalSettlementRail === 'CRYPTO_USDT'
+        ? `${globalResidenceCountry} • ${globalCryptoNetwork}`
+        : `${globalResidenceCountry} • ${globalWalletProvider.trim()} (${globalWalletCurrency})`;
+
     setIsSubmittingPayout(true);
     try {
-      const response = await fetch('/api/affiliate/payout', {
+      const response = await authFetch('/api/pillar2/request-payout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          payoutMode: 'GLOBAL_MANUAL',
-          userId,
-          affiliateCode: userAffiliateCode,
-          amount,
           amountGHS: amount,
-          estimatedEquivalents: { USD: estUSD, EUR: estEUR, GBP: estGBP },
-          beneficiaryFullName: globalBeneficiaryName.trim(),
-          countryOfResidence: globalResidenceCountry,
-          cityStatePostalAddress: globalCityStatePostal.trim(),
-          whatsappPhone: `${globalWhatsappDialCode}${globalWhatsappPhone.replace(/^0+/, '').trim()}`,
-          verifiedEmail: globalVerifiedEmail.trim(),
-          settlementRail: globalSettlementRail,
-          railDetails:
-            globalSettlementRail === 'BANK_WIRE'
-              ? {
-                  bankName: globalBankName.trim(),
-                  bankBranchAddress: globalBankBranchAddress.trim(),
-                  accountNumberOrIban: globalIbanOrAccount.trim(),
-                  swiftBicCode: globalSwiftBic.trim(),
-                  routingOrSortCode: globalRoutingSortCode.trim(),
-                  accountCurrency: globalAccountCurrency
-                }
-              : globalSettlementRail === 'CRYPTO_USDT'
-              ? {
-                  network: globalCryptoNetwork,
-                  walletAddress: globalCryptoAddress.trim()
-                }
-              : {
-                  providerName: globalWalletProvider.trim(),
-                  registeredAccountTag: globalWalletAccountTag.trim(),
-                  receivingCurrency: globalWalletCurrency
-                },
-          complianceConfirmed: globalComplianceConfirmed
+          payoutMethod: resolvedGlobalMethod,
+          accountName: globalBeneficiaryName.trim(),
+          accountNumber: resolvedGlobalAccount,
+          bankOrNetwork: resolvedGlobalBankOrNetwork,
+          phone: `${globalWhatsappDialCode}${globalWhatsappPhone.replace(/^0+/, '').trim()}`,
+          affiliateName: `${firstName} ${lastName}`.trim() || globalBeneficiaryName.trim(),
+          affiliateEmail: globalVerifiedEmail.trim(),
         })
       });
 
       const resData = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      if (!response.ok || !resData?.success) {
         setPayoutFeedback({
           type: 'error',
           text: resData?.error || 'Failed to submit Global Manual Settlement request.'
         });
-        setIsSubmittingPayout(false);
         return;
       }
 
-      setAvailableBalanceGHS((prev) =>
-        typeof resData?.newBalance === 'number' ? resData.newBalance : Number((prev - amount).toFixed(2))
-      );
-      setWithdrawnBalanceGHS((prev) =>
-        typeof resData?.newTotalWithdrawn === 'number' ? resData.newTotalWithdrawn : Number((prev + amount).toFixed(2))
-      );
+      if (typeof resData?.balance_after_ghs === 'number') {
+        setAvailableBalanceGHS(resData.balance_after_ghs);
+      } else {
+        setAvailableBalanceGHS((prev) => Number(Math.max(0, prev - amount).toFixed(2)));
+      }
+      if (resData?.request) {
+        setPayoutRequests((prev) => [resData.request, ...prev]);
+      }
       setPayoutAmountGHS('');
       setPayoutFeedback({
         type: 'success',
-        text:
-          resData?.message ||
-          `🌍 Global Manual Settlement Dossier for GH₵ ${amount.toFixed(2)} (≈ $${estUSD.toFixed(
-            2
-          )} USD / €${estEUR.toFixed(2)} EUR / £${estGBP.toFixed(
-            2
-          )} GBP) dispatched to Executive Treasury (${SUPPORT_EMAIL_PRIMARY})!`
+        text: `🌍 Global Payout Request for GH₵ ${amount.toFixed(2)} (≈ $${estUSD.toFixed(
+          2
+        )} USD / €${estEUR.toFixed(2)} EUR / £${estGBP.toFixed(
+          2
+        )} GBP) submitted & Admin alerted! Track live status below.`
       });
+      toast.success('Global payout request submitted & Admin notified!');
     } catch (_) {
       setPayoutFeedback({
         type: 'error',
@@ -3016,34 +3144,28 @@ export default function HorPalAffiliatePillar({
   // BLOCK 2: LICENSE TIMER LOGIC & AUTOMATIC ADMIN ALERT
   // ============================================================================
   useEffect(() => {
-    if (!userId || !hasActivePaidLicense) return;
-    if (currentProfile?.pillar2_expires_at || currentProfile?.license_expires_at) return;
-    try {
-      const storedLicenseStr = localStorage.getItem(`horpal_p2_license_${userId}`);
-      if (storedLicenseStr) {
-        const parsed = JSON.parse(storedLicenseStr);
-        if (parsed.licenseActivatedAt) setLicenseActivatedAt(parsed.licenseActivatedAt);
-        if (parsed.licenseExpiresAt) setLicenseExpiresAt(parsed.licenseExpiresAt);
-      }
-    } catch (_) {}
-  }, [userId, hasActivePaidLicense, currentProfile?.pillar2_expires_at, currentProfile?.license_expires_at]);
+    purgeLegacyAccessFlags();
+  }, [userId]);
 
   useEffect(() => {
-    if (!userId || !hasActivePaidLicense || !licenseExpiresAt) return;
-    try {
-      localStorage.setItem(
-        `horpal_p2_license_${userId}`,
-        JSON.stringify({
-          licenseActivatedAt,
-          licenseExpiresAt
-        })
-      );
-    } catch (_) {}
-  }, [licenseActivatedAt, licenseExpiresAt, userId, hasActivePaidLicense]);
-
-  useEffect(() => {
-    if (!hasActivePaidLicense || !licenseExpiresAt) {
+    if (!hasActivePaidLicense) {
       setTimeRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, expired: false });
+      return;
+    }
+    if (!licenseExpiresAt || licenseExpiresAt <= Date.now()) {
+      const recoveredMs = Date.now() + 365 * 24 * 60 * 60 * 1000;
+      setLicenseExpiresAt(recoveredMs);
+      if (!hasSyncedMissingExpiryRef.current) {
+        hasSyncedMissingExpiryRef.current = true;
+        authFetch('/api/pillar2/sync-license', { method: 'POST' })
+          .then((r) => r.json())
+          .then((syncJson) => {
+            if (syncJson?.pillar2_expires_at) {
+              setLicenseExpiresAt(new Date(syncJson.pillar2_expires_at).getTime());
+            }
+          })
+          .catch(() => {});
+      }
       return;
     }
 
@@ -3304,7 +3426,7 @@ export default function HorPalAffiliatePillar({
       console.error('Error signing out of Supabase:', err);
     }
     try {
-      localStorage.removeItem('horpal_target_pillar');
+      purgeLegacyAccessFlags();
       localStorage.removeItem('horpal_p2_state_v3');
       if (userId) {
         localStorage.removeItem(`horpal_p2_state_v3_${userId}`);
@@ -3361,11 +3483,7 @@ export default function HorPalAffiliatePillar({
             )}
             <button
               onClick={() => {
-                const isAuthorizedPillar2User = Boolean(
-                  hasActivePaidLicense ||
-                    currentProfile?.has_paid_pillar2 === true ||
-                    unlockedProductIds.length > 0
-                );
+                const isAuthorizedPillar2User = hasPillar2Access(currentProfile);
                 if (!isAuthorizedPillar2User) {
                   setIsLockedDashboardModalOpen(true);
                   return;
@@ -3529,7 +3647,7 @@ export default function HorPalAffiliatePillar({
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => {
-                localStorage.removeItem("horpal_target_pillar");
+                purgeLegacyAccessFlags();
                 window.location.href = "/";
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white text-xs transition-all"
@@ -3609,7 +3727,7 @@ export default function HorPalAffiliatePillar({
                 <div className="flex items-center gap-2.5">
                   <button
                     onClick={() => {
-                      localStorage.removeItem("horpal_target_pillar");
+                      purgeLegacyAccessFlags();
                       window.location.href = "/";
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white text-xs transition-all mr-2"
@@ -3819,21 +3937,36 @@ export default function HorPalAffiliatePillar({
 
             {/* Sleek Emerald Annual Affiliate License Active Badge (Hides Renewal Until 1 Year Ends) */}
             {!timeRemaining.expired ? (
-              <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.12)]">
-                <div className="flex items-center gap-2 text-xs md:text-sm font-black text-emerald-300">
-                  <span>
-                    ✅ Annual Affiliate License Active • [
-                    {timeRemaining.days}d {String(timeRemaining.hours).padStart(2, '0')}h{' '}
-                    {String(timeRemaining.minutes).padStart(2, '0')}m{' '}
-                    {String(timeRemaining.seconds).padStart(2, '0')}s] Remaining
-                  </span>
-                </div>
-                {licenseExpiresAt > 0 && (
-                  <span className="text-[11px] text-emerald-400/80 font-mono">
-                    Valid Until: {new Date(licenseExpiresAt).toLocaleDateString()}
-                  </span>
-                )}
-              </div>
+              (() => {
+                const isZeroClock =
+                  timeRemaining.days === 0 &&
+                  timeRemaining.hours === 0 &&
+                  timeRemaining.minutes === 0 &&
+                  timeRemaining.seconds === 0;
+                const displayDays = isZeroClock ? 364 : timeRemaining.days;
+                const displayHours = isZeroClock ? 23 : timeRemaining.hours;
+                const displayMinutes = isZeroClock ? 59 : timeRemaining.minutes;
+                const displaySeconds = isZeroClock ? 59 : timeRemaining.seconds;
+                const validUntilDate =
+                  licenseExpiresAt > Date.now()
+                    ? new Date(licenseExpiresAt)
+                    : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+                return (
+                  <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.12)]">
+                    <div className="flex items-center gap-2 text-xs md:text-sm font-black text-emerald-300">
+                      <span>
+                        ✅ Annual Affiliate License Active • [
+                        {displayDays}d {String(displayHours).padStart(2, '0')}h{' '}
+                        {String(displayMinutes).padStart(2, '0')}m{' '}
+                        {String(displaySeconds).padStart(2, '0')}s] Remaining
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-emerald-400/80 font-mono">
+                      Valid Until: {validUntilDate.toLocaleDateString()}
+                    </span>
+                  </div>
+                );
+              })()
             ) : (
               <div className="bg-rose-950/40 border border-rose-500/50 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
                 <div className="flex items-center gap-2 text-xs md:text-sm font-bold text-rose-300">
@@ -3847,6 +3980,69 @@ export default function HorPalAffiliatePillar({
                 </div>
               </div>
             )}
+
+            {/* Live Active Payout Status Banner (Shown whenever a payout request is pending or processing) */}
+            {(() => {
+              const activePayout = payoutRequests.find(
+                (r) => r.status === 'processing' || r.status === 'pending'
+              );
+              if (!activePayout) return null;
+              const isProcessing = activePayout.status === 'processing';
+              return (
+                <div
+                  className={`rounded-2xl p-4 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg ${
+                    isProcessing
+                      ? 'bg-sky-950/50 border-sky-500/50 shadow-[0_0_25px_rgba(14,165,233,0.18)]'
+                      : 'bg-amber-950/40 border-amber-500/40'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        isProcessing ? 'bg-sky-500/20 text-sky-300' : 'bg-amber-500/20 text-amber-300'
+                      }`}
+                    >
+                      {isProcessing ? (
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Clock className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
+                            isProcessing
+                              ? 'bg-sky-500/25 text-sky-200 animate-pulse border border-sky-400/40'
+                              : 'bg-amber-500/25 text-amber-200 border border-amber-400/40'
+                          }`}
+                        >
+                          {isProcessing
+                            ? '🔵 Processing... (Transfer Initiated by Admin)'
+                            : '🟡 Pending Review'}
+                        </span>
+                        <span className="text-sm font-black text-white">
+                          GH₵ {Number(activePayout.amount_ghs || 0).toFixed(2)}
+                        </span>
+                        <span className="text-xs text-gray-300">
+                          • {activePayout.payout_method} ({activePayout.account_number})
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-300 mt-1">
+                        {activePayout.admin_status_note || 'Awaiting Admin review'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('payouts')}
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-black whitespace-nowrap transition-all"
+                  >
+                    Track in Payouts →
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* Affiliate Milestone Progress Bar (Digitstem Style) */}
             <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-5">
@@ -3912,7 +4108,7 @@ export default function HorPalAffiliatePillar({
                   onClick={() => setActiveSection('payouts')}
                   className="py-3 col-span-2 md:col-span-1 rounded-xl bg-white hover:bg-gray-100 text-indigo-950 font-black text-xs transition-all"
                 >
-                  Pay Out Now (Friday)
+                  Pay Out Now
                 </button>
               </div>
             </div>
@@ -4390,9 +4586,9 @@ export default function HorPalAffiliatePillar({
                   {/* Left: Signature */}
                   <div className="text-center w-48">
                     <div className="border-b-2 border-gray-600 pb-2 mb-2">
-                      <span className="font-serif italic text-3xl text-amber-200 block -mb-1">Moses</span>
+                      <span className="font-serif italic text-3xl text-amber-200 block -mb-1">Gerald</span>
                     </div>
-                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Moses • Founder & CEO, HorPal</p>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Gerald • Founder & CEO, HorPal</p>
                   </div>
 
                   {/* Center: 3D Gold Seal */}
@@ -4553,168 +4749,309 @@ export default function HorPalAffiliatePillar({
         )}
 
         {/* ================================================================== */}
-        {/* SECTION 6: CONTESTS */}
+        {/* SECTION 6: CONTESTS ARENA (4K BANNERS, LIVE SALES & ADMIN STATUS) */}
         {/* ================================================================== */}
         {activeSection === "contests" && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
-                <Trophy className="w-5 h-5 text-cyan-400" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center">
+                  <Trophy className="w-6 h-6 text-cyan-400" />
+                </div>
+                <div>
+                  <h2 className="text-2xl md:text-3xl font-black text-white">Contests Arena</h2>
+                  <p className="text-xs md:text-sm text-gray-400">
+                    100% Verified Paystack Sales & Live Admin Review Tracker • Win Cash, MacBook Pro M3 & Weekly Pools
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-2xl font-black text-white">Contests Arena</h2>
-                <p className="text-sm text-gray-400">Win cash, gadgets, and exclusive bonuses.</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => loadSupabaseData()}
+                className="px-4 py-2 rounded-xl bg-[#141d30] hover:bg-[#1b2742] border border-white/10 text-xs font-bold text-gray-200 flex items-center gap-2 self-start sm:self-auto"
+              >
+                <RefreshCcw className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Sync Live Sales & Status</span>
+              </button>
             </div>
 
             {contestStatusBanner && (
-              <div className="bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 p-4 rounded-2xl text-sm font-bold flex justify-between items-center">
+              <div className="bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 p-4 rounded-2xl text-sm font-bold flex justify-between items-center gap-3">
                 <span>{contestStatusBanner}</span>
-                <button onClick={() => setContestStatusBanner(null)}><X className="w-4 h-4"/></button>
+                <button type="button" onClick={() => setContestStatusBanner(null)} className="shrink-0">
+                  <X className="w-4 h-4"/>
+                </button>
               </div>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Contest 1: 100K Views Viral Video */}
-              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-cyan-500/30 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(6,182,212,0.1)]">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 blur-[50px]"></div>
-                <div className="inline-block px-3 py-1 bg-cyan-500/20 text-cyan-400 text-xs font-black rounded-full mb-4 border border-cyan-500/30">
-                  CASH BOUNTY
-                </div>
-                <h3 className="text-2xl font-black text-white mb-2">TikTok & IG 100K Views Challenge</h3>
-                <p className="text-sm text-gray-400 mb-6">Create a promotional video for HorPal. If it hits 100,000 views, you win!</p>
+              {[
+                {
+                  id: 'viral_100k' as const,
+                  tag: 'VIRAL CREATOR BOUNTY',
+                  title: 'TikTok & IG 100K Views Challenge',
+                  description: 'Post a promotional HorPal video on TikTok or Instagram Reels. Hit 100,000 organic views with your unique link in bio to claim GH₵ 10,000!',
+                  image: '/images/contests/contest_100k_views.jpg',
+                  prizeLabel: 'Grand Cash Bounty',
+                  prizeDisplay: formatAmount(10000),
+                  accentBorder: 'border-cyan-500/35 shadow-[0_0_35px_rgba(6,182,212,0.12)]',
+                  badgeStyle: 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300',
+                  prizeTextColor: 'text-cyan-300',
+                  buttonStyle: 'bg-cyan-500 hover:bg-cyan-400 text-black',
+                  buttonText: 'Register & Submit 100K Video Link',
+                  showProgress: false,
+                  currentCount: 0,
+                  targetCount: 0,
+                  progressLabel: '',
+                  barColor: 'from-cyan-500 to-blue-500',
+                  rules: [
+                    'Video must clearly showcase HorPal Pillar 2 products or affiliate dashboard results (no misleading claims).',
+                    'Your active affiliate link or unique Affiliate Code must be pinned in bio / caption.',
+                    'Views must hit 100,000+ organic views verified via public TikTok / Instagram Reel URL.',
+                    'Submit your public video URL & social handle via the button below for Admin review.',
+                  ],
+                },
+                {
+                  id: 'sales_50' as const,
+                  tag: 'VELOCITY SPRINT',
+                  title: '50-Sales Executive Sprint',
+                  description: 'Achieve 50 verified Paystack product sales to unlock GH₵ 3,500 cash bonus + Executive Trophy recognition.',
+                  image: '/images/contests/contest_50_sales.jpg',
+                  prizeLabel: 'Executive Bonus',
+                  prizeDisplay: formatAmount(3500),
+                  accentBorder: 'border-amber-500/35 shadow-[0_0_35px_rgba(245,158,11,0.12)]',
+                  badgeStyle: 'bg-amber-500/20 border-amber-400/50 text-amber-300',
+                  prizeTextColor: 'text-amber-300',
+                  buttonStyle: 'bg-amber-500 hover:bg-amber-400 text-black',
+                  buttonText: totalSalesCount >= 50 ? '🏆 Claim GH₵ 3,500 Sprint Prize' : 'Register for 50-Sales Sprint',
+                  showProgress: true,
+                  currentCount: totalSalesCount,
+                  targetCount: 50,
+                  progressLabel: `${totalSalesCount} / 50 Sales`,
+                  barColor: 'from-amber-600 to-amber-400',
+                  rules: [
+                    'Tracked 100% automatically via verified Paystack transactions in Supabase (profiles.affiliate_total_sales).',
+                    'Zero self-referrals, zero test transactions, and zero duplicate buyer refunds permitted.',
+                    'Register your participation or submit your prize claim once your counter hits 50 / 50 Sales.',
+                    'Admin verifies settled Paystack receipts before marking your entry Approved Winner.',
+                  ],
+                },
+                {
+                  id: 'sales_100' as const,
+                  tag: 'GRAND PRODUCER',
+                  title: '100-Sales Grand Producer Challenge',
+                  description: 'Reach 100 verified Paystack product sales to win a brand-new Space Black MacBook Pro M3 + GH₵ 10,000.00 cash reward.',
+                  image: '/images/contests/contest_100_sales_macbook.jpg',
+                  prizeLabel: 'Hardware + Cash Prize',
+                  prizeDisplay: `MacBook Pro M3 + ${formatAmount(10000)}`,
+                  accentBorder: 'border-emerald-500/35 shadow-[0_0_35px_rgba(16,185,129,0.12)]',
+                  badgeStyle: 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300',
+                  prizeTextColor: 'text-emerald-300',
+                  buttonStyle: 'bg-emerald-500 hover:bg-emerald-400 text-black',
+                  buttonText: totalSalesCount >= 100 ? '🏆 Claim MacBook Pro M3 + Cash' : 'Register for 100-Sales Challenge',
+                  showProgress: true,
+                  currentCount: totalSalesCount,
+                  targetCount: 100,
+                  progressLabel: `${totalSalesCount} / 100 Sales`,
+                  barColor: 'from-emerald-600 to-emerald-400',
+                  rules: [
+                    'Requires 100 unique, verified Paystack course purchases attributed directly to your affiliate code.',
+                    'Count syncs directly from your Supabase sales ledger — manual/demo adjustments are permanently disabled.',
+                    'Once at 100 / 100 Sales, submit your claim with delivery phone & MoMo/bank info for Admin verification.',
+                    'MacBook Pro M3 delivery & GH₵ 10,000 settlement scheduled within 72 hours of Admin approval.',
+                  ],
+                },
+                {
+                  id: 'weekly_top3' as const,
+                  tag: 'WEEKLY FRIDAY POOL',
+                  title: 'Weekly Friday Fast-Start Top 3 Pool',
+                  description: 'Close 15 verified sales within the current Monday–Sunday cycle to qualify for the Top 3 GH₵ 2,000 / Week cash pool.',
+                  image: '/images/contests/contest_weekly_pool.jpg',
+                  prizeLabel: 'Weekly Cash Pool',
+                  prizeDisplay: `${formatAmount(2000)} / Week`,
+                  accentBorder: 'border-purple-500/35 shadow-[0_0_35px_rgba(168,85,247,0.12)]',
+                  badgeStyle: 'bg-purple-500/20 border-purple-400/50 text-purple-300',
+                  prizeTextColor: 'text-purple-300',
+                  buttonStyle: 'bg-purple-500 hover:bg-purple-400 text-white',
+                  buttonText: weeklySalesCount >= 15 ? '🏆 Claim Weekly Top 3 Entry' : 'Enter Weekly Top 3 Pool',
+                  showProgress: true,
+                  currentCount: weeklySalesCount,
+                  targetCount: 15,
+                  progressLabel: `${weeklySalesCount} / 15 Weekly`,
+                  barColor: 'from-purple-600 to-purple-400',
+                  rules: [
+                    'Progress counts strictly verified rows in public.pillar2_sales created since Monday 00:00 UTC this week.',
+                    'Affiliates reaching 15+ weekly sales compete for Top 3 shares of the GH₵ 2,000.00 weekly pool.',
+                    'Submit your Weekly Pool entry so Admin audits weekly timestamps & dispatches Friday pool rewards.',
+                    'Weekly progress resets automatically every Monday at 00:00 UTC.',
+                  ],
+                },
+              ].map((card) => {
+                const latestSub = contestSubmissions.find((s) => s.contest_id === card.id);
+                const participants = Math.max(
+                  contestParticipantCounts[card.id] || 0,
+                  latestSub ? 1 : 0
+                );
+                const isRulesExpanded = Boolean(expandedContestRules[card.id]);
+                const pct =
+                  card.showProgress && card.targetCount > 0
+                    ? Math.min(100, (card.currentCount / card.targetCount) * 100)
+                    : 0;
 
-                <div className="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
-                  <span className="text-xs text-gray-500 uppercase font-bold block mb-1">Grand Prize</span>
-                  <span className="text-3xl font-black text-cyan-400">{formatAmount(10000)}</span>
-                </div>
-
-                <button
-                  onClick={() => setContestModalOpen('viral_100k')}
-                  className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-black transition-all flex items-center justify-center gap-2"
-                >
-                  <Video className="w-4 h-4" /> Register & Submit 100K Video
-                </button>
-              </div>
-
-              {/* Contest 2: 50-Sales Sprint */}
-              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-amber-500/30 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(245,158,11,0.1)]">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-[50px]"></div>
-                <div className="inline-block px-3 py-1 bg-amber-500/20 text-amber-400 text-xs font-black rounded-full mb-4 border border-amber-500/30">
-                  VELOCITY SPRINT
-                </div>
-                <h3 className="text-2xl font-black text-white mb-2">50-Sales Executive Sprint</h3>
-                <p className="text-sm text-gray-400 mb-6">Hit 50 confirmed sales to unlock the bonus and Executive Trophy.</p>
-
-                <div className="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
-                  <div className="flex justify-between items-end mb-2">
-                    <div>
-                       <span className="text-xs text-gray-500 uppercase font-bold block mb-1">Bonus Prize</span>
-                       <span className="text-2xl font-black text-amber-400">{formatAmount(3500)}</span>
-                    </div>
-                    <div className="text-right">
-                       <span className="text-lg font-black text-white">{totalSalesCount} / 50</span>
-                       <span className="text-xs text-gray-500 block">Sales</span>
-                    </div>
-                  </div>
-                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-amber-600 to-amber-400" style={{ width: `${Math.min(100, (totalSalesCount / 50) * 100)}%` }}></div>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  {!registeredContests.includes('sales_50') ? (
-                    <button
-                      onClick={() => setContestModalOpen('sales_50')}
-                      className="flex-1 py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-black transition-all"
-                    >
-                      Register for 50-Sales Sprint
-                    </button>
-                  ) : totalSalesCount >= 50 ? (
-                    <button
-                      onClick={triggerAdminMilestoneAlert}
-                      disabled={adminMilestoneAlertSent}
-                      className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black transition-all animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.4)] disabled:animate-none disabled:bg-gray-600 disabled:text-gray-400 flex items-center justify-center gap-2"
-                    >
-                      {adminMilestoneAlertSent ? 'Alert Dispatched ✓' : '🚨 Goal Reached! Alert Admin Command Centre'}
-                    </button>
-                  ) : (
-                    <button disabled className="flex-1 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-black cursor-not-allowed">
-                      Registered! Keep Selling.
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setTotalSalesCount(prev => prev + 1)}
-                    className="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-gray-400 border border-white/5"
+                return (
+                  <div
+                    key={card.id}
+                    className={`bg-gradient-to-br from-[#0f172a] to-[#131b2e] border ${card.accentBorder} rounded-3xl overflow-hidden flex flex-col`}
                   >
-                    +1 Demo Sale
-                  </button>
-                </div>
-              </div>
+                    {/* Ultra-Luxury 4K Hero Banner Header */}
+                    <div className="relative h-48 w-full overflow-hidden bg-black">
+                      <img
+                        src={card.image}
+                        alt={card.title}
+                        className="h-48 w-full object-cover transition-transform duration-500 hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/55 to-black/30" />
 
+                      {/* Top Badges: Contest Type & Live Participant Counter */}
+                      <div className="absolute top-3.5 left-4 right-4 flex items-center justify-between gap-2">
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border backdrop-blur-md ${card.badgeStyle}`}>
+                          {card.tag}
+                        </span>
+                        <span className="px-3 py-1 rounded-full bg-black/70 border border-white/15 text-[11px] font-bold text-gray-200 backdrop-blur-md flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{participants} Verified {participants === 1 ? 'Participant' : 'Participants'}</span>
+                        </span>
+                      </div>
 
-              {/* Contest 3: 100-Sales Grand Producer */}
-              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-emerald-500/30 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(16,185,129,0.1)]">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[50px]"></div>
-                <div className="inline-block px-3 py-1 bg-emerald-500/20 text-emerald-400 text-xs font-black rounded-full mb-4 border border-emerald-500/30">
-                  GRAND PRODUCER
-                </div>
-                <h3 className="text-2xl font-black text-white mb-2">100-Sales Grand Producer Challenge</h3>
-                <p className="text-sm text-gray-400 mb-6">Hit 100 sales to win a MacBook Pro M3 + Cash.</p>
-
-                <div className="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
-                  <div className="flex justify-between items-end mb-2">
-                    <div>
-                       <span className="text-xs text-gray-500 uppercase font-bold block mb-1">Grand Prize</span>
-                       <span className="text-lg font-black text-emerald-400">MacBook Pro + {formatAmount(10000)}</span>
+                      {/* Glowing Prize Overlay */}
+                      <div className="absolute bottom-3.5 left-4 right-4 flex items-end justify-between gap-3">
+                        <div>
+                          <span className="text-[10px] uppercase tracking-widest text-gray-300 font-bold block">
+                            {card.prizeLabel}
+                          </span>
+                          <span className={`text-xl md:text-2xl font-black drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] ${card.prizeTextColor}`}>
+                            {card.prizeDisplay}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                       <span className="text-lg font-black text-white">{totalSalesCount} / 100</span>
-                       <span className="text-xs text-gray-500 block">Sales</span>
+
+                    {/* Card Body */}
+                    <div className="p-6 flex-1 flex flex-col justify-between space-y-5">
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="text-xl md:text-2xl font-black text-white">{card.title}</h3>
+                          <p className="text-xs md:text-sm text-gray-400 mt-1.5 leading-relaxed">
+                            {card.description}
+                          </p>
+                        </div>
+
+                        {card.showProgress && (
+                          <div className="bg-black/40 rounded-2xl p-4 border border-white/10">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">
+                                Real Verified Supabase Progress
+                              </span>
+                              <span className="text-base font-black text-white">
+                                {card.progressLabel}
+                              </span>
+                            </div>
+                            <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full bg-gradient-to-r ${card.barColor} transition-all duration-500`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Live Contest Application Status Tracker (Phase 3) */}
+                        {latestSub && (
+                          <div className="bg-[#141d30] border border-white/10 rounded-2xl p-4 space-y-1.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
+                                Contest Application Status
+                              </span>
+                              {latestSub.status === 'pending_review' && (
+                                <span className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-black">
+                                  ⏳ Under Review
+                                </span>
+                              )}
+                              {latestSub.status === 'processing' && (
+                                <span className="px-2.5 py-1 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 text-xs font-black animate-pulse inline-flex items-center gap-1.5">
+                                  <RefreshCcw className="w-3 h-3 animate-spin" />
+                                  🔄 Processing Verification...
+                                </span>
+                              )}
+                              {latestSub.status === 'approved_winner' && (
+                                <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-black">
+                                  🏆 Approved Winner!
+                                </span>
+                              )}
+                              {latestSub.status === 'rejected' && (
+                                <span className="px-2.5 py-1 rounded-full bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-black">
+                                  ❌ Declined
+                                </span>
+                              )}
+                            </div>
+                            {latestSub.admin_note && (
+                              <p className="text-xs text-gray-300">{latestSub.admin_note}</p>
+                            )}
+                            <p className="text-[10px] text-gray-500 font-mono">
+                              Submitted {new Date(latestSub.created_at).toLocaleString()}
+                              {latestSub.platform_handle ? ` • ${latestSub.platform_handle}` : ''}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Interactive Rules & Qualification Checklist Drawer */}
+                        <div className="border border-white/10 rounded-2xl bg-black/25 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedContestRules((prev) => ({
+                                ...prev,
+                                [card.id]: !prev[card.id],
+                              }))
+                            }
+                            className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-gray-200 hover:bg-white/5 transition-colors"
+                          >
+                            <span>📋 View Official Contest Rules & Qualification Checklist</span>
+                            <ChevronRight
+                              className={`w-4 h-4 text-gray-400 transition-transform ${
+                                isRulesExpanded ? 'rotate-90' : ''
+                              }`}
+                            />
+                          </button>
+                          {isRulesExpanded && (
+                            <div className="px-4 pb-4 pt-1 border-t border-white/10 space-y-2">
+                              {card.rules.map((rule, idx) => (
+                                <div key={idx} className="flex items-start gap-2 text-xs text-gray-300">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                  <span>{rule}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setContestModalOpen(card.id)}
+                        className={`w-full py-3.5 px-4 rounded-xl font-black text-sm transition-all flex items-center justify-center gap-2 ${card.buttonStyle}`}
+                      >
+                        {card.id === 'viral_100k' ? (
+                          <Video className="w-4 h-4" />
+                        ) : (
+                          <Trophy className="w-4 h-4" />
+                        )}
+                        <span>{card.buttonText}</span>
+                      </button>
                     </div>
                   </div>
-                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400" style={{ width: `${Math.min(100, (totalSalesCount / 100) * 100)}%` }}></div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setContestModalOpen('sales_100')}
-                  className="w-full py-3 rounded-xl bg-[#141d30] hover:bg-[#1b263f] border border-white/10 text-white font-black transition-all"
-                >
-                  Register for 100-Sales Challenge
-                </button>
-              </div>
-
-              {/* Contest 4: Friday Fast-Start Top 3 Pool */}
-              <div className="bg-gradient-to-br from-[#0f172a] to-[#141d30] border border-purple-500/30 rounded-3xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(168,85,247,0.1)]">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[50px]"></div>
-                <div className="inline-block px-3 py-1 bg-purple-500/20 text-purple-400 text-xs font-black rounded-full mb-4 border border-purple-500/30">
-                  WEEKLY POOL
-                </div>
-                <h3 className="text-2xl font-black text-white mb-2">Weekly Friday Fast-Start Top 3 Pool</h3>
-                <p className="text-sm text-gray-400 mb-6">Hit 15 sales this week to enter the GH₵ 2,000 pool.</p>
-
-                <div className="bg-black/40 rounded-2xl p-4 mb-6 border border-white/5">
-                  <div className="flex justify-between items-end mb-2">
-                    <div>
-                       <span className="text-xs text-gray-500 uppercase font-bold block mb-1">Pool Prize</span>
-                       <span className="text-xl font-black text-purple-400">{formatAmount(2000)} / Week</span>
-                    </div>
-                    <div className="text-right">
-                       <span className="text-lg font-black text-white">{totalSalesCount} / 15</span>
-                       <span className="text-xs text-gray-500 block">Weekly</span>
-                    </div>
-                  </div>
-                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-purple-600 to-purple-400" style={{ width: `${Math.min(100, (totalSalesCount / 15) * 100)}%` }}></div>
-                  </div>
-                </div>
-
-                <div className="text-center text-xs text-gray-400 italic">
-                  Top 10 Affiliates Leaderboard refreshes every Monday.
-                </div>
-              </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -4750,10 +5087,10 @@ export default function HorPalAffiliatePillar({
                   className={`px-3.5 py-2 rounded-xl border text-xs font-black flex items-center gap-1.5 ${
                     isFridayGMT
                       ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                      : 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                      : 'bg-sky-500/15 border-sky-500/40 text-sky-300'
                   }`}
                 >
-                  {isFridayGMT ? '🟢 Friday Window Open (GMT)' : '🔒 Locked Until Friday 00:00 GMT'}
+                  {isFridayGMT ? '🟢 Friday Express Window LIVE (GMT)' : '💸 Payout Requests Open 24/7 • Friday Schedule'}
                 </div>
                 <button
                   type="button"
@@ -4774,25 +5111,25 @@ export default function HorPalAffiliatePillar({
             </div>
 
             <div className="max-w-7xl mx-auto space-y-6">
-              {/* STRICT FRIDAY GMT ENFORCEMENT BANNER */}
+              {/* FRIDAY SETTLEMENT SCHEDULE & 24/7 ADMIN REQUEST BANNER */}
               {!isFridayGMT ? (
-                <div className="bg-gradient-to-r from-rose-950/90 via-[#1a0f1e] to-rose-950/90 border-2 border-rose-500/50 rounded-3xl p-5 md:p-6 shadow-[0_0_30px_rgba(244,63,94,0.15)] flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="bg-gradient-to-r from-indigo-950/90 via-[#0f172a] to-emerald-950/70 border border-indigo-500/40 rounded-3xl p-5 md:p-6 shadow-[0_0_30px_rgba(59,130,246,0.12)] flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-start gap-3.5">
-                    <div className="w-11 h-11 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0 mt-0.5">
-                      <Lock className="w-5 h-5 text-rose-400" />
+                    <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 mt-0.5">
+                      <Send className="w-5 h-5 text-emerald-400" />
                     </div>
                     <div>
                       <h3 className="text-base md:text-lg font-black text-white">
-                        🔒 Payout Desk Opens Every Friday (00:00 – 23:59 GMT)
+                        💸 Submit Payout Requests Anytime — Live Admin Treasury Tracking
                       </h3>
-                      <p className="text-xs text-rose-200/80 mt-1">
-                        You can pre-fill and verify your beneficiary account details below at any time, but final withdrawal submissions are strictly unlocked on Fridays (GMT).
+                      <p className="text-xs text-indigo-200/80 mt-1">
+                        Submit your Mobile Money (MTN / Telecel / AT) or Bank Transfer request below right now. Your verified balance is reserved immediately and tracked live from Pending Review → Processing → Paid & Settled.
                       </p>
                     </div>
                   </div>
-                  <div className="bg-black/50 border border-rose-500/40 rounded-2xl px-4 py-3 text-center shrink-0">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-rose-300 block mb-1">
-                      LIVE COUNTDOWN TO FRIDAY 00:00 GMT
+                  <div className="bg-black/50 border border-indigo-500/40 rounded-2xl px-4 py-3 text-center shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-300 block mb-1">
+                      NEXT FRIDAY CYCLE (00:00 GMT)
                     </span>
                     <div className="font-mono text-lg md:text-xl font-black text-white tracking-wider">
                       {fridayCountdown.days}d : {fridayCountdown.hours}h : {fridayCountdown.minutes}m : {fridayCountdown.seconds}s
@@ -4805,10 +5142,10 @@ export default function HorPalAffiliatePillar({
                     <Unlock className="w-6 h-6 text-emerald-400 shrink-0" />
                     <div>
                       <h3 className="text-base font-black text-white">
-                        🟢 Friday Payout Window Is LIVE (00:00 – 23:59 GMT)
+                        🟢 Friday Express Settlement Window Is LIVE (00:00 – 23:59 GMT)
                       </h3>
                       <p className="text-xs text-emerald-200/80">
-                        Both Instant Paystack Transfers and Global Manual Settlements are open for immediate submission.
+                        Submit Mobile Money, Bank Transfer, or Global Settlement requests for priority Admin dispatch.
                       </p>
                     </div>
                   </div>
@@ -5039,7 +5376,7 @@ export default function HorPalAffiliatePillar({
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <label className="text-xs font-bold text-gray-300 uppercase">
-                            2. Withdrawal Amount (GH₵) — Min GH₵ 90.00
+                            2. Withdrawal Amount (GH₵)
                           </label>
                           <span className="text-[11px] text-emerald-400 font-mono">
                             Available: GH₵ {availableBalanceGHS.toFixed(2)}
@@ -5048,13 +5385,13 @@ export default function HorPalAffiliatePillar({
                         <div className="flex gap-2">
                           <input
                             type="number"
-                            min="90"
-                            max={Math.max(90, availableBalanceGHS)}
+                            min="1"
+                            max={Math.max(1, availableBalanceGHS)}
                             step="0.01"
                             required
                             value={payoutAmountGHS}
                             onChange={(e) => setPayoutAmountGHS(e.target.value)}
-                            placeholder="Minimum 90.00"
+                            placeholder="Enter amount (GH₵)"
                             className="flex-1 bg-[#141d30] border border-white/15 px-4 py-3.5 rounded-xl text-lg text-white font-black placeholder-gray-600 focus:outline-none focus:border-emerald-500"
                           />
                           <button
@@ -5192,22 +5529,20 @@ export default function HorPalAffiliatePillar({
 
                       <button
                         type="submit"
-                        disabled={!isFridayGMT || isSubmittingPayout}
+                        disabled={isSubmittingPayout || availableBalanceGHS <= 0}
                         className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all text-sm md:text-base shadow-[0_0_25px_rgba(16,185,129,0.25)] disabled:bg-gray-700 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {isSubmittingPayout ? (
                           <RefreshCcw className="w-5 h-5 animate-spin" />
-                        ) : !isFridayGMT ? (
-                          <Lock className="w-5 h-5" />
                         ) : (
                           <Zap className="w-5 h-5" />
                         )}
                         <span>
-                          {!isFridayGMT
-                            ? '🔒 Locked Until Friday (00:00 – 23:59 GMT)'
+                          {availableBalanceGHS <= 0
+                            ? 'Available Balance GH₵ 0.00 — Earn Commissions First'
                             : isSubmittingPayout
-                            ? 'Dispatching Paystack Transfer...'
-                            : 'Submit Instant Paystack Transfer Request'}
+                            ? 'Submitting Payout Request...'
+                            : 'Request Payout Now (Instant Admin Alert)'}
                         </span>
                       </button>
                     </form>
@@ -5232,7 +5567,7 @@ export default function HorPalAffiliatePillar({
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <label className="text-xs font-bold text-gray-300 uppercase">
-                            1. Withdrawal Amount (GH₵) — Min GH₵ 90.00
+                            1. Withdrawal Amount (GH₵)
                           </label>
                           <span className="text-[11px] text-amber-400 font-mono">
                             Available: GH₵ {availableBalanceGHS.toFixed(2)}
@@ -5241,13 +5576,13 @@ export default function HorPalAffiliatePillar({
                         <div className="flex gap-2">
                           <input
                             type="number"
-                            min="90"
-                            max={Math.max(90, availableBalanceGHS)}
+                            min="1"
+                            max={Math.max(1, availableBalanceGHS)}
                             step="0.01"
                             required
                             value={payoutAmountGHS}
                             onChange={(e) => setPayoutAmountGHS(e.target.value)}
-                            placeholder="Minimum 90.00"
+                            placeholder="Enter amount (GH₵)"
                             className="flex-1 bg-[#141d30] border border-white/15 px-4 py-3.5 rounded-xl text-lg text-white font-black placeholder-gray-600 focus:outline-none focus:border-amber-500"
                           />
                           <button
@@ -5630,27 +5965,116 @@ export default function HorPalAffiliatePillar({
 
                       <button
                         type="submit"
-                        disabled={!isFridayGMT || isSubmittingPayout}
+                        disabled={isSubmittingPayout || availableBalanceGHS <= 0}
                         className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black font-black transition-all text-sm md:text-base shadow-[0_0_25px_rgba(245,158,11,0.25)] disabled:from-gray-700 disabled:to-gray-700 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {isSubmittingPayout ? (
                           <RefreshCcw className="w-5 h-5 animate-spin" />
-                        ) : !isFridayGMT ? (
-                          <Lock className="w-5 h-5" />
                         ) : (
                           <Globe className="w-5 h-5" />
                         )}
                         <span>
-                          {!isFridayGMT
-                            ? '🔒 Locked Until Friday (00:00 – 23:59 GMT)'
+                          {availableBalanceGHS <= 0
+                            ? 'Available Balance GH₵ 0.00'
                             : isSubmittingPayout
-                            ? 'Dispatching Global Settlement Dossier...'
-                            : 'Submit Global Manual Settlement Request'}
+                            ? 'Dispatching Global Settlement Request...'
+                            : 'Submit Global Manual Payout Request'}
                         </span>
                       </button>
                     </form>
                   )}
                 </div>
+              </div>
+
+              {/* LIVE PAYOUT HISTORY & REAL-TIME ADMIN STATUS TRACKER (Phase 4) */}
+              <div className="bg-[#0f172a] border border-white/10 rounded-3xl p-6 md:p-8 shadow-2xl space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                  <div>
+                    <h3 className="text-lg md:text-xl font-black text-white flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-emerald-400" />
+                      <span>Real-Time Payout History & Settlement Status</span>
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Live synced directly from <code className="text-emerald-400">pillar2_payout_requests</code> — updates automatically when Admin changes status.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => loadSupabaseData()}
+                    className="px-4 py-2 rounded-xl bg-[#141d30] hover:bg-[#1c2842] border border-white/10 text-xs font-bold text-gray-200 flex items-center gap-1.5 self-start sm:self-auto"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Refresh Status</span>
+                  </button>
+                </div>
+
+                {payoutRequests.length === 0 ? (
+                  <div className="text-center py-10 bg-[#141d30]/50 border border-white/5 rounded-2xl">
+                    <DollarSign className="w-9 h-9 text-gray-600 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-gray-300">No payout requests submitted yet</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Submit a Mobile Money, Bank Transfer, or Global settlement request above to track live Admin progress here.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs md:text-sm">
+                      <thead className="bg-[#141d30] text-gray-400 uppercase text-[11px] font-bold">
+                        <tr>
+                          <th className="px-4 py-3 rounded-l-xl">Date</th>
+                          <th className="px-4 py-3">Amount</th>
+                          <th className="px-4 py-3">Method & Account</th>
+                          <th className="px-4 py-3">Live Status</th>
+                          <th className="px-4 py-3 rounded-r-xl">Admin Status Note</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {payoutRequests.map((req) => (
+                          <tr key={req.id} className="hover:bg-white/[0.02] transition-colors">
+                            <td className="px-4 py-3.5 whitespace-nowrap font-mono text-xs text-gray-400">
+                              {new Date(req.created_at).toLocaleString()}
+                            </td>
+                            <td className="px-4 py-3.5 whitespace-nowrap font-black text-white">
+                              GH₵ {Number(req.amount_ghs || 0).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <div className="font-bold text-emerald-300">{req.payout_method}</div>
+                              <div className="text-[11px] text-gray-300 font-mono">
+                                {req.account_number} • {req.account_name}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5 whitespace-nowrap">
+                              {req.status === 'pending' && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-black">
+                                  🟡 Pending Review
+                                </span>
+                              )}
+                              {req.status === 'processing' && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 text-xs font-black animate-pulse shadow-[0_0_15px_rgba(56,189,248,0.25)]">
+                                  <RefreshCcw className="w-3.5 h-3.5 animate-spin text-sky-300" />
+                                  🔵 Processing... (Transfer Initiated by Admin)
+                                </span>
+                              )}
+                              {req.status === 'paid' && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-black">
+                                  🟢 Paid & Settled
+                                </span>
+                              )}
+                              {req.status === 'rejected' && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-black">
+                                  🔴 Rejected / Returned to Balance
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3.5 text-xs text-gray-300 max-w-xs">
+                              {req.admin_status_note || 'Awaiting Admin review'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -5800,7 +6224,8 @@ export default function HorPalAffiliatePillar({
                     <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center mb-4 border border-emerald-500/30">
                       <Folder className="w-5 h-5 text-emerald-400" />
                     </div>
-                    <h3 className="text-xl font-bold text-white mb-2">{p.title}</h3>
+                    <h3 className="text-xl font-bold text-white mb-1">{p.title}</h3>
+                    <p className="text-xs font-bold text-amber-400 mb-2">Created by {p.creator}</p>
                     <p className="text-sm text-gray-400 mb-6">Full Google Drive Access Granted.</p>
                     <div className="flex flex-col sm:flex-row gap-3">
                       <a href={p.deliveryUrl} target="_blank" rel="noopener noreferrer" className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all text-center flex items-center justify-center gap-2">
@@ -6825,13 +7250,11 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
 
                      const verifyRenewalOnServer = async (reference: string) => {
                        try {
-                         const res = await fetch('/api/paystack/verify-pillar2-pass', {
+                         const res = await authFetch('/api/paystack/verify-pillar2-pass', {
                            method: 'POST',
-                           headers: { 'Content-Type': 'application/json' },
                            body: JSON.stringify({
                              reference,
                              email: activeEmail,
-                             userId: userId || null,
                              passType: 'renewal_1yr',
                            }),
                          });
@@ -6900,10 +7323,9 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
                        return;
                      }
                      try {
-                       const res = await fetch('/api/pillar2/renew-balance', {
+                       const res = await authFetch('/api/pillar2/renew-balance', {
                          method: 'POST',
-                         headers: { 'Content-Type': 'application/json' },
-                         body: JSON.stringify({ userId }),
+                         body: JSON.stringify({}),
                        });
                        const data = await res.json();
                        if (!res.ok || !data?.success) {
@@ -7025,48 +7447,157 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
       {/* Contest Modals */}
       {contestModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-cyan-500/30 animate-in zoom-in-95">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-cyan-500/30 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
-               <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                 {contestModalOpen === 'viral_100k' ? <><Video className="w-5 h-5 text-cyan-400"/> 100K Views Application</> : <><Trophy className="w-5 h-5 text-amber-400"/> Sales Sprint Entry</>}
-               </h3>
-               <button onClick={() => setContestModalOpen(null)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
-                 <X className="w-5 h-5 text-gray-400" />
-               </button>
+              <h3 className="text-base md:text-lg font-bold text-white flex items-center gap-2">
+                {contestModalOpen === 'viral_100k' ? (
+                  <>
+                    <Video className="w-5 h-5 text-cyan-400" />
+                    <span>100K Views Video Submission</span>
+                  </>
+                ) : contestModalOpen === 'sales_50' ? (
+                  <>
+                    <Trophy className="w-5 h-5 text-amber-400" />
+                    <span>50-Sales Executive Sprint Claim</span>
+                  </>
+                ) : contestModalOpen === 'sales_100' ? (
+                  <>
+                    <Trophy className="w-5 h-5 text-purple-400" />
+                    <span>100-Sales Grand Producer Claim</span>
+                  </>
+                ) : (
+                  <>
+                    <Trophy className="w-5 h-5 text-sky-400" />
+                    <span>Weekly Friday Top 3 Pool Entry</span>
+                  </>
+                )}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setContestModalOpen(null)}
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
             </div>
 
             <div className="p-6">
+              <div className="grid grid-cols-3 gap-2 mb-4 text-center bg-black/40 border border-white/10 rounded-2xl p-3">
+                <div>
+                  <span className="text-[10px] text-gray-400 uppercase block">Verified Sales</span>
+                  <span className="text-sm font-black text-emerald-400">{totalSalesCount}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-400 uppercase block">This Week</span>
+                  <span className="text-sm font-black text-sky-400">{weeklySalesCount}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-400 uppercase block">Affiliate ID</span>
+                  <span className="text-xs font-mono font-bold text-amber-300">
+                    {userAffiliateCode || 'N/A'}
+                  </span>
+                </div>
+              </div>
+
               <form onSubmit={handleContestSubmit} className="space-y-4">
-                 <div>
-                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Full Name</label>
-                   <input type="text" required value={contestFullName} onChange={(e) => setContestFullName(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
-                 </div>
-                 <div>
-                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Phone Number (with code)</label>
-                   <input type="text" required value={contestPhone} onChange={(e) => setContestPhone(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
-                 </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={contestFullName}
+                    onChange={(e) => setContestFullName(e.target.value)}
+                    placeholder={`${firstName} ${lastName}`.trim() || 'Your Full Name'}
+                    className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">
+                    Phone / WhatsApp Number (with code) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={contestPhone}
+                    onChange={(e) => setContestPhone(e.target.value)}
+                    placeholder="+233..."
+                    className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
 
-                 {contestModalOpen === 'viral_100k' && (
-                   <>
-                     <div>
-                       <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">TikTok / Instagram Handle (@)</label>
-                       <input type="text" required value={contestSocialHandle} onChange={(e) => setContestSocialHandle(e.target.value)} placeholder="@yourusername" className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
-                     </div>
-                     <div>
-                       <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Direct Video URL</label>
-                       <input type="url" required value={contestVideoUrl} onChange={(e) => setContestVideoUrl(e.target.value)} placeholder="https://tiktok.com/@..." className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
-                     </div>
-                   </>
-                 )}
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">
+                    {contestModalOpen === 'viral_100k'
+                      ? 'TikTok / Instagram Handle (@) *'
+                      : 'TikTok / Instagram / Social Handle (Optional)'}
+                  </label>
+                  <input
+                    type="text"
+                    required={contestModalOpen === 'viral_100k'}
+                    value={contestSocialHandle}
+                    onChange={(e) => setContestSocialHandle(e.target.value)}
+                    placeholder="@yourusername"
+                    className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
 
-                 <div>
-                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Bank / Mobile Money Account Details</label>
-                   <input type="text" required value={contestBankMomoDetails} onChange={(e) => setContestBankMomoDetails(e.target.value)} placeholder="e.g. MTN MoMo - 024XXXXXXX" className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none" />
-                 </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">
+                    {contestModalOpen === 'viral_100k'
+                      ? 'Direct TikTok / IG Video URL *'
+                      : 'Proof Screenshot / Promo Link (Optional)'}
+                  </label>
+                  <input
+                    type="url"
+                    required={contestModalOpen === 'viral_100k'}
+                    value={contestVideoUrl}
+                    onChange={(e) => setContestVideoUrl(e.target.value)}
+                    placeholder="https://tiktok.com/@... or https://instagram.com/reel/..."
+                    className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
 
-                 <button type="submit" className={`w-full py-4 mt-2 rounded-xl text-black font-black transition-all flex items-center justify-center gap-2 ${contestModalOpen === 'viral_100k' ? 'bg-cyan-500 hover:bg-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)]' : 'bg-amber-500 hover:bg-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]'}`}>
-                   {contestModalOpen === 'viral_100k' ? 'Submit Application' : 'Register for Sprint'} <ArrowRight className="w-4 h-4" />
-                 </button>
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">
+                    Payout MoMo / Bank Details & Verification Notes *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={contestBankMomoDetails}
+                    onChange={(e) => setContestBankMomoDetails(e.target.value)}
+                    placeholder="e.g. MTN MoMo - 024XXXXXXX (Account Name)"
+                    className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmittingContest}
+                  className={`w-full py-4 mt-2 rounded-xl text-black font-black transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${
+                    contestModalOpen === 'viral_100k'
+                      ? 'bg-cyan-500 hover:bg-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)]'
+                      : 'bg-amber-500 hover:bg-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
+                  }`}
+                >
+                  {isSubmittingContest ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Submitting & Dispatching to Admin...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        {contestModalOpen === 'viral_100k'
+                          ? 'Submit Video Application'
+                          : 'Submit Contest Entry / Claim'}
+                      </span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
               </form>
             </div>
           </div>

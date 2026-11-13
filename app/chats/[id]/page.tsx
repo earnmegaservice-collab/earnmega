@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { useCall } from '../../../context/CallContext';
@@ -9,8 +10,14 @@ import { UserProfileDetails } from '../../../components/profile/UserProfileModal
 import { ArrowLeft, MoreVertical, Send, Phone, Video } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import VerifiedTick from '../../../components/ui/VerifiedTick';
+import PillarAccessGuard from '../../../components/auth/PillarAccessGuard';
 
-export default function ChatPage() {
+const GlobalChatAccessGate = dynamic(
+  () => import('../../../components/auth/GlobalChatAccessGate'),
+  { ssr: false }
+);
+
+function ChatPageInner() {
   const { user } = useAuth();
   const { initiateCall } = useCall();
   const router = useRouter();
@@ -250,5 +257,32 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <PillarAccessGuard
+      pillar={1}
+      renderPaywall={({ user, entitlements, recheck }) => (
+        <GlobalChatAccessGate
+          isOpen={true}
+          currentUser={user}
+          currentProfile={entitlements}
+          initialDeniedAudit={
+            user ? { email: user.email || 'this account', entitlements } : null
+          }
+          onLoginClick={() => void recheck()}
+          onPaidLoginSuccess={async () => {
+            await recheck();
+          }}
+          onSuccess={async () => {
+            await recheck();
+          }}
+        />
+      )}
+    >
+      <ChatPageInner />
+    </PillarAccessGuard>
   );
 }

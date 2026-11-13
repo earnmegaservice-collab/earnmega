@@ -1,34 +1,13 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'placeholder_service_key';
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+import { getAdminClient, paywallErrorResponse, requireAuthedUser } from '@/lib/server/paywall';
 
 export async function POST(request: Request) {
   try {
-    const { userId: bodyUserId } = await request.json().catch(() => ({}));
+    const admin = getAdminClient();
+    const user = await requireAuthedUser(request, admin);
+    const userId = user.id;
 
-    // 1. Resolve user ID
-    let userId: string | null = null;
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      const { data: { user } } = await supabase.auth.getUser(token);
-      if (user?.id) userId = user.id;
-    }
-    if (!userId && bodyUserId) userId = bodyUserId;
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = await admin
       .from('profiles')
       .select('id, username, email, subscription_tier, subscription_started_at, subscription_expires_at, is_pro, is_premium')
       .eq('id', userId)
@@ -44,8 +23,7 @@ export async function POST(request: Request) {
 
     // Check if expired
     if ((currentTier === 'pro' || currentTier === 'premium') && expiresAt && now >= expiresAt) {
-      // 1. Move back to free
-      await supabase
+      await admin
         .from('profiles')
         .update({
           subscription_tier: 'free',
@@ -54,8 +32,7 @@ export async function POST(request: Request) {
         })
         .eq('id', userId);
 
-      // 2. Insert alert into admin_subscription_alerts
-      await supabase
+      await admin
         .from('admin_subscription_alerts')
         .insert({
           user_id: userId,
@@ -81,6 +58,7 @@ export async function POST(request: Request) {
       remainingMs: expiresAt ? Math.max(0, expiresAt - now) : null,
     });
   } catch (err: any) {
+    if (err?.name === 'PaywallError') return paywallErrorResponse(err);
     console.error('subscription-status error:', err);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
