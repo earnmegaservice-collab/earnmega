@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
-import { useWallet } from '../../context/WalletContext';
 import { toast } from 'react-hot-toast';
 import { ShieldCheck,
   Sparkles,
@@ -178,7 +177,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_faceless_ai',
     shortCode: 'FACELESS-AI',
     title: 'The AI Faceless Video Engine',
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'AI & Tech',
     badges: ['TOP PICK', 'HIGH CONVERTING', 'SALE'],
     rating: 4.9,
@@ -206,7 +205,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Stop spending 6 hours editing videos. The AI Faceless Video Engine builds high-retention clips on autopilot!'
       ],
       whatsapp: [
-        'Hey! I just got access to The AI Faceless Video Engine by Gee Mings. It shows you how to run profitable faceless TikTok & YouTube channels with AI. Check out the official page here: {LINK}',
+        'Hey! I just got access to The AI Faceless Video Engine by Moses. It shows you how to run profitable faceless TikTok & YouTube channels with AI. Check out the official page here: {LINK}',
         'Want to monetize short-form video without showing your face on camera? Grab The AI Faceless Video Engine here: {LINK}'
       ]
     }
@@ -215,7 +214,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_mmm_system',
     shortCode: 'MMM-ENGINE',
     title: 'The Mega Messaging Machine (MMM)',
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'Sales',
     badges: ['TOP PICK', 'HIGH CONVERTING'],
     rating: 4.9,
@@ -243,7 +242,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Turn your WhatsApp DMs into an automated cash machine with The Mega Messaging Machine!'
       ],
       whatsapp: [
-        'Tired of people asking for prices and disappearing? The Mega Messaging Machine (MMM) by Gee Mings fixes your DM conversions immediately: {LINK}',
+        'Tired of people asking for prices and disappearing? The Mega Messaging Machine (MMM) by Moses fixes your DM conversions immediately: {LINK}',
         'Copy-paste these exact WhatsApp closing scripts to double your daily sales: {LINK}'
       ]
     }
@@ -252,7 +251,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_day_trading',
     shortCode: 'TRADING-ROADMAP',
     title: "Day Trading Beginner's Roadmap",
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'Trading & Finance',
     badges: ['HIGH CONVERTING', 'SALE'],
     rating: 4.8,
@@ -279,7 +278,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Master chart structure and sniper risk management from scratch. Link in bio!'
       ],
       whatsapp: [
-        "If you want to learn day trading the right way without gambling your capital, study Gee Mings' Day Trading Beginner's Roadmap: {LINK}",
+        "If you want to learn day trading the right way without gambling your capital, study Moses' Day Trading Beginner's Roadmap: {LINK}",
         'Learn institutional chart reading, stop-loss discipline, and daily trade setups here: {LINK}'
       ]
     }
@@ -288,7 +287,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_snapsell',
     shortCode: 'SNAPSELL-PRO',
     title: 'SnapSell: Rapid Digital Product Blueprint',
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'Sales',
     badges: ['TOP PICK', 'HIGH CONVERTING'],
     rating: 4.9,
@@ -315,7 +314,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'The fastest way to launch a digital asset that pays you daily in Cedis and Dollars!'
       ],
       whatsapp: [
-        'Want to launch your own digital product and keep 100% of the profit? Check out SnapSell by Gee Mings here: {LINK}',
+        'Want to launch your own digital product and keep 100% of the profit? Check out SnapSell by Moses here: {LINK}',
         'How to build and automate a digital product funnel this weekend: {LINK}'
       ]
     }
@@ -324,7 +323,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_status_cash',
     shortCode: 'WA-STATUS-CASH',
     title: 'WhatsApp Status Cash Machine',
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'Sales',
     badges: ['HIGH CONVERTING', 'SALE'],
     rating: 4.7,
@@ -351,7 +350,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Stop posting memes on your status. Post this 24-hour sequence instead and watch orders roll in!'
       ],
       whatsapp: [
-        'Turn your WhatsApp status viewers into paying customers every day with the WhatsApp Status Cash Machine by Gee Mings: {LINK}',
+        'Turn your WhatsApp status viewers into paying customers every day with the WhatsApp Status Cash Machine by Moses: {LINK}',
         'Here is how top affiliates turn 100 status views into daily commissions: {LINK}'
       ]
     }
@@ -360,7 +359,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_ai_agency',
     shortCode: 'AI-DOLLAR-AGENCY',
     title: 'AI Freelancing & Remote Dollar Agency Blueprint',
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'AI & Tech',
     badges: ['TOP PICK', 'HIGH CONVERTING'],
     rating: 4.9,
@@ -387,7 +386,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'How to land $500/month foreign retainer clients without coding!'
       ],
       whatsapp: [
-        'Ready to earn in USD from home using AI tools to fulfill client work? Check out the AI Remote Dollar Agency Blueprint by Gee Mings: {LINK}',
+        'Ready to earn in USD from home using AI tools to fulfill client work? Check out the AI Remote Dollar Agency Blueprint by Moses: {LINK}',
         'Step-by-step client acquisition and AI service delivery system: {LINK}'
       ]
     }
@@ -396,7 +395,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_viral_hooks_50',
     shortCode: 'VIRAL-HOOKS-50',
     title: 'TikTok & Reels Viral Hook Vault (500+ AI Prompts)',
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'AI & Tech',
     badges: ['NEW LAUNCH', 'HIGH CONVERTING', 'GH₵ 50 OFFER'],
     rating: 4.9,
@@ -423,7 +422,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Steal these 500+ plug-and-play viral hooks and AI script prompts to turn views into daily Paystack alerts!'
       ],
       whatsapp: [
-        'Want 500+ proven TikTok & Reels viral hooks + ChatGPT script prompts for just GH₵ 50? Unlock the Viral Hook Vault by Gee Mings here: {LINK}',
+        'Want 500+ proven TikTok & Reels viral hooks + ChatGPT script prompts for just GH₵ 50? Unlock the Viral Hook Vault by Moses here: {LINK}',
         'Stop struggling with what to post. Grab the 500+ Viral Hook Vault & earn 50% instant commission promoting it too: {LINK}'
       ]
     }
@@ -432,7 +431,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_canva_capcut_50',
     shortCode: 'CANVA-CAPCUT-50',
     title: 'Canva & CapCut Mobile Cashflow Kit',
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'Sales',
     badges: ['TOP PICK', 'HIGH CONVERTING', 'GH₵ 50 OFFER'],
     rating: 4.9,
@@ -459,7 +458,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         '100+ editable Canva flyers & CapCut viral presets ready to copy on your phone today!'
       ],
       whatsapp: [
-        'Hey! Check out the Canva & CapCut Mobile Cashflow Kit by Gee Mings — 100+ ready-made templates and mobile editing workflows for just GH₵ 50: {LINK}',
+        'Hey! Check out the Canva & CapCut Mobile Cashflow Kit by Moses — 100+ ready-made templates and mobile editing workflows for just GH₵ 50: {LINK}',
         'Turn your smartphone into a creative cashflow studio in 10 minutes. Grab the Canva & CapCut Kit here: {LINK}'
       ]
     }
@@ -468,7 +467,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
     id: 'prod_ai_ecommerce_100',
     shortCode: 'ECOM-AI-100',
     title: 'AI E-Commerce & Mini-Importation Empire Blueprint',
-    creator: 'Gee Mings (Creator)',
+    creator: 'Moses (Creator)',
     category: 'Trading & Finance',
     badges: ['TOP PICK', 'HIGH CONVERTING', 'BEST VALUE'],
     rating: 5.0,
@@ -495,7 +494,7 @@ const INITIAL_PRODUCTS: MarketplaceProduct[] = [
         'Source winning products from verified factories and launch your AI E-Commerce brand today for GH₵ 100!'
       ],
       whatsapp: [
-        'Ready to start a profitable mini-importation & AI e-commerce brand without fake orders? Grab Gee Mings’ AI E-Commerce Empire Blueprint here: {LINK}',
+        'Ready to start a profitable mini-importation & AI e-commerce brand without fake orders? Grab Moses’ AI E-Commerce Empire Blueprint here: {LINK}',
         'Learn verified supplier sourcing, landed-cost math, and AI video ads for GH₵ 100 (and earn GH₵ 50 per referral!): {LINK}'
       ]
     }
@@ -519,7 +518,7 @@ const FIVE_STEP_EXAM_BANK: Record<number, { title: string; subtitle: string; que
       { q: 'How does HorPal identify which affiliate referred a paying customer?', options: ['By guessing from social media', 'Via the affiliate’s unique product tracking link (?prod=...&ref=HP-XXXX)', 'By asking the customer a week later', 'Everyone shares the same link'], correctIndex: 1 },
       { q: 'When is an affiliate commission officially credited to your HorPal Available Balance?', options: ['When someone clicks the link only', 'When someone views a WhatsApp status', 'Immediately upon verified Paystack purchase completion', 'Before the customer pays'], correctIndex: 2 },
       { q: 'What is the standard affiliate commission rate across HorPal core digital products?', options: ['10%', '25%', '50%', '5%'], correctIndex: 2 },
-      { q: 'Who is the official creator of the core digital products in the HorPal Marketplace?', options: ['Gee Mings (Creator)', 'Anonymous Vendor', 'External Broker', 'Random User'], correctIndex: 0 },
+      { q: 'Who is the official creator of the core digital products in the HorPal Marketplace?', options: ['Moses (Creator)', 'Anonymous Vendor', 'External Broker', 'Random User'], correctIndex: 0 },
       { q: 'If a buyer purchases a product through your unique affiliate link, what do they receive?', options: ['Only the affiliate dashboard', 'Both the Digital Product access AND unlocked HorPal Pillar 2 Affiliate access', 'Nothing until next month', 'Only a receipt'], correctIndex: 1 },
       { q: 'If a user pays the GH₵ 90 direct registration fee without buying a product through an affiliate product link, what do they unlock?', options: ['All 9 products for free', 'The HorPal Pillar 2 Affiliate Portal only (no product included)', 'Only Pillar 1 social chat', 'A physical book'], correctIndex: 1 },
       { q: 'Why must every product have a unique affiliate link per promoter?', options: ['So the system attributes the exact product price, 50% commission, and buyer ID to the right affiliate', 'Just for decoration', 'To slow down checkout', 'It is not needed'], correctIndex: 0 },
@@ -792,7 +791,8 @@ export default function HorPalAffiliatePillar({
   >(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
   const [isAiBotOpen, setIsAiBotOpen] = useState<boolean>(false);
-  const { openCoinStore } = useWallet();
+  const [isLockedDashboardModalOpen, setIsLockedDashboardModalOpen] = useState<boolean>(false);
+  const [passedCourseCertificates, setPassedCourseCertificates] = useState<Record<string, string>>({});
 
   // User & Separate Pillar 2 Profile State (Strictly Isolated — Zero Hardcoded Fallbacks)
   const initialUid = currentProfile?.id || null;
@@ -1021,7 +1021,7 @@ export default function HorPalAffiliatePillar({
   } | null>(null);
   const [certificateUnlocked, setCertificateUnlocked] = useState<boolean>(false);
   const [certificateStudentName, setCertificateStudentName] = useState<string>('');
-  const [certificateCode, setCertificateCode] = useState<string>('HP-CERT-908421');
+  const [certificateCode, setCertificateCode] = useState<string>('');
 
   // Contests & 100K Views TikTok/IG Challenge State
   const [registeredContests, setRegisteredContests] = useState<string[]>([]);
@@ -1103,12 +1103,7 @@ export default function HorPalAffiliatePillar({
   // HorPal AI Business Brain Bot State
   const [aiBotCategory, setAiBotCategory] = useState<'Brain' | 'Marketing' | 'Sales' | 'Product'>('Brain');
   const [aiInput, setAiInput] = useState<string>('');
-  const [aiMessages, setAiMessages] = useState<Array<{ sender: 'bot' | 'user'; text: string }>>([
-    {
-      sender: 'bot',
-      text: "Hello! 👋 I'm your HorPal AI Business Brain. I understand your products, sales, customers, and 50% commission engine. Ask me anything!"
-    }
-  ]);
+  const [aiMessages, setAiMessages] = useState<Array<{ sender: 'bot' | 'user'; text: string }>>([]);
 
   // Extra Feature: WhatsApp Auto-Closer, Social Proof Flyer & Bio-Link Storefront Preview
   const [waCloserNumber, setWaCloserNumber] = useState<string>('');
@@ -1135,11 +1130,15 @@ export default function HorPalAffiliatePillar({
     let hasProdLanding = false;
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      const prodParam = params.get('prod') || sessionStorage.getItem('horpal_active_prod');
-      const refParam = params.get('ref');
+      const prodParam =
+        params.get('prod') ||
+        params.get('product') ||
+        sessionStorage.getItem('horpal_active_prod');
+      const refParam = params.get('ref') || params.get('aff');
       const storeParam = params.get('store');
       const sectionParam = params.get('section');
       const portalParam = params.get('portal');
+      const paystackCallbackRef = params.get('reference') || params.get('trxref');
 
       if (sectionParam === 'payouts' || portalParam === 'payout') {
         setActiveSection('payouts');
@@ -1160,6 +1159,14 @@ export default function HorPalAffiliatePillar({
             })
           );
           localStorage.setItem('horpal_affiliate_ref', cleanRef);
+
+          const clickKey = `horpal_clicked_${cleanRef.toUpperCase()}`;
+          if (!sessionStorage.getItem(clickKey)) {
+            sessionStorage.setItem(clickKey, '1');
+            supabase.rpc('increment_pillar2_click_rpc', {
+              p_affiliate_code: cleanRef,
+            }).then(() => {});
+          }
         } catch (_) {}
         setAttributedRefCode(cleanRef);
       } else {
@@ -1183,11 +1190,14 @@ export default function HorPalAffiliatePillar({
         } catch (_) {}
       }
 
-      // CRITICAL: When someone opens a unique product affiliate link (?prod=...),
+      // CRITICAL: When someone opens a unique product affiliate link (?prod=... or ?product=...),
       // land them directly on that product's high-converting Sales Page & Checkout!
       if (prodParam) {
         const matched = products.find(
-          (p) => p.id === prodParam || p.shortCode.toLowerCase() === prodParam.toLowerCase()
+          (p) =>
+            p.id === prodParam ||
+            p.id.toLowerCase() === prodParam.toLowerCase() ||
+            p.shortCode.toLowerCase() === prodParam.toLowerCase()
         );
         if (matched) {
           hasProdLanding = true;
@@ -1196,6 +1206,23 @@ export default function HorPalAffiliatePillar({
             sessionStorage.removeItem('horpal_active_prod');
           } catch (_) {}
         }
+      }
+
+      if (paystackCallbackRef && !paystackCallbackRef.toUpperCase().startsWith('HP_TEST_')) {
+        try {
+          const pendingRaw = sessionStorage.getItem('horpal_pending_p2_product_purchase');
+          if (pendingRaw) {
+            sessionStorage.removeItem('horpal_pending_p2_product_purchase');
+            const pendingData = JSON.parse(pendingRaw);
+            const cleanedUrl = new URL(window.location.href);
+            cleanedUrl.searchParams.delete('reference');
+            cleanedUrl.searchParams.delete('trxref');
+            window.history.replaceState({}, '', cleanedUrl.toString());
+            setTimeout(() => {
+              completeVerifiedPurchaseRecord(paystackCallbackRef, pendingData);
+            }, 300);
+          }
+        } catch (_) {}
       }
 
       if (storeParam) {
@@ -2163,13 +2190,13 @@ export default function HorPalAffiliatePillar({
       ctx.textAlign = 'center';
       ctx.fillStyle = '#FDE68A';
       ctx.font = 'italic 50px serif';
-      ctx.fillText('Gee Mings', 400, 1180);
+      ctx.fillText('Moses', 400, 1180);
       ctx.strokeStyle = '#6B7280';
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(250, 1200); ctx.lineTo(550, 1200); ctx.stroke();
       ctx.fillStyle = '#9CA3AF';
       ctx.font = '20px sans-serif';
-      ctx.fillText('GEE MINGS • FOUNDER & CEO, HORPAL', 400, 1230);
+      ctx.fillText('MOSES • FOUNDER & CEO, HORPAL', 400, 1230);
 
       // Center - 3D Gold Seal
       ctx.beginPath();
@@ -3213,7 +3240,7 @@ export default function HorPalAffiliatePillar({
     if (lower === 'hi' || lower === 'hello' || lower === 'hey' || lower.includes('good morning') || lower.includes('good afternoon')) {
       reply = `Hello ${firstName || 'Partner'}! 👋 Welcome to the HorPal AI Business Brain. You can ask me anything about HorPal, your unique product links, Friday payouts, or how to close more sales!`;
     } else if (lower.includes('horpal') || lower.includes('commission') || lower.includes('payout') || lower.includes('friday') || lower.includes('link')) {
-      reply = `On HorPal Pillar 2, every product by Gee Mings pays an instant 50% commission into your Available Balance the moment Paystack verifies payment. Your unique tracking link (${userAffiliateCode}) records the buyer's Full Name, Gmail, and Unique Order ID. Withdrawals are processed every Friday via Instant Paystack Transfer or Global Manual Settlement!`;
+      reply = `On HorPal Pillar 2, every product by Moses pays an instant 50% commission into your Available Balance the moment Paystack verifies payment. Your unique tracking link (${userAffiliateCode}) records the buyer's Full Name, Gmail, and Unique Order ID. Withdrawals are processed every Friday via Instant Paystack Transfer or Global Manual Settlement!`;
     } else {
       reply = `RECOMMENDATION:\nTo maximize conversions on "${query}", pair your offer with a **1-Click Order Bump** at checkout, enable automated WhatsApp customer sync, and offer an affiliate commission of 50% to incentivize top promoters!\n\nWant me to write the complete WhatsApp broadcast sequence or TikTok hook for this?`;
     }
@@ -3658,18 +3685,7 @@ export default function HorPalAffiliatePillar({
                 <Settings className="w-4 h-4 text-emerald-400" />
                 <span>Pillar 2 Profile & Settings</span>
               </button>
-              {isAdminUser && (
-                <button
-                  onClick={() => {
-                    setIsDrawerOpen(false);
-                    openDirectPillar2EnrollmentCheckout();
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>Test Direct Entry Checkout (GH₵ 90)</span>
-                </button>
-              )}
+
               <button
                 onClick={handlePillar2SignOut}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-all"
@@ -4244,12 +4260,7 @@ export default function HorPalAffiliatePillar({
                   {products.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                 </select>
               </div>
-              <button
-                onClick={() => setCertificateUnlocked(true)}
-                className="text-xs font-bold text-amber-400 bg-amber-500/10 px-4 py-2 rounded-xl border border-amber-500/20 hover:bg-amber-500/20"
-              >
-                Preview Certificate
-              </button>
+
             </div>
 
             {certificateUnlocked ? (
@@ -4308,9 +4319,9 @@ export default function HorPalAffiliatePillar({
                   {/* Left: Signature */}
                   <div className="text-center w-48">
                     <div className="border-b-2 border-gray-600 pb-2 mb-2">
-                      <span className="font-serif italic text-3xl text-amber-200 block -mb-1">Gee Mings</span>
+                      <span className="font-serif italic text-3xl text-amber-200 block -mb-1">Moses</span>
                     </div>
-                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Gee Mings • Founder & CEO, HorPal</p>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Moses • Founder & CEO, HorPal</p>
                   </div>
 
                   {/* Center: 3D Gold Seal */}
@@ -6230,10 +6241,6 @@ export default function HorPalAffiliatePillar({
                    </>
                  );
                })()}
-
-               <button onClick={() => completeVerifiedPurchaseRecord(`HP_TEST_${Date.now()}`)} className="w-full py-3 rounded-xl bg-[#141d30] border border-white/10 text-white font-bold text-xs hover:bg-[#1b263f]">
-                 Instant Verify / Test Purchase
-               </button>
             </div>
           </div>
         </div>

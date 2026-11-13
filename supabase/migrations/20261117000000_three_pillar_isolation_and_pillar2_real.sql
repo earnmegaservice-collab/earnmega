@@ -707,11 +707,16 @@ AS $$
 DECLARE
   v_existing_sale RECORD;
   v_aff_profile RECORD;
+  v_prev_aff_balance NUMERIC(12,2) := 0.00;
   v_new_aff_balance NUMERIC(12,2) := 0.00;
   v_clean_buyer_email TEXT;
   v_paid_at TIMESTAMPTZ := NOW();
   v_expires_at TIMESTAMPTZ := NOW() + INTERVAL '365 days';
 BEGIN
+  IF p_reference IS NULL OR TRIM(p_reference) = '' OR UPPER(TRIM(p_reference)) LIKE 'HP_TEST_%' THEN
+    RAISE EXCEPTION 'Invalid or test payment reference rejected: %', p_reference;
+  END IF;
+
   v_clean_buyer_email := LOWER(TRIM(COALESCE(p_buyer_email, 'buyer@horpal.com')));
 
   SELECT * INTO v_existing_sale
@@ -724,11 +729,13 @@ BEGIN
       'success', true,
       'already_processed', true,
       'reference', p_reference,
-      'affiliate_new_balance_ghs', v_existing_sale.affiliate_new_balance_ghs
+      'affiliate_user_id', v_existing_sale.affiliate_user_id,
+      'affiliate_email', v_existing_sale.affiliate_email,
+      'affiliate_new_balance_ghs', COALESCE(v_existing_sale.affiliate_new_balance_ghs, 0.00)
     );
   END IF;
 
-  IF p_affiliate_code IS NOT NULL AND TRIM(p_affiliate_code) <> '' THEN
+  IF p_affiliate_code IS NOT NULL AND TRIM(p_affiliate_code) <> '' AND UPPER(TRIM(p_affiliate_code)) <> 'DIRECT' THEN
     SELECT * INTO v_aff_profile
     FROM public.profiles
     WHERE UPPER(TRIM(COALESCE(affiliate_code, ''))) = UPPER(TRIM(p_affiliate_code))
@@ -745,10 +752,14 @@ BEGIN
   END IF;
 
   IF v_aff_profile.id IS NOT NULL AND COALESCE(p_commission_amount_ghs, 0) > 0 THEN
+    v_prev_aff_balance := COALESCE(v_aff_profile.affiliate_balance, 0.00);
+
     UPDATE public.profiles
     SET
       affiliate_balance = COALESCE(affiliate_balance, 0.00) + p_commission_amount_ghs,
+      available_balance_ghs = COALESCE(affiliate_balance, 0.00) + p_commission_amount_ghs,
       affiliate_total_earned = COALESCE(affiliate_total_earned, 0.00) + p_commission_amount_ghs,
+      total_earnings_ghs = COALESCE(affiliate_total_earned, 0.00) + p_commission_amount_ghs,
       affiliate_total_sales = COALESCE(affiliate_total_sales, 0) + 1,
       affiliate_code = COALESCE(affiliate_code, UPPER(TRIM(p_affiliate_code)))
     WHERE id = v_aff_profile.id
@@ -809,8 +820,11 @@ BEGIN
   UPDATE public.profiles
   SET
     has_paid_pillar2 = TRUE,
+    is_pillar2_paid = TRUE,
     pillar2_paid_at = COALESCE(pillar2_paid_at, v_paid_at),
     pillar2_expires_at = GREATEST(COALESCE(pillar2_expires_at, v_paid_at), v_expires_at),
+    license_activated_at = COALESCE(license_activated_at, v_paid_at),
+    license_expires_at = GREATEST(COALESCE(license_expires_at, v_paid_at), v_expires_at),
     pillar2_paystack_ref = p_reference
   WHERE (p_buyer_user_id IS NOT NULL AND id = p_buyer_user_id)
      OR LOWER(TRIM(COALESCE(email, ''))) = v_clean_buyer_email;
@@ -821,6 +835,7 @@ BEGIN
     'reference', p_reference,
     'affiliate_user_id', v_aff_profile.id,
     'affiliate_email', v_aff_profile.email,
+    'affiliate_previous_balance_ghs', v_prev_aff_balance,
     'affiliate_new_balance_ghs', v_new_aff_balance,
     'pillar2_paid_at', v_paid_at,
     'pillar2_expires_at', v_expires_at
@@ -829,3 +844,75 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.record_pillar2_sale_rpc(TEXT, TEXT, TEXT, NUMERIC, NUMERIC, TEXT, UUID, TEXT, TEXT, TEXT) TO anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.mark_pillar2_exam_passed_rpc(
+  p_user_id UUID DEFAULT NULL,
+  p_email TEXT DEFAULT NULL,
+  p_product_id TEXT DEFAULT NULL,
+  p_certificate_id TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_clean_email TEXT;
+  v_cert_id TEXT;
+BEGIN
+  v_clean_email := LOWER(TRIM(COALESCE(p_email, '')));
+  v_cert_id := COALESCE(NULLIF(TRIM(p_certificate_id), ''), 'HP-CERT-' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT || NOW()::TEXT) FROM 1 FOR 8)));
+
+  UPDATE public.pillar2_unlocked_courses
+  SET
+    exam_passed = TRUE,
+    certificate_id = COALESCE(certificate_id, v_cert_id),
+    user_id = COALESCE(user_id, p_user_id)
+  WHERE product_id = p_product_id
+    AND (
+      (p_user_id IS NOT NULL AND user_id = p_user_id)
+      OR (v_clean_email <> '' AND LOWER(TRIM(buyer_email)) = v_clean_email)
+    )
+  RETURNING certificate_id INTO v_cert_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Course must be unlocked via verified purchase before claiming exam certificate.';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'product_id', p_product_id,
+    'exam_passed', true,
+    'certificate_id', v_cert_id
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.mark_pillar2_exam_passed_rpc(UUID, TEXT, TEXT, TEXT) TO anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.increment_pillar2_click_rpc(
+  p_affiliate_code TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_new_clicks INTEGER := 0;
+BEGIN
+  IF p_affiliate_code IS NULL OR TRIM(p_affiliate_code) = '' THEN
+    RETURN jsonb_build_object('success', false);
+  END IF;
+
+  UPDATE public.profiles
+  SET affiliate_link_clicks = COALESCE(affiliate_link_clicks, 0) + 1
+  WHERE UPPER(TRIM(COALESCE(affiliate_code, ''))) = UPPER(TRIM(p_affiliate_code))
+     OR id::text = TRIM(p_affiliate_code)
+  RETURNING affiliate_link_clicks INTO v_new_clicks;
+
+  RETURN jsonb_build_object('success', FOUND, 'affiliate_link_clicks', COALESCE(v_new_clicks, 0));
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.increment_pillar2_click_rpc(TEXT) TO anon, authenticated, service_role;

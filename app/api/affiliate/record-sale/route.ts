@@ -1,161 +1,200 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
-const resendApiKey = process.env.RESEND_API_KEY || '';
+const getSupabaseClient = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+};
 
-export async function POST(req: NextRequest) {
+const getResendClient = () => {
+  const resendKey =
+    process.env.RESEND_API_KEY_AFFILIATE || process.env.RESEND_API_KEY;
+  return resendKey ? new Resend(resendKey) : null;
+};
+
+export async function POST(req: Request) {
   try {
     const body = await req.json();
     const {
       reference,
       productId,
       productTitle,
-      priceGhs,
-      commissionGhs,
-      affiliateRef,
+      grossAmountGHS,
+      affiliateCode,
+      buyerUserId,
       buyerName,
       buyerEmail,
       buyerPhone,
-      buyerUserId,
-    } = body;
+    } = body || {};
 
-    if (!reference || !productId) {
-      return NextResponse.json({ error: 'Missing required payment reference or productId' }, { status: 400 });
+    const cleanRef = String(reference || '').trim();
+    if (!cleanRef || cleanRef.toUpperCase().startsWith('HP_TEST_')) {
+      return NextResponse.json(
+        { error: 'Test purchases are disabled. A real verified Paystack reference is required.' },
+        { status: 400 }
+      );
     }
 
-    // 1. Verify payment with Paystack if secret key is available
-    let paystackVerified = true;
-    if (paystackSecretKey && !reference.startsWith('HP_TEST_')) {
-      try {
-        const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+    if (!productId || !productTitle) {
+      return NextResponse.json(
+        { error: 'Missing required sale parameters.' },
+        { status: 400 }
+      );
+    }
+
+    const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+    let verifiedGrossGHS = Number(grossAmountGHS) || 0;
+
+    if (paystackSecret) {
+      const verifyRes = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`,
+        {
           method: 'GET',
           headers: {
-            Authorization: `Bearer ${paystackSecretKey}`,
+            Authorization: `Bearer ${paystackSecret}`,
             'Content-Type': 'application/json',
           },
           cache: 'no-store',
-        });
-        const verifyData = await verifyRes.json();
-        if (verifyData?.status === true && verifyData?.data?.status !== 'success') {
-          paystackVerified = false;
         }
-      } catch (verifyErr) {
-        console.warn('Paystack verification network warning, proceeding with callback reference:', verifyErr);
+      );
+
+      const verifyJson = await verifyRes.json();
+      if (!verifyRes.ok || !verifyJson?.status || verifyJson?.data?.status !== 'success') {
+        return NextResponse.json(
+          {
+            error:
+              verifyJson?.data?.gateway_response ||
+              verifyJson?.message ||
+              'Paystack could not verify this product payment.',
+          },
+          { status: 400 }
+        );
       }
+
+      verifiedGrossGHS = Number((Number(verifyJson.data.amount || 0) / 100).toFixed(2));
     }
 
-    if (!paystackVerified) {
-      return NextResponse.json({ error: 'Transaction not verified as successful by Paystack' }, { status: 400 });
+    const commissionCreditedGHS = Number((verifiedGrossGHS * 0.5).toFixed(2));
+    const cleanBuyerEmail = String(buyerEmail || 'buyer@horpal.com')
+      .trim()
+      .toLowerCase();
+    const cleanAffCode =
+      affiliateCode && String(affiliateCode).trim() !== ''
+        ? String(affiliateCode).trim()
+        : null;
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: 'Supabase configuration is missing.' },
+        { status: 500 }
+      );
     }
 
-    let rpcData: any = null;
-
-    if (supabaseUrl && supabaseKey) {
-      const supabase = createClient(supabaseUrl, supabaseKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
-
-      const { data, error: rpcErr } = await supabase.rpc('record_pillar2_sale_rpc', {
-        p_reference: String(reference),
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      'record_pillar2_sale_rpc',
+      {
+        p_reference: cleanRef,
         p_product_id: String(productId),
-        p_product_title: String(productTitle || 'HorPal Digital Academy Course'),
-        p_gross_amount_ghs: Number(priceGhs || 0),
-        p_commission_amount_ghs: Number(commissionGhs || 0),
-        p_affiliate_code: affiliateRef ? String(affiliateRef).trim() : null,
+        p_product_title: String(productTitle),
+        p_gross_amount_ghs: verifiedGrossGHS,
+        p_commission_amount_ghs: commissionCreditedGHS,
+        p_affiliate_code: cleanAffCode,
         p_buyer_user_id: buyerUserId || null,
-        p_buyer_name: buyerName || 'HorPal Buyer',
-        p_buyer_email: buyerEmail || 'buyer@horpal.com',
-        p_buyer_phone: buyerPhone || null,
-      });
+        p_buyer_name: buyerName || 'Verified Customer',
+        p_buyer_email: cleanBuyerEmail,
+        p_buyer_phone: buyerPhone || 'N/A',
+      }
+    );
 
-      if (rpcErr) {
-        console.warn('record_pillar2_sale_rpc warning:', rpcErr.message);
-      } else {
-        rpcData = data;
+    if (rpcError) {
+      console.error('record_pillar2_sale_rpc error:', rpcError);
+      return NextResponse.json(
+        { error: rpcError.message || 'Failed to record sale.' },
+        { status: 500 }
+      );
+    }
+
+    const alreadyProcessed = Boolean(rpcData?.already_processed);
+    const affiliateUserId = rpcData?.affiliate_user_id || null;
+    let affiliateEmail = rpcData?.affiliate_email || null;
+    let actualNewVerifiedBalance = Number(rpcData?.affiliate_new_balance_ghs ?? 0);
+
+    // Query referring affiliate's actual updated affiliate_balance directly from Supabase public.profiles
+    if (affiliateUserId) {
+      const { data: liveAffProfile } = await supabase
+        .from('profiles')
+        .select('affiliate_balance, email')
+        .eq('id', affiliateUserId)
+        .maybeSingle();
+
+      if (liveAffProfile) {
+        actualNewVerifiedBalance = Number(liveAffProfile.affiliate_balance ?? 0);
+        affiliateEmail = liveAffProfile.email || affiliateEmail;
       }
     }
 
-    if (rpcData?.already_processed) {
-      return NextResponse.json({
-        success: true,
-        alreadyProcessed: true,
-        reference,
-        affiliateCredited: Boolean(rpcData?.affiliate_user_id),
-        newAffiliateBalance: Number(rpcData?.affiliate_new_balance_ghs || 0),
-      });
-    }
+    const resend = getResendClient();
+    const adminEmail =
+      process.env.ADMIN_CONTACT_EMAIL_AFFILIATE || 'geestablish@gmail.com';
+    let emailSent = false;
 
-    const affiliateEmail = rpcData?.affiliate_email || '';
-    const newAffiliateBalance = Number(rpcData?.affiliate_new_balance_ghs || 0);
-
-    // Send real email notifications via Resend (if API key configured)
-    if (resendApiKey) {
+    if (resend && !alreadyProcessed) {
       try {
-        const resend = new Resend(resendApiKey);
-
-        if (affiliateEmail) {
-          await resend.emails.send({
-            from: 'HorPal Affiliate Engine <notifications@horpal.com>',
-            to: [affiliateEmail],
-            subject: `🎉 You just earned GH₵ ${Number(commissionGhs || 0).toFixed(2)} Commission on HorPal!`,
-            html: `
-              <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto; background: #070A12; color: #ffffff; padding: 32px; border-radius: 20px; border: 1px solid #10b981;">
-                <p style="color: #10b981; font-size: 12px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin: 0 0 8px;">HorPal Pillar 2 • Verified Sale</p>
-                <h1 style="font-size: 26px; font-weight: 900; margin: 0 0 16px;">New 80% Commission Credited! 💰</h1>
-                <p style="color: #a1a1aa; font-size: 15px; line-height: 1.6;">
-                  Congratulations! Someone just purchased <strong>${productTitle}</strong> using your referral link (Code: <strong>${affiliateRef}</strong>).
-                </p>
-                <div style="background: #111827; border: 1px solid #1f2937; border-radius: 14px; padding: 20px; margin: 20px 0;">
-                  <p style="margin: 0 0 8px; color: #9ca3af; font-size: 12px;">COMMISSION CREDITED TO YOUR WALLET</p>
-                  <p style="margin: 0; font-size: 32px; font-weight: 900; color: #34d399;">+GH₵ ${Number(commissionGhs || 0).toFixed(2)}</p>
-                  <p style="margin: 8px 0 0; color: #fbbf24; font-size: 13px; font-weight: 700;">New Verified Balance: GH₵ ${newAffiliateBalance.toFixed(2)}</p>
-                </div>
-                <p style="color: #9ca3af; font-size: 13px;">Paystack Reference: <code>${reference}</code></p>
-              </div>
-            `,
-          });
-        }
-
-        if (buyerEmail && buyerEmail.includes('@')) {
-          await resend.emails.send({
-            from: 'HorPal Digital Academy <courses@horpal.com>',
-            to: [buyerEmail],
-            subject: `✅ Course Unlocked: ${productTitle} (HorPal Academy)`,
-            html: `
-              <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto; background: #070A12; color: #ffffff; padding: 32px; border-radius: 20px; border: 1px solid #10b981;">
-                <p style="color: #10b981; font-size: 12px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin: 0 0 8px;">HorPal Digital Academy • Official Receipt</p>
-                <h1 style="font-size: 24px; font-weight: 900; margin: 0 0 16px;">Your Course & 1-Year Affiliate License Are Unlocked! 🎓</h1>
-                <p style="color: #a1a1aa; font-size: 15px; line-height: 1.6;">
-                  Hi ${buyerName || 'Student'}, thank you for purchasing <strong>${productTitle}</strong> (GH₵ ${Number(priceGhs || 0).toFixed(2)}).
-                </p>
-                <p style="color: #34d399; font-size: 14px; font-weight: 700;">
-                  You now have full access to all 10 Complete Masterclass Modules, the Certification Exam, and your 1-Year HorPal Affiliate License!
-                </p>
-                <p style="color: #9ca3af; font-size: 13px;">Paystack Reference: <code>${reference}</code></p>
-              </div>
-            `,
-          });
-        }
+        await resend.emails.send({
+          from:
+            process.env.RESEND_FROM_EMAIL ||
+            'HorPal Affiliate Engine <onboarding@resend.dev>',
+          to: [adminEmail],
+          subject: `💰 [50% COMMISSION CREDITED] GH₵ ${commissionCreditedGHS.toFixed(2)} — ${productTitle} (${cleanAffCode || 'DIRECT'})`,
+          html: `
+            <div style="font-family: Arial, sans-serif; background: #070b14; color: #f9fafb; padding: 28px; border-radius: 16px; border: 1px solid #10b981;">
+              <h2 style="color: #10b981; margin-top: 0;">💸 Verified HorPal Pillar 2 Sale & 50% Commission Audit</h2>
+              <p style="color: #9ca3af; font-size: 14px;">A real digital course sale has been verified and 50% affiliate commission has been credited in Supabase.</p>
+              <hr style="border-color: #1f2937; margin: 16px 0;" />
+              <p><strong>Product:</strong> ${productTitle} (<code>${productId}</code>)</p>
+              <p><strong>Paystack Reference:</strong> <code>${cleanRef}</code></p>
+              <p><strong>Gross Sale Amount:</strong> GH₵ ${verifiedGrossGHS.toFixed(2)}</p>
+              <p style="color: #34d399; font-size: 16px;"><strong>50% Affiliate Commission Credited:</strong> GH₵ ${commissionCreditedGHS.toFixed(2)}</p>
+              <p><strong>Referring Affiliate Code:</strong> ${cleanAffCode || 'None (Direct Platform Sale)'}</p>
+              <p><strong>Referring Affiliate Email:</strong> ${affiliateEmail || 'Unmatched / Direct'}</p>
+              <p><strong>Affiliate New Verified Balance:</strong> GH₵ ${actualNewVerifiedBalance.toFixed(2)}</p>
+              <hr style="border-color: #1f2937; margin: 16px 0;" />
+              <p><strong>Buyer Name:</strong> ${buyerName || 'Verified Customer'}</p>
+              <p><strong>Buyer Email:</strong> ${cleanBuyerEmail}</p>
+              <p><strong>Buyer Phone:</strong> ${buyerPhone || 'N/A'}</p>
+              <p><strong>Timestamp (GMT):</strong> ${new Date().toUTCString()}</p>
+            </div>
+          `,
+        });
+        emailSent = true;
       } catch (emailErr) {
-        console.warn('Resend email notification warning:', emailErr);
+        console.warn('Resend sale alert email error:', emailErr);
       }
     }
 
     return NextResponse.json({
       success: true,
-      reference,
-      affiliateCredited: Boolean(rpcData?.affiliate_user_id),
-      affiliateUserId: rpcData?.affiliate_user_id || null,
-      newAffiliateBalance,
-      pillar2_paid_at: rpcData?.pillar2_paid_at,
-      pillar2_expires_at: rpcData?.pillar2_expires_at,
+      alreadyProcessed,
+      affiliateCredited: Boolean(affiliateUserId),
+      affiliateUserId,
+      affiliateEmail,
+      commissionCreditedGHS,
+      newBalanceGHS: actualNewVerifiedBalance,
+      emailSent,
     });
   } catch (err: any) {
-    console.error('Error recording affiliate sale:', err);
-    return NextResponse.json({ error: err?.message || 'Internal Server Error' }, { status: 500 });
+    console.error('Record sale API error:', err);
+    return NextResponse.json(
+      { error: err?.message || 'Internal Server Error' },
+      { status: 500 }
+    );
   }
 }
