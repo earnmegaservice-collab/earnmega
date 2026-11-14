@@ -215,19 +215,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     refreshWallet();
 
     if (!user) return;
-    const channel = supabase
-      .channel(`wallet_updates_${user.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
-        () => {
-          refreshWallet();
-        }
-      )
-      .subscribe();
+    let channel: any = null;
+    try {
+      const channelName =
+        'wallet_updates_' + user.id + '_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+          () => {
+            refreshWallet();
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [user, refreshWallet]);
 

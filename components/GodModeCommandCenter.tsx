@@ -104,37 +104,43 @@ export default function GodModeCommandCenter({ adminEmail }: { adminEmail?: stri
   useEffect(() => {
     void fetchOverwatchStats()
 
-    const channel = supabase
-      .channel('admin_overwatch_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () =>
-        void fetchOverwatchStats()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pillar2_payout_requests' },
-        () => void fetchOverwatchStats()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'platform_settings' },
-        (payload: any) => {
-          if (payload?.new) setPlatformSettings(payload.new)
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'active_live_streams' },
-        () => void fetchOverwatchStats()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'admin_audit_logs' },
-        () => void fetchOverwatchStats()
-      )
-      .subscribe()
+    let channel: any = null
+    try {
+      const channelName = 'admin_overwatch_realtime_' + Math.random().toString(36).substring(2, 9)
+      channel = supabase
+        .channel(channelName)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () =>
+          void fetchOverwatchStats()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'pillar2_payout_requests' },
+          () => void fetchOverwatchStats()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'platform_settings' },
+          (payload: any) => {
+            if (payload?.new) setPlatformSettings(payload.new)
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'active_live_streams' },
+          () => void fetchOverwatchStats()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'admin_audit_logs' },
+          () => void fetchOverwatchStats()
+        )
+        .subscribe()
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err)
+    }
 
     return () => {
-      supabase.removeChannel(channel)
+      if (channel) supabase.removeChannel(channel)
     }
   }, [fetchOverwatchStats, supabase])
 
@@ -2826,19 +2832,25 @@ function LiveRadarModule({ apiFetch }: { apiFetch: any }) {
     const clockInterval = setInterval(() => setNowMs(Date.now()), 1000)
     const pollInterval = setInterval(() => void loadStreams(), 5000)
 
-    const channel = supabase
-      .channel('admin_live_radar_realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'active_live_streams' },
-        () => void loadStreams()
-      )
-      .subscribe()
+    let channel: any = null
+    try {
+      const channelName = 'admin_live_radar_realtime_' + Math.random().toString(36).substring(2, 9)
+      channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'active_live_streams' },
+          () => void loadStreams()
+        )
+        .subscribe()
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err)
+    }
 
     return () => {
       clearInterval(clockInterval)
       clearInterval(pollInterval)
-      supabase.removeChannel(channel)
+      if (channel) supabase.removeChannel(channel)
     }
   }, [loadStreams, supabase])
 

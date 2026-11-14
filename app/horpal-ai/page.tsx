@@ -18,7 +18,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { syncAuthenticatedUserProfile } from '../../components/auth/HorPalAuthGate';
 import PillarAccessGuard from '../../components/auth/PillarAccessGuard';
-import { useAdminRealtimeEnforcement } from '../../hooks/useAdminRealtimeEnforcement';
+import { getLatestPlatformSettings, PlatformSettings } from '../../hooks/useAdminRealtimeEnforcement';
 import { authFetch } from '../../utils/authFetch';
 import {
   auditAccount,
@@ -198,9 +198,18 @@ export default function HorpalAIPage() {
   const [remainingMs, setRemainingMs] = useState<number>(0);
   const expiryLockTriggeredRef = useRef(false);
 
-  const { settings: platformSettings } = useAdminRealtimeEnforcement({
-    pillar: 3,
-    onForceOpenPaywall: () => {
+  const [platformSettings, setPlatformSettings] = useState<PlatformSettings>(() =>
+    getLatestPlatformSettings()
+  );
+
+  useEffect(() => {
+    const onSettingsUpdated = (e: any) => {
+      if (e?.detail) {
+        setPlatformSettings(e.detail);
+      }
+    };
+    const onRevoked = (e: any) => {
+      if (e?.detail?.pillar && e.detail.pillar !== 3) return;
       setExpiredMessage('Your Pillar 3 AI access has been revoked or expired. Please renew to continue.');
       setShowUpgradeModal(true);
       setProfile((prev: any) =>
@@ -214,8 +223,10 @@ export default function HorpalAIPage() {
             }
           : prev
       );
-    },
-    onForceUnlockPillar: (_pillarNum, updatedProfile) => {
+    };
+    const onGranted = (e: any) => {
+      if (e?.detail?.pillar && e.detail.pillar !== 3) return;
+      const updatedProfile = e?.detail?.profile;
       setExpiredMessage(null);
       setShowUpgradeModal(false);
       setDeniedAudit(null);
@@ -223,13 +234,26 @@ export default function HorpalAIPage() {
       if (updatedProfile) {
         setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
       }
-    },
-    onProfileChanged: (updatedProfile) => {
-      if (updatedProfile) {
-        setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
+    };
+    const onEnforcementSync = (e: any) => {
+      if (e?.detail?.settings) {
+        setPlatformSettings(e.detail.settings);
       }
-    },
-  });
+      if (e?.detail?.profile) {
+        setProfile((prev: any) => ({ ...(prev || {}), ...e.detail.profile }));
+      }
+    };
+    window.addEventListener('earnmega:platform-settings-updated', onSettingsUpdated);
+    window.addEventListener('earnmega:pillar-access-revoked', onRevoked);
+    window.addEventListener('earnmega:pillar-access-granted', onGranted);
+    window.addEventListener('earnmega:admin-enforcement-sync', onEnforcementSync);
+    return () => {
+      window.removeEventListener('earnmega:platform-settings-updated', onSettingsUpdated);
+      window.removeEventListener('earnmega:pillar-access-revoked', onRevoked);
+      window.removeEventListener('earnmega:pillar-access-granted', onGranted);
+      window.removeEventListener('earnmega:admin-enforcement-sync', onEnforcementSync);
+    };
+  }, []);
 
   const activePromptVault = useMemo(() => {
     const customPrompts = Array.isArray((platformSettings as any)?.pillar3_featured_prompts)

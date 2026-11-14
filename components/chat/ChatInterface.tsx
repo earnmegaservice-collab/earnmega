@@ -807,50 +807,62 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       fetchGroup();
 
-      const groupSub = supabase.channel(`group_updates_${otherUserProfile.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
-           if (payload.eventType === 'DELETE') {
-             setGroupDetails((prev: any) => ({ ...(prev || {}), is_locked: true }));
-           } else if (payload.new) {
-             setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
-           }
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'groups', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
-           if (payload.new) {
-             setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
-           }
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_groups', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
-           if (payload.new) {
-             setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
-           }
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'room_participants', filter: `room_id=eq.${otherUserProfile.id}` }, async () => {
-           const { data: members } = await supabase.from('room_participants').select('*, profiles(id, username, full_name, avatar_url)').eq('room_id', otherUserProfile.id);
-           if (members) setGroupMembers(members);
-        })
-        .subscribe();
+      let groupSub: any = null;
+      let adminBroadcastSub: any = null;
+      try {
+        const groupChannelName =
+          'group_updates_' + otherUserProfile.id + '_' + Math.random().toString(36).substring(2, 9);
+        groupSub = supabase.channel(groupChannelName)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
+             if (payload.eventType === 'DELETE') {
+               setGroupDetails((prev: any) => ({ ...(prev || {}), is_locked: true }));
+             } else if (payload.new) {
+               setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
+             }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'groups', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
+             if (payload.new) {
+               setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
+             }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_groups', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
+             if (payload.new) {
+               setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
+             }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'room_participants', filter: `room_id=eq.${otherUserProfile.id}` }, async () => {
+             const { data: members } = await supabase.from('room_participants').select('*, profiles(id, username, full_name, avatar_url)').eq('room_id', otherUserProfile.id);
+             if (members) setGroupMembers(members);
+          })
+          .subscribe();
+      } catch (err) {
+        console.warn('Realtime fallback to polling:', err);
+      }
 
-      const adminBroadcastSub = supabase.channel(`horpal_godmode_group_${otherUserProfile.id}`)
-        .on('broadcast', { event: 'GROUP_LOCK_UPDATED' }, (payload: any) => {
-          if (payload?.payload?.groupId === otherUserProfile.id) {
-            setGroupDetails((prev: any) => ({
-              ...(prev || {}),
-              is_locked: Boolean(payload.payload.isLocked),
-              locked_reason: payload.payload.reason || null,
-            }));
-          }
-        })
-        .on('broadcast', { event: 'GROUP_MESSAGES_CLEARED' }, (payload: any) => {
-          if (payload?.payload?.groupId === otherUserProfile.id) {
-            setMessages([]);
-          }
-        })
-        .subscribe();
+      try {
+        adminBroadcastSub = supabase.channel(`horpal_godmode_group_${otherUserProfile.id}`)
+          .on('broadcast', { event: 'GROUP_LOCK_UPDATED' }, (payload: any) => {
+            if (payload?.payload?.groupId === otherUserProfile.id) {
+              setGroupDetails((prev: any) => ({
+                ...(prev || {}),
+                is_locked: Boolean(payload.payload.isLocked),
+                locked_reason: payload.payload.reason || null,
+              }));
+            }
+          })
+          .on('broadcast', { event: 'GROUP_MESSAGES_CLEARED' }, (payload: any) => {
+            if (payload?.payload?.groupId === otherUserProfile.id) {
+              setMessages([]);
+            }
+          })
+          .subscribe();
+      } catch (err) {
+        console.warn('Realtime fallback to polling:', err);
+      }
 
       return () => {
-        supabase.removeChannel(groupSub);
-        supabase.removeChannel(adminBroadcastSub);
+        if (groupSub) supabase.removeChannel(groupSub);
+        if (adminBroadcastSub) supabase.removeChannel(adminBroadcastSub);
       };
     } else {
        setGroupDetails(null);
@@ -876,14 +888,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     fetchBlockedUsers();
 
     // Set up realtime listener for blocks (optional, but good for completeness)
-    const channel = supabase.channel(`blocked_users_${user?.id}`)
-       .on('postgres_changes', { event: '*', schema: 'public', table: 'blocked_users' }, () => {
-           fetchBlockedUsers();
-       })
-       .subscribe();
+    let channel: any = null;
+    try {
+      const blockedChannelName =
+        'blocked_users_' + (user?.id || 'anon') + '_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase.channel(blockedChannelName)
+         .on('postgres_changes', { event: '*', schema: 'public', table: 'blocked_users' }, () => {
+             fetchBlockedUsers();
+         })
+         .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-       supabase.removeChannel(channel);
+       if (channel) supabase.removeChannel(channel);
     };
   }, [user]);
 
@@ -1093,72 +1112,84 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     fetchGlobalStatuses();
     fetchViewedStatuses();
 
-    const uniqueStatusesChannel = `global-status-updates-${Date.now()}`;
-    const statusesChannel = supabase.channel(uniqueStatusesChannel)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, () => {
-        fetchGlobalStatuses();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'status_views', filter: `user_id=eq.${user.id}` }, () => {
-        fetchViewedStatuses();
-      })
-      .subscribe();
+    let statusesChannel: any = null;
+    try {
+      const uniqueStatusesChannel = `global-status-updates-${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      statusesChannel = supabase.channel(uniqueStatusesChannel)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, () => {
+          fetchGlobalStatuses();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'status_views', filter: `user_id=eq.${user.id}` }, () => {
+          fetchViewedStatuses();
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
 
   return () => {
-      supabase.removeChannel(statusesChannel);
+      if (statusesChannel) supabase.removeChannel(statusesChannel);
     };
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
 
-    // For presence, we must use a shared channel name
-    const presenceChannel = supabase.channel('online-users', {
-      config: {
-        presence: {
-          key: user.id,
+    let presenceChannel: any = null;
+    try {
+      // For presence, we must use a shared channel name
+      presenceChannel = supabase.channel('online-users', {
+        config: {
+          presence: {
+            key: user.id,
+          },
         },
-      },
-    });
-
-    presenceChannel
-      .on('presence', { event: 'sync' }, () => {
-        const newState = presenceChannel.presenceState();
-        const users = new Set<string>();
-        Object.keys(newState).forEach(key => users.add(key));
-        setOnlineUsers(users);
-      })
-      .on('presence', { event: 'join' }, ({ key }) => {
-        setOnlineUsers(prev => {
-          const newSet = new Set(prev);
-          newSet.add(key);
-          return newSet;
-        });
-      })
-      .on('presence', { event: 'leave' }, ({ key }) => {
-        setOnlineUsers(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(key);
-          return newSet;
-        });
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await presenceChannel.track({ online_at: new Date().toISOString() });
-        }
       });
 
+      presenceChannel
+        .on('presence', { event: 'sync' }, () => {
+          const newState = presenceChannel.presenceState();
+          const users = new Set<string>();
+          Object.keys(newState).forEach(key => users.add(key));
+          setOnlineUsers(users);
+        })
+        .on('presence', { event: 'join' }, ({ key }: any) => {
+          setOnlineUsers(prev => {
+            const newSet = new Set(prev);
+            newSet.add(key);
+            return newSet;
+          });
+        })
+        .on('presence', { event: 'leave' }, ({ key }: any) => {
+          setOnlineUsers(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(key);
+            return newSet;
+          });
+        })
+        .subscribe(async (status: string) => {
+          if (status === 'SUBSCRIBED') {
+            await presenceChannel.track({ online_at: new Date().toISOString() });
+          }
+        });
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
+
 
   return () => {
-      supabase.removeChannel(presenceChannel);
+      if (presenceChannel) supabase.removeChannel(presenceChannel);
     };
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
-    const channelId = `chat-updates-${Date.now()}`;
-    const channel = supabase.channel(channelId)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload: any) => {
+    let channel: any = null;
+    try {
+      const channelId = `chat-updates-${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      channel = supabase.channel(channelId)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload: any) => {
           if (payload.new) {
               const msg = payload.new;
               const otherId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
@@ -1256,10 +1287,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           }
       })
       .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
 
   return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [user]);
 
@@ -1880,8 +1914,10 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
   useEffect(() => {
     // For broadcast, we must use a shared channel name
     if (!user) return;
-    const channel = supabase.channel(`user_inbox_${user.id}`)
-      .on('broadcast', { event: 'gift_received' }, (payload) => {
+    let channel: any = null;
+    try {
+      channel = supabase.channel(`user_inbox_${user.id}`)
+        .on('broadcast', { event: 'gift_received' }, (payload) => {
         // SECURITY GATE: Before mounting the 3D portal or inserting the receipt into the chat feed,
         // verify that the authenticated user's ID exactly matches either the sender_id or receiver_id.
         // If it does not match, ignore the payload entirely.
@@ -2071,10 +2107,13 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
           channelRef.current = channel;
         }
       });
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
 
   return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
       channelRef.current = null;
     };
   }, [user?.id, currentUserProfile?.id, setMessages, setExploreUsers]);
@@ -2407,6 +2446,7 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       // Notify recipient via channel to trigger read receipts or notification
       const targetId = (currentOtherUserProfile as any).isGroup ? currentOtherUserProfile.id : currentOtherUserProfile.id;
       if (targetId) {
+        try {
           const tempChannel = supabase.channel(`user_inbox_${targetId}`);
           tempChannel.subscribe((status) => {
               if (status === 'SUBSCRIBED') {
@@ -2420,9 +2460,14 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
                           roomId: (currentOtherUserProfile as any).isGroup ? targetId : undefined
                       }
                   });
-                  setTimeout(() => supabase.removeChannel(tempChannel), 1000);
+                  setTimeout(() => {
+                    if (targetId !== user.id) supabase.removeChannel(tempChannel);
+                  }, 1000);
               }
           });
+        } catch (err) {
+          console.warn('Realtime fallback to polling:', err);
+        }
       }
 
       if (currentOtherUserProfile.is_bot) {
@@ -2531,30 +2576,36 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
     // Broadcast gift event via Supabase Realtime using a temporary receiver channel
     if (currentOtherUserProfile?.id) {
-      const tempChannel = supabase.channel(`user_inbox_${currentOtherUserProfile.id}`);
-      tempChannel.subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          tempChannel.send({
-            type: 'broadcast',
-            event: 'gift_received',
-            payload: { messageId: newMessage.id, gift_type: giftData, senderId: currentUserProfile?.id, senderName: currentUserProfile?.name, senderAvatar: currentUserProfile?.avatarUrl, receiverId: (currentOtherUserProfile as any).isGroup ? null : currentOtherUserProfile?.id, roomId: (currentOtherUserProfile as any).isGroup ? currentOtherUserProfile?.id : undefined }
-          });
+      try {
+        const tempChannel = supabase.channel(`user_inbox_${currentOtherUserProfile.id}`);
+        tempChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            tempChannel.send({
+              type: 'broadcast',
+              event: 'gift_received',
+              payload: { messageId: newMessage.id, gift_type: giftData, senderId: currentUserProfile?.id, senderName: currentUserProfile?.name, senderAvatar: currentUserProfile?.avatarUrl, receiverId: (currentOtherUserProfile as any).isGroup ? null : currentOtherUserProfile?.id, roomId: (currentOtherUserProfile as any).isGroup ? currentOtherUserProfile?.id : undefined }
+            });
 
-          tempChannel.send({
-            type: 'broadcast',
-            event: 'new_message',
-            payload: {
-               messageId: newMessage.id,
-               senderId: user?.id,
-               receiverId: currentOtherUserProfile?.id
-            }
-          });
+            tempChannel.send({
+              type: 'broadcast',
+              event: 'new_message',
+              payload: {
+                 messageId: newMessage.id,
+                 senderId: user?.id,
+                 receiverId: currentOtherUserProfile?.id
+              }
+            });
 
-          setTimeout(() => {
-             supabase.removeChannel(tempChannel);
-          }, 1000);
-        }
-      });
+            setTimeout(() => {
+               if (currentOtherUserProfile.id !== user?.id) {
+                 supabase.removeChannel(tempChannel);
+               }
+            }, 1000);
+          }
+        });
+      } catch (err) {
+        console.warn('Realtime fallback to polling:', err);
+      }
     }
 
     // Simulate delivery

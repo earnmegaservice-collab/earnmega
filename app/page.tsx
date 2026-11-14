@@ -12,7 +12,6 @@ import { HorPalLandingGateway } from "../components/home/HorPalLandingGateway";
 import { RadarActivationModal } from "../components/location/RadarActivationModal";
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../components/auth/HorPalAuthGate";
 import PillarAccessGuard from "../components/auth/PillarAccessGuard";
-import { useAdminRealtimeEnforcement } from "../hooks/useAdminRealtimeEnforcement";
 import {
   auditAccount,
   consumeVerifyReturn,
@@ -44,17 +43,19 @@ function HomeContent() {
   const [p1DeniedAudit, setP1DeniedAudit] = useState<{ email: string; entitlements: EntitlementRow | null } | null>(null);
   const pendingVerifyRef = useRef<PillarId | null>(null);
 
-  useAdminRealtimeEnforcement({
-    pillar: 1,
-    onForceOpenPaywall: (pillarNum) => {
+  useEffect(() => {
+    const onRevoked = (e: any) => {
+      const pillarNum = e?.detail?.pillar;
       if (pillarNum === 1) {
         setShowGateway(true);
         setShowGlobalChatGate(true);
       } else if (pillarNum === 3) {
         setShowPillar3Gate(true);
       }
-    },
-    onForceUnlockPillar: (pillarNum, updatedProfile) => {
+    };
+    const onGranted = (e: any) => {
+      const pillarNum = e?.detail?.pillar;
+      const updatedProfile = e?.detail?.profile;
       if (updatedProfile) {
         setProfileState((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
       }
@@ -65,13 +66,22 @@ function HomeContent() {
       } else if (pillarNum === 3) {
         setShowPillar3Gate(false);
       }
-    },
-    onProfileChanged: (updatedProfile) => {
+    };
+    const onEnforcementSync = (e: any) => {
+      const updatedProfile = e?.detail?.profile;
       if (updatedProfile) {
         setProfileState((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
       }
-    },
-  });
+    };
+    window.addEventListener("earnmega:pillar-access-revoked", onRevoked);
+    window.addEventListener("earnmega:pillar-access-granted", onGranted);
+    window.addEventListener("earnmega:admin-enforcement-sync", onEnforcementSync);
+    return () => {
+      window.removeEventListener("earnmega:pillar-access-revoked", onRevoked);
+      window.removeEventListener("earnmega:pillar-access-granted", onGranted);
+      window.removeEventListener("earnmega:admin-enforcement-sync", onEnforcementSync);
+    };
+  }, []);
 
   useEffect(() => {
     setHasMounted(true);

@@ -124,14 +124,24 @@ export default function ChatList({
 
     if (!currentUserProfile) return;
 
-    const channel = supabase.channel(`chatlist_blocked_users_${currentUserProfile.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'blocked_users' }, () => {
-        fetchBlockedUsers();
-      })
-      .subscribe();
+    let channel: any = null;
+    try {
+      const channelName =
+        'chatlist_blocked_users_' +
+        currentUserProfile.id +
+        '_' +
+        Math.random().toString(36).substring(2, 9);
+      channel = supabase.channel(channelName)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'blocked_users' }, () => {
+          fetchBlockedUsers();
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [currentUserProfile?.id]);
 

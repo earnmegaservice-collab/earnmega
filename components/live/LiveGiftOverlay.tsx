@@ -448,44 +448,51 @@ export default function LiveGiftOverlay({
   useEffect(() => {
     if (!streamId) return;
 
-    const channel = supabase
-      .channel(`live_arena_${streamId}`, {
-        config: { broadcast: { self: true, ack: true } },
-      })
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'live_gifts',
-          filter: `stream_id=eq.${streamId}`,
-        },
-        (payload) => {
-          if (payload.new) {
+    let channel: any = null;
+    try {
+      const channelName =
+        'live_gift_overlay_' + streamId + '_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(channelName, {
+          config: { broadcast: { self: true, ack: true } },
+        })
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'live_gifts',
+            filter: `stream_id=eq.${streamId}`,
+          },
+          (payload) => {
+            if (payload.new) {
+              dispatchNormalizedGift(
+                normalizeGiftPayload(payload.new as RawGiftPayload)
+              );
+            }
+          }
+        )
+        .on('broadcast', { event: 'gift_sent' }, (payload) => {
+          if (payload?.payload) {
             dispatchNormalizedGift(
-              normalizeGiftPayload(payload.new as RawGiftPayload)
+              normalizeGiftPayload(payload.payload as RawGiftPayload)
             );
           }
-        }
-      )
-      .on('broadcast', { event: 'gift_sent' }, (payload) => {
-        if (payload?.payload) {
-          dispatchNormalizedGift(
-            normalizeGiftPayload(payload.payload as RawGiftPayload)
-          );
-        }
-      })
-      .on('broadcast', { event: 'live-gift' }, (payload) => {
-        if (payload?.payload) {
-          dispatchNormalizedGift(
-            normalizeGiftPayload(payload.payload as RawGiftPayload)
-          );
-        }
-      })
-      .subscribe();
+        })
+        .on('broadcast', { event: 'live-gift' }, (payload) => {
+          if (payload?.payload) {
+            dispatchNormalizedGift(
+              normalizeGiftPayload(payload.payload as RawGiftPayload)
+            );
+          }
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [streamId, dispatchNormalizedGift]);
 

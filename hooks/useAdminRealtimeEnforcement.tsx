@@ -67,6 +67,12 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   updated_at: new Date().toISOString()
 }
 
+let latestCachedSettings: PlatformSettings = DEFAULT_PLATFORM_SETTINGS
+
+export function getLatestPlatformSettings(): PlatformSettings {
+  return latestCachedSettings
+}
+
 const MASTER_ADMIN_EMAILS = [
   'moses@horpal.com',
   'admin@horpal.com',
@@ -187,6 +193,7 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
       full_screen_popup_active: Boolean(payloadObj.full_screen_popup_active),
       full_screen_popup_id: String(payloadObj.full_screen_popup_id ?? '')
     }
+    latestCachedSettings = merged
     setSettings(merged)
     callbacksRef.current.onSettingsChanged?.(merged)
     if (typeof window !== 'undefined') {
@@ -411,6 +418,48 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
     let mounted = true
     let activeUid: string | null = null
     let profileChannel: any = null
+    let settingsChannel: any = null
+    let broadcastChannel: any = null
+
+    const subscribeProfileChannel = (uid: string) => {
+      try {
+        if (profileChannel) {
+          supabase.removeChannel(profileChannel)
+          profileChannel = null
+        }
+        const profileChannelName =
+          'admin_enforcer_profile_' + uid + '_' + Math.random().toString(36).substring(2, 9)
+        for (const ch of supabase.getChannels()) {
+          if (ch.topic === `realtime:${profileChannelName}` || ch.topic.startsWith(`realtime:admin_enforcer_profile_${uid}`)) {
+            supabase.removeChannel(ch)
+          }
+        }
+        const ch = supabase
+          .channel(profileChannelName)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'profiles',
+              filter: `id=eq.${uid}`
+            },
+            (payload: any) => {
+              if (payload?.new) {
+                void applyProfile(payload.new)
+              }
+            }
+          )
+          .subscribe()
+        if (!mounted) {
+          supabase.removeChannel(ch)
+        } else {
+          profileChannel = ch
+        }
+      } catch (err) {
+        console.warn('Realtime fallback to polling:', err)
+      }
+    }
 
     const setup = async () => {
       try {
@@ -426,25 +475,10 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
         }
 
         await pollEnforcementState(activeUid)
+        if (!mounted) return
 
         if (activeUid) {
-          profileChannel = supabase
-            .channel(`admin_enforcer_profile_${activeUid}`)
-            .on(
-              'postgres_changes',
-              {
-                event: '*',
-                schema: 'public',
-                table: 'profiles',
-                filter: `id=eq.${activeUid}`
-              },
-              (payload: any) => {
-                if (payload?.new) {
-                  void applyProfile(payload.new)
-                }
-              }
-            )
-            .subscribe()
+          subscribeProfileChannel(activeUid)
         }
       } catch {
         await pollEnforcementState(null)
@@ -453,98 +487,145 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
 
     void setup()
 
-    const settingsChannel = supabase
-      .channel('admin_enforcer_platform_settings')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'platform_settings'
-        },
-        (payload: any) => {
-          if (payload?.new) {
-            applySettings(payload.new)
-          }
+    try {
+      const channelName =
+        'admin_enforcer_platform_settings_' + Math.random().toString(36).substring(2, 9)
+      for (const ch of supabase.getChannels()) {
+        if (
+          ch.topic === `realtime:${channelName}` ||
+          ch.topic.startsWith('realtime:admin_enforcer_platform_setting')
+        ) {
+          supabase.removeChannel(ch)
         }
-      )
-      .subscribe()
+      }
+      settingsChannel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'platform_settings'
+          },
+          (payload: any) => {
+            if (payload?.new) {
+              applySettings(payload.new)
+            }
+          }
+        )
+        .subscribe()
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err)
+    }
 
-    const broadcastChannel = supabase
-      .channel('horpal_godmode_command')
-      .on('broadcast', { event: 'PLATFORM_SETTINGS_UPDATED' }, (payload: any) => {
-        if (payload?.payload) {
-          applySettings(payload.payload)
-        } else {
-          void pollEnforcementState(activeUid)
+    try {
+      for (const ch of supabase.getChannels()) {
+        if (ch.topic === 'realtime:horpal_godmode_command') {
+          supabase.removeChannel(ch)
         }
-      })
-      .on('broadcast', { event: 'GLOBAL_LOCKDOWN' }, (payload: any) => {
-        if (payload?.payload?.settings) {
-          applySettings(payload.payload.settings)
-        } else {
-          void pollEnforcementState(activeUid)
-        }
-      })
-      .on('broadcast', { event: 'USER_TERMINATED' }, (payload: any) => {
-        if (activeUid && payload?.payload?.userId === activeUid) {
-          void supabase.auth.signOut().finally(() => {
-            if (typeof window !== 'undefined') window.location.reload()
-          })
-        }
-      })
-      .on('broadcast', { event: 'ACCOUNT_SUSPENDED' }, (payload: any) => {
-        if (activeUid && payload?.payload?.target === activeUid) {
-          setIsBannedOrSuspended(true)
-          void supabase.auth.signOut()
-        }
-      })
-      .on('broadcast', { event: 'PILLAR_ACCESS_UPDATED' }, (payload: any) => {
-        if (activeUid && payload?.payload?.userId === activeUid) {
-          if (payload?.payload?.profile) {
-            void applyProfile(payload.payload.profile)
+      }
+      broadcastChannel = supabase
+        .channel('horpal_godmode_command')
+        .on('broadcast', { event: 'PLATFORM_SETTINGS_UPDATED' }, (payload: any) => {
+          if (payload?.payload) {
+            applySettings(payload.payload)
           } else {
             void pollEnforcementState(activeUid)
           }
-        }
-      })
-      .on('broadcast', { event: 'USER_ENFORCEMENT_UPDATED' }, (payload: any) => {
-        if (activeUid && payload?.payload?.userId === activeUid) {
-          if (payload?.payload?.profile) {
-            void applyProfile(payload.payload.profile)
+        })
+        .on('broadcast', { event: 'GLOBAL_LOCKDOWN' }, (payload: any) => {
+          if (payload?.payload?.settings) {
+            applySettings(payload.payload.settings)
           } else {
             void pollEnforcementState(activeUid)
           }
-        }
-      })
-      .on('broadcast', { event: 'COIN_AIRDROP_CELEBRATION' }, (payload: any) => {
-        const p = payload?.payload
-        if (p?.bonus) {
-          toast.success(
-            `🎉 ${p.message || 'Admin Bonus Airdrop'}: +${p.bonus} Coins added to your wallet!`,
-            { duration: 7000 }
-          )
-          void pollEnforcementState(activeUid)
-        }
-      })
-      .subscribe()
+        })
+        .on('broadcast', { event: 'USER_TERMINATED' }, (payload: any) => {
+          if (activeUid && payload?.payload?.userId === activeUid) {
+            void supabase.auth.signOut().finally(() => {
+              if (typeof window !== 'undefined') window.location.reload()
+            })
+          }
+        })
+        .on('broadcast', { event: 'ACCOUNT_SUSPENDED' }, (payload: any) => {
+          if (activeUid && payload?.payload?.target === activeUid) {
+            setIsBannedOrSuspended(true)
+            void supabase.auth.signOut()
+          }
+        })
+        .on('broadcast', { event: 'PILLAR_ACCESS_UPDATED' }, (payload: any) => {
+          if (activeUid && payload?.payload?.userId === activeUid) {
+            if (payload?.payload?.profile) {
+              void applyProfile(payload.payload.profile)
+            } else {
+              void pollEnforcementState(activeUid)
+            }
+          }
+        })
+        .on('broadcast', { event: 'USER_ENFORCEMENT_UPDATED' }, (payload: any) => {
+          if (activeUid && payload?.payload?.userId === activeUid) {
+            if (payload?.payload?.profile) {
+              void applyProfile(payload.payload.profile)
+            } else {
+              void pollEnforcementState(activeUid)
+            }
+          }
+        })
+        .on('broadcast', { event: 'COIN_AIRDROP_CELEBRATION' }, (payload: any) => {
+          const p = payload?.payload
+          if (p?.bonus) {
+            toast.success(
+              `🎉 ${p.message || 'Admin Bonus Airdrop'}: +${p.bonus} Coins added to your wallet!`,
+              { duration: 7000 }
+            )
+            void pollEnforcementState(activeUid)
+          }
+        })
+        .on('broadcast', { event: 'GOD_VOICE_WARNING' }, (payload: any) => {
+          if (typeof window !== 'undefined' && payload?.payload) {
+            window.dispatchEvent(
+              new CustomEvent('earnmega:god-voice-warning', { detail: payload.payload })
+            )
+          }
+        })
+        .on('broadcast', { event: 'PRODUCTS_UPDATED' }, (payload: any) => {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('earnmega:products-updated', { detail: payload?.payload })
+            )
+          }
+        })
+        .subscribe()
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err)
+    }
 
     const intervalId = setInterval(() => {
       void pollEnforcementState(activeUid)
     }, 5000)
 
     const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
-      activeUid = session?.user?.id || null
+      const nextUid = session?.user?.id || null
+      const changed = nextUid !== activeUid
+      activeUid = nextUid
       setUserId(activeUid)
+      if (changed && mounted) {
+        if (activeUid) {
+          subscribeProfileChannel(activeUid)
+        } else if (profileChannel) {
+          supabase.removeChannel(profileChannel)
+          profileChannel = null
+        }
+      }
       void pollEnforcementState(activeUid)
     })
 
     return () => {
       mounted = false
       clearInterval(intervalId)
-      supabase.removeChannel(settingsChannel)
-      supabase.removeChannel(broadcastChannel)
+      if (settingsChannel) supabase.removeChannel(settingsChannel)
       if (profileChannel) supabase.removeChannel(profileChannel)
+      if (broadcastChannel) supabase.removeChannel(broadcastChannel)
       authSub.subscription.unsubscribe()
     }
   }, [applyProfile, applySettings, pollEnforcementState])

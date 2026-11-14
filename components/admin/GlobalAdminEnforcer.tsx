@@ -1,10 +1,9 @@
 'use client'
 
 import React from 'react'
-import { AdminRealtimeEnforcementOverlay, useAdminRealtimeEnforcement } from '@/hooks/useAdminRealtimeEnforcement'
+import { AdminRealtimeEnforcementOverlay } from '@/hooks/useAdminRealtimeEnforcement'
 
 export function GlobalAdminEnforcer() {
-  useAdminRealtimeEnforcement()
   return <AdminRealtimeEnforcementOverlay />
 }
 

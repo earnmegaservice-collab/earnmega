@@ -7,7 +7,6 @@ import HorPalAffiliatePillar from "../../components/affiliate/HorPalAffiliatePil
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../../components/auth/HorPalAuthGate";
 import Pillar2AccessGate, { PaidPillar2PassData } from "../../components/affiliate/Pillar2AccessGate";
 import PillarAccessGuard from "../../components/auth/PillarAccessGuard";
-import { useAdminRealtimeEnforcement } from "../../hooks/useAdminRealtimeEnforcement";
 import { authFetch } from "../../utils/authFetch";
 import {
   auditAccount,
@@ -30,9 +29,10 @@ function AffiliatePageContent() {
   } | null>(null);
   const returningFromOAuthRef = useRef(false);
 
-  useAdminRealtimeEnforcement({
-    pillar: 2,
-    onForceOpenPaywall: (_pillarNum, reason) => {
+  useEffect(() => {
+    const onRevoked = (e: any) => {
+      if (e?.detail?.pillar && e.detail.pillar !== 2) return;
+      const reason = e?.detail?.reason;
       setProfile((prev: any) =>
         prev
           ? {
@@ -43,19 +43,30 @@ function AffiliatePageContent() {
             }
           : prev
       );
-    },
-    onForceUnlockPillar: (_pillarNum, updatedProfile) => {
+    };
+    const onGranted = (e: any) => {
+      if (e?.detail?.pillar && e.detail.pillar !== 2) return;
+      const updatedProfile = e?.detail?.profile;
       setDeniedAudit(null);
       if (updatedProfile) {
         setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
       }
-    },
-    onProfileChanged: (updatedProfile) => {
+    };
+    const onEnforcementSync = (e: any) => {
+      const updatedProfile = e?.detail?.profile;
       if (updatedProfile) {
         setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
       }
-    },
-  });
+    };
+    window.addEventListener("earnmega:pillar-access-revoked", onRevoked);
+    window.addEventListener("earnmega:pillar-access-granted", onGranted);
+    window.addEventListener("earnmega:admin-enforcement-sync", onEnforcementSync);
+    return () => {
+      window.removeEventListener("earnmega:pillar-access-revoked", onRevoked);
+      window.removeEventListener("earnmega:pillar-access-granted", onGranted);
+      window.removeEventListener("earnmega:admin-enforcement-sync", onEnforcementSync);
+    };
+  }, []);
 
   const directBuyerProdParam = searchParams.get("prod") || searchParams.get("product");
 

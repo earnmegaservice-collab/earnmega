@@ -73,24 +73,30 @@ function ChatPageInner() {
 
     fetchMessages();
 
-    const channel = supabase.channel(`chat_updates_${Date.now()}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-          const msg = payload.new;
-          if ((msg.sender_id === user.id && msg.receiver_id === recipientId) ||
-              (msg.sender_id === recipientId && msg.receiver_id === user.id)) {
-              setIsSyncing(true);
-              setMessages((prev) => {
-                 // prevent duplicates
-                 if (prev.find(p => p.id === msg.id)) return prev;
-                 return [...prev, msg];
-              });
-              setIsSyncing(false);
-          }
-      })
-      .subscribe();
+    let channel: any = null;
+    try {
+      const channelName = 'chat_updates_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase.channel(channelName)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+            const msg = payload.new;
+            if ((msg.sender_id === user.id && msg.receiver_id === recipientId) ||
+                (msg.sender_id === recipientId && msg.receiver_id === user.id)) {
+                setIsSyncing(true);
+                setMessages((prev) => {
+                   // prevent duplicates
+                   if (prev.find(p => p.id === msg.id)) return prev;
+                   return [...prev, msg];
+                });
+                setIsSyncing(false);
+            }
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-       supabase.removeChannel(channel);
+       if (channel) supabase.removeChannel(channel);
     };
   }, [user, recipientId]);
 

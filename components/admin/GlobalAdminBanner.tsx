@@ -29,44 +29,63 @@ export function GlobalAdminBanner() {
     };
     fetchPersistedWarning();
 
-    const channel = supabase.channel('horpal_godmode_command')
-      .on('broadcast', { event: 'GOD_VOICE_WARNING' }, (payload) => {
-        const { target, level, message, timestamp } = payload.payload;
+    const handleGodVoicePayload = (payloadData: any) => {
+      if (!payloadData) return;
+      const { target, level, message, timestamp } = payloadData;
 
-        const username = user.user_metadata?.username;
-        const matchesTarget =
-             target === 'ALL'
-          || target === 'PILLAR_1'
-          || target === 'PILLAR_2'
-          || target === user.id
-          || target.toLowerCase() === user.email?.toLowerCase()
-          || target.toLowerCase() === username?.toLowerCase()
-          || target.toLowerCase() === `@${username?.toLowerCase()}`;
+      const username = user.user_metadata?.username;
+      const targetStr = String(target || '');
+      const matchesTarget =
+        targetStr === 'ALL' ||
+        targetStr === 'PILLAR_1' ||
+        targetStr === 'PILLAR_2' ||
+        targetStr === user.id ||
+        targetStr.toLowerCase() === user.email?.toLowerCase() ||
+        targetStr.toLowerCase() === username?.toLowerCase() ||
+        targetStr.toLowerCase() === `@${username?.toLowerCase()}`;
 
-        if (matchesTarget) {
-          setWarning({ message, level, timestamp: timestamp || Date.now() });
+      if (matchesTarget) {
+        setWarning({ message, level, timestamp: timestamp || Date.now() });
 
-          // Play a chime if audio context allows it
-          try {
-             const audio = new AudioContext();
-             const osc = audio.createOscillator();
-             const gain = audio.createGain();
-             osc.connect(gain);
-             gain.connect(audio.destination);
-             osc.type = 'sine';
-             osc.frequency.setValueAtTime(523.25, audio.currentTime); // C5
-             osc.frequency.exponentialRampToValueAtTime(880, audio.currentTime + 0.1);
-             gain.gain.setValueAtTime(0.5, audio.currentTime);
-             gain.gain.exponentialRampToValueAtTime(0.01, audio.currentTime + 0.5);
-             osc.start(audio.currentTime);
-             osc.stop(audio.currentTime + 0.5);
-          } catch (e) {}
-        }
-      })
-      .subscribe();
+        // Play a chime if audio context allows it
+        try {
+          const audio = new AudioContext();
+          const osc = audio.createOscillator();
+          const gain = audio.createGain();
+          osc.connect(gain);
+          gain.connect(audio.destination);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(523.25, audio.currentTime); // C5
+          osc.frequency.exponentialRampToValueAtTime(880, audio.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.5, audio.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audio.currentTime + 0.5);
+          osc.start(audio.currentTime);
+          osc.stop(audio.currentTime + 0.5);
+        } catch (e) {}
+      }
+    };
+
+    const onWindowWarning = (e: any) => {
+      if (e?.detail) handleGodVoicePayload(e.detail);
+    };
+    window.addEventListener('earnmega:god-voice-warning', onWindowWarning);
+
+    let channel: any = null;
+    try {
+      const channelName = 'horpal_godmode_banner_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(channelName)
+        .on('broadcast', { event: 'GOD_VOICE_WARNING' }, (payload) => {
+          handleGodVoicePayload(payload?.payload);
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener('earnmega:god-voice-warning', onWindowWarning);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [user]);
 

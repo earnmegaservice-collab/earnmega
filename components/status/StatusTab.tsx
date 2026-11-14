@@ -370,16 +370,21 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
     fetchMutedUsers();
     fetchStatuses();
 
-    const uniqueChannel = `status-updates-${Date.now()}`;
-    const channel = supabase
-      .channel(uniqueChannel)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, () => {
-        fetchStatuses();
-      })
-      .subscribe();
+    let channel: any = null;
+    try {
+      const uniqueChannel = `status-updates-${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      channel = supabase
+        .channel(uniqueChannel)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, () => {
+          fetchStatuses();
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [user, myAvatarUrl]);
 
@@ -538,12 +543,25 @@ export default function StatusTab({ onStatusClick, currentUserProfile }: StatusT
       if (insertError) throw insertError;
 
       // Broadcast new status to other app clients to update their feeds immediately
-      const channel = supabase.channel('global-app-notifications');
-      channel.send({
-        type: 'broadcast',
-        event: 'STATUS_POSTED',
-        payload: { userId: user.id }
-      }).catch(() => {});
+      try {
+        const channel = supabase.channel(
+          'global_app_notifications_' + Math.random().toString(36).substring(2, 9)
+        );
+        channel
+          .send({
+            type: 'broadcast',
+            event: 'STATUS_POSTED',
+            payload: { userId: user.id }
+          })
+          .catch(() => {})
+          .finally(() => {
+            try {
+              supabase.removeChannel(channel);
+            } catch {}
+          });
+      } catch (err) {
+        console.warn('Realtime fallback to polling:', err);
+      }
 
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([15, 30, 15]);
       toast.success('4K Status Published!', { id: toastId });

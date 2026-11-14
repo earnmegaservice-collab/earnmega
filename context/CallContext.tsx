@@ -1544,174 +1544,187 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     useEffect(() => {
         if (!user?.id) return;
 
-        // 1. Subscribe to global_call_bus (Broadcast + Postgres Changes on public.call_sessions)
-        const channel = supabase
-            .channel('global_call_bus', {
-                config: { broadcast: { self: false } },
-            })
-            .on('broadcast', { event: 'CALL_INVITE' }, ({ payload }) => {
-                if (!payload) return;
-                handleIncomingRingSession({
-                    id: payload.callId,
-                    room_id: payload.livekit_room_id || payload.roomId,
-                    livekit_room_id: payload.livekit_room_id || payload.roomId,
-                    caller_id: payload.callerId,
-                    caller_name: payload.callerName,
-                    caller_avatar: payload.callerAvatar,
-                    receiver_id: payload.receiverId,
-                    group_id: payload.groupId,
-                    group_name: payload.groupName,
-                    is_group: !!payload.isGroup,
-                    call_type: payload.callType || 'audio',
-                    status: 'ringing',
-                    participant_ids: payload.participantIds || [],
-                    created_at: new Date().toISOString(),
-                });
-            })
-            .on('broadcast', { event: 'CALL_ACCEPTED' }, ({ payload }) => {
-                if (!payload) return;
-                handleSessionStateTransition({
-                    callId: payload.callId,
-                    roomId: payload.livekit_room_id || payload.roomId,
-                    status: 'accepted',
-                    responderId: payload.responderId,
-                });
-            })
-            .on('broadcast', { event: 'CALL_VIDEO_TOGGLED' }, ({ payload }) => {
-                if (!payload) return;
-                const current = activeCallRef.current;
-                if (
-                    current &&
-                    (payload.callId === current.callId || payload.roomId === current.roomId)
-                ) {
-                    if (payload.videoEnabled && current.callType !== 'video') {
-                        const upgradedCall: ActiveCall = { ...current, callType: 'video' };
-                        activeCallRef.current = upgradedCall;
-                        setActiveCall(upgradedCall);
+        // 1. Subscribe to global_call_bus (Broadcast) and a unique postgres_changes channel for call_sessions
+        let channel: any = null;
+        let dbChannel: any = null;
+        try {
+            channel = supabase
+                .channel('global_call_bus', {
+                    config: { broadcast: { self: false } },
+                })
+                .on('broadcast', { event: 'CALL_INVITE' }, ({ payload }) => {
+                    if (!payload) return;
+                    handleIncomingRingSession({
+                        id: payload.callId,
+                        room_id: payload.livekit_room_id || payload.roomId,
+                        livekit_room_id: payload.livekit_room_id || payload.roomId,
+                        caller_id: payload.callerId,
+                        caller_name: payload.callerName,
+                        caller_avatar: payload.callerAvatar,
+                        receiver_id: payload.receiverId,
+                        group_id: payload.groupId,
+                        group_name: payload.groupName,
+                        is_group: !!payload.isGroup,
+                        call_type: payload.callType || 'audio',
+                        status: 'ringing',
+                        participant_ids: payload.participantIds || [],
+                        created_at: new Date().toISOString(),
+                    });
+                })
+                .on('broadcast', { event: 'CALL_ACCEPTED' }, ({ payload }) => {
+                    if (!payload) return;
+                    handleSessionStateTransition({
+                        callId: payload.callId,
+                        roomId: payload.livekit_room_id || payload.roomId,
+                        status: 'accepted',
+                        responderId: payload.responderId,
+                    });
+                })
+                .on('broadcast', { event: 'CALL_VIDEO_TOGGLED' }, ({ payload }) => {
+                    if (!payload) return;
+                    const current = activeCallRef.current;
+                    if (
+                        current &&
+                        (payload.callId === current.callId || payload.roomId === current.roomId)
+                    ) {
+                        if (payload.videoEnabled && current.callType !== 'video') {
+                            const upgradedCall: ActiveCall = { ...current, callType: 'video' };
+                            activeCallRef.current = upgradedCall;
+                            setActiveCall(upgradedCall);
+                        }
+                        if (livekitRoomRef.current) {
+                            syncRemoteParticipants(livekitRoomRef.current);
+                        }
                     }
-                    if (livekitRoomRef.current) {
-                        syncRemoteParticipants(livekitRoomRef.current);
+                })
+                .on('broadcast', { event: 'CALL_DECLINED' }, ({ payload }) => {
+                    if (!payload) return;
+                    handleSessionStateTransition({
+                        callId: payload.callId,
+                        roomId: payload.livekit_room_id || payload.roomId,
+                        status: 'declined',
+                        isGroup: payload.isGroup,
+                    });
+                })
+                .on('broadcast', { event: 'CALL_BUSY' }, ({ payload }) => {
+                    if (!payload) return;
+                    const current = activeCallRef.current;
+                    if (
+                        current &&
+                        !current.isGroup &&
+                        (payload.callId === current.callId || payload.roomId === current.roomId) &&
+                        callStateRef.current === 'calling'
+                    ) {
+                        CallSoundEngine.stopAllCallSounds();
+                        toast(`${current.receiverName || 'User'} is currently on another call`, { icon: '📞' });
+                        cleanupCall();
                     }
-                }
-            })
-            .on('broadcast', { event: 'CALL_DECLINED' }, ({ payload }) => {
-                if (!payload) return;
-                handleSessionStateTransition({
-                    callId: payload.callId,
-                    roomId: payload.livekit_room_id || payload.roomId,
-                    status: 'declined',
-                    isGroup: payload.isGroup,
-                });
-            })
-            .on('broadcast', { event: 'CALL_BUSY' }, ({ payload }) => {
-                if (!payload) return;
-                const current = activeCallRef.current;
-                if (
-                    current &&
-                    !current.isGroup &&
-                    (payload.callId === current.callId || payload.roomId === current.roomId) &&
-                    callStateRef.current === 'calling'
-                ) {
-                    CallSoundEngine.stopAllCallSounds();
-                    toast(`${current.receiverName || 'User'} is currently on another call`, { icon: '📞' });
-                    cleanupCall();
-                }
-            })
-            .on('broadcast', { event: 'CALL_ENDED' }, ({ payload }) => {
-                if (!payload) return;
-                handleSessionStateTransition({
-                    callId: payload.callId,
-                    roomId: payload.livekit_room_id || payload.roomId,
-                    status: 'ended',
-                    isGroup: payload.isGroup,
-                });
-            })
-            .on('broadcast', { event: 'CALL_MISSED' }, ({ payload }) => {
-                if (!payload) return;
-                handleSessionStateTransition({
-                    callId: payload.callId,
-                    roomId: payload.livekit_room_id || payload.roomId,
-                    status: 'missed',
-                    isGroup: payload.isGroup,
-                });
-            })
-            .on(
-                'postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'call_sessions' },
-                (change) => {
-                    const row = change.new as any;
-                    if (row && row.status === 'ringing') {
-                        handleIncomingRingSession(row);
-                    }
-                }
-            )
-            .on(
-                'postgres_changes',
-                { event: 'UPDATE', schema: 'public', table: 'call_sessions' },
-                (change) => {
-                    const row = change.new as any;
-                    if (!row) return;
-                    if (row.status === 'ringing') {
-                        handleIncomingRingSession(row);
-                    } else {
-                        handleSessionStateTransition({
-                            callId: row.id,
-                            roomId: row.room_id,
-                            status: row.status as CallSessionStatus,
-                            isGroup: row.is_group,
-                        });
-                    }
-                }
-            )
-            .subscribe(async (status) => {
-                if (status === 'SUBSCRIBED') {
-                    // Check if there is an active ringing call for this user that arrived right as the page loaded
-                    await cleanupStaleDatabaseCalls();
+                })
+                .on('broadcast', { event: 'CALL_ENDED' }, ({ payload }) => {
+                    if (!payload) return;
+                    handleSessionStateTransition({
+                        callId: payload.callId,
+                        roomId: payload.livekit_room_id || payload.roomId,
+                        status: 'ended',
+                        isGroup: payload.isGroup,
+                    });
+                })
+                .on('broadcast', { event: 'CALL_MISSED' }, ({ payload }) => {
+                    if (!payload) return;
+                    handleSessionStateTransition({
+                        callId: payload.callId,
+                        roomId: payload.livekit_room_id || payload.roomId,
+                        status: 'missed',
+                        isGroup: payload.isGroup,
+                    });
+                })
+                .subscribe(async (status) => {
+                    if (status === 'SUBSCRIBED') {
+                        // Check if there is an active ringing call for this user that arrived right as the page loaded
+                        await cleanupStaleDatabaseCalls();
 
-                    // Also check URL query parameter ?incomingCallId=... from OS notification tap
-                    if (typeof window !== 'undefined') {
-                        const sp = new URLSearchParams(window.location.search);
-                        const incomingCallIdParam = sp.get('incomingCallId');
-                        if (incomingCallIdParam) {
-                            const { data: notifCallRow } = await supabase
-                                .from('call_sessions')
-                                .select('*')
-                                .eq('id', incomingCallIdParam)
-                                .maybeSingle();
-                            if (notifCallRow && (notifCallRow.status === 'ringing' || notifCallRow.status === 'accepted')) {
-                                await handleIncomingRingSession({ ...notifCallRow, status: 'ringing' } as any);
+                        // Also check URL query parameter ?incomingCallId=... from OS notification tap
+                        if (typeof window !== 'undefined') {
+                            const sp = new URLSearchParams(window.location.search);
+                            const incomingCallIdParam = sp.get('incomingCallId');
+                            if (incomingCallIdParam) {
+                                const { data: notifCallRow } = await supabase
+                                    .from('call_sessions')
+                                    .select('*')
+                                    .eq('id', incomingCallIdParam)
+                                    .maybeSingle();
+                                if (notifCallRow && (notifCallRow.status === 'ringing' || notifCallRow.status === 'accepted')) {
+                                    await handleIncomingRingSession({ ...notifCallRow, status: 'ringing' } as any);
+                                }
+                                try {
+                                    const cleanUrl = new URL(window.location.href);
+                                    cleanUrl.searchParams.delete('incomingCallId');
+                                    cleanUrl.searchParams.delete('roomId');
+                                    cleanUrl.searchParams.delete('callType');
+                                    window.history.replaceState({}, '', cleanUrl.toString());
+                                } catch {}
                             }
-                            try {
-                                const cleanUrl = new URL(window.location.href);
-                                cleanUrl.searchParams.delete('incomingCallId');
-                                cleanUrl.searchParams.delete('roomId');
-                                cleanUrl.searchParams.delete('callType');
-                                window.history.replaceState({}, '', cleanUrl.toString());
-                            } catch {}
+                        }
+
+                        const thirtyFiveSecAgo = new Date(Date.now() - 35000).toISOString();
+                        const { data: activeRings } = await supabase
+                            .from('call_sessions')
+                            .select('*')
+                            .eq('status', 'ringing')
+                            .gt('created_at', thirtyFiveSecAgo)
+                            .order('created_at', { ascending: false })
+                            .limit(5);
+
+                        if (activeRings && activeRings.length > 0) {
+                            for (const r of activeRings) {
+                                await handleIncomingRingSession(r as any);
+                            }
                         }
                     }
+                });
 
-                    const thirtyFiveSecAgo = new Date(Date.now() - 35000).toISOString();
-                    const { data: activeRings } = await supabase
-                        .from('call_sessions')
-                        .select('*')
-                        .eq('status', 'ringing')
-                        .gt('created_at', thirtyFiveSecAgo)
-                        .order('created_at', { ascending: false })
-                        .limit(5);
-
-                    if (activeRings && activeRings.length > 0) {
-                        for (const r of activeRings) {
-                            await handleIncomingRingSession(r as any);
+            const dbChannelName =
+                'call_sessions_db_' + user.id + '_' + Math.random().toString(36).substring(2, 9);
+            dbChannel = supabase
+                .channel(dbChannelName)
+                .on(
+                    'postgres_changes',
+                    { event: 'INSERT', schema: 'public', table: 'call_sessions' },
+                    (change) => {
+                        const row = change.new as any;
+                        if (row && row.status === 'ringing') {
+                            handleIncomingRingSession(row);
                         }
                     }
-                }
-            });
+                )
+                .on(
+                    'postgres_changes',
+                    { event: 'UPDATE', schema: 'public', table: 'call_sessions' },
+                    (change) => {
+                        const row = change.new as any;
+                        if (!row) return;
+                        if (row.status === 'ringing') {
+                            handleIncomingRingSession(row);
+                        } else {
+                            handleSessionStateTransition({
+                                callId: row.id,
+                                roomId: row.room_id,
+                                status: row.status as CallSessionStatus,
+                                isGroup: row.is_group,
+                            });
+                        }
+                    }
+                )
+                .subscribe();
+        } catch (err) {
+            console.warn('Realtime fallback to polling:', err);
+        }
 
         globalBusChannelRef.current = channel;
 
         return () => {
-            supabase.removeChannel(channel);
+            if (channel) supabase.removeChannel(channel);
+            if (dbChannel) supabase.removeChannel(dbChannel);
             globalBusChannelRef.current = null;
         };
     }, [

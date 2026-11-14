@@ -70,16 +70,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    let profileChannel: any;
+    let profileChannel: any = null;
     if (user) {
-        profileChannel = supabase.channel(`auth_updates_${user.id}`)
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, (payload) => {
-                const newProfile = payload.new as any;
-                if (newProfile.is_banned || newProfile.status === 'suspended') {
-                    supabase.auth.signOut();
-                }
-            })
-            .subscribe();
+      try {
+        const channelName =
+          'auth_updates_' + user.id + '_' + Math.random().toString(36).substring(2, 9);
+        profileChannel = supabase
+          .channel(channelName)
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+            (payload) => {
+              const newProfile = payload.new as any;
+              if (newProfile.is_banned || newProfile.status === 'suspended') {
+                supabase.auth.signOut();
+              }
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn('Realtime fallback to polling:', err);
+      }
     }
     return () => {
       if (profileChannel) supabase.removeChannel(profileChannel);

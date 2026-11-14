@@ -32,49 +32,56 @@ export default function NotificationDrawer({ isOpen, onClose }: NotificationDraw
 
     const currentUserId = user.id;
 
-    const channel = supabase
-      .channel(`status-chat-events-${currentUserId}`)
-      .on('broadcast', { event: 'status_unlocked' }, (payload) => {
-        if (payload?.payload?.creatorId === currentUserId) {
-          addNotification({
-            id: Date.now().toString(),
-            user_id: currentUserId,
-            type: 'status_unlock',
-            message: `Someone paid 10 coins to view your status!`,
-            created_at: new Date(),
-            read: false,
-          });
-        }
-      })
-      .on('broadcast', { event: 'status_liked' }, (payload) => {
-        if (payload?.payload?.creatorId === currentUserId) {
-          addNotification({
-            id: Date.now().toString(),
-            user_id: currentUserId,
-            type: 'status_like',
-            message: `Someone liked your status!`,
-            created_at: new Date(),
-            read: false,
-          });
-        }
-      })
-      .on('broadcast', { event: 'gift_sent' }, (payload) => {
-        // Strictly require recipientId === currentUserId so no other user's gifts leak
-        if (payload?.payload?.recipientId === currentUserId) {
-          addNotification({
-            id: Date.now().toString(),
-            user_id: currentUserId,
-            type: 'gift',
-            message: `You received a ${payload.payload.giftData?.name || 'special'} gift!`,
-            created_at: new Date(),
-            read: false,
-          });
-        }
-      })
-      .subscribe();
+    let channel: any = null;
+    try {
+      const channelName =
+        'status-chat-events-' + currentUserId + '-' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(channelName)
+        .on('broadcast', { event: 'status_unlocked' }, (payload) => {
+          if (payload?.payload?.creatorId === currentUserId) {
+            addNotification({
+              id: Date.now().toString(),
+              user_id: currentUserId,
+              type: 'status_unlock',
+              message: `Someone paid 10 coins to view your status!`,
+              created_at: new Date(),
+              read: false,
+            });
+          }
+        })
+        .on('broadcast', { event: 'status_liked' }, (payload) => {
+          if (payload?.payload?.creatorId === currentUserId) {
+            addNotification({
+              id: Date.now().toString(),
+              user_id: currentUserId,
+              type: 'status_like',
+              message: `Someone liked your status!`,
+              created_at: new Date(),
+              read: false,
+            });
+          }
+        })
+        .on('broadcast', { event: 'gift_sent' }, (payload) => {
+          // Strictly require recipientId === currentUserId so no other user's gifts leak
+          if (payload?.payload?.recipientId === currentUserId) {
+            addNotification({
+              id: Date.now().toString(),
+              user_id: currentUserId,
+              type: 'gift',
+              message: `You received a ${payload.payload.giftData?.name || 'special'} gift!`,
+              created_at: new Date(),
+              read: false,
+            });
+          }
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [user?.id]);
 

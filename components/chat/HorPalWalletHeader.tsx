@@ -36,31 +36,36 @@ export default function HorPalWalletHeader() {
     };
     fetchInitialUnread();
 
-    const uniqueChannel = `header-notifications-${Date.now()}`;
-    const channel = supabase.channel(uniqueChannel)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${user.id}`
-      }, (payload) => {
-         setUnreadNotifications(prev => prev + 1);
-      })
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${user.id}`
-      }, (payload) => {
-         // handle mark as read
-         if (payload.new.is_read) {
-             setUnreadNotifications(prev => Math.max(0, prev - 1));
-         }
-      })
-      .subscribe();
+    let channel: any = null;
+    try {
+      const uniqueChannel = `header-notifications-${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      channel = supabase.channel(uniqueChannel)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`
+        }, (payload) => {
+           setUnreadNotifications(prev => prev + 1);
+        })
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`
+        }, (payload) => {
+           // handle mark as read
+           if (payload.new.is_read) {
+               setUnreadNotifications(prev => Math.max(0, prev - 1));
+           }
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [user]);
 

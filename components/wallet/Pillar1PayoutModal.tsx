@@ -18,7 +18,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useWallet } from '../../context/WalletContext';
 import { supabase } from '../../utils/supabase';
-import { useAdminRealtimeEnforcement } from '../../hooks/useAdminRealtimeEnforcement';
+import { getLatestPlatformSettings, PlatformSettings } from '../../hooks/useAdminRealtimeEnforcement';
 
 export type SupportedPayoutCurrency =
     | 'GHS'
@@ -87,7 +87,17 @@ export const Pillar1PayoutModal: React.FC<Pillar1PayoutModalProps> = ({
 }) => {
     const { user, session } = useAuth();
     const { balance, setBalance, refreshWallet } = useWallet();
-    const { settings: adminSettings } = useAdminRealtimeEnforcement();
+    const [adminSettings, setAdminSettings] = useState<PlatformSettings>(() =>
+        getLatestPlatformSettings()
+    );
+
+    useEffect(() => {
+        const onSettings = (e: any) => {
+            if (e?.detail) setAdminSettings(e.detail);
+        };
+        window.addEventListener('earnmega:platform-settings-updated', onSettings);
+        return () => window.removeEventListener('earnmega:platform-settings-updated', onSettings);
+    }, []);
 
     const [mounted, setMounted] = useState(false);
     const [verifiedCoins, setVerifiedCoins] = useState<number>(balance || 0);

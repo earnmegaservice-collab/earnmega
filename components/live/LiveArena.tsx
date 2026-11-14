@@ -805,30 +805,37 @@ const MasterLiveGiftOverlay = forwardRef<
   // Also listen to Supabase 'live_gifts' table inserts as a backup channel
   useEffect(() => {
     if (!streamId) return;
-    const channel = supabase
-      .channel(`live_gifts_db_${streamId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'live_gifts',
-          filter: `stream_id=eq.${streamId}`
-        },
-        (payload) => {
-          const newGift = payload.new as LiveGiftEvent;
-          if (newGift) {
-            enqueueGift({
-              ...newGift,
-              id: newGift.id || `db-${Date.now()}-${Math.random()}`
-            });
+    let channel: any = null;
+    try {
+      const channelName =
+        'live_gifts_db_' + streamId + '_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'live_gifts',
+            filter: `stream_id=eq.${streamId}`
+          },
+          (payload) => {
+            const newGift = payload.new as LiveGiftEvent;
+            if (newGift) {
+              enqueueGift({
+                ...newGift,
+                id: newGift.id || `db-${Date.now()}-${Math.random()}`
+              });
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [streamId, enqueueGift]);
 
@@ -2365,12 +2372,25 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setCurrentStream(activeHostStream);
 
     // Broadcast LIVE_STARTED over real-time for immediate app-wide notifications
-    const globalChannel = supabase.channel('global-app-notifications');
-    globalChannel.send({
-      type: 'broadcast',
-      event: 'LIVE_STARTED',
-      payload: { hostId: activeUserId }
-    }).catch(() => {});
+    try {
+      const globalChannel = supabase.channel(
+        'global_app_notifications_' + Math.random().toString(36).substring(2, 9)
+      );
+      globalChannel
+        .send({
+          type: 'broadcast',
+          event: 'LIVE_STARTED',
+          payload: { hostId: activeUserId }
+        })
+        .catch(() => {})
+        .finally(() => {
+          try {
+            supabase.removeChannel(globalChannel);
+          } catch {}
+        });
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     // Phase 4: Upsert into public.active_live_streams via server API so Admin Live Radar detects stream on any device
     fetch('/api/livekit/active-stream', {
@@ -2517,54 +2537,66 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }
 
     // Real-time Postgres & Broadcast listeners for instant warning & termination
-    const radarSub = supabase
-      .channel(`active_live_radar_${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'active_live_streams',
-          filter: `room_name=eq.${roomId}`
-        },
-        (payload: any) => {
-          const row = payload?.new;
-          if (!row) return;
-          if (row.admin_terminated === true || row.is_live === false) {
-            handleForceShutdown('🛑 This live broadcast was terminated by an Administrator.');
-          } else if (row.admin_warning_message && role === 'host') {
-            setAdminStreamerWarning(String(row.admin_warning_message));
+    let radarSub: any = null;
+    try {
+      const radarChannelName =
+        'active_live_radar_' + roomId + '_' + Math.random().toString(36).substring(2, 9);
+      radarSub = supabase
+        .channel(radarChannelName)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'active_live_streams',
+            filter: `room_name=eq.${roomId}`
+          },
+          (payload: any) => {
+            const row = payload?.new;
+            if (!row) return;
+            if (row.admin_terminated === true || row.is_live === false) {
+              handleForceShutdown('🛑 This live broadcast was terminated by an Administrator.');
+            } else if (row.admin_warning_message && role === 'host') {
+              setAdminStreamerWarning(String(row.admin_warning_message));
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
-    const godmodeSub = supabase
-      .channel(`horpal_godmode_live_${roomId}`)
-      .on('broadcast', { event: 'STREAMER_WARNING' }, (payload: any) => {
-        const p = payload?.payload;
-        if (
-          role === 'host' &&
-          (p?.roomName === roomId || p?.hostUserId === hostId) &&
-          p?.message
-        ) {
-          setAdminStreamerWarning(String(p.message));
-        }
-      })
-      .on('broadcast', { event: 'FORCE_TERMINATE_STREAM' }, (payload: any) => {
-        const p = payload?.payload;
-        if (p?.roomName === roomId || p?.hostUserId === hostId) {
-          handleForceShutdown(
-            p?.reason || '🛑 This live broadcast was terminated by an Administrator.'
-          );
-        }
-      })
-      .subscribe();
+    let godmodeSub: any = null;
+    try {
+      godmodeSub = supabase
+        .channel(`horpal_godmode_live_${roomId}`)
+        .on('broadcast', { event: 'STREAMER_WARNING' }, (payload: any) => {
+          const p = payload?.payload;
+          if (
+            role === 'host' &&
+            (p?.roomName === roomId || p?.hostUserId === hostId) &&
+            p?.message
+          ) {
+            setAdminStreamerWarning(String(p.message));
+          }
+        })
+        .on('broadcast', { event: 'FORCE_TERMINATE_STREAM' }, (payload: any) => {
+          const p = payload?.payload;
+          if (p?.roomName === roomId || p?.hostUserId === hostId) {
+            handleForceShutdown(
+              p?.reason || '🛑 This live broadcast was terminated by an Administrator.'
+            );
+          }
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
-      supabase.removeChannel(radarSub);
-      supabase.removeChannel(godmodeSub);
+      if (radarSub) supabase.removeChannel(radarSub);
+      if (godmodeSub) supabase.removeChannel(godmodeSub);
     };
   }, [stage, role, currentStream, user.id, viewerCount, stopCameraTracks]);
 
@@ -3265,7 +3297,28 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               senderId: msg.payload.senderId || msg.payload.sender_id
             });
           }
+        });
+
+    let eventChannel: any = null;
+    try {
+      eventChannel = attachArenaChannelHandlers(
+        supabase.channel(`live_arena_${streamId}`, {
+          config: {
+            broadcast: { self: true, ack: true }
+          }
         })
+      ).subscribe();
+      realtimeEventChannelRef.current = eventChannel;
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
+
+    let dbChannel: any = null;
+    try {
+      const dbChannelName =
+        'live_arena_db_' + streamId + '_' + Math.random().toString(36).substring(2, 9);
+      dbChannel = supabase
+        .channel(dbChannelName)
         .on(
           'postgres_changes',
           {
@@ -3314,34 +3367,33 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
               );
             }
           }
-        );
-
-    const eventChannel = attachArenaChannelHandlers(
-      supabase.channel(`live_arena_${streamId}`, {
-        config: {
-          broadcast: { self: true, ack: true }
-        }
-      })
-    ).subscribe();
-
-    realtimeEventChannelRef.current = eventChannel;
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     let bridgeChannel: any = null;
     if (hostRoomKey && hostRoomKey !== String(streamId)) {
-      bridgeChannel = attachArenaChannelHandlers(
-        supabase.channel(`live_arena_${hostRoomKey}`, {
-          config: {
-            broadcast: { self: true, ack: true }
-          }
-        })
-      ).subscribe();
-      realtimeHostBridgeChannelRef.current = bridgeChannel;
+      try {
+        bridgeChannel = attachArenaChannelHandlers(
+          supabase.channel(`live_arena_${hostRoomKey}`, {
+            config: {
+              broadcast: { self: true, ack: true }
+            }
+          })
+        ).subscribe();
+        realtimeHostBridgeChannelRef.current = bridgeChannel;
+      } catch (err) {
+        console.warn('Realtime fallback to polling:', err);
+      }
     }
 
     return () => {
       realtimeEventChannelRef.current = null;
       realtimeHostBridgeChannelRef.current = null;
-      supabase.removeChannel(eventChannel);
+      if (eventChannel) supabase.removeChannel(eventChannel);
+      if (dbChannel) supabase.removeChannel(dbChannel);
       if (bridgeChannel) {
         supabase.removeChannel(bridgeChannel);
       }
@@ -3354,35 +3406,42 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
 
     const streamId = currentStream.id;
 
-    const channel = supabase
-      .channel(`stream_status_${streamId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'live_streams',
-          filter: `id=eq.${streamId}`
-        },
-        (payload) => {
-          if (payload.new.status === 'ended' || payload.new.is_live === false) {
+    let channel: any = null;
+    try {
+      const statusChannelName =
+        'stream_status_' + streamId + '_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(statusChannelName)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'live_streams',
+            filter: `id=eq.${streamId}`
+          },
+          (payload) => {
+            if (payload.new.status === 'ended' || payload.new.is_live === false) {
+              handleHostEnded();
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'live_streams',
+            filter: `id=eq.${streamId}`
+          },
+          () => {
             handleHostEnded();
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'live_streams',
-          filter: `id=eq.${streamId}`
-        },
-        () => {
-          handleHostEnded();
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     const pollInterval = setInterval(async () => {
       if (!streamId || String(streamId).startsWith('live_')) return;
@@ -3400,7 +3459,7 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     }, 5000);
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
       clearInterval(pollInterval);
     };
   }, [stage, role, currentStream, handleHostEnded]);
@@ -3520,20 +3579,27 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       }
     }, 2500);
 
-    const channel = supabase
-      .channel('live_streams_lobby_sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_streams' },
-        () => {
-          fetchStreams();
-        }
-      )
-      .subscribe();
+    let channel: any = null;
+    try {
+      const lobbyChannelName =
+        'live_streams_lobby_sync_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(lobbyChannelName)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'live_streams' },
+          () => {
+            fetchStreams();
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
       clearInterval(interval);
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [stage]);
 

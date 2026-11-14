@@ -1060,41 +1060,60 @@ export default function HorPalAffiliatePillar({
         setFreezeP2Withdrawals(Boolean(e.detail.freeze_p2_withdrawals));
       }
     };
+    const onProductsUpdatedEvent = () => {
+      void syncMarketplaceProducts();
+    };
     window.addEventListener('earnmega:platform-settings-updated', onSettingsEvent);
+    window.addEventListener('earnmega:products-updated', onProductsUpdatedEvent);
 
-    const prodChannel = supabase
-      .channel('pillar2_products_live_sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pillar2_products' },
-        () => void syncMarketplaceProducts()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'platform_settings' },
-        (payload: any) => {
-          if (payload?.new) {
-            setFreezeP2Withdrawals(Boolean(payload.new.freeze_p2_withdrawals));
+    let prodChannel: any = null;
+    try {
+      const prodChannelName =
+        'pillar2_products_live_sync_' + Math.random().toString(36).substring(2, 9);
+      prodChannel = supabase
+        .channel(prodChannelName)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'pillar2_products' },
+          () => void syncMarketplaceProducts()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'platform_settings' },
+          (payload: any) => {
+            if (payload?.new) {
+              setFreezeP2Withdrawals(Boolean(payload.new.freeze_p2_withdrawals));
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
-    const cmdChannel = supabase
-      .channel('horpal_godmode_command_p2')
-      .on('broadcast', { event: 'PRODUCTS_UPDATED' }, () => void syncMarketplaceProducts())
-      .on('broadcast', { event: 'PLATFORM_SETTINGS_UPDATED' }, (payload: any) => {
-        if (payload?.payload) {
-          setFreezeP2Withdrawals(Boolean(payload.payload.freeze_p2_withdrawals));
-        }
-      })
-      .subscribe();
+    let cmdChannel: any = null;
+    try {
+      const cmdChannelName =
+        'horpal_godmode_command_p2_' + Math.random().toString(36).substring(2, 9);
+      cmdChannel = supabase
+        .channel(cmdChannelName)
+        .on('broadcast', { event: 'PRODUCTS_UPDATED' }, () => void syncMarketplaceProducts())
+        .on('broadcast', { event: 'PLATFORM_SETTINGS_UPDATED' }, (payload: any) => {
+          if (payload?.payload) {
+            setFreezeP2Withdrawals(Boolean(payload.payload.freeze_p2_withdrawals));
+          }
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
       isMounted = false;
       window.removeEventListener('earnmega:platform-settings-updated', onSettingsEvent);
-      supabase.removeChannel(prodChannel);
-      supabase.removeChannel(cmdChannel);
+      window.removeEventListener('earnmega:products-updated', onProductsUpdatedEvent);
+      if (prodChannel) supabase.removeChannel(prodChannel);
+      if (cmdChannel) supabase.removeChannel(cmdChannel);
     };
   }, []);
   const [linkTags, setLinkTags] = useState<Record<string, string>>({});
@@ -1896,110 +1915,117 @@ export default function HorPalAffiliatePillar({
   // ============================================================================
   useEffect(() => {
     if (!userId) return;
-    const channel = supabase
-      .channel(`horpal_p2_realtime_${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'profiles',
-          filter: `id=eq.${userId}`,
-        },
-        (payload: any) => {
-          const nextProf = payload?.new;
-          if (nextProf) {
-            setAvailableBalanceGHS(
-              Number(nextProf.affiliate_balance ?? nextProf.available_balance_ghs ?? 0)
-            );
-            if (nextProf.affiliate_total_earned !== undefined || nextProf.total_earnings_ghs !== undefined) {
-              setTotalEarningsGHS((prev) =>
-                Math.max(prev, Number(nextProf.affiliate_total_earned ?? nextProf.total_earnings_ghs ?? 0))
+    let channel: any = null;
+    try {
+      const channelName =
+        'horpal_p2_realtime_' + userId + '_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'profiles',
+            filter: `id=eq.${userId}`,
+          },
+          (payload: any) => {
+            const nextProf = payload?.new;
+            if (nextProf) {
+              setAvailableBalanceGHS(
+                Number(nextProf.affiliate_balance ?? nextProf.available_balance_ghs ?? 0)
               );
-            }
-            if (nextProf.affiliate_withdrawn !== undefined || nextProf.total_withdrawn !== undefined) {
-              setWithdrawnBalanceGHS(
-                Number(nextProf.affiliate_withdrawn ?? nextProf.total_withdrawn ?? 0)
-              );
-            }
-            if (nextProf.affiliate_total_sales !== undefined || nextProf.sales_count !== undefined) {
-              setTotalSalesCount((prev) =>
-                Math.max(prev, Number(nextProf.affiliate_total_sales ?? nextProf.sales_count ?? 0))
-              );
-            }
-            if (nextProf.pillar2_expires_at) {
-              const nextExpMs = new Date(nextProf.pillar2_expires_at).getTime();
-              if (nextExpMs > Date.now()) {
-                setLicenseExpiresAt(nextExpMs);
+              if (nextProf.affiliate_total_earned !== undefined || nextProf.total_earnings_ghs !== undefined) {
+                setTotalEarningsGHS((prev) =>
+                  Math.max(prev, Number(nextProf.affiliate_total_earned ?? nextProf.total_earnings_ghs ?? 0))
+                );
+              }
+              if (nextProf.affiliate_withdrawn !== undefined || nextProf.total_withdrawn !== undefined) {
+                setWithdrawnBalanceGHS(
+                  Number(nextProf.affiliate_withdrawn ?? nextProf.total_withdrawn ?? 0)
+                );
+              }
+              if (nextProf.affiliate_total_sales !== undefined || nextProf.sales_count !== undefined) {
+                setTotalSalesCount((prev) =>
+                  Math.max(prev, Number(nextProf.affiliate_total_sales ?? nextProf.sales_count ?? 0))
+                );
+              }
+              if (nextProf.pillar2_expires_at) {
+                const nextExpMs = new Date(nextProf.pillar2_expires_at).getTime();
+                if (nextExpMs > Date.now()) {
+                  setLicenseExpiresAt(nextExpMs);
+                }
               }
             }
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'affiliate_sales',
-        },
-        () => {
-          loadSupabaseData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'pillar2_sales',
-          filter: `affiliate_user_id=eq.${userId}`,
-        },
-        () => {
-          loadSupabaseData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'pillar2_payout_requests',
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          loadSupabaseData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'pillar2_contest_submissions',
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          loadSupabaseData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'affiliate_notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          loadSupabaseData();
-        }
-      )
-      .subscribe();
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'affiliate_sales',
+          },
+          () => {
+            loadSupabaseData();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'pillar2_sales',
+            filter: `affiliate_user_id=eq.${userId}`,
+          },
+          () => {
+            loadSupabaseData();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'pillar2_payout_requests',
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            loadSupabaseData();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'pillar2_contest_submissions',
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            loadSupabaseData();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'affiliate_notifications',
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            loadSupabaseData();
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
       try {
-        supabase.removeChannel(channel);
+        if (channel) supabase.removeChannel(channel);
       } catch (_) {}
     };
   }, [userId]);

@@ -475,22 +475,28 @@ export default function GroupInfoDrawer({
   // Realtime subscription to group member & room updates
   useEffect(() => {
     if (!isOpen || !groupId) return;
-    const channel = supabase
-      .channel(`group_info_${groupId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'room_participants', filter: `room_id=eq.${groupId}` },
-        () => fetchParticipants()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'group_members', filter: `group_id=eq.${groupId}` },
-        () => fetchParticipants()
-      )
-      .subscribe();
+    let channel: any = null;
+    try {
+      const channelName = 'group_info_' + groupId + '_' + Math.random().toString(36).substring(2, 9);
+      channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'room_participants', filter: `room_id=eq.${groupId}` },
+          () => fetchParticipants()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'group_members', filter: `group_id=eq.${groupId}` },
+          () => fetchParticipants()
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [isOpen, groupId]);
 

@@ -835,23 +835,25 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       });
     };
 
-    const uniqueChannel = `scoped-notifications-${currentUserId}-${Date.now()}`;
-    const channel = supabase
-      .channel(uniqueChannel)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${currentUserId}`,
-        },
-        (payload) => {
-          const row = payload.new as any;
-          if (!row || (row.user_id !== currentUserId && row.recipient_id !== currentUserId)) return;
-          handleIncomingNotificationRow(row);
-        }
-      )
+    let channel: any = null;
+    try {
+      const uniqueChannel = `scoped-notifications-${currentUserId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      channel = supabase
+        .channel(uniqueChannel)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${currentUserId}`,
+          },
+          (payload) => {
+            const row = payload.new as any;
+            if (!row || (row.user_id !== currentUserId && row.recipient_id !== currentUserId)) return;
+            handleIncomingNotificationRow(row);
+          }
+        )
       .on(
         'postgres_changes',
         {
@@ -1003,20 +1005,30 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         }
       )
       .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
-    const inboxBroadcastChannel = supabase
-      .channel(`user_inbox_notifs_${currentUserId}`)
-      .on('broadcast', { event: 'scoped_notification' }, (payload) => {
-        const data = payload?.payload;
-        if (!data) return;
-        if (data.user_id !== currentUserId && data.recipient_id !== currentUserId) return;
-        handleIncomingNotificationRow(data);
-      })
-      .subscribe();
+    let inboxBroadcastChannel: any = null;
+    try {
+      const inboxChannelName =
+        'user_inbox_notifs_' + currentUserId + '_' + Math.random().toString(36).substring(2, 9);
+      inboxBroadcastChannel = supabase
+        .channel(inboxChannelName)
+        .on('broadcast', { event: 'scoped_notification' }, (payload) => {
+          const data = payload?.payload;
+          if (!data) return;
+          if (data.user_id !== currentUserId && data.recipient_id !== currentUserId) return;
+          handleIncomingNotificationRow(data);
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime fallback to polling:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(inboxBroadcastChannel);
+      if (channel) supabase.removeChannel(channel);
+      if (inboxBroadcastChannel) supabase.removeChannel(inboxBroadcastChannel);
       document.removeEventListener('visibilitychange', handleVisibilityAndFocus);
       window.removeEventListener('focus', handleVisibilityAndFocus);
     };

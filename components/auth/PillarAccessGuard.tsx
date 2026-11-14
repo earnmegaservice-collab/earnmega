@@ -9,7 +9,6 @@ import {
   PillarScorecard,
   verifyPillarStatusFromServer,
 } from '../../utils/pillarAccess';
-import { useAdminRealtimeEnforcement } from '../../hooks/useAdminRealtimeEnforcement';
 
 export interface PillarGuardPaywallContext {
   user: any | null;
@@ -89,20 +88,6 @@ export default function PillarAccessGuard({ pillar, children, renderPaywall, int
     return run;
   }, [pillar, commit]);
 
-  useAdminRealtimeEnforcement({
-    pillar,
-    onForceOpenPaywall: () => {
-      commit('denied');
-      void verify();
-    },
-    onForceUnlockPillar: () => {
-      void verify();
-    },
-    onProfileChanged: () => {
-      void verify();
-    },
-  });
-
   useEffect(() => {
     mountedRef.current = true;
     void verify();
@@ -113,10 +98,16 @@ export default function PillarAccessGuard({ pillar, children, renderPaywall, int
       if (document.visibilityState === 'visible') void verify();
     };
     const onAdminSync = () => void verify();
+    const onRevoked = (e: any) => {
+      if (!e?.detail?.pillar || e.detail.pillar === pillar) {
+        commit('denied');
+      }
+      void verify();
+    };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('earnmega:admin-enforcement-sync', onAdminSync);
-    window.addEventListener('earnmega:pillar-access-revoked', onAdminSync);
+    window.addEventListener('earnmega:pillar-access-revoked', onRevoked);
     window.addEventListener('earnmega:pillar-access-granted', onAdminSync);
 
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
@@ -131,11 +122,11 @@ export default function PillarAccessGuard({ pillar, children, renderPaywall, int
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('earnmega:admin-enforcement-sync', onAdminSync);
-      window.removeEventListener('earnmega:pillar-access-revoked', onAdminSync);
+      window.removeEventListener('earnmega:pillar-access-revoked', onRevoked);
       window.removeEventListener('earnmega:pillar-access-granted', onAdminSync);
       listener?.subscription?.unsubscribe();
     };
-  }, [verify, intervalMs, commit]);
+  }, [verify, intervalMs, commit, pillar]);
 
   if (status === 'granted') return <>{children}</>;
 
