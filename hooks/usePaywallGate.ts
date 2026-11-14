@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/utils/supabase';
+import { useWallet } from '@/context/WalletContext';
 import {
   PillarAuditResult,
   PillarEntitlementState,
@@ -11,7 +12,8 @@ import {
   purgeLegacyAccessFlags,
 } from '@/utils/pillarAccess';
 
-export function usePaywallGate(targetPillar: PillarId) {
+export function usePaywallGate(targetPillar: PillarId = 1) {
+  const wallet = useWallet();
   const [liveEntitlements, setLiveEntitlements] = useState<PillarEntitlementState | null>(null);
   const [auditResult, setAuditResult] = useState<PillarAuditResult | null>(null);
   const [auditing, setAuditing] = useState(false);
@@ -72,6 +74,7 @@ export function usePaywallGate(targetPillar: PillarId) {
   }, []);
 
   return {
+    ...wallet,
     liveEntitlements,
     auditResult,
     auditing,

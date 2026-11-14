@@ -7,6 +7,7 @@ import HorPalAffiliatePillar from "../../components/affiliate/HorPalAffiliatePil
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../../components/auth/HorPalAuthGate";
 import Pillar2AccessGate, { PaidPillar2PassData } from "../../components/affiliate/Pillar2AccessGate";
 import PillarAccessGuard from "../../components/auth/PillarAccessGuard";
+import { useAdminRealtimeEnforcement } from "../../hooks/useAdminRealtimeEnforcement";
 import { authFetch } from "../../utils/authFetch";
 import {
   auditAccount,
@@ -28,6 +29,33 @@ function AffiliatePageContent() {
     entitlements: EntitlementRow | null;
   } | null>(null);
   const returningFromOAuthRef = useRef(false);
+
+  useAdminRealtimeEnforcement({
+    pillar: 2,
+    onForceOpenPaywall: (_pillarNum, reason) => {
+      setProfile((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              has_paid_pillar2: reason === "expired_renewal" ? true : false,
+              is_pillar2_paid: false,
+              pillar2_access: false,
+            }
+          : prev
+      );
+    },
+    onForceUnlockPillar: (_pillarNum, updatedProfile) => {
+      setDeniedAudit(null);
+      if (updatedProfile) {
+        setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
+      }
+    },
+    onProfileChanged: (updatedProfile) => {
+      if (updatedProfile) {
+        setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
+      }
+    },
+  });
 
   const directBuyerProdParam = searchParams.get("prod") || searchParams.get("product");
 

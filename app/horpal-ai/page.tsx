@@ -18,6 +18,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { syncAuthenticatedUserProfile } from '../../components/auth/HorPalAuthGate';
 import PillarAccessGuard from '../../components/auth/PillarAccessGuard';
+import { useAdminRealtimeEnforcement } from '../../hooks/useAdminRealtimeEnforcement';
 import { authFetch } from '../../utils/authFetch';
 import {
   auditAccount,
@@ -196,6 +197,53 @@ export default function HorpalAIPage() {
   const [expiredMessage, setExpiredMessage] = useState<string | null>(null);
   const [remainingMs, setRemainingMs] = useState<number>(0);
   const expiryLockTriggeredRef = useRef(false);
+
+  const { settings: platformSettings } = useAdminRealtimeEnforcement({
+    pillar: 3,
+    onForceOpenPaywall: () => {
+      setExpiredMessage('Your Pillar 3 AI access has been revoked or expired. Please renew to continue.');
+      setShowUpgradeModal(true);
+      setProfile((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              has_paid_pillar3: false,
+              is_pillar3_paid: false,
+              pillar3_access: false,
+              pillar3_tier: 'none',
+            }
+          : prev
+      );
+    },
+    onForceUnlockPillar: (_pillarNum, updatedProfile) => {
+      setExpiredMessage(null);
+      setShowUpgradeModal(false);
+      setDeniedAudit(null);
+      expiryLockTriggeredRef.current = false;
+      if (updatedProfile) {
+        setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
+      }
+    },
+    onProfileChanged: (updatedProfile) => {
+      if (updatedProfile) {
+        setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
+      }
+    },
+  });
+
+  const activePromptVault = useMemo(() => {
+    const customPrompts = Array.isArray((platformSettings as any)?.pillar3_featured_prompts)
+      ? (platformSettings as any).pillar3_featured_prompts
+          .filter((p: any) => p && p.title && p.prompt)
+          .map((p: any) => ({
+            persona: (p.persona || 'general') as PersonaModeId,
+            category: p.category || '👑 ADMIN FEATURED PROMPT',
+            title: p.title,
+            prompt: p.prompt,
+          }))
+      : [];
+    return customPrompts.length > 0 ? [...customPrompts, ...MASTER_PROMPT_VAULT] : MASTER_PROMPT_VAULT;
+  }, [platformSettings]);
 
   // AI Studio Controls
   const [activeMode, setActiveMode] = useState(MODES[0].id);
@@ -1067,7 +1115,7 @@ export default function HorpalAIPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {MASTER_PROMPT_VAULT.map((item, i) => (
+                {activePromptVault.map((item, i) => (
                   <button
                     key={i}
                     type="button"

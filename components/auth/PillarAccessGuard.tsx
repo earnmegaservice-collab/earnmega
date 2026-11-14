@@ -9,6 +9,7 @@ import {
   PillarScorecard,
   verifyPillarStatusFromServer,
 } from '../../utils/pillarAccess';
+import { useAdminRealtimeEnforcement } from '../../hooks/useAdminRealtimeEnforcement';
 
 export interface PillarGuardPaywallContext {
   user: any | null;
@@ -35,7 +36,7 @@ const MAX_SILENT_FAILURES = 3;
  * signed-in user's fresh public.profiles row proves they paid for THIS pillar, and is re-checked
  * every 15s and on window focus so an unpaid / expired session can never linger inside.
  */
-export default function PillarAccessGuard({ pillar, children, renderPaywall, intervalMs = 15000 }: Props) {
+export default function PillarAccessGuard({ pillar, children, renderPaywall, intervalMs = 5000 }: Props) {
   const [status, setStatus] = useState<Status>('verifying');
   const [user, setUser] = useState<any | null>(null);
   const [entitlements, setEntitlements] = useState<EntitlementRow | null>(null);
@@ -88,6 +89,20 @@ export default function PillarAccessGuard({ pillar, children, renderPaywall, int
     return run;
   }, [pillar, commit]);
 
+  useAdminRealtimeEnforcement({
+    pillar,
+    onForceOpenPaywall: () => {
+      commit('denied');
+      void verify();
+    },
+    onForceUnlockPillar: () => {
+      void verify();
+    },
+    onProfileChanged: () => {
+      void verify();
+    },
+  });
+
   useEffect(() => {
     mountedRef.current = true;
     void verify();
@@ -97,8 +112,12 @@ export default function PillarAccessGuard({ pillar, children, renderPaywall, int
     const onVisible = () => {
       if (document.visibilityState === 'visible') void verify();
     };
+    const onAdminSync = () => void verify();
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('earnmega:admin-enforcement-sync', onAdminSync);
+    window.addEventListener('earnmega:pillar-access-revoked', onAdminSync);
+    window.addEventListener('earnmega:pillar-access-granted', onAdminSync);
 
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
       // Any sign-in / sign-out / token refresh: drop trust and re-audit immediately.
@@ -111,6 +130,9 @@ export default function PillarAccessGuard({ pillar, children, renderPaywall, int
       window.clearInterval(timer);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('earnmega:admin-enforcement-sync', onAdminSync);
+      window.removeEventListener('earnmega:pillar-access-revoked', onAdminSync);
+      window.removeEventListener('earnmega:pillar-access-granted', onAdminSync);
       listener?.subscription?.unsubscribe();
     };
   }, [verify, intervalMs, commit]);

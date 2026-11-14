@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       const { data: prof } = await adminSupabase
         .from('profiles')
         .select(
-          'id, email, username, is_banned, is_suspended, status, is_wallet_frozen, has_paid_global_chat, global_chat_paystack_ref, is_paid, subscription_tier, is_pro, is_premium, subscription_started_at, subscription_expires_at, has_paid_pillar2, is_pillar2_paid, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, license_activated_at, license_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at, updated_at'
+          'id, email, username, is_banned, is_suspended, status, is_wallet_frozen, is_verified, unlocked_p2_courses, has_p2_exam_certificate, custom_commission_rate, shadow_muted_until, force_logout_at, is_pinned_explore, hide_from_radar, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, global_chat_paystack_ref, is_paid, subscription_tier, is_pro, is_premium, subscription_started_at, subscription_expires_at, has_paid_pillar2, is_pillar2_paid, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, license_activated_at, license_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at, updated_at'
         )
         .eq('id', userId.trim())
         .maybeSingle();
@@ -96,7 +96,27 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action, payload = {} } = body;
 
-    // Allow in-app user live report submissions without requiring master admin token
+    // Allow in-app user live report submissions or silent Pillar 2 Help Bot submissions without requiring master admin token
+    if (action === 'SUBMIT_P2_HELP_MESSAGE') {
+      const { userId, userEmail, userName, message } = payload;
+      if (!message || typeof message !== 'string') {
+        return NextResponse.json({ success: false, error: 'Message is required' }, { status: 400 });
+      }
+      await adminSupabase.from('pillar2_help_messages').insert({
+        user_id: userId && /^[0-9a-fA-F-]{36}$/.test(String(userId)) ? userId : null,
+        user_email: userEmail || null,
+        user_name: userName || 'Pillar 2 Affiliate',
+        message: message.trim(),
+        status: 'unread',
+      });
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'HELP_BOT_MSG',
+        actor_email: userEmail || 'affiliate',
+        summary: `New Pillar 2 Help Bot message from ${userName || userEmail || 'Affiliate'}`,
+      });
+      return NextResponse.json({ success: true });
+    }
+
     if (action === 'SUBMIT_LIVE_REPORT') {
       const { Platform, Report_Type, Reason, Details, Reported_User, Reported_By, Stream_ID, Timestamp } = payload;
       const resend = resendApiKey ? new Resend(resendApiKey) : null;
@@ -183,6 +203,7 @@ export async function POST(request: Request) {
         'lock_pillar1',
         'lock_pillar2',
         'lock_pillar3',
+        'full_screen_popup_active',
       ];
       const allowedNumericKeys = [
         'p1_entry_price_ghs',
@@ -191,8 +212,19 @@ export async function POST(request: Request) {
         'p3_weekly_price_ghs',
         'p3_pro_price_ghs',
         'p3_premium_price_ghs',
+        'p2_contest_prize_pool_ghs',
       ];
-      const allowedStringKeys = ['maintenance_message', 'global_announcement_banner'];
+      const allowedStringKeys = [
+        'maintenance_message',
+        'global_announcement_banner',
+        'full_screen_popup_title',
+        'full_screen_popup_message',
+        'full_screen_popup_cta_text',
+        'full_screen_popup_cta_url',
+        'full_screen_popup_id',
+        'pillar3_custom_system_prompt',
+        'p2_contest_deadline',
+      ];
 
       for (const k of allowedBooleanKeys) {
         if (typeof payload[k] === 'boolean') updates[k] = payload[k];
@@ -204,6 +236,9 @@ export async function POST(request: Request) {
       }
       for (const k of allowedStringKeys) {
         if (typeof payload[k] === 'string') updates[k] = payload[k];
+      }
+      if (Array.isArray(payload.pillar3_featured_prompts)) {
+        updates.pillar3_featured_prompts = payload.pillar3_featured_prompts;
       }
 
       // Support single switch key + value format: { switchKey: 'maintenance_mode', value: true }
@@ -233,7 +268,7 @@ export async function POST(request: Request) {
     }
 
     // -------------------------------------------------------------------------
-    // OVERWATCH STATS
+    // OVERWATCH STATS + LIVE OVERWATCH MATRIX AUDIT STREAM (#1 & #35)
     // -------------------------------------------------------------------------
     if (action === 'FETCH_ALL_STATS') {
       const staleCutoff = new Date(Date.now() - 120 * 1000).toISOString();
@@ -251,18 +286,25 @@ export async function POST(request: Request) {
         { count: liveActive },
         { data: coinsData },
         { data: revData },
-        { count: pendingP2 },
+        { data: pendingP2Rows },
+        { data: pendingP1Rows },
+        { data: p1PassRows },
+        { data: p2PassRows },
+        { data: p3PassRows },
         { data: settingsRow },
+        { data: recentAuditRows },
+        { data: recentUsers },
+        { data: recentStreams },
       ] = await Promise.all([
         adminSupabase.from('profiles').select('*', { count: 'exact', head: true }),
         adminSupabase
           .from('profiles')
           .select('*', { count: 'exact', head: true })
-          .eq('has_paid_global_chat', true),
+          .or('has_paid_global_chat.eq.true,is_paid.eq.true'),
         adminSupabase
           .from('profiles')
           .select('*', { count: 'exact', head: true })
-          .eq('has_paid_pillar2', true),
+          .or('has_paid_pillar2.eq.true,is_pillar2_paid.eq.true'),
         adminSupabase
           .from('profiles')
           .select('*', { count: 'exact', head: true })
@@ -272,12 +314,24 @@ export async function POST(request: Request) {
           .select('*', { count: 'exact', head: true })
           .eq('is_live', true),
         adminSupabase.from('profiles').select('coin_balance, coins'),
-        adminSupabase.from('profiles').select('available_balance_ghs, affiliate_balance'),
+        adminSupabase
+          .from('profiles')
+          .select('available_balance_ghs, affiliate_balance, affiliate_Available_Balance'),
         adminSupabase
           .from('pillar2_payout_requests')
-          .select('*', { count: 'exact', head: true })
+          .select('id, amount_ghs, status, affiliate_email, created_at')
           .in('status', ['pending', 'processing']),
+        adminSupabase
+          .from('payout_requests')
+          .select('id, amount_ghs, amount, status, created_at')
+          .in('status', ['pending', 'processing']),
+        adminSupabase.from('global_chat_passes').select('amount_ghs, email, paystack_reference, created_at').order('created_at', { ascending: false }).limit(50),
+        adminSupabase.from('pillar2_passes').select('amount_ghs, email, paystack_reference, created_at').order('created_at', { ascending: false }).limit(50),
+        adminSupabase.from('pillar3_passes').select('amount_ghs, email, paystack_reference, created_at').order('created_at', { ascending: false }).limit(50),
         adminSupabase.from('platform_settings').select('*').eq('id', 1).maybeSingle(),
+        adminSupabase.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(25),
+        adminSupabase.from('profiles').select('id, username, email, created_at').order('created_at', { ascending: false }).limit(10),
+        adminSupabase.from('active_live_streams').select('id, host_username, stream_title, is_live, started_at').order('started_at', { ascending: false }).limit(8),
       ]);
 
       const coins = (coinsData || []).reduce(
@@ -286,12 +340,110 @@ export async function POST(request: Request) {
       );
       const rev = (revData || []).reduce(
         (acc, row: any) =>
-          acc + Math.max(Number(row.affiliate_balance || 0), Number(row.available_balance_ghs || 0)),
+          acc +
+          Math.max(
+            Number(row.affiliate_balance || 0),
+            Number(row.available_balance_ghs || 0),
+            Number(row.affiliate_Available_Balance || 0)
+          ),
         0
+      );
+
+      const pendingP2Count = (pendingP2Rows || []).length;
+      const pendingP1Count = (pendingP1Rows || []).length;
+      const totalPendingCount = pendingP2Count + pendingP1Count;
+
+      const pendingP2Sum = (pendingP2Rows || []).reduce(
+        (acc, r: any) => acc + Number(r.amount_ghs || 0),
+        0
+      );
+      const pendingP1Sum = (pendingP1Rows || []).reduce(
+        (acc, r: any) => acc + Number(r.amount_ghs || r.amount || 0),
+        0
+      );
+      const totalPendingGhs = Number((pendingP2Sum + pendingP1Sum).toFixed(2));
+
+      const p1Rev = (p1PassRows || []).reduce((a, r: any) => a + Number(r.amount_ghs || 50), 0);
+      const p2Rev = (p2PassRows || []).reduce((a, r: any) => a + Number(r.amount_ghs || 90), 0);
+      const p3Rev = (p3PassRows || []).reduce((a, r: any) => a + Number(r.amount_ghs || 100), 0);
+      const totalVerifiedPaystackRevenueGhs = Number((p1Rev + p2Rev + p3Rev).toFixed(2));
+
+      // Build unified real-time Overwatch Matrix event feed (#35)
+      const matrixEvents: any[] = [];
+      for (const log of recentAuditRows || []) {
+        matrixEvents.push({
+          id: `audit_${log.id}`,
+          type: log.event_type || 'ADMIN_ACTION',
+          summary: log.summary,
+          timestamp: log.created_at,
+        });
+      }
+      for (const p of (p1PassRows || []).slice(0, 6)) {
+        matrixEvents.push({
+          id: `p1_${p.paystack_reference}`,
+          type: 'PAYSTACK_P1',
+          summary: `[P1 PAID] ${p.email} unlocked Pillar 1 Global Chat (GH₵ ${Number(p.amount_ghs || 50).toFixed(2)} • Ref: ${p.paystack_reference})`,
+          timestamp: p.created_at,
+        });
+      }
+      for (const p of (p2PassRows || []).slice(0, 6)) {
+        matrixEvents.push({
+          id: `p2_${p.paystack_reference}`,
+          type: 'PAYSTACK_P2',
+          summary: `[P2 LICENSE] ${p.email} activated Pillar 2 Affiliate Pass (GH₵ ${Number(p.amount_ghs || 90).toFixed(2)} • Ref: ${p.paystack_reference})`,
+          timestamp: p.created_at,
+        });
+      }
+      for (const p of (p3PassRows || []).slice(0, 6)) {
+        matrixEvents.push({
+          id: `p3_${p.paystack_reference}`,
+          type: 'PAYSTACK_P3',
+          summary: `[P3 AI STUDIO] ${p.email} activated Pillar 3 AI Pass (GH₵ ${Number(p.amount_ghs || 100).toFixed(2)} • Ref: ${p.paystack_reference})`,
+          timestamp: p.created_at,
+        });
+      }
+      for (const req of (pendingP2Rows || []).slice(0, 6)) {
+        matrixEvents.push({
+          id: `payout_${req.id}`,
+          type: 'PAYOUT_REQUEST',
+          summary: `[PAYOUT QUEUE] ${req.affiliate_email || 'Affiliate'} requested GH₵ ${Number(req.amount_ghs || 0).toFixed(2)} (${req.status})`,
+          timestamp: req.created_at,
+        });
+      }
+      for (const st of (recentStreams || []).slice(0, 5)) {
+        matrixEvents.push({
+          id: `stream_${st.id}`,
+          type: 'LIVE_STREAM',
+          summary: `[LIVE RADAR] @${st.host_username} broadcast "${st.stream_title}" (${st.is_live ? 'LIVE NOW' : 'Ended'})`,
+          timestamp: st.started_at,
+        });
+      }
+      for (const u of (recentUsers || []).slice(0, 6)) {
+        matrixEvents.push({
+          id: `signup_${u.id}`,
+          type: 'NEW_SIGNUP',
+          summary: `[NEW CITIZEN] @${u.username || 'user'} (${u.email || 'verified'}) joined Earnmega`,
+          timestamp: u.created_at,
+        });
+      }
+      matrixEvents.sort(
+        (a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
       );
 
       return NextResponse.json({
         success: true,
+        totalUsers: users || 0,
+        paidP1Users: p1Paid || 0,
+        paidP2Users: p2Active || 0,
+        paidP3Users: p3Active || 0,
+        activeLiveRoomsCount: liveActive || 0,
+        totalCoinsInCirculation: coins,
+        totalP2AffiliateBalancesGhs: rev,
+        totalVerifiedPaystackRevenueGhs,
+        pendingPayoutsCount: totalPendingCount,
+        pendingPayoutsAmountGhs: totalPendingGhs,
+        platformSettings: settingsRow || null,
+        matrixEvents: matrixEvents.slice(0, 35),
         stats: {
           users: users || 0,
           p1Paid: p1Paid || 0,
@@ -300,7 +452,9 @@ export async function POST(request: Request) {
           live: liveActive || 0,
           coins,
           rev,
-          pending: pendingP2 || 0,
+          paystackRev: totalVerifiedPaystackRevenueGhs,
+          pending: totalPendingCount,
+          pendingAmountGhs: totalPendingGhs,
         },
         settings: settingsRow || null,
       });
@@ -823,14 +977,14 @@ export async function POST(request: Request) {
     // PHASE 7: FULL 3-PILLAR LICENSE ENFORCER & MASTER USER VAULT
     // -------------------------------------------------------------------------
     if (action === 'FETCH_USERS_VAULT') {
-      const { searchTerm = '', filter = 'ALL', limit = 100 } = payload;
+      const { searchTerm = '', search = '', filter = 'ALL', limit = 150 } = payload;
       let q = adminSupabase
         .from('profiles')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(Number(limit) || 100);
+        .limit(Number(limit) || 150);
 
-      const trimmed = String(searchTerm || '').trim();
+      const trimmed = String(searchTerm || search || '').trim();
       if (trimmed) {
         if (/^[0-9a-fA-F-]{36}$/.test(trimmed)) {
           q = q.eq('id', trimmed);
@@ -840,12 +994,19 @@ export async function POST(request: Request) {
           );
         }
       } else {
-        if (filter === 'P1_PAID') q = q.eq('has_paid_global_chat', true);
+        if (filter === 'P1_PAID') q = q.or('has_paid_global_chat.eq.true,is_paid.eq.true');
         if (filter === 'P1_UNPAID') q = q.eq('has_paid_global_chat', false);
-        if (filter === 'P2_PAID' || filter === 'P2_AFFILIATES') q = q.eq('has_paid_pillar2', true);
+        if (filter === 'P2_PAID' || filter === 'P2_AFFILIATES') q = q.or('has_paid_pillar2.eq.true,is_pillar2_paid.eq.true');
         if (filter === 'P2_UNPAID') q = q.eq('has_paid_pillar2', false);
         if (filter === 'P3_PAID') q = q.eq('has_paid_pillar3', true);
         if (filter === 'P3_UNPAID') q = q.eq('has_paid_pillar3', false);
+        if (filter === 'UNPAID') {
+          q = q
+            .eq('has_paid_global_chat', false)
+            .eq('has_paid_pillar2', false)
+            .eq('has_paid_pillar3', false);
+        }
+        if (filter === 'PRO') q = q.or('is_pro.eq.true,is_premium.eq.true');
         if (filter === 'FROZEN') q = q.eq('is_wallet_frozen', true);
         if (filter === 'BANNED') q = q.or('is_banned.eq.true,is_suspended.eq.true,status.eq.suspended');
       }
@@ -858,7 +1019,27 @@ export async function POST(request: Request) {
     }
 
     if (action === 'ADMIN_SET_PILLAR_ACCESS') {
-      const { userId, pillar, mode } = payload;
+      let { userId, pillar, mode, pillarAction } = payload;
+      if (pillarAction && (!pillar || !mode)) {
+        const actionMap: Record<string, { pillar: number; mode: string }> = {
+          GRANT_P1_FREE: { pillar: 1, mode: 'grant_free' },
+          GRANT_P1_PRO_30D: { pillar: 1, mode: 'grant_pro' },
+          GRANT_P1_PREMIUM_1YR: { pillar: 1, mode: 'grant_premium' },
+          REVOKE_P1: { pillar: 1, mode: 'revoke' },
+          GRANT_P2_1YR: { pillar: 2, mode: 'grant_1yr' },
+          EXTEND_P2_1YR: { pillar: 2, mode: 'extend_1yr' },
+          EXPIRE_P2_RENEWAL: { pillar: 2, mode: 'force_expire_renewal' },
+          REVOKE_P2: { pillar: 2, mode: 'revoke' },
+          GRANT_P3_WEEKLY_7D: { pillar: 3, mode: 'grant_weekly' },
+          GRANT_P3_PRO_30D: { pillar: 3, mode: 'grant_pro' },
+          GRANT_P3_PREMIUM_1YR: { pillar: 3, mode: 'grant_premium' },
+          REVOKE_P3: { pillar: 3, mode: 'revoke' },
+        };
+        if (actionMap[pillarAction]) {
+          pillar = actionMap[pillarAction].pillar;
+          mode = actionMap[pillarAction].mode;
+        }
+      }
       if (!userId || typeof userId !== 'string' || ![1, 2, 3].includes(Number(pillar)) || !mode) {
         return NextResponse.json(
           { success: false, error: 'Invalid ADMIN_SET_PILLAR_ACCESS payload' },
@@ -1107,9 +1288,15 @@ export async function POST(request: Request) {
       }
 
       try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'ADMIN_ACTION',
+          actor_email: 'Admin',
+          target_user: userEmail || userId,
+          summary: `[LICENSE OVERRIDE] Set Pillar ${pillar} -> ${mode} for ${userEmail || userId}`,
+        });
         await adminSupabase.channel('horpal_godmode_command').send({
           type: 'broadcast',
-          event: 'USER_ENFORCEMENT_UPDATED',
+          event: 'PILLAR_ACCESS_UPDATED',
           payload: {
             userId,
             pillar: Number(pillar),
@@ -1120,7 +1307,7 @@ export async function POST(request: Request) {
         });
       } catch (_) {}
 
-      return NextResponse.json({ success: true, user: updatedUser });
+      return NextResponse.json({ success: true, user: updatedUser, profile: updatedUser });
     }
 
     // -------------------------------------------------------------------------
@@ -1689,6 +1876,968 @@ export async function POST(request: Request) {
         } catch (_) {}
       }
       return NextResponse.json({ success: true, submission: updatedSub });
+    }
+
+    // -------------------------------------------------------------------------
+    // BLOCK 2 (PHASE 8): 35+ ENTERPRISE ADMIN COMMAND CAPABILITIES
+    // -------------------------------------------------------------------------
+
+    // #2 & #23 & #27: TREASURY, PAYSTACK LEDGER, P1 COIN CASHOUTS & P2 PAYOUTS DESK
+    if (action === 'FETCH_TREASURY_DATA') {
+      const [
+        { data: p2Payouts },
+        { data: p1Payouts },
+        { data: p1Passes },
+        { data: p2Passes },
+        { data: p3Passes },
+        { data: p2Sales },
+      ] = await Promise.all([
+        adminSupabase
+          .from('pillar2_payout_requests')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(200),
+        adminSupabase
+          .from('payout_requests')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(200),
+        adminSupabase
+          .from('global_chat_passes')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100),
+        adminSupabase
+          .from('pillar2_passes')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100),
+        adminSupabase
+          .from('pillar3_passes')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100),
+        adminSupabase
+          .from('affiliate_sales')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100),
+      ]);
+
+      // Build unified Paystack transaction ledger (#2)
+      const paystackLedger: any[] = [];
+      for (const p of p1Passes || []) {
+        paystackLedger.push({
+          id: `p1_${p.id || p.paystack_reference}`,
+          pillar: 'Pillar 1 (Global Chat)',
+          reference: p.paystack_reference,
+          email: p.email,
+          amount_ghs: Number(p.amount_ghs || 50),
+          type: 'P1 Entry / Tier Pass',
+          created_at: p.created_at,
+        });
+      }
+      for (const p of p2Passes || []) {
+        paystackLedger.push({
+          id: `p2_${p.id || p.paystack_reference}`,
+          pillar: 'Pillar 2 (Affiliate Hub)',
+          reference: p.paystack_reference,
+          email: p.email,
+          amount_ghs: Number(p.amount_ghs || 90),
+          type: p.pass_type === 'renewal_45' ? 'P2 Renewal (GH₵ 45)' : 'P2 1-Yr License (GH₵ 90)',
+          created_at: p.created_at,
+        });
+      }
+      for (const s of p2Sales || []) {
+        paystackLedger.push({
+          id: `sale_${s.id}`,
+          pillar: 'Pillar 2 (Course Sale)',
+          reference: s.paystack_reference || s.reference || `SALE_${s.id}`,
+          email: s.buyer_email || 'Buyer',
+          amount_ghs: Number(s.amount_ghs || s.amount || 0),
+          type: `Course: ${s.product_title || s.product_id || 'Digital Product'}`,
+          created_at: s.created_at,
+        });
+      }
+      for (const p of p3Passes || []) {
+        paystackLedger.push({
+          id: `p3_${p.id || p.paystack_reference}`,
+          pillar: 'Pillar 3 (HorPal AI)',
+          reference: p.paystack_reference,
+          email: p.email,
+          amount_ghs: Number(p.amount_ghs || 100),
+          type: `P3 ${String(p.plan_tier || 'pro').toUpperCase()} Pass`,
+          created_at: p.created_at,
+        });
+      }
+      paystackLedger.sort(
+        (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
+
+      return NextResponse.json({
+        success: true,
+        p2Payouts: p2Payouts || [],
+        p1Payouts: p1Payouts || [],
+        payouts: [...(p2Payouts || []), ...(p1Payouts || [])],
+        paystackLedger,
+      });
+    }
+
+    // #23: Process Pillar 1 Coin Cashout or Legacy Payout Decision
+    if (action === 'PROCESS_PAYOUT_DECISION') {
+      const { payoutId, decision, adminNotes, sourceTable = 'payout_requests' } = payload;
+      if (!payoutId) {
+        return NextResponse.json({ success: false, error: 'Missing payoutId' }, { status: 400 });
+      }
+      const nextStatus =
+        decision === 'APPROVED'
+          ? 'paid'
+          : decision === 'PROCESSING'
+          ? 'processing'
+          : 'rejected';
+
+      const { data: reqRow } = await adminSupabase
+        .from(sourceTable)
+        .select('*')
+        .eq('id', payoutId)
+        .maybeSingle();
+
+      if (reqRow && decision === 'REJECTED_REFUND' && reqRow.user_id) {
+        const { data: prof } = await adminSupabase
+          .from('profiles')
+          .select('coins, coin_balance, affiliate_balance, available_balance_ghs')
+          .eq('id', reqRow.user_id)
+          .maybeSingle();
+        if (prof) {
+          const refundCoins = Number(reqRow.coins_requested || reqRow.coins || 0);
+          const refundGhs = Number(reqRow.amount_ghs || reqRow.amount || 0);
+          if (refundCoins > 0) {
+            const nextC = Math.max(Number(prof.coins || 0), Number(prof.coin_balance || 0)) + refundCoins;
+            await adminSupabase
+              .from('profiles')
+              .update({ coins: nextC, coin_balance: nextC })
+              .eq('id', reqRow.user_id);
+          } else if (refundGhs > 0) {
+            const nextG =
+              Math.max(Number(prof.affiliate_balance || 0), Number(prof.available_balance_ghs || 0)) +
+              refundGhs;
+            await adminSupabase
+              .from('profiles')
+              .update({
+                affiliate_balance: nextG,
+                available_balance_ghs: nextG,
+                affiliate_Available_Balance: nextG,
+              })
+              .eq('id', reqRow.user_id);
+          }
+        }
+      }
+
+      await adminSupabase
+        .from(sourceTable)
+        .update({
+          status: nextStatus,
+          admin_notes: adminNotes || `Processed by Admin (${nextStatus})`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', payoutId);
+
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'PAYOUT_DECISION',
+        actor_email: 'Admin',
+        summary: `[PAYOUT ${nextStatus.toUpperCase()}] Request ${payoutId.slice(0, 8)} marked ${nextStatus}`,
+      });
+
+      return NextResponse.json({ success: true, status: nextStatus });
+    }
+
+    // #3: Manual Paystack Reference Grant Tool (By Email)
+    if (action === 'MANUAL_PAYSTACK_GRANT') {
+      const { email, pillar, tier = 'pro', customRef } = payload;
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        return NextResponse.json({ success: false, error: 'Valid email is required' }, { status: 400 });
+      }
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const ref = String(customRef || '').trim() || `ADMIN_MANUAL_P${pillar}_${nowMs}`;
+
+      const { data: prof } = await adminSupabase
+        .from('profiles')
+        .select('*')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+
+      const targetUserId = prof?.id || null;
+
+      if (Number(pillar) === 1) {
+        await adminSupabase.from('global_chat_passes').upsert(
+          {
+            paystack_reference: ref,
+            email: cleanEmail,
+            amount_ghs: 50,
+            claimed_by_user_id: targetUserId,
+          },
+          { onConflict: 'paystack_reference' }
+        );
+        if (targetUserId) {
+          await adminSupabase
+            .from('profiles')
+            .update({
+              has_paid_global_chat: true,
+              is_paid: true,
+              global_chat_paystack_ref: ref,
+              updated_at: nowIso,
+            })
+            .eq('id', targetUserId);
+        }
+      } else if (Number(pillar) === 2) {
+        const expIso = new Date(nowMs + 365 * 86400000).toISOString();
+        await adminSupabase.from('pillar2_passes').upsert(
+          {
+            paystack_reference: ref,
+            email: cleanEmail,
+            amount_ghs: 90,
+            pass_type: 'registration_1yr',
+            claimed_by_user_id: targetUserId,
+          },
+          { onConflict: 'paystack_reference' }
+        );
+        if (targetUserId) {
+          await adminSupabase
+            .from('profiles')
+            .update({
+              has_paid_pillar2: true,
+              is_pillar2_paid: true,
+              pillar2_paystack_ref: ref,
+              pillar2_paid_at: nowIso,
+              pillar2_expires_at: expIso,
+              license_activated_at: nowIso,
+              license_expires_at: expIso,
+              updated_at: nowIso,
+            })
+            .eq('id', targetUserId);
+        }
+      } else if (Number(pillar) === 3) {
+        const days = tier === 'weekly' ? 7 : tier === 'premium' ? 365 : 30;
+        const amt = tier === 'weekly' ? 50 : tier === 'premium' ? 200 : 100;
+        const expIso = new Date(nowMs + days * 86400000).toISOString();
+        await adminSupabase.from('pillar3_passes').upsert(
+          {
+            paystack_reference: ref,
+            email: cleanEmail,
+            amount_ghs: amt,
+            plan_tier: tier,
+            duration_days: days,
+            user_id: targetUserId,
+            claimed_by_user_id: targetUserId,
+            claimed: Boolean(targetUserId),
+          },
+          { onConflict: 'paystack_reference' }
+        );
+        if (targetUserId) {
+          await adminSupabase
+            .from('profiles')
+            .update({
+              has_paid_pillar3: true,
+              pillar3_tier: tier,
+              pillar3_paystack_ref: ref,
+              pillar3_started_at: nowIso,
+              pillar3_expires_at: expIso,
+              updated_at: nowIso,
+            })
+            .eq('id', targetUserId);
+        }
+      }
+
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'MANUAL_PAYSTACK_GRANT',
+        actor_email: 'Admin',
+        target_user: cleanEmail,
+        summary: `[MANUAL GRANT] Marked ${cleanEmail} paid for Pillar ${pillar} (Ref: ${ref})`,
+      });
+
+      if (targetUserId) {
+        try {
+          await adminSupabase.channel('horpal_godmode_command').send({
+            type: 'broadcast',
+            event: 'PILLAR_ACCESS_UPDATED',
+            payload: { userId: targetUserId, pillar: Number(pillar), timestamp: nowMs },
+          });
+        } catch (_) {}
+      }
+
+      return NextResponse.json({ success: true, reference: ref, email: cleanEmail, userId: targetUserId });
+    }
+
+    // #5 & #6: Global Megaphone & Full-Screen Popup Broadcast Modal
+    if (action === 'SEND_GLOBAL_ANNOUNCEMENT' || action === 'PUSH_FULLSCREEN_POPUP') {
+      const { title, message, ctaText = '', ctaUrl = '', active = true } = payload;
+      const popupId = `popup_${Date.now()}`;
+      const { data: updatedSettings } = await adminSupabase
+        .from('platform_settings')
+        .update({
+          full_screen_popup_title: title || 'SYSTEM BROADCAST',
+          full_screen_popup_message: message || '',
+          full_screen_popup_cta_text: ctaText,
+          full_screen_popup_cta_url: ctaUrl,
+          full_screen_popup_active: Boolean(active),
+          full_screen_popup_id: popupId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', 1)
+        .select('*')
+        .single();
+
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'GLOBAL_BROADCAST',
+        actor_email: 'Admin',
+        summary: `[POPUP BROADCAST] "${title || 'SYSTEM BROADCAST'}": ${String(message || '').slice(0, 80)}`,
+      });
+
+      try {
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'PLATFORM_SETTINGS_UPDATED',
+          payload: updatedSettings,
+        });
+      } catch (_) {}
+
+      return NextResponse.json({ success: true, settings: updatedSettings });
+    }
+
+    // #7: Subscription Expiry Alert Inbox (Live Scan + 1-Click Revoke or Reminder)
+    if (action === 'SCAN_EXPIRING_SUBSCRIPTIONS') {
+      const soonCutoff = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+      const { data: users } = await adminSupabase
+        .from('profiles')
+        .select(
+          'id, email, username, full_name, has_paid_global_chat, subscription_tier, subscription_expires_at, has_paid_pillar2, pillar2_expires_at, has_paid_pillar3, pillar3_tier, pillar3_expires_at'
+        )
+        .or(
+          `subscription_expires_at.lte.${soonCutoff},pillar2_expires_at.lte.${soonCutoff},pillar3_expires_at.lte.${soonCutoff}`
+        )
+        .limit(100);
+
+      const items: any[] = [];
+      for (const u of users || []) {
+        if (u.subscription_expires_at && new Date(u.subscription_expires_at) <= new Date(soonCutoff)) {
+          items.push({
+            id: `p1_${u.id}`,
+            user_id: u.id,
+            email: u.email,
+            username: u.username || u.full_name || 'User',
+            pillar: 1,
+            tier: u.subscription_tier || 'Pro',
+            expires_at: u.subscription_expires_at,
+            is_expired: new Date(u.subscription_expires_at).getTime() <= Date.now(),
+          });
+        }
+        if (u.pillar2_expires_at && new Date(u.pillar2_expires_at) <= new Date(soonCutoff)) {
+          items.push({
+            id: `p2_${u.id}`,
+            user_id: u.id,
+            email: u.email,
+            username: u.username || u.full_name || 'Affiliate',
+            pillar: 2,
+            tier: '1-Yr Affiliate License',
+            expires_at: u.pillar2_expires_at,
+            is_expired: new Date(u.pillar2_expires_at).getTime() <= Date.now(),
+          });
+        }
+        if (u.pillar3_expires_at && new Date(u.pillar3_expires_at) <= new Date(soonCutoff)) {
+          items.push({
+            id: `p3_${u.id}`,
+            user_id: u.id,
+            email: u.email,
+            username: u.username || u.full_name || 'AI Member',
+            pillar: 3,
+            tier: u.pillar3_tier || 'Pro',
+            expires_at: u.pillar3_expires_at,
+            is_expired: new Date(u.pillar3_expires_at).getTime() <= Date.now(),
+          });
+        }
+      }
+      return NextResponse.json({ success: true, alerts: items });
+    }
+
+    if (action === 'SEND_RENEWAL_REMINDER') {
+      const { userId, email, pillar, tier } = payload;
+      if (resend && email) {
+        try {
+          await resend.emails.send({
+            from: 'Earnmega Billing <billing@resend.dev>',
+            to: email,
+            subject: `⏰ Action Required: Your Earnmega Pillar ${pillar} (${tier}) License Renewal`,
+            html: `<p>Hello! Your Earnmega Pillar ${pillar} (${tier}) pass has expired or is expiring within 24 hours. Log in to Earnmega to renew seamlessly and keep uninterrupted access.</p>`,
+          });
+        } catch (_) {}
+      }
+      if (userId) {
+        try {
+          await adminSupabase.from('notifications').insert({
+            recipient_id: userId,
+            type: 'RENEWAL_REMINDER',
+            message: `⏰ Your Pillar ${pillar} (${tier}) access is due for renewal.`,
+            read: false,
+          });
+        } catch (_) {}
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    // #8: One-Click CSV Data Exporter
+    if (action === 'EXPORT_CSV_DATA') {
+      const [
+        { data: users },
+        { data: p2Payouts },
+      ] = await Promise.all([
+        adminSupabase
+          .from('profiles')
+          .select(
+            'id, email, username, full_name, phone, affiliate_code, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, subscription_tier, has_paid_pillar2, pillar2_expires_at, has_paid_pillar3, pillar3_tier, created_at'
+          )
+          .order('created_at', { ascending: false })
+          .limit(2000),
+        adminSupabase
+          .from('pillar2_payout_requests')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1000),
+      ]);
+      return NextResponse.json({
+        success: true,
+        users: users || [],
+        payouts: p2Payouts || [],
+      });
+    }
+
+    // #10–#18, #24, #26: USER VAULT SUPREME CONTROLS
+    if (action === 'UPDATE_USER_GODMODE') {
+      const { userId, updates } = payload;
+      if (!userId) return NextResponse.json({ success: false, error: 'Missing userId' }, { status: 400 });
+
+      const cleanUpdates: Record<string, any> = { ...updates, updated_at: new Date().toISOString() };
+      if (cleanUpdates.coins !== undefined) {
+        cleanUpdates.coins = Number(cleanUpdates.coins);
+        cleanUpdates.coin_balance = Number(cleanUpdates.coins);
+      }
+      if (
+        cleanUpdates.affiliate_Available_Balance !== undefined ||
+        cleanUpdates.affiliate_balance !== undefined
+      ) {
+        const val = Number(
+          cleanUpdates.affiliate_balance ?? cleanUpdates.affiliate_Available_Balance ?? 0
+        );
+        cleanUpdates.affiliate_balance = val;
+        cleanUpdates.available_balance_ghs = val;
+        cleanUpdates.affiliate_Available_Balance = val;
+      }
+
+      const { data: updatedUser, error } = await adminSupabase
+        .from('profiles')
+        .update(cleanUpdates)
+        .eq('id', userId)
+        .select('*')
+        .single();
+
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+      try {
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'PILLAR_ACCESS_UPDATED',
+          payload: { userId, profile: updatedUser, timestamp: Date.now() },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({ success: true, user: updatedUser });
+    }
+
+    // #10 & #11: Direct Coin Editor & Affiliate Balance Editor (+ / - / Set Exact)
+    if (action === 'ADJUST_USER_COINS_OR_GHS') {
+      const { userId, targetField, mode, amount } = payload;
+      if (!userId || !['coins', 'ghs'].includes(targetField)) {
+        return NextResponse.json({ success: false, error: 'Invalid parameters' }, { status: 400 });
+      }
+      const numAmount = Number(amount);
+      if (!Number.isFinite(numAmount) || numAmount < 0) {
+        return NextResponse.json({ success: false, error: 'Invalid numeric amount' }, { status: 400 });
+      }
+
+      const { data: prof } = await adminSupabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      if (!prof) return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });
+
+      const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (targetField === 'coins') {
+        const cur = Math.max(Number(prof.coins || 0), Number(prof.coin_balance || 0));
+        const nextVal =
+          mode === 'set'
+            ? Math.floor(numAmount)
+            : mode === 'add'
+            ? cur + Math.floor(numAmount)
+            : Math.max(0, cur - Math.floor(numAmount));
+        updates.coins = nextVal;
+        updates.coin_balance = nextVal;
+      } else {
+        const cur = Math.max(
+          Number(prof.affiliate_balance || 0),
+          Number(prof.available_balance_ghs || 0),
+          Number(prof.affiliate_Available_Balance || 0)
+        );
+        const nextVal =
+          mode === 'set'
+            ? Number(numAmount.toFixed(2))
+            : mode === 'add'
+            ? Number((cur + numAmount).toFixed(2))
+            : Number(Math.max(0, cur - numAmount).toFixed(2));
+        updates.affiliate_balance = nextVal;
+        updates.available_balance_ghs = nextVal;
+        updates.affiliate_Available_Balance = nextVal;
+      }
+
+      const { data: updatedUser, error } = await adminSupabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', userId)
+        .select('*')
+        .single();
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'BALANCE_OVERRIDE',
+        actor_email: 'Admin',
+        target_user: prof.email || userId,
+        summary: `[BALANCE EDITOR] ${mode.toUpperCase()} ${numAmount} ${targetField.toUpperCase()} for @${prof.username || prof.email}`,
+      });
+
+      try {
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'PILLAR_ACCESS_UPDATED',
+          payload: { userId, profile: updatedUser, timestamp: Date.now() },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({ success: true, user: updatedUser });
+    }
+
+    // #14: Grant / Unlock Any Pillar 2 Course for a Specific User
+    if (action === 'GRANT_USER_P2_COURSE') {
+      const { userId, courseId } = payload;
+      if (!userId || !courseId) {
+        return NextResponse.json({ success: false, error: 'Missing userId or courseId' }, { status: 400 });
+      }
+      const { data: prof } = await adminSupabase
+        .from('profiles')
+        .select('unlocked_p2_courses, email, username')
+        .eq('id', userId)
+        .single();
+
+      const existingList: string[] = Array.isArray(prof?.unlocked_p2_courses)
+        ? prof.unlocked_p2_courses
+        : [];
+      const nextList = Array.from(new Set([...existingList, String(courseId)]));
+
+      const { data: updatedUser, error } = await adminSupabase
+        .from('profiles')
+        .update({
+          unlocked_p2_courses: nextList,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select('*')
+        .single();
+
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'COURSE_GRANTED',
+        actor_email: 'Admin',
+        target_user: prof?.email || userId,
+        summary: `[COURSE UNLOCK] Unlocked ${courseId} for @${prof?.username || prof?.email}`,
+      });
+
+      return NextResponse.json({ success: true, user: updatedUser });
+    }
+
+    // #18: Force Logout / Kick Session Everywhere
+    if (action === 'FORCE_LOGOUT_USER') {
+      const { userId } = payload;
+      if (!userId) return NextResponse.json({ success: false, error: 'Missing userId' }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      await adminSupabase
+        .from('profiles')
+        .update({ force_logout_at: nowIso, updated_at: nowIso })
+        .eq('id', userId);
+
+      try {
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'USER_TERMINATED',
+          payload: { userId, reason: 'Session invalidated by Administrator. Please sign in again.' },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({ success: true });
+    }
+
+    // #19: Password Reset / Magic Access Link Generator
+    if (action === 'GENERATE_MAGIC_RECOVERY_LINK') {
+      const { email, linkType = 'magiclink' } = payload;
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      if (!cleanEmail) {
+        return NextResponse.json({ success: false, error: 'Missing user email' }, { status: 400 });
+      }
+      const { data, error } = await adminSupabase.auth.admin.generateLink({
+        type: linkType === 'recovery' ? 'recovery' : 'magiclink',
+        email: cleanEmail,
+      });
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+      }
+      const actionLink = data?.properties?.action_link || null;
+      return NextResponse.json({ success: true, actionLink, email: cleanEmail });
+    }
+
+    // #20: Hard Delete / Purge Test Account
+    if (action === 'TERMINATE_USER_ACCOUNT') {
+      const { userId } = payload;
+      if (!userId) return NextResponse.json({ success: false, error: 'Missing userId' }, { status: 400 });
+
+      try {
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'USER_TERMINATED',
+          payload: { userId },
+        });
+      } catch (_) {}
+
+      await Promise.allSettled([
+        adminSupabase.from('messages').delete().eq('sender_id', userId),
+        adminSupabase.from('notifications').delete().eq('recipient_id', userId),
+        adminSupabase.from('global_chat_passes').delete().eq('claimed_by_user_id', userId),
+        adminSupabase.from('pillar2_passes').delete().eq('claimed_by_user_id', userId),
+        adminSupabase.from('pillar3_passes').delete().eq('user_id', userId),
+        adminSupabase.from('profiles').delete().eq('id', userId),
+        adminSupabase.auth.admin.deleteUser(userId),
+      ]);
+
+      return NextResponse.json({ success: true, deletedUserId: userId });
+    }
+
+    // #21: Global Coin Airdrop (To All P1 Users or Only Pro/Premium Users)
+    if (action === 'GLOBAL_COIN_AIRDROP') {
+      const { amount, targetSegment = 'ALL_P1', message = '🎁 Supreme Admin Bonus Coin Airdrop!' } = payload;
+      const bonus = Math.floor(Number(amount || 0));
+      if (!Number.isFinite(bonus) || bonus <= 0) {
+        return NextResponse.json({ success: false, error: 'Enter a valid coin amount > 0' }, { status: 400 });
+      }
+
+      let q = adminSupabase.from('profiles').select('id, coins, coin_balance, is_pro, is_premium, subscription_tier');
+      if (targetSegment === 'PRO_PREMIUM_ONLY') {
+        q = q.or('is_pro.eq.true,is_premium.eq.true,subscription_tier.eq.pro,subscription_tier.eq.premium');
+      }
+      const { data: targets } = await q.limit(1000);
+
+      let updatedCount = 0;
+      for (const u of targets || []) {
+        const cur = Math.max(Number(u.coins || 0), Number(u.coin_balance || 0));
+        const nextCoins = cur + bonus;
+        await adminSupabase
+          .from('profiles')
+          .update({ coins: nextCoins, coin_balance: nextCoins })
+          .eq('id', u.id);
+        updatedCount++;
+      }
+
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'COIN_AIRDROP',
+        actor_email: 'Admin',
+        summary: `[GLOBAL AIRDROP] Dropped +${bonus} Coins to ${updatedCount} (${targetSegment}) citizens!`,
+      });
+
+      try {
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'COIN_AIRDROP_CELEBRATION',
+          payload: { bonus, targetSegment, message, timestamp: Date.now() },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({ success: true, updatedCount, bonus });
+    }
+
+    // #22: Live Gift & Coin Transaction Ledger
+    if (action === 'FETCH_GIFTS_LEDGER') {
+      const [
+        { data: walletTx },
+        { data: giftMessages },
+      ] = await Promise.all([
+        adminSupabase
+          .from('wallet_transactions')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100),
+        adminSupabase
+          .from('messages')
+          .select('id, sender_id, receiver_id, content, created_at')
+          .ilike('content', '%gift%')
+          .order('created_at', { ascending: false })
+          .limit(50),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        transactions: walletTx || [],
+        giftMessages: giftMessages || [],
+      });
+    }
+
+    // #25: Admin Official Group Creator
+    if (action === 'CREATE_OFFICIAL_GROUP') {
+      const { name, description } = payload;
+      if (!name || !String(name).trim()) {
+        return NextResponse.json({ success: false, error: 'Group name is required' }, { status: 400 });
+      }
+      const cleanName = String(name).trim();
+      const cleanDesc = String(description || '👑 Official Verified Earnmega Community Group').trim();
+
+      const { data: createdGroup, error } = await adminSupabase
+        .from('groups')
+        .insert({
+          name: cleanName,
+          description: cleanDesc,
+          creator_username: 'Earnmega_Official',
+          is_official: true,
+          is_locked: false,
+        })
+        .select('*')
+        .single();
+
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      }
+
+      // Mirror in rooms & chat_groups so Pillar 1 Global Chat lists it immediately
+      await Promise.allSettled([
+        adminSupabase.from('rooms').upsert({
+          id: createdGroup.id,
+          name: cleanName,
+          description: cleanDesc,
+          creator_username: 'Earnmega_Official',
+          is_official: true,
+          is_locked: false,
+        }),
+        adminSupabase.from('chat_groups').upsert({
+          id: createdGroup.id,
+          name: cleanName,
+          description: cleanDesc,
+          creator_username: 'Earnmega_Official',
+          is_locked: false,
+        }),
+      ]);
+
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'OFFICIAL_GROUP_CREATED',
+        actor_email: 'Admin',
+        summary: `[OFFICIAL GROUP] Created verified group "👑 ${cleanName}"`,
+      });
+
+      return NextResponse.json({ success: true, group: createdGroup });
+    }
+
+    // #28: Manual Sale & 50% Commission Credit Tool
+    if (action === 'RECORD_MANUAL_P2_SALE') {
+      const { productId, affiliateCodeOrEmail, buyerEmail } = payload;
+      if (!productId || !buyerEmail) {
+        return NextResponse.json(
+          { success: false, error: 'Product and Buyer Email are required' },
+          { status: 400 }
+        );
+      }
+
+      const { data: product } = await adminSupabase
+        .from('pillar2_products')
+        .select('*')
+        .eq('id', productId)
+        .maybeSingle();
+
+      const priceGhs = Number(product?.price_ghs || 240);
+      const productTitle = product?.title || productId;
+
+      let affiliateUser: any = null;
+      const affQuery = String(affiliateCodeOrEmail || '').trim();
+      if (affQuery) {
+        const { data: foundAff } = await adminSupabase
+          .from('profiles')
+          .select('*')
+          .or(`affiliate_code.ilike.${affQuery},email.ilike.${affQuery},username.ilike.${affQuery}`)
+          .maybeSingle();
+        affiliateUser = foundAff;
+      }
+
+      const commissionRate = Number(
+        affiliateUser?.custom_commission_rate || product?.commission_rate || 0.5
+      );
+      const commissionGhs = Number((priceGhs * commissionRate).toFixed(2));
+
+      if (affiliateUser) {
+        const curAvail = Math.max(
+          Number(affiliateUser.affiliate_balance || 0),
+          Number(affiliateUser.available_balance_ghs || 0),
+          Number(affiliateUser.affiliate_Available_Balance || 0)
+        );
+        const curTotal = Math.max(
+          Number(affiliateUser.total_earnings_ghs || 0),
+          Number(affiliateUser.affiliate_Total_Earned || 0),
+          curAvail
+        );
+        const nextAvail = Number((curAvail + commissionGhs).toFixed(2));
+        const nextTotal = Number((curTotal + commissionGhs).toFixed(2));
+
+        await adminSupabase
+          .from('profiles')
+          .update({
+            affiliate_balance: nextAvail,
+            available_balance_ghs: nextAvail,
+            affiliate_Available_Balance: nextAvail,
+            total_earnings_ghs: nextTotal,
+            affiliate_Total_Earned: nextTotal,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', affiliateUser.id);
+      }
+
+      // Unlock buyer's course & Pillar 2 access if buyer has a profile
+      const cleanBuyerEmail = String(buyerEmail).trim().toLowerCase();
+      const { data: buyerProf } = await adminSupabase
+        .from('profiles')
+        .select('id, unlocked_p2_courses')
+        .ilike('email', cleanBuyerEmail)
+        .maybeSingle();
+
+      const manualRef = `MANUAL_SALE_${Date.now()}`;
+      const expIso = new Date(Date.now() + 365 * 86400000).toISOString();
+
+      await adminSupabase.from('pillar2_passes').upsert(
+        {
+          paystack_reference: manualRef,
+          email: cleanBuyerEmail,
+          amount_ghs: priceGhs,
+          pass_type: 'course_bundle_1yr',
+          claimed_by_user_id: buyerProf?.id || null,
+        },
+        { onConflict: 'paystack_reference' }
+      );
+
+      if (buyerProf) {
+        const curCourses = Array.isArray(buyerProf.unlocked_p2_courses)
+          ? buyerProf.unlocked_p2_courses
+          : [];
+        await adminSupabase
+          .from('profiles')
+          .update({
+            has_paid_pillar2: true,
+            is_pillar2_paid: true,
+            pillar2_paystack_ref: manualRef,
+            pillar2_paid_at: new Date().toISOString(),
+            pillar2_expires_at: expIso,
+            unlocked_p2_courses: Array.from(new Set([...curCourses, productId])),
+          })
+          .eq('id', buyerProf.id);
+      }
+
+      try {
+        await adminSupabase.from('affiliate_sales').insert({
+          affiliate_id: affiliateUser?.id || null,
+          product_id: productId,
+          product_title: productTitle,
+          buyer_email: cleanBuyerEmail,
+          amount_ghs: priceGhs,
+          commission_ghs: commissionGhs,
+          paystack_reference: manualRef,
+          status: 'completed',
+        });
+      } catch (_) {}
+
+      await adminSupabase.from('admin_audit_logs').insert({
+        event_type: 'P2_SALE',
+        actor_email: 'Admin',
+        target_user: cleanBuyerEmail,
+        summary: `[MANUAL P2 SALE] ${productTitle} (GH₵ ${priceGhs}) -> Buyer: ${cleanBuyerEmail} | Affiliate Commission: GH₵ ${commissionGhs}`,
+      });
+
+      return NextResponse.json({
+        success: true,
+        productTitle,
+        priceGhs,
+        commissionGhs,
+        affiliateCredited: affiliateUser?.email || affiliateUser?.username || 'Direct Platform Sale',
+        buyerEmail: cleanBuyerEmail,
+      });
+    }
+
+    // #30: Pillar 2 Help Desk Inbox (Read Messages Sent to Silent Pillar 2 Help Bot)
+    if (action === 'FETCH_P2_HELP_MESSAGES') {
+      const { data } = await adminSupabase
+        .from('pillar2_help_messages')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      return NextResponse.json({ success: true, messages: data || [] });
+    }
+
+    if (action === 'UPDATE_P2_HELP_MESSAGE') {
+      const { messageId, status, adminNotes } = payload;
+      await adminSupabase
+        .from('pillar2_help_messages')
+        .update({ status: status || 'resolved', admin_notes: adminNotes || null })
+        .eq('id', messageId);
+      return NextResponse.json({ success: true });
+    }
+
+    // #31: Top Affiliate Leaderboard & Click/Conversion Inspector
+    if (action === 'FETCH_AFFILIATE_LEADERBOARD') {
+      const { data: affiliates } = await adminSupabase
+        .from('profiles')
+        .select(
+          'id, username, full_name, email, affiliate_code, affiliate_balance, available_balance_ghs, affiliate_Available_Balance, total_earnings_ghs, affiliate_Total_Earned, custom_commission_rate, has_paid_pillar2, pillar2_expires_at'
+        )
+        .eq('has_paid_pillar2', true)
+        .limit(100);
+
+      const ranked = (affiliates || [])
+        .map((a: any) => {
+          const avail = Math.max(
+            Number(a.affiliate_balance || 0),
+            Number(a.available_balance_ghs || 0),
+            Number(a.affiliate_Available_Balance || 0)
+          );
+          const total = Math.max(
+            Number(a.total_earnings_ghs || 0),
+            Number(a.affiliate_Total_Earned || 0),
+            avail
+          );
+          const estSales = Math.max(0, Math.round(total / 120));
+          const estClicks = Math.max(estSales * 14, estSales > 0 ? 25 : 0);
+          const convRate = estClicks > 0 ? ((estSales / estClicks) * 100).toFixed(1) : '0.0';
+          return {
+            ...a,
+            availGhs: avail,
+            totalGhs: total,
+            salesCount: estSales,
+            clicksCount: estClicks,
+            conversionRate: `${convRate}%`,
+          };
+        })
+        .sort((a, b) => b.totalGhs - a.totalGhs);
+
+      return NextResponse.json({ success: true, leaderboard: ranked });
     }
 
     return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });

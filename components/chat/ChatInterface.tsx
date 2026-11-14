@@ -774,18 +774,32 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
       const fetchGroup = async () => {
         if (!user?.id) return;
         let { data: group } = await supabase.from('rooms').select('*').eq('id', otherUserProfile.id).maybeSingle();
-        if (!group) {
-          const { data: legacyGroup } = await supabase.from('groups').select('*').eq('id', otherUserProfile.id).maybeSingle();
-          group = legacyGroup;
-        }
+        const { data: legacyGroup } = await supabase.from('groups').select('*').eq('id', otherUserProfile.id).maybeSingle();
+        const { data: chatGroup } = await supabase.from('chat_groups').select('*').eq('id', otherUserProfile.id).maybeSingle();
 
-        if (group) {
-          setGroupDetails(group);
-          const { data: members } = await supabase.from('room_participants').select('*, profiles(id, username, full_name, avatar_url)').eq('room_id', group.id);
+        const mergedGroup = group || legacyGroup || chatGroup
+          ? {
+              ...(chatGroup || {}),
+              ...(legacyGroup || {}),
+              ...(group || {}),
+              is_locked: Boolean(
+                group?.is_locked || legacyGroup?.is_locked || chatGroup?.is_locked
+              ),
+              locked_reason:
+                group?.locked_reason ||
+                legacyGroup?.locked_reason ||
+                chatGroup?.locked_reason ||
+                null,
+            }
+          : null;
+
+        if (mergedGroup) {
+          setGroupDetails(mergedGroup);
+          const { data: members } = await supabase.from('room_participants').select('*, profiles(id, username, full_name, avatar_url)').eq('room_id', mergedGroup.id);
           if (members && members.length > 0) {
             setGroupMembers(members);
           } else {
-            const { data: gm } = await supabase.from('group_members').select('*, profiles(id, username, full_name, avatar_url)').eq('group_id', group.id);
+            const { data: gm } = await supabase.from('group_members').select('*, profiles(id, username, full_name, avatar_url)').eq('group_id', mergedGroup.id);
             if (gm) setGroupMembers(gm);
           }
         }
@@ -795,7 +809,21 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
 
       const groupSub = supabase.channel(`group_updates_${otherUserProfile.id}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
-           setGroupDetails(payload.new);
+           if (payload.eventType === 'DELETE') {
+             setGroupDetails((prev: any) => ({ ...(prev || {}), is_locked: true }));
+           } else if (payload.new) {
+             setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
+           }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'groups', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
+           if (payload.new) {
+             setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
+           }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_groups', filter: `id=eq.${otherUserProfile.id}` }, (payload) => {
+           if (payload.new) {
+             setGroupDetails((prev: any) => ({ ...(prev || {}), ...(payload.new as any) }));
+           }
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'room_participants', filter: `room_id=eq.${otherUserProfile.id}` }, async () => {
            const { data: members } = await supabase.from('room_participants').select('*, profiles(id, username, full_name, avatar_url)').eq('room_id', otherUserProfile.id);
@@ -803,8 +831,26 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         })
         .subscribe();
 
+      const adminBroadcastSub = supabase.channel(`horpal_godmode_group_${otherUserProfile.id}`)
+        .on('broadcast', { event: 'GROUP_LOCK_UPDATED' }, (payload: any) => {
+          if (payload?.payload?.groupId === otherUserProfile.id) {
+            setGroupDetails((prev: any) => ({
+              ...(prev || {}),
+              is_locked: Boolean(payload.payload.isLocked),
+              locked_reason: payload.payload.reason || null,
+            }));
+          }
+        })
+        .on('broadcast', { event: 'GROUP_MESSAGES_CLEARED' }, (payload: any) => {
+          if (payload?.payload?.groupId === otherUserProfile.id) {
+            setMessages([]);
+          }
+        })
+        .subscribe();
+
       return () => {
         supabase.removeChannel(groupSub);
+        supabase.removeChannel(adminBroadcastSub);
       };
     } else {
        setGroupDetails(null);
@@ -1235,13 +1281,23 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
     )
   );
 
-  const canSendMessages = isGroupAdmin || !(
-    groupDetails?.only_admins_can_send ||
-    groupDetails?.only_admins_send ||
-    groupDetails?.only_admins_message ||
-    groupPermissions?.only_admins_can_send ||
-    groupPermissions?.onlyAdminsCanSend
+  const isGroupLockedByAdmin = Boolean(
+    isGroupChat &&
+      (groupDetails?.is_locked === true ||
+        (currentOtherUserProfile as any)?.is_locked === true)
   );
+
+  const canSendMessages =
+    (isAdmin || !isGroupLockedByAdmin) &&
+    (isGroupAdmin ||
+      !(
+        isGroupLockedByAdmin ||
+        groupDetails?.only_admins_can_send ||
+        groupDetails?.only_admins_send ||
+        groupDetails?.only_admins_message ||
+        groupPermissions?.only_admins_can_send ||
+        groupPermissions?.onlyAdminsCanSend
+      ));
 
   useEffect(() => {
     if (currentOtherUserProfile === null) {
@@ -4320,8 +4376,18 @@ const [isChatMenuOpen, setIsChatMenuOpen] = useState(false);
         </div>
       )}
 {!canSendMessages ? (
-        <div className="w-full py-4 bg-black/60 backdrop-blur-xl rounded-3xl border border-white/10 relative z-20 text-center text-white/50 text-sm">
-          🔒 Only admins can send messages to this group.
+        <div className="w-full py-3.5 px-4 bg-red-950/60 backdrop-blur-xl rounded-3xl border border-red-500/40 relative z-20 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
+          <span className="text-red-200 text-xs sm:text-sm font-bold">
+            🔒 This group chat has been locked by the Administrator. Only Admins can post right now.
+          </span>
+          <div className="flex items-center gap-2 opacity-40 pointer-events-none select-none">
+            <button type="button" disabled className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
+              <Gift size={18} />
+            </button>
+            <button type="button" disabled className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center">
+              <Mic size={18} />
+            </button>
+          </div>
         </div>
       ) : (
         <form

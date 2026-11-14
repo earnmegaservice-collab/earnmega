@@ -2372,6 +2372,22 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
       payload: { hostId: activeUserId }
     }).catch(() => {});
 
+    // Phase 4: Upsert into public.active_live_streams via server API so Admin Live Radar detects stream on any device
+    fetch('/api/livekit/active-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'START',
+        roomName: roomId,
+        hostUserId: activeUserId,
+        hostUsername: activeUsername,
+        hostAvatar: activeAvatar,
+        streamTitle: finalTitle,
+        viewerCount: 1,
+        coinsEarned: 0
+      })
+    }).catch(() => {});
+
     try {
       const hostIdentity = `host_${activeUserId}`;
       const res = await fetch(
@@ -2424,7 +2440,139 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
     setStage('countdown');
   };
 
+  const [adminStreamerWarning, setAdminStreamerWarning] = useState<string | null>(null);
+  const [disableNewLiveStreams, setDisableNewLiveStreams] = useState<boolean>(false);
+
+  // Phase 2 & Phase 4: Subscribe to platform_settings.disable_live_streams + 15s active_live_streams heartbeat & Admin Force Terminate / Warning
+  useEffect(() => {
+    let mounted = true;
+    fetch(`/api/admin/action?_t=${Date.now()}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (mounted && d?.settings) {
+          setDisableNewLiveStreams(Boolean(d.settings.disable_live_streams));
+        }
+      })
+      .catch(() => {});
+
+    const onSettingsEvent = (e: any) => {
+      if (e?.detail) {
+        setDisableNewLiveStreams(Boolean(e.detail.disable_live_streams));
+      }
+    };
+    window.addEventListener('earnmega:platform-settings-updated', onSettingsEvent);
+    return () => {
+      mounted = false;
+      window.removeEventListener('earnmega:platform-settings-updated', onSettingsEvent);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (stage !== 'live') return;
+    const roomId = currentStream?.room_id || currentStream?.livekit_room_name || `live_${user.id}`;
+    const hostId = currentStream?.host_id || user.id;
+
+    const handleForceShutdown = (reasonMsg?: string) => {
+      stopCameraTracks();
+      setLivekitToken('');
+      setEndedAtFormatted(
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      );
+      setStage('ended');
+      toast.error(
+        reasonMsg || '🛑 This live broadcast was terminated by an Administrator.',
+        { duration: 7000 }
+      );
+    };
+
+    // 15-second heartbeat for Host
+    let heartbeatTimer: any = null;
+    if (role === 'host') {
+      heartbeatTimer = setInterval(async () => {
+        try {
+          const res = await fetch('/api/livekit/active-stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'HEARTBEAT',
+              roomName: roomId,
+              hostUserId: hostId,
+              viewerCount: Math.max(1, viewerCount),
+              coinsEarned: currentStream?.total_coins_earned || 0
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (data?.terminated) {
+            handleForceShutdown('🛑 Your live broadcast was terminated by an Administrator.');
+          } else if (data?.warningMessage) {
+            setAdminStreamerWarning(String(data.warningMessage));
+            fetch('/api/livekit/active-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'CLEAR_WARNING', roomName: roomId, hostUserId: hostId })
+            }).catch(() => {});
+          }
+        } catch {}
+      }, 15000);
+    }
+
+    // Real-time Postgres & Broadcast listeners for instant warning & termination
+    const radarSub = supabase
+      .channel(`active_live_radar_${roomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'active_live_streams',
+          filter: `room_name=eq.${roomId}`
+        },
+        (payload: any) => {
+          const row = payload?.new;
+          if (!row) return;
+          if (row.admin_terminated === true || row.is_live === false) {
+            handleForceShutdown('🛑 This live broadcast was terminated by an Administrator.');
+          } else if (row.admin_warning_message && role === 'host') {
+            setAdminStreamerWarning(String(row.admin_warning_message));
+          }
+        }
+      )
+      .subscribe();
+
+    const godmodeSub = supabase
+      .channel(`horpal_godmode_live_${roomId}`)
+      .on('broadcast', { event: 'STREAMER_WARNING' }, (payload: any) => {
+        const p = payload?.payload;
+        if (
+          role === 'host' &&
+          (p?.roomName === roomId || p?.hostUserId === hostId) &&
+          p?.message
+        ) {
+          setAdminStreamerWarning(String(p.message));
+        }
+      })
+      .on('broadcast', { event: 'FORCE_TERMINATE_STREAM' }, (payload: any) => {
+        const p = payload?.payload;
+        if (p?.roomName === roomId || p?.hostUserId === hostId) {
+          handleForceShutdown(
+            p?.reason || '🛑 This live broadcast was terminated by an Administrator.'
+          );
+        }
+      })
+      .subscribe();
+
+    return () => {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      supabase.removeChannel(radarSub);
+      supabase.removeChannel(godmodeSub);
+    };
+  }, [stage, role, currentStream, user.id, viewerCount, stopCameraTracks]);
+
   const handleOpenGoLiveSetup = async () => {
+    if (disableNewLiveStreams) {
+      toast.error('📵 Starting new live streams is temporarily disabled by the Administrator.');
+      return;
+    }
     // Premium users can Go Live anytime for FREE with zero stops
     if (isPremium || tier === 'premium' || hasPaidForCurrentLiveRef.current) {
       setStage('setup');
@@ -2458,6 +2606,10 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
   };
 
   const handleStartCountdown = async () => {
+    if (disableNewLiveStreams) {
+      toast.error('📵 Starting new live streams is temporarily disabled by the Administrator.');
+      return;
+    }
     if (isPremium || tier === 'premium' || hasPaidForCurrentLiveRef.current) {
       hasPaidForCurrentLiveRef.current = false; // consume session unlock as broadcast launches
       launchCountdownAfterGate();
@@ -3021,7 +3173,16 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
         streamId && !String(streamId).startsWith('live_')
           ? supabase.from('live_streams').update(endUpdatePayload).eq('id', streamId)
           : Promise.resolve(),
-        supabase.from('live_streams').update(endUpdatePayload).eq('host_id', hostId)
+        supabase.from('live_streams').update(endUpdatePayload).eq('host_id', hostId),
+        fetch('/api/livekit/active-stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'STOP',
+            roomName: currentStream?.room_id || currentStream?.livekit_room_name || `live_${hostId}`,
+            hostUserId: hostId
+          })
+        })
       ]);
     } else {
       viewerLeavingIntentionallyRef.current = true;
@@ -5123,6 +5284,29 @@ export default function LiveArena({ currentUser, onClose, onBack }: LiveArenaPro
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* PHASE 4: ADMIN BEAMED STREAMER WARNING BANNER */}
+      {adminStreamerWarning && (
+        <div className="fixed top-4 left-4 right-4 z-[250] flex justify-center pointer-events-none">
+          <div className="pointer-events-auto max-w-lg w-full bg-gradient-to-r from-red-900/95 via-amber-900/95 to-red-900/95 border-2 border-amber-400 rounded-2xl p-4 shadow-[0_0_50px_rgba(245,158,11,0.5)] flex items-start justify-between gap-3">
+            <div className="text-left">
+              <div className="text-[10px] font-black uppercase tracking-widest text-amber-300 mb-0.5">
+                ⚠️ Official Admin Broadcast Warning
+              </div>
+              <p className="text-xs sm:text-sm font-bold text-white leading-snug">
+                {adminStreamerWarning}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAdminStreamerWarning(null)}
+              className="px-2.5 py-1 rounded-lg bg-black/40 hover:bg-black/60 text-xs font-bold text-amber-200 shrink-0"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* PHASE 4: WATCHING LIVE STREAM PAYWALL OVERLAY (10 COINS) */}
       <AnimatePresence>

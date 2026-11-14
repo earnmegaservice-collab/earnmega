@@ -6,7 +6,14 @@ import { ShieldAlert, AlertTriangle, LogIn } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { User } from '@supabase/supabase-js';
 
-const MASTER_ADMINS = ['horpalservice@gmail.com', 'geestablish@gmail.com'];
+const MASTER_ADMINS = [
+  'horpalservice@gmail.com',
+  'geestablish@gmail.com',
+  'earnmegaservice@gmail.com',
+  'geemingss@gmail.com',
+  'moses@horpal.com',
+  'admin@horpal.com',
+];
 
 export default function SupremeAdminGate({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);

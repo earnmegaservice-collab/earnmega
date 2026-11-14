@@ -54,6 +54,20 @@ export async function POST(request: Request) {
     const admin = getAdminClient();
     const user = await requireAuthedUser(request, admin);
 
+    // Phase 2 Kill Switch Check: freeze_p2_withdrawals
+    const { data: platformSettings } = await admin
+      .from('platform_settings')
+      .select('freeze_p2_withdrawals')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (platformSettings?.freeze_p2_withdrawals) {
+      return NextResponse.json(
+        { error: '⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.' },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const requestedAmount = Number(Number(body?.amountGHS ?? body?.amount_ghs ?? 0).toFixed(2));
     const payoutMethod = String(body?.payoutMethod ?? body?.payout_method ?? '').trim();

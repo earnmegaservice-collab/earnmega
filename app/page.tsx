@@ -12,6 +12,7 @@ import { HorPalLandingGateway } from "../components/home/HorPalLandingGateway";
 import { RadarActivationModal } from "../components/location/RadarActivationModal";
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../components/auth/HorPalAuthGate";
 import PillarAccessGuard from "../components/auth/PillarAccessGuard";
+import { useAdminRealtimeEnforcement } from "../hooks/useAdminRealtimeEnforcement";
 import {
   auditAccount,
   consumeVerifyReturn,
@@ -42,6 +43,35 @@ function HomeContent() {
   const [pendingPassRef, setPendingPassRef] = useState<string | null>(null);
   const [p1DeniedAudit, setP1DeniedAudit] = useState<{ email: string; entitlements: EntitlementRow | null } | null>(null);
   const pendingVerifyRef = useRef<PillarId | null>(null);
+
+  useAdminRealtimeEnforcement({
+    pillar: 1,
+    onForceOpenPaywall: (pillarNum) => {
+      if (pillarNum === 1) {
+        setShowGateway(true);
+        setShowGlobalChatGate(true);
+      } else if (pillarNum === 3) {
+        setShowPillar3Gate(true);
+      }
+    },
+    onForceUnlockPillar: (pillarNum, updatedProfile) => {
+      if (updatedProfile) {
+        setProfileState((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
+      }
+      if (pillarNum === 1) {
+        setP1DeniedAudit(null);
+        setShowGlobalChatGate(false);
+        setShowGateway(false);
+      } else if (pillarNum === 3) {
+        setShowPillar3Gate(false);
+      }
+    },
+    onProfileChanged: (updatedProfile) => {
+      if (updatedProfile) {
+        setProfileState((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
+      }
+    },
+  });
 
   useEffect(() => {
     setHasMounted(true);

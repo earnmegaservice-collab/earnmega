@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useWallet } from '../../context/WalletContext';
 import { supabase } from '../../utils/supabase';
+import { useAdminRealtimeEnforcement } from '../../hooks/useAdminRealtimeEnforcement';
 
 export type SupportedPayoutCurrency =
     | 'GHS'
@@ -86,6 +87,7 @@ export const Pillar1PayoutModal: React.FC<Pillar1PayoutModalProps> = ({
 }) => {
     const { user, session } = useAuth();
     const { balance, setBalance, refreshWallet } = useWallet();
+    const { settings: adminSettings } = useAdminRealtimeEnforcement();
 
     const [mounted, setMounted] = useState(false);
     const [verifiedCoins, setVerifiedCoins] = useState<number>(balance || 0);
@@ -280,6 +282,11 @@ export const Pillar1PayoutModal: React.FC<Pillar1PayoutModalProps> = ({
     const handleSubmitPayout = async (e: React.FormEvent) => {
         e.preventDefault();
         setErrorMessage(null);
+
+        if (adminSettings?.freeze_p1_withdrawals) {
+            setErrorMessage('⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.');
+            return;
+        }
 
         if (!user?.id) {
             setErrorMessage('Please sign in to submit a coin payout request.');
@@ -897,6 +904,13 @@ export const Pillar1PayoutModal: React.FC<Pillar1PayoutModalProps> = ({
                                 )}
                             </div>
 
+                            {adminSettings?.freeze_p1_withdrawals && (
+                                <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center gap-2.5 text-xs font-bold text-amber-200">
+                                    <AlertCircle size={16} className="shrink-0 text-amber-400" />
+                                    <span>⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.</span>
+                                </div>
+                            )}
+
                             {errorMessage && (
                                 <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center gap-2 text-xs text-rose-300">
                                     <AlertCircle size={15} className="shrink-0 text-rose-400" />
@@ -906,7 +920,7 @@ export const Pillar1PayoutModal: React.FC<Pillar1PayoutModalProps> = ({
 
                             <button
                                 type="submit"
-                                disabled={isSubmitting || !isValidCoinAmount}
+                                disabled={isSubmitting || !isValidCoinAmount || Boolean(adminSettings?.freeze_p1_withdrawals)}
                                 className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-600 hover:from-amber-400 hover:to-emerald-500 disabled:opacity-40 disabled:pointer-events-none text-xs sm:text-sm font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2"
                             >
                                 {isSubmitting ? (

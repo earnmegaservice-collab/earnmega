@@ -139,6 +139,23 @@ export async function POST(request: Request) {
         const supabase = getSupabaseAdmin();
         const body = await request.json();
 
+        // Phase 2 Kill Switch Check: freeze_p1_withdrawals
+        const { data: platformSettings } = await supabase
+            .from('platform_settings')
+            .select('freeze_p1_withdrawals')
+            .eq('id', 1)
+            .maybeSingle();
+
+        if (platformSettings?.freeze_p1_withdrawals) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: '⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.'
+                },
+                { status: 403 }
+            );
+        }
+
         // 1. Authenticate user on the server
         const authHeader = request.headers.get('Authorization');
         let authenticatedUserId: string | null = null;

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { paywallErrorResponse, requirePillarAccess } from '../../../../lib/server/paywall';
 
 const PERSONA_SYSTEM_PROMPTS: Record<string, string> = {
@@ -48,7 +49,24 @@ export async function POST(req: Request) {
     const isTextOnly = !isMediaRequest || lowerPrompt.includes('prompt');
 
     if (isTextOnly) {
-      const systemPrompt = `You are Earnmega AI Studio (horpal.ai), Earnmega's flagship executive neural AI engine powered by Argon 4 Pro.${personalizationContext} ${personaInstruction} When asked for an "AI Video Studio Prompt", generate a rich, copy-ready Master Video Production Prompt including: Scene Concept, Camera Movement & Lens, Lighting & Atmosphere, Master Text-to-Video Prompt, and Negative Prompt.`;
+      let adminCustomPrompt = '';
+      try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        if (supabaseUrl && serviceKey) {
+          const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+          const { data: settingsRow } = await sb
+            .from('platform_settings')
+            .select('pillar3_custom_system_prompt')
+            .eq('id', 1)
+            .maybeSingle();
+          if (settingsRow?.pillar3_custom_system_prompt) {
+            adminCustomPrompt = ` Additional Administrator Knowledge & System Directives: ${settingsRow.pillar3_custom_system_prompt.trim()}`;
+          }
+        }
+      } catch (_) {}
+
+      const systemPrompt = `You are Earnmega AI Studio (horpal.ai), Earnmega's flagship executive neural AI engine powered by Argon 4 Pro.${personalizationContext} ${personaInstruction}${adminCustomPrompt} When asked for an "AI Video Studio Prompt", generate a rich, copy-ready Master Video Production Prompt including: Scene Concept, Camera Movement & Lens, Lighting & Atmosphere, Master Text-to-Video Prompt, and Negative Prompt.`;
 
       let generatedText = '';
 

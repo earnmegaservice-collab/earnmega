@@ -935,6 +935,168 @@ export default function HorPalAffiliatePillar({
 
   // Marketplace Search, Filter & Modals
   const [products, setProducts] = useState<MarketplaceProduct[]>(INITIAL_PRODUCTS);
+  const [freezeP2Withdrawals, setFreezeP2Withdrawals] = useState<boolean>(false);
+
+  // Phase 6 & Phase 2: Live sync Pillar 2 Marketplace products from public.pillar2_products + freeze_p2_withdrawals
+  useEffect(() => {
+    let isMounted = true;
+
+    const mapDbProductToMarketplace = (row: any): MarketplaceProduct => {
+      const existing = INITIAL_PRODUCTS.find(
+        (p) =>
+          p.id === row.id ||
+          p.title.toLowerCase() === String(row.title || '').toLowerCase()
+      );
+      const priceGHS = Number(row.price_ghs ?? existing?.priceGHS ?? 150);
+      const priceUSD = Number((priceGHS / 16).toFixed(2));
+      const commissionPercent = Math.round(Number(row.commission_rate ?? 0.5) * 100);
+      const creatorRaw = String(row.creator_name || existing?.creator || 'Gerald');
+      const creatorLabel = creatorRaw.includes('(')
+        ? creatorRaw
+        : creatorRaw.toLowerCase().includes('moses')
+        ? `${creatorRaw} (Product Creator)`
+        : `${creatorRaw} (Creator)`;
+
+      const shortCode =
+        existing?.shortCode ||
+        String(row.id || row.title || 'OFFER')
+          .replace(/^prod_/, '')
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '-')
+          .slice(0, 14);
+
+      const bulletsArray =
+        Array.isArray(row.features) && row.features.length > 0
+          ? row.features.map((f: any) => String(f))
+          : existing?.bullets || [
+              'Instant access to complete training & implementation templates',
+              '50% Instant Affiliate Commission enabled for Pillar 2 partners',
+              'Direct Google Drive Vault delivery immediately after checkout',
+              'Lifetime updates & mobile-friendly execution blueprint',
+            ];
+
+      return {
+        ...(existing || {}),
+        id: String(row.id),
+        shortCode,
+        title: String(row.title || existing?.title || 'Digital Mastery Program'),
+        creator: creatorLabel,
+        category: String(row.category || existing?.category || 'Digital Mastery'),
+        badges: existing?.badges || ['TOP PICK', 'HIGH CONVERTING', '50% SPLIT'],
+        rating: existing?.rating || 4.9,
+        epcUSD: existing?.epcUSD || 1.4,
+        avgConvRate: existing?.avgConvRate || '6.5%',
+        refundRate: existing?.refundRate || '0.2%',
+        priceUSD,
+        priceGHS,
+        commissionPercent,
+        imageUrl:
+          row.cover_image_url ||
+          existing?.imageUrl ||
+          getProductSvgFallback(String(row.title || 'Course'), shortCode),
+        glowColor: existing?.glowColor || 'from-emerald-500 via-teal-500 to-cyan-500',
+        externalSalesPageUrl: existing?.externalSalesPageUrl,
+        deliveryUrl: String(
+          row.drive_delivery_url ||
+            existing?.deliveryUrl ||
+            'https://drive.google.com'
+        ),
+        headline: String(
+          row.subtitle ||
+            existing?.headline ||
+            row.title ||
+            'Complete Step-by-Step Digital Mastery Blueprint'
+        ),
+        subheadline: String(
+          row.description ||
+            existing?.subheadline ||
+            'Master this complete blueprint with instant Google Drive delivery.'
+        ),
+        bullets: bulletsArray,
+        swipeCopy: existing?.swipeCopy || {
+          tiktok: [
+            `Just unlocked ${row.title}! Step-by-step blueprint with instant access. Link in bio!`,
+          ],
+          whatsapp: [
+            `Hey! Check out ${row.title} by ${creatorRaw}. Grab instant access here: {LINK}`,
+          ],
+        },
+      };
+    };
+
+    const syncMarketplaceProducts = async () => {
+      try {
+        const res = await fetch(`/api/admin/products?_t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isMounted && Array.isArray(data?.products) && data.products.length > 0) {
+          setProducts(data.products.map(mapDbProductToMarketplace));
+        }
+      } catch {
+        // fallback to INITIAL_PRODUCTS
+      }
+    };
+
+    const syncPlatformSettings = async () => {
+      try {
+        const res = await fetch(`/api/admin/action?_t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isMounted && data?.settings) {
+          setFreezeP2Withdrawals(Boolean(data.settings.freeze_p2_withdrawals));
+        }
+      } catch {}
+    };
+
+    void syncMarketplaceProducts();
+    void syncPlatformSettings();
+
+    const onSettingsEvent = (e: any) => {
+      if (e?.detail) {
+        setFreezeP2Withdrawals(Boolean(e.detail.freeze_p2_withdrawals));
+      }
+    };
+    window.addEventListener('earnmega:platform-settings-updated', onSettingsEvent);
+
+    const prodChannel = supabase
+      .channel('pillar2_products_live_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pillar2_products' },
+        () => void syncMarketplaceProducts()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'platform_settings' },
+        (payload: any) => {
+          if (payload?.new) {
+            setFreezeP2Withdrawals(Boolean(payload.new.freeze_p2_withdrawals));
+          }
+        }
+      )
+      .subscribe();
+
+    const cmdChannel = supabase
+      .channel('horpal_godmode_command_p2')
+      .on('broadcast', { event: 'PRODUCTS_UPDATED' }, () => void syncMarketplaceProducts())
+      .on('broadcast', { event: 'PLATFORM_SETTINGS_UPDATED' }, (payload: any) => {
+        if (payload?.payload) {
+          setFreezeP2Withdrawals(Boolean(payload.payload.freeze_p2_withdrawals));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('earnmega:platform-settings-updated', onSettingsEvent);
+      supabase.removeChannel(prodChannel);
+      supabase.removeChannel(cmdChannel);
+    };
+  }, []);
   const [linkTags, setLinkTags] = useState<Record<string, string>>({});
   const [marketSearch, setMarketSearch] = useState<string>('');
   const [marketFilter, setMarketFilter] = useState<string>('All Offers');
@@ -2896,6 +3058,14 @@ export default function HorPalAffiliatePillar({
     e.preventDefault();
     setPayoutFeedback(null);
 
+    if (freezeP2Withdrawals) {
+      setPayoutFeedback({
+        type: 'error',
+        text: '⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.',
+      });
+      return;
+    }
+
     const amount = parseFloat(payoutAmountGHS);
     if (isNaN(amount) || amount <= 0) {
       setPayoutFeedback({ type: 'error', text: 'Please enter a valid withdrawal amount greater than GH₵ 0.00.' });
@@ -3001,6 +3171,14 @@ export default function HorPalAffiliatePillar({
   const handleGlobalManualPayoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPayoutFeedback(null);
+
+    if (freezeP2Withdrawals) {
+      setPayoutFeedback({
+        type: 'error',
+        text: '⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.',
+      });
+      return;
+    }
 
     const amount = parseFloat(payoutAmountGHS);
     if (isNaN(amount) || amount <= 0) {
@@ -5523,9 +5701,15 @@ export default function HorPalAffiliatePillar({
                         </div>
                       </div>
 
+                      {freezeP2Withdrawals && (
+                        <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/50 text-amber-200 text-xs sm:text-sm font-black flex items-center gap-2.5">
+                          <span>⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.</span>
+                        </div>
+                      )}
+
                       <button
                         type="submit"
-                        disabled={isSubmittingPayout || availableBalanceGHS <= 0}
+                        disabled={isSubmittingPayout || availableBalanceGHS <= 0 || freezeP2Withdrawals}
                         className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all text-sm md:text-base shadow-[0_0_25px_rgba(16,185,129,0.25)] disabled:bg-gray-700 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {isSubmittingPayout ? (
@@ -5959,9 +6143,15 @@ export default function HorPalAffiliatePillar({
                         </span>
                       </label>
 
+                      {freezeP2Withdrawals && (
+                        <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/50 text-amber-200 text-xs sm:text-sm font-black flex items-center gap-2.5">
+                          <span>⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.</span>
+                        </div>
+                      )}
+
                       <button
                         type="submit"
-                        disabled={isSubmittingPayout || availableBalanceGHS <= 0}
+                        disabled={isSubmittingPayout || availableBalanceGHS <= 0 || freezeP2Withdrawals}
                         className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black font-black transition-all text-sm md:text-base shadow-[0_0_25px_rgba(245,158,11,0.25)] disabled:from-gray-700 disabled:to-gray-700 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {isSubmittingPayout ? (
@@ -7695,9 +7885,87 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
           setIsAiBotOpen((prev) => !prev);
         }}
         className="fixed bottom-20 left-4 z-[9999] w-12 h-12 rounded-full bg-[#020202]/90 backdrop-blur-xl border border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center hover:scale-110 transition-transform"
+        title="Pillar 2 Help Desk"
       >
         💬
       </button>
+
+      {isAiBotOpen && (
+        <div className="fixed bottom-36 left-4 z-[9999] w-80 sm:w-96 bg-[#0b111e] border border-emerald-500/40 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[420px]">
+          <div className="p-3.5 bg-[#111a2e] border-b border-white/10 flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                Pillar 2 Direct Help Desk
+              </h4>
+              <p className="text-[10px] text-gray-400">
+                Messages go directly to the Admin Help Desk Inbox
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsAiBotOpen(false)}
+              className="text-gray-400 hover:text-white p-1"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3.5 space-y-2.5 min-h-[180px] bg-black/40">
+            {aiMessages.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">
+                Type your question or support request below. Our Admin team reads every message in the Pillar 2 Help Desk Inbox.
+              </p>
+            ) : (
+              aiMessages.map((m, idx) => (
+                <div
+                  key={idx}
+                  className="ml-auto max-w-[85%] rounded-2xl px-3.5 py-2 bg-emerald-500/20 border border-emerald-500/30 text-xs text-white"
+                >
+                  {m.text}
+                </div>
+              ))
+            )}
+          </div>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const text = aiInput.trim();
+              if (!text) return;
+              setAiInput('');
+              setAiMessages((prev) => [...prev, { sender: 'user', text }]);
+              try {
+                await fetch('/api/admin/action', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'SUBMIT_P2_HELP_MESSAGE',
+                    payload: {
+                      userId: currentProfile?.id || null,
+                      userEmail: currentProfile?.email || pillar2Email || '',
+                      userName: `${firstName} ${lastName}`.trim() || username || 'Affiliate',
+                      message: text,
+                    },
+                  }),
+                });
+              } catch {}
+            }}
+            className="p-2.5 border-t border-white/10 bg-[#0b111e] flex items-center gap-2"
+          >
+            <input
+              type="text"
+              value={aiInput}
+              onChange={(e) => setAiInput(e.target.value)}
+              placeholder="Write a message to Admin..."
+              className="flex-1 bg-black/60 border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+            />
+            <button
+              type="submit"
+              className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+      )}
 
     </div>
   );
