@@ -2,12 +2,27 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Volume2, VolumeX, Lock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Volume2, VolumeX, Lock, ChevronLeft, ChevronRight, Smartphone, LogOut } from 'lucide-react';
+import { supabase } from '../../utils/supabase';
+import {
+  enforceCleanSlateVersion,
+  hasPillar1Access,
+  hasPillar2Access,
+  hasPillar3Access,
+  readPhonePassport,
+  verifyPillarStatusFromServer,
+} from '../../utils/pillarAccess';
+import { signOutToSwitchAccount } from '../auth/PillarAuditBanner';
 
 interface HorPalLandingGatewayProps {
   onEnterPillar1: () => void;
   onEnterPillar2?: () => void;
   onEnterPillar3?: () => void;
+  activeEmail?: string | null;
+  pillar1Unlocked?: boolean;
+  pillar2Unlocked?: boolean;
+  pillar3Unlocked?: boolean;
+  onSwitchAccount?: () => void | Promise<void>;
 }
 
 export const promoTextBlocks = [
@@ -45,6 +60,11 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
   onEnterPillar1,
   onEnterPillar2,
   onEnterPillar3,
+  activeEmail,
+  pillar1Unlocked,
+  pillar2Unlocked,
+  pillar3Unlocked,
+  onSwitchAccount,
 }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isVideoMuted, setIsVideoMuted] = useState(true);
@@ -53,6 +73,48 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
   const [touchEnd, setTouchEnd] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+
+  // Live Phone Session & Pillar Status State (Phase 4 & Phase 6.1)
+  const [phoneEmail, setPhoneEmail] = useState<string | null>(activeEmail || null);
+  const [p1Paid, setP1Paid] = useState<boolean>(Boolean(pillar1Unlocked));
+  const [p2Paid, setP2Paid] = useState<boolean>(Boolean(pillar2Unlocked));
+  const [p3Paid, setP3Paid] = useState<boolean>(Boolean(pillar3Unlocked));
+
+  useEffect(() => {
+    if (activeEmail !== undefined) setPhoneEmail(activeEmail);
+    if (pillar1Unlocked !== undefined) setP1Paid(Boolean(pillar1Unlocked));
+    if (pillar2Unlocked !== undefined) setP2Paid(Boolean(pillar2Unlocked));
+    if (pillar3Unlocked !== undefined) setP3Paid(Boolean(pillar3Unlocked));
+  }, [activeEmail, pillar1Unlocked, pillar2Unlocked, pillar3Unlocked]);
+
+  useEffect(() => {
+    enforceCleanSlateVersion();
+    let mounted = true;
+    (async () => {
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const u = sess?.session?.user;
+        if (!u || !mounted) return;
+        setPhoneEmail(u.email || null);
+        const passport = readPhonePassport(u.id);
+        if (passport && mounted) {
+          setP1Paid(passport.pillar1Paid);
+          setP2Paid(passport.pillar2Paid);
+          setP3Paid(passport.pillar3Paid);
+        }
+        const verified = await verifyPillarStatusFromServer(u.id, 1, u.email || '');
+        if (mounted) {
+          setPhoneEmail(verified.email || u.email || null);
+          setP1Paid(verified.pillar1Paid);
+          setP2Paid(verified.pillar2Paid);
+          setP3Paid(verified.pillar3Paid);
+        }
+      } catch {}
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handleFirstInteraction = () => {
@@ -266,19 +328,62 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
           </div>
         </div>
 
-        {/* 2.1 PILLAR ACCESS BUTTONS */}
-        <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center w-full max-w-2xl mx-auto z-10 relative">
+        {/* ACTIVE PHONE SESSION BAR (PHASE 4 & PHASE 6.3) */}
+        {phoneEmail && (
+          <div className="mt-5 max-w-2xl mx-auto rounded-2xl border border-emerald-500/35 bg-[#071525]/95 px-4 py-3 flex flex-wrap items-center justify-between gap-2 shadow-lg relative z-10">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+              </span>
+              <span className="text-xs font-extrabold text-emerald-200 truncate">
+                Signed in on this phone: <strong className="text-white">{phoneEmail}</strong>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                if (onSwitchAccount) {
+                  await onSwitchAccount();
+                } else {
+                  await signOutToSwitchAccount();
+                }
+                setPhoneEmail(null);
+                setP1Paid(false);
+                setP2Paid(false);
+                setP3Paid(false);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-[11px] font-black text-white transition cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5 text-amber-300" />
+              <span>🔄 Switch / Manage Account</span>
+            </button>
+          </div>
+        )}
+
+        {/* 2.1 PILLAR ACCESS BUTTONS WITH LIVE PHONE STATUS BADGES (PHASE 6.1) */}
+        <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center w-full max-w-4xl mx-auto z-10 relative">
           <button
             onClick={onEnterPillar1}
-            className="group relative w-full sm:flex-1 min-h-[56px] rounded-full bg-[#0A0A0F]/80 backdrop-blur-xl border border-[#E9B949]/30 hover:border-[#E9B949] flex items-center justify-center gap-3 px-6 py-3 transition-all duration-300 active:scale-[0.98] shadow-[0_0_15px_rgba(233,185,73,0.1)] hover:shadow-[0_0_25px_rgba(233,185,73,0.2)] overflow-hidden"
+            className="group relative w-full sm:flex-1 min-h-[72px] rounded-2xl bg-[#0A0A0F]/90 backdrop-blur-xl border border-[#E9B949]/40 hover:border-[#E9B949] flex flex-col items-center justify-center gap-1.5 px-5 py-3 transition-all duration-300 active:scale-[0.98] shadow-[0_0_15px_rgba(233,185,73,0.1)] hover:shadow-[0_0_25px_rgba(233,185,73,0.2)] overflow-hidden"
           >
-            {/* Sweep effect */}
             <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12"></div>
-
-            <div className="w-8 h-8 rounded-full border border-[#E9B949]/40 bg-[#E9B949]/10 flex items-center justify-center">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E9B949" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full border border-[#E9B949]/40 bg-[#E9B949]/10 flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E9B949" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+              </div>
+              <span className="font-sans font-bold text-white text-base tracking-wide">Global Chat</span>
             </div>
-            <span className="font-sans font-bold text-white text-base tracking-wide">Global Chat</span>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wide ${
+                p1Paid
+                  ? 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300'
+                  : 'bg-zinc-900/90 border border-white/15 text-zinc-300'
+              }`}
+            >
+              {p1Paid
+                ? '🟢 UNLOCKED ON THIS PHONE — Tap to Enter Directly'
+                : '🔒 LOCKED — Requires Separate Pass'}
+            </span>
           </button>
 
           <button
@@ -289,15 +394,26 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
                 window.location.href = '/affiliate';
               }
             }}
-            className="group relative w-full sm:flex-1 min-h-[56px] rounded-full bg-[#0A0A0F]/80 backdrop-blur-xl border border-emerald-500/30 hover:border-emerald-500 flex items-center justify-center gap-3 px-6 py-3 transition-all duration-300 active:scale-[0.98] shadow-[0_0_15px_rgba(16,185,129,0.1)] hover:shadow-[0_0_25px_rgba(16,185,129,0.2)] overflow-hidden"
+            className="group relative w-full sm:flex-1 min-h-[72px] rounded-2xl bg-[#0A0A0F]/90 backdrop-blur-xl border border-emerald-500/40 hover:border-emerald-500 flex flex-col items-center justify-center gap-1.5 px-5 py-3 transition-all duration-300 active:scale-[0.98] shadow-[0_0_15px_rgba(16,185,129,0.1)] hover:shadow-[0_0_25px_rgba(16,185,129,0.2)] overflow-hidden"
           >
-             {/* Sweep effect */}
-             <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12"></div>
-
-            <div className="w-8 h-8 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+            <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12"></div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+              </div>
+              <span className="font-sans font-bold text-white text-base tracking-wide">Affiliate Marketing</span>
             </div>
-            <span className="font-sans font-bold text-white text-base tracking-wide">Affiliate Marketing</span>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wide ${
+                p2Paid
+                  ? 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300'
+                  : 'bg-zinc-900/90 border border-white/15 text-zinc-300'
+              }`}
+            >
+              {p2Paid
+                ? '🟢 UNLOCKED ON THIS PHONE — Tap to Enter Directly'
+                : '🔒 LOCKED — Requires Separate Pass'}
+            </span>
           </button>
 
           <button
@@ -308,15 +424,28 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
                 window.location.href = '/horpal-ai';
               }
             }}
-            className="relative w-full flex items-center justify-center gap-3 py-4 px-6 rounded-full bg-[#0E0F14] border border-purple-500/40 shadow-[0_0_20px_rgba(168,85,247,0.15)] active:scale-[0.99] transition-all"
+            className="relative w-full sm:flex-1 min-h-[72px] flex flex-col items-center justify-center gap-1.5 py-3 px-5 rounded-2xl bg-[#0E0F14] border border-purple-500/40 hover:border-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.15)] active:scale-[0.99] transition-all"
           >
-            <span className="relative z-10 flex items-center justify-center w-9 h-9 rounded-full bg-purple-500/15 border border-purple-400/30 text-purple-400">
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2L14.8 9.2L22 12L14.8 14.8L12 22L9.2 14.8L2 12L9.2 9.2L12 2Z" />
-              </svg>
-            </span>
-            <span className="relative z-10 text-white font-bold text-base tracking-wide">
-              horpal.ai
+            <div className="flex items-center gap-2.5">
+              <span className="relative z-10 flex items-center justify-center w-7 h-7 rounded-full bg-purple-500/15 border border-purple-400/30 text-purple-400">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2L14.8 9.2L22 12L14.8 14.8L12 22L9.2 14.8L2 12L9.2 9.2L12 2Z" />
+                </svg>
+              </span>
+              <span className="relative z-10 text-white font-bold text-base tracking-wide">
+                horpal.ai
+              </span>
+            </div>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wide ${
+                p3Paid
+                  ? 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300'
+                  : 'bg-zinc-900/90 border border-white/15 text-zinc-300'
+              }`}
+            >
+              {p3Paid
+                ? '🟢 UNLOCKED ON THIS PHONE — Tap to Enter Directly'
+                : '🔒 LOCKED — Requires Separate Pass'}
             </span>
           </button>
         </div>
@@ -375,13 +504,21 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
             <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/10 via-pink-500/5 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
 
             <div className="relative z-10">
-              <div className="flex flex-wrap gap-2 mb-6">
+              <div className="flex flex-wrap gap-2 mb-4">
                 <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/30">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
                   PILLAR 1 • LIVE & ACTIVE
                 </span>
-                <span className="px-3 py-1 rounded-full bg-white/10 text-white/80 text-xs font-bold border border-white/20">
-                  SOCIAL & CREATOR ENGINE
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-black border ${
+                    p1Paid
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                      : 'bg-zinc-900 border-white/20 text-zinc-300'
+                  }`}
+                >
+                  {p1Paid
+                    ? '🟢 UNLOCKED ON THIS PHONE — Tap to Enter Directly'
+                    : '🔒 LOCKED — Requires Separate Pass'}
                 </span>
               </div>
 
@@ -408,12 +545,20 @@ export const HorPalLandingGateway: React.FC<HorPalLandingGatewayProps> = ({
           {/* PILLAR 2 CARD (INERT) */}
           <div className="relative flex flex-col justify-between p-8 rounded-3xl bg-[#1A1A24]/70 border border-white/10 opacity-90 overflow-hidden shadow-xl">
             <div className="relative z-10">
-              <div className="flex flex-wrap gap-2 mb-6">
+              <div className="flex flex-wrap gap-2 mb-4">
                 <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold border border-emerald-500/20">
                   PILLAR 2 • LIVE NOW
                 </span>
-                <span className="px-3 py-1 rounded-full bg-zinc-800 text-zinc-400 text-xs font-bold border border-zinc-700">
-                  ACTIVE ECOSYSTEM
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-black border ${
+                    p2Paid
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                      : 'bg-zinc-900 border-white/20 text-zinc-300'
+                  }`}
+                >
+                  {p2Paid
+                    ? '🟢 UNLOCKED ON THIS PHONE — Tap to Enter Directly'
+                    : '🔒 LOCKED — Requires Separate Pass'}
                 </span>
               </div>
 

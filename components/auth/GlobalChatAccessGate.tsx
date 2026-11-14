@@ -29,11 +29,18 @@ import { authFetch } from '../../utils/authFetch';
 import {
   auditAccount,
   EntitlementRow,
+  getBounceBackWarningMessage,
   hasPillar1Access,
   purgeLegacyAccessFlags,
+  savePhonePassport,
   startGoogleVerification,
+  verifyPillarStatusFromServer,
 } from '../../utils/pillarAccess';
-import PillarAuditBanner, { signOutToSwitchAccount } from './PillarAuditBanner';
+import PillarAuditBanner, {
+  GoogleLogoSvg,
+  PhoneSessionHeaderBar,
+  signOutToSwitchAccount,
+} from './PillarAuditBanner';
 import PaystackReferenceRecovery from './PaystackReferenceRecovery';
 import LiveAppPreviewModal from './LiveAppPreviewModal';
 import WorldwideCurrencyPicker from './WorldwideCurrencyPicker';
@@ -179,21 +186,13 @@ export default function GlobalChatAccessGate({
     }
   }, [isOpen, initialDeniedAudit, initialViewMode]);
 
-  // Pre-fill email & show strict 3-pillar isolation notice if signed in without Pillar 1 access
+  // Pre-fill email from active phone session so 1-Tap Upgrade binds directly to this account
   useEffect(() => {
     if (!isOpen) return;
     const uEmail = currentUser?.email || currentProfile?.email || '';
     if (uEmail) {
-      setEmail((prev) => prev || uEmail);
+      setEmail(uEmail);
       setLoginEmail((prev) => prev || uEmail);
-    }
-    if (currentUser && !hasPillar1Access(currentProfile)) {
-      setDeniedAudit((prev) =>
-        prev || {
-          email: uEmail || 'this account',
-          entitlements: currentProfile || null,
-        }
-      );
     }
   }, [isOpen, currentUser, currentProfile]);
 
@@ -285,6 +284,17 @@ export default function GlobalChatAccessGate({
             const data = await res.json();
             if (data.success) {
               clearDeniedBanner();
+              if (currentUser?.id) {
+                savePhonePassport(currentUser.id, {
+                  email: paymentConfig.email || currentUser.email,
+                  pillar1Paid: true,
+                  pillar2Paid: Boolean(currentProfile?.has_paid_pillar2),
+                  pillar3Paid: Boolean(currentProfile?.has_paid_pillar3),
+                  pillar2ExpiresAt: currentProfile?.pillar2_expires_at || null,
+                  pillar3ExpiresAt: currentProfile?.pillar3_expires_at || null,
+                  pillar3Tier: currentProfile?.pillar3_tier || 'none',
+                });
+              }
               toast.success('Payment Verified! ✅ Welcome to Global Chat.');
               onSuccess(referenceId);
             } else {
@@ -306,37 +316,44 @@ export default function GlobalChatAccessGate({
   }, [paymentConfig, initializePayment, onSuccess]);
 
   const verifyPaidPassOrSack = async (authUser: any, fallbackEmail?: string) => {
-    let profileRow: EntitlementRow | null = null;
+    const candidateEmail = authUser?.email || fallbackEmail || 'your account';
+    let verified;
     try {
-      profileRow = await auditAccount(authUser.id, authUser?.email || fallbackEmail);
+      verified = await verifyPillarStatusFromServer(authUser.id, 1, candidateEmail);
     } catch {
       setLoginError('Could not verify your Pillar 1 license in Supabase. Please try again.');
       return;
     }
 
-    if (hasPillar1Access(profileRow)) {
+    if (verified.allowed) {
       clearDeniedBanner();
       toast.success('✅ Lifetime Global Chat Pass verified! Entering now...');
       if (onPaidLoginSuccess) {
-        onPaidLoginSuccess(authUser, profileRow);
+        onPaidLoginSuccess(authUser, verified.entitlementRow);
       } else {
         onLoginClick();
       }
       return;
     }
 
-    // Strict 3-Pillar Isolation: Bounce any Pillar 2 / Pillar 3 / Unpaid account back to Paywall
-    const blockedEmail = authUser?.email || fallbackEmail || 'this account';
-    setDeniedAudit({ email: blockedEmail, entitlements: profileRow });
-    if (authUser?.email || fallbackEmail) {
-      setEmail(authUser?.email || fallbackEmail || '');
+    // PHASE 3: Instant Bounce-Back to Payment Screen with Haptic Feedback + Loud Red Warning Banner
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined') {
+      try {
+        navigator.vibrate?.([200, 100, 200]);
+      } catch {}
+    }
+
+    const blockedEmail = verified.email || candidateEmail;
+    setDeniedAudit({ email: blockedEmail, entitlements: verified.entitlementRow });
+    if (blockedEmail) {
+      setEmail(blockedEmail);
     }
     setLoginPassword('');
     setViewMode('gate');
     scrollToPayButton();
-    onUnpaidDenied?.(blockedEmail, profileRow);
-    toast.error(`Access Denied: ${blockedEmail} has not paid the GH₵ 50 Pillar 1 pass yet.`, {
-      duration: 5000,
+    onUnpaidDenied?.(blockedEmail, verified.entitlementRow);
+    toast.error(getBounceBackWarningMessage(1, blockedEmail), {
+      duration: 6000,
     });
   };
 
@@ -421,7 +438,6 @@ export default function GlobalChatAccessGate({
               })}
               className="min-h-[44px] px-4 py-2 mb-6 rounded-full bg-white/10 hover:bg-white/15 border border-white/20 text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 cursor-pointer touch-manipulation transition"
             >
-              <ArrowLeft size={16} />
               <span>← Back to GH₵ 50 Lifetime Pass</span>
             </button>
 
@@ -513,8 +529,8 @@ export default function GlobalChatAccessGate({
               data-testid="pillar1-google-verify-btn"
               className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-white text-black font-extrabold text-sm hover:bg-zinc-100 active:scale-[0.98] disabled:opacity-60 transition flex items-center justify-center gap-3 cursor-pointer touch-manipulation shadow-lg"
             >
-              <span>🔵</span>
-              <span>Continue with Google to Verify Pillar 1 Access</span>
+              <GoogleLogoSvg className="w-5 h-5 shrink-0" />
+              <span>Continue with Google</span>
             </button>
 
             <PaystackReferenceRecovery
@@ -541,12 +557,34 @@ export default function GlobalChatAccessGate({
               </div>
             </div>
 
-            {/* PHASE 5: Forensic 3-Pillar Payment Receipt Scorecard when bounced */}
-            {(deniedAudit || (currentUser && !hasPillar1Access(currentProfile))) && (
+            {/* PHASE 4 & 6: Active Phone Session Pill, Multi-Account Switcher & Returning Phone Welcome Header */}
+            {(currentUser?.email || deniedAudit?.email) && (
+              <PhoneSessionHeaderBar
+                targetPillar={1}
+                activeEmail={currentUser?.email || deniedAudit?.email}
+                entitlements={deniedAudit?.entitlements ?? currentProfile}
+                onSwitchAccount={async () => {
+                  await signOutToSwitchAccount();
+                  clearDeniedBanner();
+                  setEmail('');
+                  setLoginEmail('');
+                  setLoginPassword('');
+                }}
+                onSelectSavedAccount={(savedEmail) => {
+                  setEmail(savedEmail);
+                  setLoginEmail(savedEmail);
+                  setViewMode('login');
+                }}
+              />
+            )}
+
+            {/* PHASE 3: Loud Pulsing Red Bounce-Back Warning Banner when bounced from login */}
+            {deniedAudit && (
               <PillarAuditBanner
                 pillar={1}
-                email={deniedAudit?.email || currentUser?.email || email || 'unknown account'}
-                entitlements={deniedAudit?.entitlements ?? currentProfile}
+                email={deniedAudit.email || currentUser?.email || email || 'unknown account'}
+                entitlements={deniedAudit.entitlements ?? currentProfile}
+                isBounceBack={true}
                 onSwitchAccount={async () => {
                   await signOutToSwitchAccount();
                   clearDeniedBanner();
@@ -640,17 +678,24 @@ export default function GlobalChatAccessGate({
               })}
             </div>
 
-            {/* Email input for instant Paystack receipt & pass binding */}
+            {/* Email input for instant Paystack receipt & pass binding (Locked to active phone account when signed in) */}
             <div className="max-w-md mx-auto mb-5">
               <label className="block text-xs font-mono text-zinc-400 uppercase tracking-widest mb-1.5 text-center">
-                Your Email for Instant Pass Delivery
+                {currentUser?.email
+                  ? `Active Phone Account Email (1-Tap Upgrade Bound)`
+                  : `Your Email for Instant Pass Delivery`}
               </label>
               <input
                 type="email"
                 placeholder="e.g. yourname@gmail.com"
                 value={email}
+                readOnly={Boolean(currentUser?.email)}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full min-h-[48px] px-4 py-3 rounded-xl bg-black/60 border border-white/20 text-white placeholder-zinc-500 text-base sm:text-sm focus:outline-none focus:border-amber-400 transition"
+                className={`w-full min-h-[48px] px-4 py-3 rounded-xl border text-white placeholder-zinc-500 text-base sm:text-sm focus:outline-none transition ${
+                  currentUser?.email
+                    ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200 font-bold cursor-not-allowed'
+                    : 'bg-black/60 border-white/20 focus:border-amber-400'
+                }`}
               />
             </div>
 

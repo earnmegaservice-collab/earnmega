@@ -18,9 +18,11 @@ import {
   EntitlementRow,
   fetchLiveEntitlements,
   hasPillar1Access,
+  hasPillar2Access,
   hasPillar3Access,
   PillarId,
   purgeLegacyAccessFlags,
+  verifyPillarStatusFromServer,
 } from "../utils/pillarAccess";
 
 const GlobalChatAccessGate = dynamic(() => import("../components/auth/GlobalChatAccessGate"), { ssr: false });
@@ -205,6 +207,10 @@ function HomeContent() {
     return (
       <>
         <HorPalLandingGateway
+          activeEmail={session?.user?.email || profileState?.email || null}
+          pillar1Unlocked={Boolean(session?.user && hasPillar1Access(profileState))}
+          pillar2Unlocked={Boolean(session?.user && hasPillar2Access(profileState))}
+          pillar3Unlocked={Boolean(session?.user && hasPillar3Access(profileState))}
           onEnterPillar1={() => {
             setTargetPillar("1");
             if (session?.user && hasPillar1Access(profileState)) {
@@ -239,13 +245,24 @@ function HomeContent() {
           }}
           onPaidLoginSuccess={async (authUser, prof) => {
             setSession({ user: authUser });
-            const freshEnt = await fetchLiveEntitlements(authUser.id).catch(() => prof);
-            if (!hasPillar1Access(freshEnt)) {
-              setP1DeniedAudit({ email: authUser?.email || "this account", entitlements: freshEnt });
+            const verified = await verifyPillarStatusFromServer(
+              authUser.id,
+              1,
+              authUser?.email || ""
+            );
+            if (!verified.allowed) {
+              setP1DeniedAudit({
+                email: verified.email || authUser?.email || "this account",
+                entitlements: verified.entitlementRow,
+              });
               return;
             }
-            const { data: fullProf } = await supabase.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
-            setProfileState({ ...(fullProf || {}), ...(freshEnt || {}) });
+            const { data: fullProf } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", authUser.id)
+              .maybeSingle();
+            setProfileState({ ...(fullProf || {}), ...(verified.entitlementRow || prof || {}) });
             setP1DeniedAudit(null);
             setShowGlobalChatGate(false);
             setShowGateway(false);
@@ -318,13 +335,32 @@ function HomeContent() {
               body: JSON.stringify({ reference: pendingPassRef, email: authedUser?.email }),
             }).catch(() => {});
           }
-          const ent = await auditAccount(authedUser.id, authedUser.email).catch(() => null);
+          const verified = await verifyPillarStatusFromServer(
+            authedUser.id,
+            1,
+            authedUser.email || ""
+          );
           const { data } = await supabase
             .from("profiles")
             .select("*")
             .eq("id", authedUser.id)
             .single();
-          setProfileState({ ...(data || {}), ...(ent || {}) });
+          const merged = { ...(data || {}), ...(verified.entitlementRow || {}) };
+          setProfileState(merged);
+          if (!verified.allowed) {
+            if (typeof window !== "undefined" && typeof navigator !== "undefined") {
+              try {
+                navigator.vibrate?.([200, 100, 200]);
+              } catch {}
+            }
+            setP1DeniedAudit({
+              email: verified.email || authedUser.email || "this account",
+              entitlements: verified.entitlementRow,
+            });
+            setShowGateway(true);
+            setShowGlobalChatGate(true);
+            return;
+          }
           setShowGateway(false);
         }}
         onBackToHub={() => {

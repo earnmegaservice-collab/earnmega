@@ -898,9 +898,7 @@ export default function HorPalAffiliatePillar({
   >([]);
 
   // 1-Year License Timer State — Strictly derived from live verified Supabase profile
-  const initialHasLicense =
-    hasPillar2Access(currentProfile) ||
-    Boolean(currentProfile?.has_paid_pillar2 || currentProfile?.is_pillar2_paid);
+  const initialHasLicense = hasPillar2Access(currentProfile);
   const rawExpiresIso =
     currentProfile?.pillar2_expires_at || currentProfile?.license_expires_at || null;
   const rawPaidAtIso =
@@ -1442,9 +1440,7 @@ export default function HorPalAffiliatePillar({
         }
 
         // Reflect real database license state (strictly verified Pillar 2 payment + ref + expiry)
-        const dbPaid =
-          hasPillar2Access(prof) ||
-          Boolean(prof?.has_paid_pillar2 || prof?.is_pillar2_paid);
+        const dbPaid = hasPillar2Access(prof);
         setHasActivePaidLicense(dbPaid);
         const resolvedExpiresIso = prof?.pillar2_expires_at || prof?.license_expires_at || null;
         const resolvedPaidIso = prof?.pillar2_paid_at || prof?.license_activated_at || null;

@@ -39,11 +39,18 @@ import { authFetch } from '../../utils/authFetch';
 import {
   auditAccount,
   EntitlementRow,
+  getBounceBackWarningMessage,
   hasPillar3Access,
   purgeLegacyAccessFlags,
+  savePhonePassport,
   startGoogleVerification,
+  verifyPillarStatusFromServer,
 } from '../../utils/pillarAccess';
-import PillarAuditBanner, { signOutToSwitchAccount } from './PillarAuditBanner';
+import PillarAuditBanner, {
+  GoogleLogoSvg,
+  PhoneSessionHeaderBar,
+  signOutToSwitchAccount,
+} from './PillarAuditBanner';
 import PaystackReferenceRecovery from './PaystackReferenceRecovery';
 
 export type Pillar3TierId = 'weekly' | 'pro' | 'premium';
@@ -435,28 +442,31 @@ export default function Pillar3AccessGate({
 
   const verifyPillar3LoginOrSack = async (authUser: any, fallbackEmail?: string) => {
     const cleanEmail = (authUser?.email || fallbackEmail || '').trim();
-    const liveEnt = await auditAccount(authUser.id, cleanEmail).catch(() => null);
+    const verified = await verifyPillarStatusFromServer(authUser.id, 3, cleanEmail);
 
-    if (hasPillar3Access(liveEnt)) {
+    if (verified.allowed) {
       clearDeniedAudit();
       toast.success('✅ Pillar 3 AI Studio Pass verified! Entering now...');
-      onAccessGranted(authUser, liveEnt);
+      onAccessGranted(authUser, verified.entitlementRow);
       return;
     }
 
-    // Strict 3-Pillar Isolation: SACK & BOUNCE unpaid or other-pillar users back to Paywall
-    const resolvedEmail = cleanEmail || '';
+    // PHASE 3: Instant Bounce-Back to Payment Screen with Haptic Feedback + Loud Red Warning Banner
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined') {
+      try {
+        navigator.vibrate?.([200, 100, 200]);
+      } catch {}
+    }
+
+    const resolvedEmail = verified.email || cleanEmail || 'your account';
     setDeniedAudit({
       email: resolvedEmail,
-      entitlements: liveEnt,
+      entitlements: verified.entitlementRow,
     });
     if (resolvedEmail) setEmail(resolvedEmail);
     setLoginPassword('');
     setViewMode('gate');
-    toast.error(
-      `🚫 Pillar 3 Access Required: ${resolvedEmail || 'this account'} does not have an active Pillar 3 AI Studio pass.`,
-      { duration: 5500 }
-    );
+    toast.error(getBounceBackWarningMessage(3, resolvedEmail), { duration: 6000 });
     scrollToPaySection();
   };
 
@@ -801,7 +811,6 @@ export default function Pillar3AccessGate({
               })}
               className="min-h-[44px] px-4 py-2 mb-6 rounded-full bg-white/10 hover:bg-white/15 border border-white/20 text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 cursor-pointer touch-manipulation transition"
             >
-              <ArrowLeft size={16} />
               <span>← Back to Pillar 3 Plans (GH₵ 50 / 100 / 200)</span>
             </button>
 
@@ -901,25 +910,8 @@ export default function Pillar3AccessGate({
               data-testid="pillar3-google-verify-btn"
               className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-white text-black font-extrabold text-sm hover:bg-zinc-100 active:scale-[0.98] disabled:opacity-60 transition flex items-center justify-center gap-3 cursor-pointer touch-manipulation shadow-lg"
             >
-              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                />
-              </svg>
-              <span>🔵 Continue with Google to Verify Pillar 3 Access</span>
+              <GoogleLogoSvg className="w-5 h-5 shrink-0" />
+              <span>Continue with Google</span>
             </button>
 
             <PaystackReferenceRecovery
@@ -981,13 +973,35 @@ export default function Pillar3AccessGate({
               </div>
             )}
 
-            {/* Forensic 3-Pillar Payment Receipt Scorecard (Phase 5) */}
+            {/* PHASE 4 & 6: Active Phone Session Pill, Multi-Account Switcher & Returning Phone Welcome Header */}
+            {(currentUser?.email || deniedAudit?.email) && !isUpgradeMode && (
+              <PhoneSessionHeaderBar
+                targetPillar={3}
+                activeEmail={currentUser?.email || deniedAudit?.email}
+                entitlements={deniedAudit?.entitlements ?? currentProfile}
+                onSwitchAccount={async () => {
+                  await signOutToSwitchAccount();
+                  clearDeniedAudit();
+                  setEmail('');
+                  setLoginEmail('');
+                  toast.success('Signed out. Enter or choose another paid account.');
+                }}
+                onSelectSavedAccount={(savedEmail) => {
+                  setEmail(savedEmail);
+                  setLoginEmail(savedEmail);
+                  setViewMode('login');
+                }}
+              />
+            )}
+
+            {/* PHASE 3: Loud Pulsing Red Bounce-Back Warning Banner when bounced from login */}
             {deniedAudit && !isUpgradeMode && (
               <div className="mb-5">
                 <PillarAuditBanner
                   pillar={3}
                   email={deniedAudit.email}
                   entitlements={deniedAudit.entitlements}
+                  isBounceBack={true}
                   onSwitchAccount={async () => {
                     await signOutToSwitchAccount();
                     clearDeniedAudit();
@@ -1182,7 +1196,9 @@ export default function Pillar3AccessGate({
             <div ref={paySectionRef} className="max-w-2xl mx-auto">
               <div className="mb-4">
                 <label className="block text-xs font-mono text-zinc-300 uppercase tracking-widest mb-1.5 text-center">
-                  Your Email (Gmail) for Instant Pillar 3 Pass Activation
+                  {currentUser?.email
+                    ? `Active Phone Account Email (1-Tap Upgrade Bound)`
+                    : `Your Email (Gmail) for Instant Pillar 3 Pass Activation`}
                 </label>
                 <div className="relative max-w-md mx-auto">
                   <Mail
@@ -1193,8 +1209,13 @@ export default function Pillar3AccessGate({
                     type="email"
                     placeholder="e.g. yourname@gmail.com"
                     value={email}
+                    readOnly={Boolean(currentUser?.email)}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full min-h-[48px] pl-10 pr-4 py-3 rounded-xl bg-black/70 border border-cyan-400/40 text-white placeholder-zinc-500 text-base sm:text-sm focus:outline-none focus:border-amber-400 transition"
+                    className={`w-full min-h-[48px] pl-10 pr-4 py-3 rounded-xl border text-white placeholder-zinc-500 text-base sm:text-sm focus:outline-none transition ${
+                      currentUser?.email
+                        ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200 font-bold cursor-not-allowed'
+                        : 'bg-black/70 border-cyan-400/40 focus:border-amber-400'
+                    }`}
                   />
                 </div>
               </div>

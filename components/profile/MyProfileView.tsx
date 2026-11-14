@@ -26,6 +26,7 @@ import {
 import SettingsModal from './SettingsModal';
 import VerifiedTick from '../ui/VerifiedTick';
 import FacialVerification from './FacialVerification';
+import { PhoneSessionHeaderBar, signOutToSwitchAccount } from '../auth/PillarAuditBanner';
 
 interface UserProfile {
   name: string;
@@ -394,6 +395,21 @@ export default function MyProfileView({
           </button>
         </div>
       </div>
+
+      {/* PHASE 6.3: Saved Multi-Account Switcher Drawer inside Profile Menu */}
+      {user?.email && (
+        <div className="mx-5 z-40 relative">
+          <PhoneSessionHeaderBar
+            targetPillar={1}
+            activeEmail={user.email}
+            entitlements={liveProfile}
+            onSwitchAccount={async () => {
+              await signOutToSwitchAccount();
+              window.location.href = '/';
+            }}
+          />
+        </div>
+      )}
 
       {!mappedProfile.isVerified && (
           <div className="mx-5 -mt-2 mb-4 z-40 relative">

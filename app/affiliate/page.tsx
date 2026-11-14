@@ -253,13 +253,7 @@ function AffiliatePageContent() {
         initialEmail={userEmail}
         currentUserId={session.user.id}
         currentEntitlements={profile}
-        initialDeniedAudit={
-          deniedAudit || {
-            email: userEmail,
-            entitlements: profile,
-          }
-        }
-        sackedNotice={`🚫 Pillar 2 Access Required: Your account (${userEmail || "verified user"}) has [Pillar 1: ${p1Status}] [Pillar 3: ${p3Status}], but has NOT paid for Pillar 2 Affiliate License (GH₵ 90.00).`}
+        initialDeniedAudit={deniedAudit}
         onPassVerified={async () => {
           const liveEnt = await auditAccount(session.user.id, userEmail).catch(() => null);
           if (liveEnt) {

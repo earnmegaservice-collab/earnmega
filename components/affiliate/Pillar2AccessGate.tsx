@@ -22,11 +22,18 @@ import { authFetch } from '../../utils/authFetch';
 import {
   auditAccount,
   EntitlementRow,
+  getBounceBackWarningMessage,
   hasPillar2Access,
   purgeLegacyAccessFlags,
+  savePhonePassport,
   startGoogleVerification,
+  verifyPillarStatusFromServer,
 } from '../../utils/pillarAccess';
-import PillarAuditBanner, { signOutToSwitchAccount } from '../auth/PillarAuditBanner';
+import PillarAuditBanner, {
+  GoogleLogoSvg,
+  PhoneSessionHeaderBar,
+  signOutToSwitchAccount,
+} from '../auth/PillarAuditBanner';
 import PaystackReferenceRecovery from '../auth/PaystackReferenceRecovery';
 import {
   ALL_WORLD_CURRENCIES,
@@ -207,6 +214,18 @@ export default function Pillar2AccessGate({
         amountGhs: PILLAR2_LICENSE_AMOUNT_GHS,
       };
 
+      if (currentUserId) {
+        savePhonePassport(currentUserId, {
+          email: cleanEmail,
+          pillar1Paid: Boolean(currentEntitlements?.has_paid_global_chat),
+          pillar2Paid: true,
+          pillar3Paid: Boolean(currentEntitlements?.has_paid_pillar3),
+          pillar2ExpiresAt: expiresIso,
+          pillar3ExpiresAt: currentEntitlements?.pillar3_expires_at || null,
+          pillar3Tier: currentEntitlements?.pillar3_tier || 'none',
+        });
+      }
+
       setDeniedAudit(null);
       onPassVerified(passData);
     } catch (err: any) {
@@ -299,14 +318,20 @@ export default function Pillar2AccessGate({
         throw new Error(signInErr?.message || 'Invalid email or password.');
       }
 
-      const entitlements = await auditAccount(signInData.user.id, cleanEmail);
+      const verified = await verifyPillarStatusFromServer(signInData.user.id, 2, cleanEmail);
 
       // STRICT PILLAR 2 CHECK (Phase 3): requires paid flag, receipt ref, and unexpired timestamp
-      if (!hasPillar2Access(entitlements)) {
-        const verifiedEmail = signInData.user.email || cleanEmail;
+      if (!verified.allowed) {
+        if (typeof window !== 'undefined' && typeof navigator !== 'undefined') {
+          try {
+            navigator.vibrate?.([200, 100, 200]);
+          } catch {}
+        }
+        const verifiedEmail = verified.email || signInData.user.email || cleanEmail;
         setEmail(verifiedEmail);
         setLoginPassword('');
-        setDeniedAudit({ email: verifiedEmail, entitlements });
+        setDeniedAudit({ email: verifiedEmail, entitlements: verified.entitlementRow });
+        setError(getBounceBackWarningMessage(2, verifiedEmail));
         setShowInlineLogin(false);
         scrollToPaySection();
         return;
@@ -319,7 +344,10 @@ export default function Pillar2AccessGate({
         .maybeSingle();
 
       setDeniedAudit(null);
-      onAlreadyPaidLoginVerified(signInData.user, { ...(profile || {}), ...(entitlements || {}) });
+      onAlreadyPaidLoginVerified(signInData.user, {
+        ...(profile || {}),
+        ...(verified.entitlementRow || {}),
+      });
     } catch (err: any) {
       setError(err?.message || 'Could not verify account.');
     } finally {
@@ -391,11 +419,35 @@ export default function Pillar2AccessGate({
             </div>
           )}
 
-          {(deniedAudit || (currentUserId && !hasPillar2Access(currentEntitlements))) && (
+          {/* PHASE 4 & 6: Active Phone Session Pill, Multi-Account Switcher & Returning Phone Welcome Header */}
+          {(initialEmail || deniedAudit?.email) && (
+            <PhoneSessionHeaderBar
+              targetPillar={2}
+              activeEmail={initialEmail || deniedAudit?.email}
+              entitlements={deniedAudit?.entitlements ?? currentEntitlements}
+              onSwitchAccount={async () => {
+                await signOutToSwitchAccount();
+                setDeniedAudit(null);
+                setError('');
+                setEmail('');
+                setLoginEmail('');
+                setLoginPassword('');
+              }}
+              onSelectSavedAccount={(savedEmail) => {
+                setEmail(savedEmail);
+                setLoginEmail(savedEmail);
+                setShowInlineLogin(true);
+              }}
+            />
+          )}
+
+          {/* PHASE 3: Loud Pulsing Red Bounce-Back Warning Banner when bounced from login */}
+          {deniedAudit && (
             <PillarAuditBanner
               pillar={2}
-              email={deniedAudit?.email || initialEmail || email || 'unknown account'}
-              entitlements={deniedAudit?.entitlements ?? currentEntitlements}
+              email={deniedAudit.email || initialEmail || email || 'unknown account'}
+              entitlements={deniedAudit.entitlements ?? currentEntitlements}
+              isBounceBack={true}
               onSwitchAccount={async () => {
                 await signOutToSwitchAccount();
                 setDeniedAudit(null);
@@ -535,10 +587,12 @@ export default function Pillar2AccessGate({
             </ul>
           </div>
 
-          {/* Email Input for Binding Payment Status */}
+          {/* Email Input for Binding Payment Status (Locked to active phone account when signed in) */}
           <div className="space-y-2">
             <label className="block text-[11px] font-black uppercase tracking-wider text-emerald-300">
-              Enter Your Gmail / Email to Bind Your Affiliate License
+              {currentUserId && initialEmail
+                ? `Active Phone Account Email (1-Tap Upgrade Bound)`
+                : `Enter Your Gmail / Email to Bind Your Affiliate License`}
             </label>
             <div className="relative flex items-center">
               <Mail size={16} className="absolute left-3.5 text-zinc-500 pointer-events-none" />
@@ -548,9 +602,14 @@ export default function Pillar2AccessGate({
                 inputMode="email"
                 autoComplete="email"
                 value={email}
+                readOnly={Boolean(currentUserId && initialEmail)}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="youremail@gmail.com"
-                className="w-full min-h-[48px] pl-10 pr-4 py-3 rounded-xl bg-black/70 border border-emerald-500/35 text-white placeholder-zinc-500 text-base leading-normal focus:outline-none focus:border-amber-400 transition"
+                className={`w-full min-h-[48px] pl-10 pr-4 py-3 rounded-xl border text-white placeholder-zinc-500 text-base leading-normal focus:outline-none transition ${
+                  currentUserId && initialEmail
+                    ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200 font-bold cursor-not-allowed'
+                    : 'bg-black/70 border-emerald-500/35 focus:border-amber-400'
+                }`}
               />
             </div>
             <p className="text-[11px] text-zinc-400">
@@ -605,16 +664,16 @@ export default function Pillar2AccessGate({
               </button>
             ) : (
               <div className="p-4 rounded-2xl bg-black/60 border border-emerald-500/30 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-black uppercase tracking-wider text-emerald-300">
                     VERIFY PAID PILLAR 2 AFFILIATE ACCOUNT
                   </span>
                   <button
                     type="button"
                     {...safeTap(() => setShowInlineLogin(false))}
-                    className="text-[11px] text-zinc-400 hover:text-white font-bold cursor-pointer"
+                    className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/20 text-[11px] text-white font-bold cursor-pointer"
                   >
-                    Cancel
+                    ← Back to GH₵ 90 Affiliate Pass
                   </button>
                 </div>
 
@@ -658,8 +717,8 @@ export default function Pillar2AccessGate({
                   data-testid="pillar2-google-verify-btn"
                   className="w-full min-h-[46px] py-2.5 px-4 rounded-xl bg-white hover:bg-zinc-100 text-black font-extrabold text-xs sm:text-sm transition flex items-center justify-center gap-2.5 cursor-pointer touch-manipulation shadow-lg disabled:opacity-60"
                 >
-                  <span>🔵</span>
-                  <span>Continue with Google to Verify Pillar 2 Access</span>
+                  <GoogleLogoSvg className="w-5 h-5 shrink-0" />
+                  <span>Continue with Google</span>
                 </button>
 
                 <PaystackReferenceRecovery

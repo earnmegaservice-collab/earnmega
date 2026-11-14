@@ -5,10 +5,9 @@ import { supabase } from '../../utils/supabase';
 import {
   EntitlementRow,
   PillarId,
-  fetchLiveEntitlements,
   getScorecard,
-  hasPillarAccess,
   PillarScorecard,
+  verifyPillarStatusFromServer,
 } from '../../utils/pillarAccess';
 
 export interface PillarGuardPaywallContext {
@@ -65,12 +64,16 @@ export default function PillarAccessGuard({ pillar, children, renderPaywall, int
           commit('denied');
           return;
         }
-        const row = await fetchLiveEntitlements(sessionUser.id);
+        const verified = await verifyPillarStatusFromServer(
+          sessionUser.id,
+          pillar,
+          sessionUser.email || ''
+        );
         if (!mountedRef.current) return;
         failuresRef.current = 0;
         setUser(sessionUser);
-        setEntitlements(row);
-        commit(hasPillarAccess(pillar, row) ? 'granted' : 'denied');
+        setEntitlements(verified.entitlementRow);
+        commit(verified.allowed ? 'granted' : 'denied');
       } catch (err) {
         failuresRef.current += 1;
         // A brief network blip must not eject a paying member, but never-verified or repeated

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode, startTransition } from 'react';
 import { supabase } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
+import { enforceCleanSlateVersion } from '../utils/pillarAccess';
 
 interface AuthContextType {
   session: Session | null;
@@ -27,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Prevent React Error #310 by avoiding synchronous token parsing on mount
     const initAuth = async () => {
       try {
+        enforceCleanSlateVersion();
         await new Promise(resolve => setTimeout(resolve, 0));
         if (!mounted) return;
 

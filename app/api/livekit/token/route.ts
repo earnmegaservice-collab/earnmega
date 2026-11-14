@@ -9,8 +9,9 @@ async function generateLiveKitToken(params: {
     userId?: string | null;
     avatar?: string | null;
     canPublishOverride?: boolean;
+    hidden?: boolean;
 }) {
-    const { room, username, userId, avatar, canPublishOverride } = params;
+    const { room, username, userId, avatar, canPublishOverride, hidden } = params;
 
     if (!room) {
         return NextResponse.json({ error: 'Missing "room" parameter' }, { status: 400 });
@@ -49,17 +50,19 @@ async function generateLiveKitToken(params: {
         });
 
         const isCallRoom =
-            room.startsWith('call_') ||
+            !hidden &&
+            (room.startsWith('call_') ||
             room.startsWith('dm_') ||
             room.startsWith('group_') ||
-            canPublishOverride !== false;
+            canPublishOverride !== false);
 
         at.addGrant({
             room,
             roomJoin: true,
-            canPublish: isCallRoom ? true : Boolean(canPublishOverride),
+            canPublish: hidden ? false : isCallRoom ? true : Boolean(canPublishOverride),
             canSubscribe: true,
-            canPublishData: true,
+            canPublishData: !hidden,
+            hidden: Boolean(hidden),
         });
 
         const token = await at.toJwt();
@@ -87,13 +90,15 @@ export async function GET(req: NextRequest) {
     const username = sp.get('username') || sp.get('name');
     const userId = sp.get('userId') || sp.get('identity') || username;
     const avatar = sp.get('avatar') || sp.get('avatarUrl');
+    const hidden = sp.get('hidden') === 'true' || sp.get('ghost') === 'true';
 
     return generateLiveKitToken({
         room,
         username,
         userId,
         avatar,
-        canPublishOverride: true,
+        canPublishOverride: !hidden,
+        hidden,
     });
 }
 
@@ -104,13 +109,15 @@ export async function POST(req: NextRequest) {
         const username = body.username || body.name || null;
         const userId = body.userId || body.identity || username || null;
         const avatar = body.avatar || body.avatarUrl || null;
+        const hidden = Boolean(body.hidden || body.ghost);
 
         return generateLiveKitToken({
             room,
             username,
             userId,
             avatar,
-            canPublishOverride: true,
+            canPublishOverride: !hidden,
+            hidden,
         });
     } catch (err: any) {
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
