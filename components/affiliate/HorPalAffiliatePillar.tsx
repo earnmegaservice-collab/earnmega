@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { authFetch } from '../../utils/authFetch';
 import { hasPillar2Access, purgeLegacyAccessFlags } from '../../utils/pillarAccess';
+import Pillar2AccessGate from './Pillar2AccessGate';
 import { toast } from 'react-hot-toast';
 import { ShieldCheck,
   Sparkles,
@@ -1142,6 +1143,7 @@ export default function HorPalAffiliatePillar({
   const referredByCode = attributedRefCode;
   const setReferredByCode = setAttributedRefCode;
   const [checkoutStep, setCheckoutStep] = useState<null | 1 | 2>(null);
+  const [isProdLandingResolved, setIsProdLandingResolved] = useState<boolean>(false);
   const [buyerFullName, setBuyerFullName] = useState<string>('');
   const [buyerCountry, setBuyerCountry] = useState<string>('Ghana');
   const [buyerDialCode, setBuyerDialCode] = useState<string>('+233');
@@ -1465,6 +1467,12 @@ export default function HorPalAffiliatePillar({
     }
     loadSupabaseData(hasProdLanding);
   }, [currentProfile?.id]);
+
+  // Marks the one-time URL / product-landing bootstrap above as finished, so an unpaid visitor
+  // arriving via a ?prod= link never sees the paywall flash before the landing page resolves.
+  useEffect(() => {
+    setIsProdLandingResolved(true);
+  }, []);
 
   isProfileModalOpenRef.current = Boolean(
     isMandatoryProfileCompletion ||
@@ -3812,10 +3820,152 @@ export default function HorPalAffiliatePillar({
 
 
   // ============================================================================
+  // PILLAR 2 VERIFICATION FLAG (authenticated AND verified paid Pillar 2 license)
+  // ============================================================================
+  const isPillar2Verified =
+    Boolean(userId || currentProfile?.id) &&
+    (hasPillar2Access(currentProfile) || hasActivePaidLicense);
+
+  // Checkout modals (Step 1 details form / Step 2 payment) - shared by the dashboard view and
+  // the unpaid Product Landing / Paywall Gate views so closing them never exposes the dashboard.
+  const checkoutModalsView = (
+    <>
+      {/* Checkout Step 1 Modal */}
+      {checkoutStep === 1 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-white/10 animate-in zoom-in-95">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
+               <h3 className="text-lg font-bold text-white flex items-center gap-2"><CreditCard className="w-5 h-5 text-emerald-400"/> Secure Checkout</h3>
+               <button onClick={() => { setCheckoutStep(null); if (isPillar2Verified) setActiveSalesPageProduct(null); }} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+            <div className="p-6">
+               <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl mb-6">
+                 <h4 className="text-amber-400 font-bold text-xs mb-1">⚠️ Important Instructions</h4>
+                 <p className="text-xs text-amber-200/80">1. Please ensure to use your correct details for checkout.<br/>2. Make sure your EMAIL ADDRESS is CORRECT, ACTIVE and ACCESSIBLE, otherwise you will NOT receive access.</p>
+               </div>
+
+               <form onSubmit={handleCheckoutStep1Next} className="space-y-4">
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Full Name</label>
+                   <input type="text" required value={buyerFullName} onChange={(e) => setBuyerFullName(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
+                 </div>
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Email Address</label>
+                   <input type="email" required value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
+                 </div>
+                 <div className="grid grid-cols-3 gap-3">
+                   <div className="col-span-1">
+                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Code</label>
+                     <select value={buyerDialCode} onChange={(e) => setBuyerDialCode(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-2 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50">
+                       <option value="+233">+233 (GH)</option>
+                       <option value="+234">+234 (NG)</option>
+                       <option value="+254">+254 (KE)</option>
+                       <option value="+27">+27 (ZA)</option>
+                       <option value="+1">+1 (US/CA)</option>
+                       <option value="+44">+44 (UK)</option>
+                       <option value="+91">+91 (IN)</option>
+                       <option value="+971">+971 (UAE)</option>
+                     </select>
+                   </div>
+                   <div className="col-span-2">
+                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Phone Number</label>
+                     <input type="text" required value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
+                   </div>
+                 </div>
+                 <div>
+                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Country</label>
+                   <select value={buyerCountry} onChange={(e) => setBuyerCountry(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50">
+                     {["Ghana", "Nigeria", "Kenya", "South Africa", "United States", "United Kingdom", "India", "UAE", "Other"].map(c => <option key={c} value={c}>{c}</option>)}
+                   </select>
+                 </div>
+
+                 <button type="submit" className="w-full py-4 mt-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all flex items-center justify-center gap-2">
+                   Continue to Payment <ArrowRight className="w-4 h-4" />
+                 </button>
+               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Checkout Step 2 Modal */}
+      {checkoutStep === 2 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-white/10 animate-in zoom-in-95">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
+               <h3 className="text-lg font-bold text-white">Payment Selection</h3>
+               <button onClick={() => setCheckoutStep(1)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
+                 <X className="w-5 h-5 text-gray-400" />
+               </button>
+            </div>
+            <div className="p-6 space-y-6">
+               <div className="flex justify-between items-center bg-[#141d30] p-4 rounded-xl border border-white/5 gap-3">
+                 <span className="text-sm text-gray-400 shrink-0">Preview Currency</span>
+                 <select value={selectedCurrency} onChange={(e) => setSelectedCurrency(e.target.value)} className="bg-[#0b111e] border border-white/10 px-3 py-1.5 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/50 max-w-[210px]">
+                   {Object.values(GLOBAL_CURRENCIES).map(c => (
+                     <option key={c.code} value={c.code}>{c.code} ({c.symbol}) — {c.name}</option>
+                   ))}
+                 </select>
+               </div>
+
+               {(() => {
+                 const totalPayableGHS =
+                   (isDirectEnrollmentCheckout
+                     ? DIRECT_ENROLLMENT_GHS
+                     : activeSalesPageProduct?.priceGHS || 0) + (includeOrderBump ? 80 : 0);
+                 return (
+                   <>
+                     <div className="bg-[#141d30] p-5 rounded-2xl border border-white/5">
+                       <h4 className="text-sm font-bold text-white mb-1">
+                         {isDirectEnrollmentCheckout ? "HorPal Pillar 2 Direct Access" : activeSalesPageProduct?.title}
+                       </h4>
+                       <p className="text-xs text-gray-400 mb-4 border-b border-white/10 pb-4">
+                         {isDirectEnrollmentCheckout ? "One-time Direct Enrollment Fee." : "Instant Lifetime Access to Course + Affiliate Platform."}
+                       </p>
+
+                       {!isDirectEnrollmentCheckout && (
+                         <label className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-4 cursor-pointer">
+                           <input type="checkbox" checked={includeOrderBump} onChange={(e) => setIncludeOrderBump(e.target.checked)} className="mt-1" />
+                           <div>
+                             <span className="text-xs font-bold text-amber-400 block">Yes, Add Viral Hook & Closing Script Pack (+GH₵ 80)</span>
+                             <span className="text-[10px] text-amber-200/70">Highly Recommended 1-Click Order Bump.</span>
+                           </div>
+                         </label>
+                       )}
+
+                       <div className="flex justify-between items-end">
+                         <span className="text-sm text-gray-400 uppercase font-bold">Total Payable</span>
+                         <div className="text-right">
+                           <span className="text-2xl font-black text-white block">
+                             {selectedCurrency !== "GHS" && "≈ "}
+                             {formatAmount(totalPayableGHS)}
+                           </span>
+                           {selectedCurrency !== "GHS" && (
+                             <span className="text-xs text-gray-500">Settled in GH₵ {totalPayableGHS.toFixed(2)}</span>
+                           )}
+                         </div>
+                       </div>
+                     </div>
+
+                     <button onClick={handleLivePaystackCheckout} className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all text-lg shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+                       Pay Now via Paystack (GH₵ {totalPayableGHS.toFixed(2)})
+                     </button>
+                   </>
+                 );
+               })()}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  // ============================================================================
   // IF BUYER OPENED AN AFFILIATE PRODUCT LINK (?prod=...), SHOW SALES PAGE + CHECKOUT
   // ============================================================================
-  if (activeSalesPageProduct && !checkoutStep) {
-    const p = activeSalesPageProduct;
+  const renderSalesLanding = (p: MarketplaceProduct) => {
     return (
       <div className="min-h-screen bg-[#070b14] text-white pb-24">
         {/* Top Test Mode Bar so you can switch between Buyer Sales Page & Affiliate Dashboard */}
@@ -3993,6 +4143,54 @@ export default function HorPalAffiliatePillar({
         </div>
       </div>
     );
+  };
+
+  // Verified Pillar 2 hard block: an unpaid / unauthenticated visitor must NEVER reach the
+  // "Welcome back, Partner" Affiliate Dashboard JSX below, regardless of which close / back
+  // button they tap. Unverified visitors only ever see the Product Landing (+ checkout modals)
+  // or the Pillar 2 GHS 90.00 Paywall Gate.
+  if (!isPillar2Verified) {
+    if (activeSalesPageProduct) {
+      return (
+        <>
+          {renderSalesLanding(activeSalesPageProduct)}
+          {checkoutModalsView}
+        </>
+      );
+    }
+    if (!isProdLandingResolved) {
+      // URL / product-landing bootstrap has not finished yet - render a neutral blank screen.
+      return <div className="min-h-screen bg-[#050508]" />;
+    }
+    return (
+      <>
+        <Pillar2AccessGate
+          initialEmail={currentProfile?.email || pillar2Email || ''}
+          currentUserId={userId || currentProfile?.id || undefined}
+          currentEntitlements={currentProfile || null}
+          onPassVerified={() => {
+            if (!(userId || currentProfile?.id)) {
+              // No account yet: hand off to the canonical /affiliate gate + signup flow.
+              window.location.href = '/affiliate';
+              return;
+            }
+            onRefreshProfile?.();
+          }}
+          onAlreadyPaidLoginVerified={() => {
+            onRefreshProfile?.();
+          }}
+          onBackToHome={() => {
+            purgeLegacyAccessFlags();
+            window.location.href = '/';
+          }}
+        />
+        {checkoutModalsView}
+      </>
+    );
+  }
+
+  if (activeSalesPageProduct && !checkoutStep) {
+    return renderSalesLanding(activeSalesPageProduct);
   }
 
   return (
@@ -6983,135 +7181,7 @@ export default function HorPalAffiliatePillar({
       {/* MODALS (RENDERED ON TOP) */}
       {/* ==================================================================== */}
 
-      {/* Checkout Step 1 Modal */}
-      {checkoutStep === 1 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-white/10 animate-in zoom-in-95">
-            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
-               <h3 className="text-lg font-bold text-white flex items-center gap-2"><CreditCard className="w-5 h-5 text-emerald-400"/> Secure Checkout</h3>
-               <button onClick={() => { setCheckoutStep(null); setActiveSalesPageProduct(null); }} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
-                 <X className="w-5 h-5 text-gray-400" />
-               </button>
-            </div>
-            <div className="p-6">
-               <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl mb-6">
-                 <h4 className="text-amber-400 font-bold text-xs mb-1">⚠️ Important Instructions</h4>
-                 <p className="text-xs text-amber-200/80">1. Please ensure to use your correct details for checkout.<br/>2. Make sure your EMAIL ADDRESS is CORRECT, ACTIVE and ACCESSIBLE, otherwise you will NOT receive access.</p>
-               </div>
-
-               <form onSubmit={handleCheckoutStep1Next} className="space-y-4">
-                 <div>
-                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Full Name</label>
-                   <input type="text" required value={buyerFullName} onChange={(e) => setBuyerFullName(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
-                 </div>
-                 <div>
-                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Email Address</label>
-                   <input type="email" required value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
-                 </div>
-                 <div className="grid grid-cols-3 gap-3">
-                   <div className="col-span-1">
-                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Code</label>
-                     <select value={buyerDialCode} onChange={(e) => setBuyerDialCode(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-2 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50">
-                       <option value="+233">+233 (GH)</option>
-                       <option value="+234">+234 (NG)</option>
-                       <option value="+254">+254 (KE)</option>
-                       <option value="+27">+27 (ZA)</option>
-                       <option value="+1">+1 (US/CA)</option>
-                       <option value="+44">+44 (UK)</option>
-                       <option value="+91">+91 (IN)</option>
-                       <option value="+971">+971 (UAE)</option>
-                     </select>
-                   </div>
-                   <div className="col-span-2">
-                     <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Phone Number</label>
-                     <input type="text" required value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50" />
-                   </div>
-                 </div>
-                 <div>
-                   <label className="text-xs font-bold text-gray-400 uppercase block mb-1.5">Country</label>
-                   <select value={buyerCountry} onChange={(e) => setBuyerCountry(e.target.value)} className="w-full bg-[#141d30] border border-white/10 px-4 py-3 rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500/50">
-                     {["Ghana", "Nigeria", "Kenya", "South Africa", "United States", "United Kingdom", "India", "UAE", "Other"].map(c => <option key={c} value={c}>{c}</option>)}
-                   </select>
-                 </div>
-
-                 <button type="submit" className="w-full py-4 mt-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all flex items-center justify-center gap-2">
-                   Continue to Payment <ArrowRight className="w-4 h-4" />
-                 </button>
-               </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Checkout Step 2 Modal */}
-      {checkoutStep === 2 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-[#0f172a] w-full max-w-md rounded-3xl overflow-hidden border border-white/10 animate-in zoom-in-95">
-            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#141d30]">
-               <h3 className="text-lg font-bold text-white">Payment Selection</h3>
-               <button onClick={() => setCheckoutStep(1)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10">
-                 <X className="w-5 h-5 text-gray-400" />
-               </button>
-            </div>
-            <div className="p-6 space-y-6">
-               <div className="flex justify-between items-center bg-[#141d30] p-4 rounded-xl border border-white/5 gap-3">
-                 <span className="text-sm text-gray-400 shrink-0">Preview Currency</span>
-                 <select value={selectedCurrency} onChange={(e) => setSelectedCurrency(e.target.value)} className="bg-[#0b111e] border border-white/10 px-3 py-1.5 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/50 max-w-[210px]">
-                   {Object.values(GLOBAL_CURRENCIES).map(c => (
-                     <option key={c.code} value={c.code}>{c.code} ({c.symbol}) — {c.name}</option>
-                   ))}
-                 </select>
-               </div>
-
-               {(() => {
-                 const totalPayableGHS =
-                   (isDirectEnrollmentCheckout
-                     ? DIRECT_ENROLLMENT_GHS
-                     : activeSalesPageProduct?.priceGHS || 0) + (includeOrderBump ? 80 : 0);
-                 return (
-                   <>
-                     <div className="bg-[#141d30] p-5 rounded-2xl border border-white/5">
-                       <h4 className="text-sm font-bold text-white mb-1">
-                         {isDirectEnrollmentCheckout ? "HorPal Pillar 2 Direct Access" : activeSalesPageProduct?.title}
-                       </h4>
-                       <p className="text-xs text-gray-400 mb-4 border-b border-white/10 pb-4">
-                         {isDirectEnrollmentCheckout ? "One-time Direct Enrollment Fee." : "Instant Lifetime Access to Course + Affiliate Platform."}
-                       </p>
-
-                       {!isDirectEnrollmentCheckout && (
-                         <label className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-4 cursor-pointer">
-                           <input type="checkbox" checked={includeOrderBump} onChange={(e) => setIncludeOrderBump(e.target.checked)} className="mt-1" />
-                           <div>
-                             <span className="text-xs font-bold text-amber-400 block">Yes, Add Viral Hook & Closing Script Pack (+GH₵ 80)</span>
-                             <span className="text-[10px] text-amber-200/70">Highly Recommended 1-Click Order Bump.</span>
-                           </div>
-                         </label>
-                       )}
-
-                       <div className="flex justify-between items-end">
-                         <span className="text-sm text-gray-400 uppercase font-bold">Total Payable</span>
-                         <div className="text-right">
-                           <span className="text-2xl font-black text-white block">
-                             {selectedCurrency !== "GHS" && "≈ "}
-                             {formatAmount(totalPayableGHS)}
-                           </span>
-                           {selectedCurrency !== "GHS" && (
-                             <span className="text-xs text-gray-500">Settled in GH₵ {totalPayableGHS.toFixed(2)}</span>
-                           )}
-                         </div>
-                       </div>
-                     </div>
-
-                     <button onClick={handleLivePaystackCheckout} className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all text-lg shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                       Pay Now via Paystack (GH₵ {totalPayableGHS.toFixed(2)})
-                     </button>
-                   </>
-                 );
-               })()}
-            </div>
-          </div>
-        </div>
-      )}
+      {checkoutModalsView}
 
       {/* Promote Studio Modal */}
       {promoteModalProduct && (
