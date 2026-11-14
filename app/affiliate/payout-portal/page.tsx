@@ -40,17 +40,24 @@ function PayoutPortalContent() {
         syncAuthenticatedUserProfile(userObj),
         auditAccount(userObj.id, userObj.email || "").catch(() => null),
       ]);
-      const mergedProfile = liveEnt
-        ? { ...(synced || {}), ...liveEnt }
-        : synced || {
-            id: userObj.id,
-            email: userObj.email || "",
-            has_paid_pillar2: false,
-          };
-      setProfile(mergedProfile);
+      setProfile((prev: any) => {
+        const base = prev && prev.id === userObj.id ? prev : {};
+        const mergedProfile = liveEnt
+          ? { ...base, ...(synced || {}), ...liveEnt }
+          : synced
+          ? { ...base, ...synced }
+          : prev && prev.id === userObj.id
+          ? prev
+          : {
+              id: userObj.id,
+              email: userObj.email || "",
+              has_paid_pillar2: false,
+            };
+        return mergedProfile;
+      });
       if (hasPillar2Access(liveEnt)) {
         setDeniedAudit(null);
-      } else if (returningFromOAuthRef.current) {
+      } else if (liveEnt && returningFromOAuthRef.current) {
         setDeniedAudit({
           email: userObj.email || synced?.email || "",
           entitlements: liveEnt,
@@ -248,9 +255,9 @@ function PayoutPortalContent() {
               auditAccount(activeSession.user.id, activeSession.user.email || "").catch(() => null),
             ]);
             if (liveEnt) {
-              setProfile({ ...(synced || {}), ...liveEnt });
+              setProfile((prev: any) => ({ ...(prev || {}), ...(synced || {}), ...liveEnt }));
             } else if (synced) {
-              setProfile(synced);
+              setProfile((prev: any) => ({ ...(prev || {}), ...synced }));
             }
           }
         }}

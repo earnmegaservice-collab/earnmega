@@ -598,7 +598,7 @@ export default function GlobalChatAccessGate({
             {/* Headline & Subheadline + Interactive Worldwide Currency Switcher */}
             <div className="text-center max-w-2xl mx-auto mb-7">
               <h1 className="text-2xl sm:text-4xl font-serif font-black tracking-tight text-white mb-3">
-                Unlock Earnmega Global Chat —{' '}
+                Unlock HorPal Global Chat —{' '}
                 <span className="bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-500 bg-clip-text text-transparent">
                   Lifetime Standard Pass
                 </span>

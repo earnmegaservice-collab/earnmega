@@ -77,8 +77,9 @@ export default function PillarAccessGuard({ pillar, children, renderPaywall, int
       } catch (err) {
         failuresRef.current += 1;
         // A brief network blip must not eject a paying member, but never-verified or repeated
-        // failures lock the view (fail closed).
-        if (statusRef.current === 'granted' && failuresRef.current < MAX_SILENT_FAILURES) return;
+        // initial failures lock the view (fail closed).
+        if (statusRef.current === 'granted') return;
+        if (failuresRef.current < MAX_SILENT_FAILURES) return;
         commit('error');
       } finally {
         inFlightRef.current = null;

@@ -55,7 +55,28 @@ function AffiliatePageContent() {
     const onEnforcementSync = (e: any) => {
       const updatedProfile = e?.detail?.profile;
       if (updatedProfile) {
-        setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
+        setProfile((prev: any) => {
+          if (!prev) return updatedProfile;
+          const next = { ...prev };
+          let changed = false;
+          for (const key of Object.keys(updatedProfile)) {
+            if ( key === "updated_at" ) continue;
+            const val = updatedProfile[key];
+            if (
+              (val === null || val === undefined || val === "") &&
+              prev[key] !== null &&
+              prev[key] !== undefined &&
+              prev[key] !== ""
+            ) {
+              continue;
+            }
+            if (prev[key] !== val) {
+              next[key] = val;
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
       }
     };
     window.addEventListener("earnmega:pillar-access-revoked", onRevoked);
@@ -105,17 +126,24 @@ function AffiliatePageContent() {
         syncAuthenticatedUserProfile(userObj),
         auditAccount(userObj.id, userObj.email || "").catch(() => null),
       ]);
-      const mergedProfile = liveEnt
-        ? { ...(synced || {}), ...liveEnt }
-        : synced || {
-            id: userObj.id,
-            email: userObj.email || "",
-            has_paid_pillar2: false,
-          };
-      setProfile(mergedProfile);
+      setProfile((prev: any) => {
+        const base = prev && prev.id === userObj.id ? prev : {};
+        const mergedProfile = liveEnt
+          ? { ...base, ...(synced || {}), ...liveEnt }
+          : synced
+          ? { ...base, ...synced }
+          : prev && prev.id === userObj.id
+          ? prev
+          : {
+              id: userObj.id,
+              email: userObj.email || "",
+              has_paid_pillar2: false,
+            };
+        return mergedProfile;
+      });
       if (hasPillar2Access(liveEnt)) {
         setDeniedAudit(null);
-      } else if (returningFromOAuthRef.current) {
+      } else if (liveEnt && returningFromOAuthRef.current) {
         setDeniedAudit({
           email: userObj.email || synced?.email || "",
           entitlements: liveEnt,
@@ -360,9 +388,9 @@ function AffiliatePageContent() {
                 auditAccount(activeSession.user.id, activeSession.user.email || "").catch(() => null),
               ]);
               if (liveEnt) {
-                setProfile({ ...(synced || {}), ...liveEnt });
+                setProfile((prev: any) => ({ ...(prev || {}), ...(synced || {}), ...liveEnt }));
               } else if (synced) {
-                setProfile(synced);
+                setProfile((prev: any) => ({ ...(prev || {}), ...synced }));
               }
             }
           }}

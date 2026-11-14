@@ -799,7 +799,12 @@ export default function HorPalAffiliatePillar({
   // User & Separate Pillar 2 Profile State (Strictly Isolated — Zero Hardcoded Fallbacks)
   const initialUid = currentProfile?.id || null;
   const initialIsGoogle = Boolean(currentProfile?.app_metadata?.provider === 'google');
-  const initialProfileCompleted = Boolean(currentProfile?.profile_completed);
+  const initialProfileCompleted = Boolean(
+    currentProfile?.profile_completed ||
+      (typeof window !== 'undefined' &&
+        initialUid &&
+        localStorage.getItem(`horpal_p2_profile_completed_${initialUid}`) === 'true')
+  );
   const initialRawFullName = (
     currentProfile?.pillar2_full_name ||
     currentProfile?.full_name ||
@@ -813,6 +818,10 @@ export default function HorPalAffiliatePillar({
   const [isMandatoryProfileCompletion, setIsMandatoryProfileCompletion] = useState<boolean>(false);
   const [profileValidationError, setProfileValidationError] = useState<string | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState<boolean>(false);
+  const hasInitializedProfileFormRef = useRef<boolean>(false);
+  const hasCompletedProfileInSessionRef = useRef<boolean>(initialProfileCompleted);
+  const isProfileModalOpenRef = useRef<boolean>(false);
+  const prevUserIdRef = useRef<string | null>(initialUid);
   const [username, setUsername] = useState<string>(
     initialIsGoogle && !initialProfileCompleted
       ? ''
@@ -1455,7 +1464,53 @@ export default function HorPalAffiliatePillar({
       }
     }
     loadSupabaseData(hasProdLanding);
-  }, [currentProfile]);
+  }, [currentProfile?.id]);
+
+  isProfileModalOpenRef.current = Boolean(
+    isMandatoryProfileCompletion ||
+      activeSettingsModal === 'pillar2_onboarding' ||
+      activeSettingsModal === 'profile'
+  );
+
+  // Initialize "Complete Your Pillar 2 Profile" form fields ONLY ONCE when the modal first opens
+  useEffect(() => {
+    if (
+      (activeSettingsModal === 'pillar2_onboarding' || activeSettingsModal === 'profile') &&
+      !hasInitializedProfileFormRef.current
+    ) {
+      hasInitializedProfileFormRef.current = true;
+      const allowPreFill = !isGoogleAuthUser || profileCompleted || hasCompletedProfileInSessionRef.current;
+      setFirstName((prev) =>
+        prev ||
+        currentProfile?.pillar2_first_name ||
+        (allowPreFill ? currentProfile?.first_name : '') ||
+        ''
+      );
+      setLastName((prev) =>
+        prev ||
+        currentProfile?.pillar2_last_name ||
+        (allowPreFill ? currentProfile?.last_name : '') ||
+        ''
+      );
+      setUsername((prev) =>
+        prev ||
+        (allowPreFill ? (currentProfile?.username || '').replace(/^@+/, '').trim() : '') ||
+        ''
+      );
+      setPillar2Phone((prev) =>
+        prev ||
+        currentProfile?.pillar2_phone ||
+        (allowPreFill ? currentProfile?.phone_number || currentProfile?.phone : '') ||
+        ''
+      );
+      setPillar2Country((prev) =>
+        prev ||
+        currentProfile?.pillar2_country ||
+        (allowPreFill ? currentProfile?.country || currentProfile?.location_country : '') ||
+        ''
+      );
+    }
+  }, [activeSettingsModal]);
 
   const loadSupabaseData = async (isViewingProductLanding = false) => {
     try {
@@ -1477,11 +1532,15 @@ export default function HorPalAffiliatePillar({
       setIsGoogleAuthUser(isGoogleUser);
 
       let localSaved: any = null;
+      let hasLocalCompletedFlag = false;
       try {
         const v3Raw =
           localStorage.getItem(`horpal_p2_state_v3_${activeUid}`) ||
           localStorage.getItem(`horpal_p2_user_state_${activeUid}`);
         if (v3Raw) localSaved = JSON.parse(v3Raw);
+        hasLocalCompletedFlag =
+          Boolean(localSaved?.profile_completed) ||
+          localStorage.getItem(`horpal_p2_profile_completed_${activeUid}`) === 'true';
       } catch (_) {}
 
       const deterministicCode = buildDeterministicAffiliateCode(activeUid);
@@ -1496,11 +1555,24 @@ export default function HorPalAffiliatePillar({
       let resolvedAffiliateCode =
         rawCode && !rawCode.endsWith('-TEST') ? rawCode : deterministicCode;
 
-      const isExplicitlyCompleted = Boolean(
-        prof?.profile_completed ||
-          authMeta?.profile_completed ||
-          localSaved?.profile_completed
+      const hasAllSavedFields = Boolean(
+        (prof?.pillar2_first_name || prof?.first_name) &&
+          (prof?.pillar2_last_name || prof?.last_name) &&
+          prof?.username &&
+          (prof?.pillar2_phone || prof?.phone_number || prof?.phone) &&
+          (prof?.pillar2_country || prof?.country || prof?.location_country)
       );
+
+      const isExplicitlyCompleted = Boolean(
+        hasCompletedProfileInSessionRef.current ||
+          prof?.profile_completed ||
+          authMeta?.profile_completed ||
+          hasLocalCompletedFlag ||
+          hasAllSavedFields
+      );
+      if (isExplicitlyCompleted) {
+        hasCompletedProfileInSessionRef.current = true;
+      }
 
       if (prof || authUser) {
         let fName = '';
@@ -1513,11 +1585,11 @@ export default function HorPalAffiliatePillar({
           // Google OAuth User with uncompleted Pillar 2 profile:
           // Do NOT auto-fill admin defaults, email prefix, or Google display metadata!
           // Leave missing fields blank so the user manually completes & saves their real profile.
-          fName = (prof?.pillar2_first_name || '').trim();
-          lName = (prof?.pillar2_last_name || '').trim();
-          resolvedHandle = (prof?.username || '').replace(/^@+/, '').trim();
-          resolvedPhone = (prof?.pillar2_phone || '').trim();
-          resolvedCountry = (prof?.pillar2_country || '').trim();
+          fName = (prof?.pillar2_first_name || localSaved?.firstName || '').trim();
+          lName = (prof?.pillar2_last_name || localSaved?.lastName || '').trim();
+          resolvedHandle = (prof?.username || localSaved?.username || '').replace(/^@+/, '').trim();
+          resolvedPhone = (prof?.pillar2_phone || localSaved?.pillar2Phone || '').trim();
+          resolvedCountry = (prof?.pillar2_country || localSaved?.pillar2Country || '').trim();
         } else {
           // Standard Sign-Up User or Completed Profile: auto-populate from Supabase user_metadata + profiles
           const rawFullName = (
@@ -1576,6 +1648,7 @@ export default function HorPalAffiliatePillar({
         }
 
         const missingRequiredForGoogle =
+          !hasCompletedProfileInSessionRef.current &&
           isGoogleUser &&
           (!isExplicitlyCompleted ||
             !fName ||
@@ -1587,28 +1660,43 @@ export default function HorPalAffiliatePillar({
         setProfileCompleted(!missingRequiredForGoogle);
         setIsMandatoryProfileCompletion(missingRequiredForGoogle);
         if (missingRequiredForGoogle && !isViewingProductLanding && !activeSalesPageProduct) {
-          setActiveSettingsModal('pillar2_onboarding');
+          setActiveSettingsModal((prev) => prev || 'pillar2_onboarding');
         }
 
-        setUsername(resolvedHandle);
-        setFirstName(fName);
-        setLastName(lName);
-        setCertificateStudentName(`${fName} ${lName}`.trim() || resolvedHandle);
+        // Initialize the "Complete Your Pillar 2 Profile" form fields ONLY ONCE,
+        // and only pre-fill a field if its local input state is currently empty.
+        if (!hasInitializedProfileFormRef.current) {
+          hasInitializedProfileFormRef.current = true;
+          setUsername((prev) => prev || resolvedHandle || '');
+          setFirstName((prev) => prev || fName || '');
+          setLastName((prev) => prev || lName || '');
+          setPillar2Phone((prev) => prev || resolvedPhone || '');
+          setPillar2Country((prev) => prev || resolvedCountry || '');
+        } else if (!isProfileModalOpenRef.current) {
+          if (resolvedHandle) setUsername((prev) => prev || resolvedHandle);
+          if (fName) setFirstName((prev) => prev || fName);
+          if (lName) setLastName((prev) => prev || lName);
+          if (resolvedPhone) setPillar2Phone((prev) => prev || resolvedPhone);
+          if (resolvedCountry) setPillar2Country((prev) => prev || resolvedCountry);
+        }
+
+        const studentDisplay = `${fName} ${lName}`.trim() || resolvedHandle;
+        if (studentDisplay) {
+          setCertificateStudentName((prev) => prev || studentDisplay);
+          setGlobalBeneficiaryName((prev) => prev || studentDisplay);
+        }
         const resolvedEmail =
           activeMail || prof?.email || prof?.pillar2_email || '';
         setPillar2Email(resolvedEmail);
         setGlobalVerifiedEmail(resolvedEmail);
-        setGlobalBeneficiaryName(`${fName} ${lName}`.trim() || resolvedHandle);
 
-        setPillar2Phone(resolvedPhone);
         if (resolvedPhone) {
-          setGlobalWhatsappPhone(resolvedPhone);
+          setGlobalWhatsappPhone((prev) => prev || resolvedPhone);
           setWaCloserNumber((prev) => prev || resolvedPhone.replace(/[^0-9]/g, ''));
         }
 
-        setPillar2Country(resolvedCountry);
-        if (prof?.pillar2_city) setPillar2City(prof.pillar2_city);
-        if (prof?.pillar2_address) setPillar2Address(prof.pillar2_address);
+        if (prof?.pillar2_city) setPillar2City((prev) => prev || prof.pillar2_city);
+        if (prof?.pillar2_address) setPillar2Address((prev) => prev || prof.pillar2_address);
 
         if ((!prof?.affiliate_code || prof.affiliate_code.endsWith('-TEST')) && deterministicCode) {
           resolvedAffiliateCode = deterministicCode;
@@ -2354,40 +2442,120 @@ export default function HorPalAffiliatePillar({
     }
 
     setIsSavingProfile(true);
+    hasCompletedProfileInSessionRef.current = true;
+    hasInitializedProfileFormRef.current = true;
+    setFirstName(cleanFirst);
+    setLastName(cleanLast);
     setUsername(cleanUsername);
+    setPillar2Phone(cleanPhone);
+    setPillar2Country(cleanCountry);
     setCertificateStudentName(cleanFull || cleanUsername);
     setGlobalBeneficiaryName(cleanFull || cleanUsername);
 
-    if (userId) {
+    let activeUid = userId || currentProfile?.id || null;
+    if (!activeUid) {
       try {
-        await supabase
+        const { data: authData } = await supabase.auth.getUser();
+        activeUid = authData?.user?.id || null;
+        if (activeUid) setUserId(activeUid);
+      } catch (_) {}
+    }
+
+    if (activeUid) {
+      try {
+        // Persist immediately to localStorage so no background poll can ever revert it
+        const existingCacheStr =
+          localStorage.getItem(`horpal_p2_state_v3_${activeUid}`) ||
+          localStorage.getItem(`horpal_p2_user_state_${activeUid}`);
+        const existingCache = existingCacheStr ? JSON.parse(existingCacheStr) : {};
+        localStorage.setItem(`horpal_p2_profile_completed_${activeUid}`, 'true');
+        localStorage.setItem(
+          `horpal_p2_state_v3_${activeUid}`,
+          JSON.stringify({
+            ...existingCache,
+            firstName: cleanFirst,
+            lastName: cleanLast,
+            first_name: cleanFirst,
+            last_name: cleanLast,
+            username: cleanUsername,
+            phone: cleanPhone,
+            country: cleanCountry,
+            pillar2Email: lockedEmail,
+            pillar2Phone: cleanPhone,
+            pillar2Country: cleanCountry,
+            pillar2City,
+            pillar2Address,
+            profile_completed: true
+          })
+        );
+        try {
+          localStorage.removeItem(`horpal_p2_user_state_${activeUid}`);
+        } catch (_) {}
+      } catch (_) {}
+
+      try {
+        // 1. Save core profile fields (first_name, last_name, username, phone, country) cleanly to public.profiles
+        const { error: coreErr } = await supabase
           .from('profiles')
           .update({
-            username: cleanUsername,
             first_name: cleanFirst,
             last_name: cleanLast,
             full_name: cleanFull || cleanUsername,
-            phone_number: cleanPhone,
+            username: cleanUsername,
             phone: cleanPhone,
             country: cleanCountry,
-            location_country: cleanCountry,
-            pillar2_first_name: cleanFirst,
-            pillar2_last_name: cleanLast,
-            pillar2_email: lockedEmail,
-            pillar2_phone: cleanPhone,
-            pillar2_country: cleanCountry,
-            pillar2_city: pillar2City,
-            pillar2_address: pillar2Address,
             updated_at: new Date().toISOString()
           })
-          .eq('id', userId);
+          .eq('id', activeUid);
 
-        // Best-effort updates for schema-optional profile completion & KYC columns
+        if (coreErr) {
+          // Fallback: save non-unique core fields even if username had a conflict
+          try {
+            await supabase
+              .from('profiles')
+              .update({
+                first_name: cleanFirst,
+                last_name: cleanLast,
+                full_name: cleanFull || cleanUsername,
+                phone: cleanPhone,
+                country: cleanCountry,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', activeUid);
+          } catch (_) {}
+          try {
+            await supabase
+              .from('profiles')
+              .update({ username: cleanUsername })
+              .eq('id', activeUid);
+          } catch (_) {}
+        }
+
+        // 2. Save Pillar 2 extended profile fields
+        try {
+          await supabase
+            .from('profiles')
+            .update({
+              phone_number: cleanPhone,
+              location_country: cleanCountry,
+              pillar2_first_name: cleanFirst,
+              pillar2_last_name: cleanLast,
+              pillar2_email: lockedEmail,
+              pillar2_phone: cleanPhone,
+              pillar2_country: cleanCountry,
+              pillar2_city: pillar2City,
+              pillar2_address: pillar2Address,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', activeUid);
+        } catch (_) {}
+
+        // 3. Best-effort updates for schema-optional profile completion & KYC columns
         try {
           await supabase
             .from('profiles')
             .update({ profile_completed: true })
-            .eq('id', userId);
+            .eq('id', activeUid);
         } catch (_) {}
         try {
           await supabase
@@ -2398,10 +2566,10 @@ export default function HorPalAffiliatePillar({
               pillar2_kyc_id_number: kycIdNumber,
               pillar2_2fa_enabled: twoFactorEnabled,
             })
-            .eq('id', userId);
+            .eq('id', activeUid);
         } catch (_) {}
 
-        // Persist into Supabase Auth user_metadata as well
+        // 4. Persist into Supabase Auth user_metadata as well
         try {
           await supabase.auth.updateUser({
             data: {
@@ -2416,35 +2584,14 @@ export default function HorPalAffiliatePillar({
             }
           });
         } catch (_) {}
-
-        const existingCacheStr =
-          localStorage.getItem(`horpal_p2_state_v3_${userId}`) ||
-          localStorage.getItem(`horpal_p2_user_state_${userId}`);
-        const existingCache = existingCacheStr ? JSON.parse(existingCacheStr) : {};
-        localStorage.setItem(
-          `horpal_p2_state_v3_${userId}`,
-          JSON.stringify({
-            ...existingCache,
-            firstName: cleanFirst,
-            lastName: cleanLast,
-            username: cleanUsername,
-            pillar2Email: lockedEmail,
-            pillar2Phone: cleanPhone,
-            pillar2Country: cleanCountry,
-            pillar2City,
-            pillar2Address,
-            profile_completed: true
-          })
-        );
-        try {
-          localStorage.removeItem(`horpal_p2_user_state_${userId}`);
-        } catch (_) {}
       } catch (_) {}
     }
 
+    isProfileModalOpenRef.current = false;
     setProfileCompleted(true);
     setIsMandatoryProfileCompletion(false);
     setActiveSettingsModal(null);
+    setActiveSection('dashboard');
     setIsSavingProfile(false);
 
     if (onRefreshProfile) {
@@ -3425,6 +3572,14 @@ export default function HorPalAffiliatePillar({
       localStorage.removeItem('horpal_p2_license_test_bypass_id');
     } catch (_) {}
 
+    if (prevUserIdRef.current && userId && prevUserIdRef.current !== userId) {
+      hasInitializedProfileFormRef.current = false;
+      hasCompletedProfileInSessionRef.current = false;
+    }
+    if (userId) {
+      prevUserIdRef.current = userId;
+    }
+
     // Clear state immediately when userId changes to prevent cross-account bleed
     // All financial & sales metrics are strictly hydrated from Supabase (profiles & pillar2_sales)
     setAvailableBalanceGHS(Number(currentProfile?.affiliate_balance ?? 0));
@@ -3447,11 +3602,15 @@ export default function HorPalAffiliatePillar({
         JSON.stringify({
           firstName,
           lastName,
+          first_name: firstName,
+          last_name: lastName,
           username,
+          phone: pillar2Phone,
+          country: pillar2Country,
           pillar2Email: currentProfile?.email || pillar2Email,
           pillar2Phone,
           pillar2Country,
-          profile_completed: profileCompleted,
+          profile_completed: profileCompleted || hasCompletedProfileInSessionRef.current,
           walletHistory,
           unlockedProductIds,
           notificationsList,
