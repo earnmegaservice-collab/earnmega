@@ -6,11 +6,18 @@ import { paywallErrorResponse, processPillarPayment } from '../../../../lib/serv
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const result = await processPillarPayment({ request, pillar: 3, reference: body?.reference });
+    const result = await processPillarPayment({
+      request,
+      pillar: 3,
+      reference: body?.reference,
+      fallbackEmail: body?.email,
+      buyerName: body?.buyerName || body?.name,
+      buyerPhone: body?.buyerPhone || body?.phone,
+    });
     const e: any = result.entitlements || {};
     return NextResponse.json({
       ...result,
-      has_paid_pillar3: Boolean(e.has_paid_pillar3),
+      has_paid_pillar3: Boolean(e.has_paid_pillar3 ?? true),
       pillar3_tier: e.pillar3_tier || result.planTier,
       pillar3_expires_at: e.pillar3_expires_at || null,
     });

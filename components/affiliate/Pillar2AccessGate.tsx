@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../utils/supabase';
 import { authFetch } from '../../utils/authFetch';
+import { triggerActivatedCredentialsBanner } from '../auth/ActivatedCredentialsBanner';
 import {
   auditAccount,
   EntitlementRow,
@@ -201,6 +202,18 @@ export default function Pillar2AccessGate({
         throw new Error(data?.error || 'Could not verify Pillar 2 Affiliate License payment.');
       }
 
+      if (data.account_password) {
+        triggerActivatedCredentialsBanner(data.email || cleanEmail, data.account_password, 2);
+        if (!currentUserId) {
+          try {
+            await supabase.auth.signInWithPassword({
+              email: data.email || cleanEmail,
+              password: data.account_password,
+            });
+          } catch {}
+        }
+      }
+
       const nowIso = data.pillar2_paid_at || new Date().toISOString();
       const expiresIso =
         data.pillar2_expires_at || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
@@ -309,10 +322,20 @@ export default function Pillar2AccessGate({
 
     setLoginLoading(true);
     try {
-      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+      const cleanPw = loginPassword.trim();
+      let { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
-        password: loginPassword,
+        password: cleanPw,
       });
+
+      if ((signInErr || !signInData?.user) && /^hp-\d{6}$/i.test(cleanPw)) {
+        const retry = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: cleanPw.toUpperCase(),
+        });
+        signInData = retry.data;
+        signInErr = retry.error;
+      }
 
       if (signInErr || !signInData?.user) {
         throw new Error(signInErr?.message || 'Invalid email or password.');

@@ -6,6 +6,11 @@ import { supabase } from '../../utils/supabase';
 import { authFetch } from '../../utils/authFetch';
 import { hasPillar2Access, purgeLegacyAccessFlags, savePhonePassport } from '../../utils/pillarAccess';
 import Pillar2AccessGate from './Pillar2AccessGate';
+import {
+  ActivatedCredentialsBanner,
+  AccountCredentialsCard,
+  triggerActivatedCredentialsBanner,
+} from '../auth/ActivatedCredentialsBanner';
 import { toast } from 'react-hot-toast';
 import { ShieldCheck,
   Sparkles,
@@ -2283,6 +2288,21 @@ export default function HorPalAffiliatePillar({
         toast.error(verifyData?.error || 'Could not verify Pillar 2 enrollment payment.');
         return;
       }
+      if (verifyData.account_password) {
+        triggerActivatedCredentialsBanner(
+          verifyData.email || resolvedBuyerEmail,
+          verifyData.account_password,
+          2
+        );
+        if (!userId) {
+          try {
+            await supabase.auth.signInWithPassword({
+              email: verifyData.email || resolvedBuyerEmail,
+              password: verifyData.account_password,
+            });
+          } catch (_) {}
+        }
+      }
       const paidMs = verifyData.pillar2_paid_at ? new Date(verifyData.pillar2_paid_at).getTime() : Date.now();
       const expMs = verifyData.pillar2_expires_at ? new Date(verifyData.pillar2_expires_at).getTime() : paidMs + 365 * 24 * 60 * 60 * 1000;
       setHasActivePaidLicense(true);
@@ -2321,6 +2341,14 @@ export default function HorPalAffiliatePillar({
       return;
     }
 
+    if (data.account_password) {
+      triggerActivatedCredentialsBanner(
+        data.email || resolvedBuyerEmail,
+        data.account_password,
+        2
+      );
+    }
+
     // 1. Clean URL query parameters (?aff=...&product=... / ?ref=...&prod=...) and storage locks FIRST
     // so any auth state transition or page refresh keeps the buyer inside their Affiliate Hub.
     try {
@@ -2336,14 +2364,21 @@ export default function HorPalAffiliatePillar({
       const { data: currentSessData } = await supabase.auth.getSession();
       const signedInEmail =
         currentSessData?.session?.user?.email?.trim().toLowerCase() || '';
-      if ((!signedInEmail || signedInEmail !== resolvedBuyerEmail) && data.token_hash) {
-        await supabase.auth.verifyOtp({
-          token_hash: data.token_hash,
-          type: 'magiclink',
-        });
+      if (!signedInEmail || signedInEmail !== resolvedBuyerEmail) {
+        if (data.account_password) {
+          await supabase.auth.signInWithPassword({
+            email: data.email || resolvedBuyerEmail,
+            password: data.account_password,
+          });
+        } else if (data.token_hash) {
+          await supabase.auth.verifyOtp({
+            token_hash: data.token_hash,
+            type: 'magiclink',
+          });
+        }
       }
     } catch (otpErr) {
-      console.warn('Silent auto-login verifyOtp warning:', otpErr);
+      console.warn('Silent auto-login warning:', otpErr);
     }
 
     const resolvedUid = data.userId || data.profile?.id || userId;
@@ -4563,6 +4598,11 @@ export default function HorPalAffiliatePillar({
       {/* ==================================================================== */}
       {/* MAIN WORKSPACE CONTAINER */}
       {/* ==================================================================== */}
+      <ActivatedCredentialsBanner
+        currentEmail={currentProfile?.email || pillar2Email}
+        currentPassword={currentProfile?.account_password}
+        pillar={2}
+      />
       <main className="max-w-7xl mx-auto px-4 py-6">
         {welcomePurchaseBanner && (
           <div className="mb-5 bg-gradient-to-r from-emerald-950/95 via-teal-950/95 to-emerald-900/90 border border-emerald-400/50 text-white px-5 py-4 rounded-2xl shadow-[0_0_30px_rgba(16,185,129,0.25)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -7632,6 +7672,12 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
                         <option value="Other">Other</option>
                       </select>
                     </div>
+                    <AccountCredentialsCard
+                      userId={userId || currentProfile?.id}
+                      email={currentProfile?.email || pillar2Email}
+                      accountPassword={currentProfile?.account_password}
+                      compact
+                    />
                   </>
                 )}
 
@@ -7664,6 +7710,12 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
 
                 {activeSettingsModal === 'security' && (
                   <>
+                    <AccountCredentialsCard
+                      userId={userId || currentProfile?.id}
+                      email={currentProfile?.email || pillar2Email}
+                      accountPassword={currentProfile?.account_password}
+                      compact
+                    />
                     <div>
                       <label className="text-xs font-bold text-gray-400 block mb-1.5">Current Password</label>
                       <input type="password" placeholder="••••••••" className="w-full bg-[#141d30] border border-white/10 px-4 py-2.5 rounded-xl text-sm text-white focus:outline-none" />
@@ -8261,6 +8313,14 @@ Get it here: ${getUniqueProductAffiliateLink(promoteModalProduct, linkTags[`tag-
                </button>
             </div>
             <div className="p-2 space-y-1">
+               <div className="px-2 pt-1 pb-2">
+                 <AccountCredentialsCard
+                   userId={userId || currentProfile?.id}
+                   email={currentProfile?.email || pillar2Email}
+                   accountPassword={currentProfile?.account_password}
+                   compact
+                 />
+               </div>
                <button onClick={() => { setIsProfileSheetOpen(false); setActiveSettingsModal("profile"); }} className="w-full p-4 flex items-center gap-3 hover:bg-white/5 rounded-2xl transition-all">
                   <User className="w-5 h-5 text-emerald-400" />
                   <span className="font-semibold text-sm">Profile & Details</span>

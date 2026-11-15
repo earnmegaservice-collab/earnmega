@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from '@supabase/supabase-js';
 import { AccessToken } from 'livekit-server-sdk';
+import {
+  adminSetUserPassword,
+  ensureUserWithPassword,
+  generateHorPalPassword,
+} from '@/lib/server/paywall';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +49,7 @@ export async function GET(request: Request) {
       const { data: prof } = await adminSupabase
         .from('profiles')
         .select(
-          'id, email, username, is_banned, is_suspended, status, is_wallet_frozen, is_verified, unlocked_p2_courses, has_p2_exam_certificate, custom_commission_rate, shadow_muted_until, force_logout_at, is_pinned_explore, hide_from_radar, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, global_chat_paystack_ref, is_paid, subscription_tier, is_pro, is_premium, subscription_started_at, subscription_expires_at, has_paid_pillar2, is_pillar2_paid, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, license_activated_at, license_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at, updated_at'
+          'id, email, username, account_password, is_banned, is_suspended, status, is_wallet_frozen, is_verified, unlocked_p2_courses, has_p2_exam_certificate, custom_commission_rate, shadow_muted_until, force_logout_at, is_pinned_explore, hide_from_radar, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, global_chat_paystack_ref, is_paid, subscription_tier, is_pro, is_premium, subscription_started_at, subscription_expires_at, has_paid_pillar2, is_pillar2_paid, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, license_activated_at, license_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at, updated_at'
         )
         .eq('id', userId.trim())
         .maybeSingle();
@@ -1062,6 +1067,13 @@ export async function POST(request: Request) {
       const nowIso = new Date(nowMs).toISOString();
       let updates: Record<string, any> = { updated_at: nowIso };
 
+      if (!prof.account_password && userEmail) {
+        const provisioned = await ensureUserWithPassword(userEmail, prof.full_name, prof.phone);
+        if (provisioned.accountPassword) {
+          updates.account_password = provisioned.accountPassword;
+        }
+      }
+
       if (Number(pillar) === 1) {
         if (mode === 'grant_free') {
           const ref = `ADMIN_P1_PASS_${nowMs}`;
@@ -2068,7 +2080,12 @@ export async function POST(request: Request) {
         .ilike('email', cleanEmail)
         .maybeSingle();
 
-      const targetUserId = prof?.id || null;
+      const provisioned = await ensureUserWithPassword(
+        cleanEmail,
+        prof?.full_name || null,
+        prof?.phone || null
+      );
+      const targetUserId = prof?.id || provisioned.userId || null;
 
       if (Number(pillar) === 1) {
         await adminSupabase.from('global_chat_passes').upsert(
@@ -2295,7 +2312,7 @@ export async function POST(request: Request) {
         adminSupabase
           .from('profiles')
           .select(
-            'id, email, username, full_name, phone, affiliate_code, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, subscription_tier, has_paid_pillar2, pillar2_expires_at, has_paid_pillar3, pillar3_tier, created_at'
+            'id, email, username, full_name, phone, account_password, affiliate_code, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, subscription_tier, has_paid_pillar2, pillar2_expires_at, has_paid_pillar3, pillar3_tier, created_at'
           )
           .order('created_at', { ascending: false })
           .limit(2000),
@@ -2312,12 +2329,96 @@ export async function POST(request: Request) {
       });
     }
 
+    // ADMIN PASSWORD MANAGER: Simultaneously updates BOTH supabaseAdmin.auth.admin.updateUserById(targetUserId, { password: newPassword, email_confirm: true })
+    // AND public.profiles.account_password = newPassword so the user can immediately log in with that exact password!
+    if (
+      action === 'ADMIN_SET_USER_PASSWORD' ||
+      action === 'UPDATE_USER_PASSWORD' ||
+      action === 'SET_USER_PASSWORD'
+    ) {
+      const { userId, newPassword, generateRandom } = payload;
+      const targetPassword = generateRandom
+        ? generateHorPalPassword()
+        : String(newPassword || '').trim();
+
+      if (!userId || targetPassword.length < 4) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Valid userId and password (minimum 4 characters) are required.',
+          },
+          { status: 400 }
+        );
+      }
+
+      try {
+        await adminSupabase.auth.admin.updateUserById(String(userId), {
+          password: targetPassword,
+          email_confirm: true,
+        });
+      } catch (_) {}
+
+      const pwResult = await adminSetUserPassword(String(userId), targetPassword);
+      if (!pwResult.success) {
+        return NextResponse.json(
+          { success: false, error: pwResult.error || 'Failed to update user password' },
+          { status: 500 }
+        );
+      }
+
+      const { data: updatedUser } = await adminSupabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'ADMIN_PASSWORD_SET',
+          actor_email: 'Admin',
+          target_user: updatedUser?.email || pwResult.email || userId,
+          summary: `[PASSWORD OVERRIDE] Updated login password (${targetPassword}) for ${updatedUser?.email || pwResult.email || userId}`,
+        });
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'PILLAR_ACCESS_UPDATED',
+          payload: {
+            userId,
+            profile: updatedUser || {
+              id: userId,
+              email: pwResult.email,
+              account_password: targetPassword,
+            },
+            timestamp: Date.now(),
+          },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({
+        success: true,
+        user: updatedUser || {
+          id: userId,
+          email: pwResult.email,
+          account_password: targetPassword,
+        },
+        account_password: targetPassword,
+      });
+    }
+
     // #10–#18, #24, #26: USER VAULT SUPREME CONTROLS
     if (action === 'UPDATE_USER_GODMODE') {
       const { userId, updates } = payload;
       if (!userId) return NextResponse.json({ success: false, error: 'Missing userId' }, { status: 400 });
 
       const cleanUpdates: Record<string, any> = { ...updates, updated_at: new Date().toISOString() };
+      if (
+        typeof cleanUpdates.account_password === 'string' &&
+        cleanUpdates.account_password.trim().length >= 4
+      ) {
+        const cleanPass = cleanUpdates.account_password.trim();
+        cleanUpdates.account_password = cleanPass;
+        await adminSetUserPassword(String(userId), cleanPass);
+      }
       if (cleanUpdates.coins !== undefined) {
         cleanUpdates.coins = Number(cleanUpdates.coins);
         cleanUpdates.coin_balance = Number(cleanUpdates.coins);
@@ -2713,14 +2814,16 @@ export async function POST(request: Request) {
           .eq('id', affiliateUser.id);
       }
 
-      // Unlock buyer's course & Pillar 2 access if buyer has a profile
+      // Unlock buyer's course & Pillar 2 access (and provision password if buyer is new)
       const cleanBuyerEmail = String(buyerEmail).trim().toLowerCase();
+      const provisionedBuyer = await ensureUserWithPassword(cleanBuyerEmail);
       const { data: buyerProf } = await adminSupabase
         .from('profiles')
         .select('id, unlocked_p2_courses')
         .ilike('email', cleanBuyerEmail)
         .maybeSingle();
 
+      const resolvedBuyerId = buyerProf?.id || provisionedBuyer.userId || null;
       const manualRef = `MANUAL_SALE_${Date.now()}`;
       const expIso = new Date(Date.now() + 365 * 86400000).toISOString();
 
@@ -2730,13 +2833,13 @@ export async function POST(request: Request) {
           email: cleanBuyerEmail,
           amount_ghs: priceGhs,
           pass_type: 'course_bundle_1yr',
-          claimed_by_user_id: buyerProf?.id || null,
+          claimed_by_user_id: resolvedBuyerId,
         },
         { onConflict: 'paystack_reference' }
       );
 
-      if (buyerProf) {
-        const curCourses = Array.isArray(buyerProf.unlocked_p2_courses)
+      if (resolvedBuyerId) {
+        const curCourses = Array.isArray(buyerProf?.unlocked_p2_courses)
           ? buyerProf.unlocked_p2_courses
           : [];
         await adminSupabase
@@ -2747,9 +2850,10 @@ export async function POST(request: Request) {
             pillar2_paystack_ref: manualRef,
             pillar2_paid_at: new Date().toISOString(),
             pillar2_expires_at: expIso,
+            account_password: provisionedBuyer.accountPassword,
             unlocked_p2_courses: Array.from(new Set([...curCourses, productId])),
           })
-          .eq('id', buyerProf.id);
+          .eq('id', resolvedBuyerId);
       }
 
       try {

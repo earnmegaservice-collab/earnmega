@@ -49,7 +49,7 @@ async function handleVerifyPillarStatus(userIdParam: string | null, pillarParam:
   let { data: profile } = await admin
     .from('profiles')
     .select(
-      'id, email, has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
+      'id, email, account_password, has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
     )
     .eq('id', userId)
     .maybeSingle();
@@ -169,7 +169,7 @@ async function handleVerifyPillarStatus(userIdParam: string | null, pillarParam:
     const refreshed = await admin
       .from('profiles')
       .select(
-        'id, email, has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
+        'id, email, account_password, has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
       )
       .eq('id', userId)
       .maybeSingle();
@@ -268,6 +268,7 @@ async function handleVerifyPillarStatus(userIdParam: string | null, pillarParam:
       pillar: targetPillar,
       userId,
       email: entitlements.email,
+      account_password: profile?.account_password || null,
       pillar1Paid,
       pillar2Paid,
       pillar3Paid,

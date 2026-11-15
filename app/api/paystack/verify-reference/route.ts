@@ -16,6 +16,7 @@ export async function POST(request: Request) {
       request,
       pillar,
       reference: body?.reference,
+      fallbackEmail: body?.email,
       requireAuth: true,
       strictMetadata: true,
     });

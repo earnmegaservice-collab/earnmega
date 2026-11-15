@@ -363,6 +363,7 @@ export default function HorPalAuthGate({
               pillar2_email: cleanEmail,
               pillar2_phone: fullPhone || null,
               pillar2_country: countryName,
+              account_password: password,
               updated_at: new Date().toISOString(),
             })
             .eq("id", signUpData.user.id);
@@ -391,10 +392,19 @@ export default function HorPalAuthGate({
 
         setAuthMessage("Account created! Please check your email to verify your account, or sign in now.");
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const cleanPw = password.trim();
+        let { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
-          password,
+          password: cleanPw,
         });
+        if ((error || !data?.user) && /^hp-\d{6}$/i.test(cleanPw)) {
+          const retry = await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password: cleanPw.toUpperCase(),
+          });
+          data = retry.data;
+          error = retry.error;
+        }
         if (error) throw error;
         if (data?.user) {
           await routeAfterAuth(data.user);

@@ -25,6 +25,7 @@ import {
 import { usePaystackPayment } from 'react-paystack';
 import toast from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
+import { triggerActivatedCredentialsBanner } from './ActivatedCredentialsBanner';
 import WorldwideCurrencyPicker from './WorldwideCurrencyPicker';
 import Pillar3ShowroomModal from './Pillar3ShowroomModal';
 import {
@@ -384,17 +385,21 @@ export default function Pillar3AccessGate({
           }
 
           clearDeniedAudit();
+          const resolvedEmail = data.email || paymentConfig.email || currentUser?.email || '';
+          if (data.account_password && resolvedEmail) {
+            triggerActivatedCredentialsBanner(resolvedEmail, data.account_password, 3);
+          }
 
           // Case 1: User is already logged in -> audit live Supabase DB & enter Pillar 3 ONLY if verified
           if (currentUser?.id) {
-            const liveEnt = await auditAccount(currentUser.id, paymentConfig.email).catch(
+            const liveEnt = await auditAccount(currentUser.id, resolvedEmail).catch(
               () => null
             );
             const liveProfile = liveEnt
-              ? { ...(currentProfile || {}), ...liveEnt }
+              ? { ...(currentProfile || {}), ...liveEnt, account_password: data.account_password || (currentProfile as any)?.account_password }
               : currentProfile;
 
-            if (!hasPillar3Access(liveEnt)) {
+            if (!hasPillar3Access(liveEnt) && !data.has_paid_pillar3) {
               toast.error('Payment recorded, verifying account license in Supabase...');
               return;
             }
@@ -403,6 +408,39 @@ export default function Pillar3AccessGate({
               `🎉 ${activeTierObj.name} Activated! Welcome to Earnmega AI Studio.`
             );
             onAccessGranted(currentUser, liveProfile);
+          } else if (data.account_password && resolvedEmail) {
+            // Auto-sign-in with the newly generated/synced account_password so buyer enters Pillar 3 immediately!
+            const { data: signInData, error: signInErr } =
+              await supabase.auth.signInWithPassword({
+                email: resolvedEmail,
+                password: data.account_password,
+              });
+            if (!signInErr && signInData?.user) {
+              const liveEnt = await auditAccount(signInData.user.id, resolvedEmail).catch(
+                () => null
+              );
+              onAccessGranted(signInData.user, {
+                ...(liveEnt || {}),
+                id: signInData.user.id,
+                email: resolvedEmail,
+                account_password: data.account_password,
+                has_paid_pillar3: true,
+                pillar3_tier: data.pillar3_tier || selectedTier,
+                pillar3_expires_at: data.pillar3_expires_at,
+                pillar3_paystack_ref: referenceId,
+              });
+              return;
+            }
+            setVerifiedPassReceipt({
+              reference: referenceId,
+              email: paymentConfig.email,
+              planTier: selectedTier,
+              amountGhs: activeTierObj.amountGhs,
+              durationDays: activeTierObj.durationDays,
+            });
+            setEmail(paymentConfig.email);
+            setSetupPassword(data.account_password);
+            setViewMode('setup_account');
           } else {
             // Case 2: User is not logged in yet -> show inline Create Account / Complete Setup form
             setVerifiedPassReceipt({
@@ -481,10 +519,20 @@ export default function Pillar3AccessGate({
 
     setIsLoggingIn(true);
     try {
-      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+      const cleanPw = loginPassword.trim();
+      let { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
-        password: loginPassword,
+        password: cleanPw,
       });
+
+      if ((authErr || !authData?.user) && /^hp-\d{6}$/i.test(cleanPw)) {
+        const retry = await supabase.auth.signInWithPassword({
+          email: trimmedEmail,
+          password: cleanPw.toUpperCase(),
+        });
+        authData = retry.data;
+        authErr = retry.error;
+      }
 
       if (authErr || !authData?.user) {
         setLoginError(authErr?.message || 'Invalid email or password.');

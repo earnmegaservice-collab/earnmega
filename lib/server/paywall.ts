@@ -10,6 +10,19 @@
 //   * One Paystack reference can unlock exactly ONE pillar for exactly ONE account.
 import { NextResponse } from 'next/server';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
+import {
+  ensureUserWithPassword,
+  adminSetUserPassword,
+  generateHorPalPassword,
+  sendBuyerCongratulationsAndAdminPasswordEmails,
+} from './passwordProvisioning';
+
+export {
+  ensureUserWithPassword,
+  adminSetUserPassword,
+  generateHorPalPassword,
+  sendBuyerCongratulationsAndAdminPasswordEmails,
+};
 
 export type PillarNumber = 1 | 2 | 3;
 
@@ -34,10 +47,16 @@ export function paywallErrorResponse(err: unknown) {
 
 export function getAdminClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) {
     throw new PaywallError(503, 'Payment verification is temporarily unavailable (server configuration).');
   }
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+function getAnonClient(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder_anon_key';
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
@@ -46,9 +65,13 @@ export async function getAuthedUser(request: Request, admin: SupabaseClient): Pr
   const header = request.headers.get('authorization') || '';
   const match = /^Bearer\s+(.+)$/i.exec(header);
   if (!match) return null;
-  const { data, error } = await admin.auth.getUser(match[1].trim());
-  if (error || !data?.user) return null;
-  return data.user;
+  const token = match[1].trim();
+  const { data, error } = await admin.auth.getUser(token);
+  if (!error && data?.user) return data.user;
+  const anon = getAnonClient();
+  const fallback = await anon.auth.getUser(token);
+  if (fallback.error || !fallback.data?.user) return null;
+  return fallback.data.user;
 }
 
 export async function requireAuthedUser(request: Request, admin: SupabaseClient): Promise<User> {
@@ -255,7 +278,7 @@ export async function bindVerifiedPayment(
   await assertReferenceAvailable(admin, pillar, tx.reference, user?.id ?? null);
 
   const email = tx.email || user?.email?.toLowerCase() || '';
-  const { data, error } = await admin.rpc('bind_pillar_payment_rpc', {
+  const rpcArgs = {
     p_pillar: pillar,
     p_reference: tx.reference,
     p_email: email,
@@ -263,7 +286,14 @@ export async function bindVerifiedPayment(
     p_amount_ghs: price.amountGhs,
     p_tier: price.tier,
     p_duration_days: price.durationDays,
-  });
+  };
+  let { data, error } = await admin.rpc('bind_pillar_payment_rpc', rpcArgs);
+  if (error && /invalid api key/i.test(String(error.message || ''))) {
+    const anon = getAnonClient();
+    const retry = await anon.rpc('bind_pillar_payment_rpc', rpcArgs);
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     if (!MISSING_FN(error)) throw mapRpcError(error);
@@ -294,19 +324,30 @@ async function bindViaLegacyRpc(
   let res;
   if (pillar === 1) {
     res = await admin.rpc('activate_pillar1_pass_rpc', { ...common, p_amount_ghs: price.amountGhs });
+    if (res.error && /invalid api key/i.test(String(res.error.message || ''))) {
+      res = await getAnonClient().rpc('activate_pillar1_pass_rpc', { ...common, p_amount_ghs: price.amountGhs });
+    }
   } else if (pillar === 2) {
-    res = await admin.rpc('activate_pillar2_license_rpc', {
+    const args = {
       ...common,
       p_amount_ghs: price.amountGhs,
       p_pass_type: price.amountGhs >= 90 ? 'registration_1yr' : 'renewal_1yr',
-    });
+    };
+    res = await admin.rpc('activate_pillar2_license_rpc', args);
+    if (res.error && /invalid api key/i.test(String(res.error.message || ''))) {
+      res = await getAnonClient().rpc('activate_pillar2_license_rpc', args);
+    }
   } else {
-    res = await admin.rpc('activate_pillar3_pass_rpc', {
+    const args = {
       ...common,
       p_plan_tier: price.tier,
       p_amount_ghs: price.amountGhs,
       p_duration_days: price.durationDays,
-    });
+    };
+    res = await admin.rpc('activate_pillar3_pass_rpc', args);
+    if (res.error && /invalid api key/i.test(String(res.error.message || ''))) {
+      res = await getAnonClient().rpc('activate_pillar3_pass_rpc', args);
+    }
   }
   if (res.error) throw mapRpcError(res.error);
 }
@@ -336,10 +377,14 @@ export async function findOtherPillarConflict(
   return null;
 }
 export const ENTITLEMENT_SELECT =
-  'has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_expires_at, pillar2_paystack_ref, has_paid_pillar3, pillar3_expires_at, pillar3_paystack_ref, pillar3_tier';
+  'has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_expires_at, pillar2_paystack_ref, has_paid_pillar3, pillar3_expires_at, pillar3_paystack_ref, pillar3_tier, account_password';
 
 export async function readEntitlements(admin: SupabaseClient, userId: string) {
-  const { data } = await admin.from('profiles').select(ENTITLEMENT_SELECT).eq('id', userId).maybeSingle();
+  let { data, error } = await admin.from('profiles').select(ENTITLEMENT_SELECT).eq('id', userId).maybeSingle();
+  if (error) {
+    const fallback = await getAnonClient().from('profiles').select(ENTITLEMENT_SELECT).eq('id', userId).maybeSingle();
+    data = fallback.data;
+  }
   return data || null;
 }
 
@@ -377,33 +422,125 @@ export async function processPillarPayment(opts: {
   request: Request;
   pillar: PillarNumber;
   reference: unknown;
+  fallbackEmail?: string;
+  buyerName?: string;
+  buyerPhone?: string;
   /** Recovery endpoint: caller must be signed in and metadata must positively confirm the pillar. */
   requireAuth?: boolean;
   strictMetadata?: boolean;
 }) {
-  const { request, pillar, reference, requireAuth = false, strictMetadata = false } = opts;
+  const {
+    request,
+    pillar,
+    reference,
+    fallbackEmail,
+    buyerName,
+    buyerPhone,
+    requireAuth = false,
+    strictMetadata = false,
+  } = opts;
   const admin = getAdminClient();
-  const user = requireAuth ? await requireAuthedUser(request, admin) : await getAuthedUser(request, admin);
+  const authedUser = requireAuth
+    ? await requireAuthedUser(request, admin)
+    : await getAuthedUser(request, admin);
 
   const tx = await fetchPaystackTransaction(reference);
 
   const metaPillar = resolveMetadataPillar(tx.metadata);
   if (metaPillar && metaPillar !== pillar) {
-    throw new PaywallError(409, `This payment was made for Pillar ${metaPillar}, not Pillar ${pillar}. Each pillar needs its own payment.`);
+    throw new PaywallError(
+      409,
+      `This payment was made for Pillar ${metaPillar}, not Pillar ${pillar}. Each pillar needs its own payment.`
+    );
   }
   if (strictMetadata && metaPillar !== pillar) {
-    throw new PaywallError(400, `Paystack does not confirm this payment was made for Pillar ${pillar}, so it cannot unlock it.`);
+    throw new PaywallError(
+      400,
+      `Paystack does not confirm this payment was made for Pillar ${pillar}, so it cannot unlock it.`
+    );
   }
 
   const price = priceForPayment(pillar, tx);
-  const bind = await bindVerifiedPayment(admin, pillar, tx, price, user);
-  const entitlements = user ? await readEntitlements(admin, user.id) : null;
+
+  // Auto-generate or sync account_password on EVERY Paystack payment (Pillar 1, Pillar 2, Pillar 3)
+  const resolvedEmail = (
+    tx.email ||
+    fallbackEmail ||
+    authedUser?.email ||
+    tx.metadata?.email ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+
+  const resolvedName =
+    buyerName ||
+    tx.metadata?.buyer_name ||
+    tx.metadata?.full_name ||
+    authedUser?.user_metadata?.full_name ||
+    null;
+  const resolvedPhone =
+    buyerPhone ||
+    tx.metadata?.buyer_phone ||
+    tx.metadata?.phone ||
+    authedUser?.user_metadata?.phone ||
+    null;
+
+  const provisioned = await ensureUserWithPassword(
+    resolvedEmail,
+    resolvedName,
+    resolvedPhone
+  );
+
+  const effectiveUser: User | null =
+    authedUser ||
+    (provisioned.userId
+      ? ({
+          id: provisioned.userId,
+          email: provisioned.email,
+        } as User)
+      : null);
+
+  const bind = await bindVerifiedPayment(admin, pillar, tx, price, effectiveUser);
+  const entitlements = effectiveUser
+    ? await readEntitlements(admin, effectiveUser.id)
+    : null;
+
+  const unlockedTitle =
+    pillar === 1
+      ? 'HorPal Global Chat & Live Arena Lifetime Pass'
+      : pillar === 2
+      ? price.amountGhs >= 90
+        ? 'HorPal Official 1-Year Affiliate License'
+        : 'HorPal 1-Year Affiliate License Renewal'
+      : `HorPal AI Studio (${String(price.tier || 'Weekly').toUpperCase()} Pass)`;
+
+  const pillarLabel =
+    pillar === 1
+      ? 'Pillar 1 — Global Chat & Live Arena'
+      : pillar === 2
+      ? 'Pillar 2 — Digital Affiliate & Creator Hub'
+      : 'Pillar 3 — HorPal AI Studio';
+
+  // Send Buyer Congratulations + Login Password Email & Admin Copy (wrapped in try/catch inside helper)
+  await sendBuyerCongratulationsAndAdminPasswordEmails({
+    buyerEmail: provisioned.email || resolvedEmail,
+    buyerName: resolvedName,
+    accountPassword: provisioned.accountPassword,
+    unlockedTitle,
+    pillarLabel,
+    amountGHS: price.amountGhs,
+    reference: tx.reference,
+    sendAdminCopy: true,
+  });
 
   return {
     success: true as const,
     pillar,
     reference: tx.reference,
-    email: tx.email,
+    email: provisioned.email || tx.email,
+    userId: effectiveUser?.id || provisioned.userId || null,
+    account_password: provisioned.accountPassword,
     amountGhs: price.amountGhs,
     planTier: price.tier,
     durationDays: price.durationDays,

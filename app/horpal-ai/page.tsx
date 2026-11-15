@@ -18,6 +18,10 @@ import toast from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { syncAuthenticatedUserProfile } from '../../components/auth/HorPalAuthGate';
 import PillarAccessGuard from '../../components/auth/PillarAccessGuard';
+import {
+  ActivatedCredentialsBanner,
+  AccountCredentialsCard,
+} from '../../components/auth/ActivatedCredentialsBanner';
 import { getLatestPlatformSettings, PlatformSettings } from '../../hooks/useAdminRealtimeEnforcement';
 import { authFetch } from '../../utils/authFetch';
 import {
@@ -194,6 +198,7 @@ export default function HorpalAIPage() {
 
   // Upgrade / Renewal Modal State
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [expiredMessage, setExpiredMessage] = useState<string | null>(null);
   const [remainingMs, setRemainingMs] = useState<number>(0);
   const expiryLockTriggeredRef = useRef(false);
@@ -932,6 +937,11 @@ export default function HorpalAIPage() {
       }}
     >
       <div className="flex flex-col min-h-screen bg-[#06070B] text-zinc-100 font-sans relative overflow-hidden">
+      <ActivatedCredentialsBanner
+        currentEmail={userIdentity.email}
+        currentPassword={profile?.account_password}
+        pillar={3}
+      />
       {/* Ambient Aurora Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute top-[-20%] left-[-10%] w-[120%] h-[120%] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-900/15 via-[#06070B] to-[#06070B] mix-blend-screen opacity-60 blur-[100px]" />
@@ -1062,16 +1072,44 @@ export default function HorpalAIPage() {
               </>
             )}
 
-            <div
-              className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-white/5 border border-cyan-500/30"
-              title={`${userIdentity.fullName} (@${userIdentity.username})`}
-            >
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500/30 to-purple-500/30 border border-cyan-400/40 text-cyan-200 font-bold text-[11px] flex items-center justify-center">
-                {userIdentity.initials}
-              </div>
-              <span className="hidden sm:inline text-xs font-semibold text-zinc-200 max-w-[100px] truncate">
-                {userIdentity.firstName}
-              </span>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowCredentialsModal((prev) => !prev)}
+                className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/10 border border-cyan-500/30 cursor-pointer transition"
+                title={`${userIdentity.fullName} (@${userIdentity.username}) — Tap to view Login Email & Password`}
+              >
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500/30 to-purple-500/30 border border-cyan-400/40 text-cyan-200 font-bold text-[11px] flex items-center justify-center">
+                  {userIdentity.initials}
+                </div>
+                <span className="hidden sm:inline text-xs font-semibold text-zinc-200 max-w-[100px] truncate">
+                  {userIdentity.firstName}
+                </span>
+                <span className="text-[10px] text-amber-300 font-bold">🔑</span>
+              </button>
+
+              {showCredentialsModal && (
+                <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 z-50 bg-[#0b101d] border border-amber-500/40 rounded-2xl p-3 shadow-2xl">
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <span className="text-xs font-black text-white">
+                      Account Profile & Login Credentials
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowCredentialsModal(false)}
+                      className="text-xs text-zinc-400 hover:text-white px-1.5 py-0.5 rounded bg-white/5"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <AccountCredentialsCard
+                    userId={session?.user?.id}
+                    email={userIdentity.email}
+                    accountPassword={profile?.account_password}
+                    compact
+                  />
+                </div>
+              )}
             </div>
 
             <button

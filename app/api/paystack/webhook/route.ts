@@ -3,12 +3,14 @@ import crypto from 'crypto';
 import type { User } from '@supabase/supabase-js';
 import {
   bindVerifiedPayment,
+  ensureUserWithPassword,
   findOtherPillarConflict,
   getAdminClient,
   PaywallError,
   PaystackTx,
   PillarNumber,
   priceForPayment,
+  sendBuyerCongratulationsAndAdminPasswordEmails,
 } from '@/lib/server/paywall';
 
 export async function GET(req: Request) {
@@ -98,8 +100,32 @@ export async function POST(req: Request) {
         };
         try {
           const price = priceForPayment(pillar, txFromWebhook);
-          const targetUser = await resolveVerifiedUser();
+          const provisioned = await ensureUserWithPassword(
+            customerEmail,
+            metadata?.buyer_name || metadata?.full_name || null,
+            metadata?.buyer_phone || metadata?.phone || null
+          );
+          const targetUser =
+            (await resolveVerifiedUser()) ||
+            (provisioned.userId
+              ? ({ id: provisioned.userId, email: provisioned.email } as User)
+              : null);
           await bindVerifiedPayment(admin, pillar, txFromWebhook, price, targetUser);
+          await sendBuyerCongratulationsAndAdminPasswordEmails({
+            buyerEmail: provisioned.email || customerEmail,
+            buyerName: metadata?.buyer_name || metadata?.full_name || null,
+            accountPassword: provisioned.accountPassword,
+            unlockedTitle:
+              pillar === 1
+                ? 'HorPal Global Chat & Live Arena Lifetime Pass'
+                : pillar === 2
+                ? 'HorPal Official 1-Year Affiliate License'
+                : `HorPal AI Studio (${String(price.tier || 'Weekly').toUpperCase()} Pass)`,
+            pillarLabel: `Pillar ${pillar}`,
+            amountGHS: price.amountGhs,
+            reference,
+            sendAdminCopy: true,
+          });
         } catch (err) {
           if (err instanceof PaywallError && err.status === 409) {
             console.warn('[webhook] pillar binding conflict ignored:', err.message);

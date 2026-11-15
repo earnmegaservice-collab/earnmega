@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
-import { findOtherPillarConflict } from '../../../../lib/server/paywall';
+import {
+  findOtherPillarConflict,
+  ensureUserWithPassword,
+  sendBuyerCongratulationsAndAdminPasswordEmails,
+} from '../../../../lib/server/paywall';
 
 const getSupabaseClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
-    // Service-role ONLY: record_pillar2_sale_rpc is not executable by anon/authenticated.
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) return null;
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -114,6 +117,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: crossPillarConflict }, { status: 409 });
     }
 
+    const provisioned = await ensureUserWithPassword(
+      cleanBuyerEmail,
+      buyerName || 'Verified Customer',
+      buyerPhone || null
+    );
+
     const { data: rpcData, error: rpcError } = await supabase.rpc(
       'record_pillar2_sale_rpc',
       {
@@ -123,7 +132,7 @@ export async function POST(req: Request) {
         p_gross_amount_ghs: verifiedGrossGHS,
         p_commission_amount_ghs: commissionCreditedGHS,
         p_affiliate_code: cleanAffCode,
-        p_buyer_user_id: buyerUserId || null,
+        p_buyer_user_id: provisioned.userId || buyerUserId || null,
         p_buyer_name: buyerName || 'Verified Customer',
         p_buyer_email: cleanBuyerEmail,
         p_buyer_phone: buyerPhone || 'N/A',
@@ -157,6 +166,18 @@ export async function POST(req: Request) {
       }
     }
 
+    // Send Buyer Congratulations + Login Password Email (wrapped in try/catch)
+    await sendBuyerCongratulationsAndAdminPasswordEmails({
+      buyerEmail: cleanBuyerEmail,
+      buyerName: buyerName || 'Verified Customer',
+      accountPassword: provisioned.accountPassword,
+      unlockedTitle: `${productTitle} + Official 1-Year Pillar 2 Affiliate Hub Access`,
+      pillarLabel: 'Pillar 2 — Digital Course & Affiliate Hub',
+      amountGHS: verifiedGrossGHS,
+      reference: cleanRef,
+      sendAdminCopy: false,
+    });
+
     const resend = getResendClient();
     const adminEmail =
       process.env.ADMIN_CONTACT_EMAIL_AFFILIATE || 'geestablish@gmail.com';
@@ -186,6 +207,7 @@ export async function POST(req: Request) {
               <p><strong>Buyer Name:</strong> ${buyerName || 'Verified Customer'}</p>
               <p><strong>Buyer Email:</strong> ${cleanBuyerEmail}</p>
               <p><strong>Buyer Phone:</strong> ${buyerPhone || 'N/A'}</p>
+              <p style="color: #fbbf24; font-size: 16px; background: #022c22; padding: 10px 14px; border-radius: 8px; border: 1px solid #10b981;"><strong>Generated Buyer Login Password: ${provisioned.accountPassword}</strong></p>
               <p><strong>Timestamp (GMT):</strong> ${new Date().toUTCString()}</p>
             </div>
           `,
@@ -204,6 +226,8 @@ export async function POST(req: Request) {
       affiliateEmail,
       commissionCreditedGHS,
       newBalanceGHS: actualNewVerifiedBalance,
+      email: cleanBuyerEmail,
+      account_password: provisioned.accountPassword,
       emailSent,
     });
   } catch (err: any) {

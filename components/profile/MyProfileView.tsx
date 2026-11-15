@@ -27,6 +27,7 @@ import SettingsModal from './SettingsModal';
 import VerifiedTick from '../ui/VerifiedTick';
 import FacialVerification from './FacialVerification';
 import { PhoneSessionHeaderBar, signOutToSwitchAccount } from '../auth/PillarAuditBanner';
+import { AccountCredentialsCard } from '../auth/ActivatedCredentialsBanner';
 
 interface UserProfile {
   name: string;
@@ -495,6 +496,15 @@ export default function MyProfileView({
             ))}
           </div>
         </div>
+      </div>
+
+      {/* 2B. LOGIN EMAIL & ACCOUNT PASSWORD CREDENTIAL VIEWER */}
+      <div className="px-5">
+        <AccountCredentialsCard
+          userId={liveProfile?.id || user?.id}
+          email={liveProfile?.email || user?.email}
+          accountPassword={liveProfile?.account_password}
+        />
       </div>
 
       {/* 3. LUXURY EDITORIAL BIO */}

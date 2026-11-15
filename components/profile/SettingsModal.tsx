@@ -9,6 +9,7 @@ import { X, ExternalLink, LogOut, Trash2, ArrowLeft, Mail, MessageCircle, Chevro
 import { toast } from 'react-hot-toast';
 import { subscribeToPush } from '../../lib/push';
 import { Pillar1PayoutModal } from '../wallet/Pillar1PayoutModal';
+import { AccountCredentialsCard } from '../auth/ActivatedCredentialsBanner';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -257,6 +258,11 @@ export default function SettingsModal({ isOpen, onClose, userProfile, onProfileU
                   {userProfile?.phone || 'N/A'}
                 </div>
               </div>
+              <AccountCredentialsCard
+                userId={user?.id || userProfile?.id}
+                email={user?.email || userProfile?.email}
+                accountPassword={userProfile?.account_password}
+              />
             </div>
           </div>
 

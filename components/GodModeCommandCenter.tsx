@@ -1783,6 +1783,57 @@ function UserVaultModule({
   } | null>(null)
   const [courseGrantUser, setCourseGrantUser] = useState<any | null>(null)
   const [selectedCourseToGrant, setSelectedCourseToGrant] = useState<string>('prod_faceless_ai')
+  const [inspectorUser, setInspectorUser] = useState<any | null>(null)
+  const [customPasswordInput, setCustomPasswordInput] = useState<string>('')
+  const [savingPassword, setSavingPassword] = useState<boolean>(false)
+
+  const openUserInspectorModal = (u: any) => {
+    setInspectorUser(u)
+    setCustomPasswordInput(
+      u.account_password || `HP-${Math.floor(100000 + Math.random() * 900000)}`
+    )
+  }
+
+  const handleCopyCredentials = (u: any) => {
+    const credsText = `Email: ${u.email || 'N/A'} | Password: ${u.account_password || 'Not Set'}`
+    navigator.clipboard.writeText(credsText)
+    toast.success(`Copied credentials: ${credsText}`)
+  }
+
+  const handleSaveUserPassword = async (targetUser: any, passwordToSave: string) => {
+    const cleanPw = String(passwordToSave || '').trim()
+    if (cleanPw.length < 4) {
+      toast.error('Password must be at least 4 characters')
+      return
+    }
+    setSavingPassword(true)
+    try {
+      const res = await apiFetch('ADMIN_SET_USER_PASSWORD', {
+        userId: targetUser.id,
+        newPassword: cleanPw
+      })
+      const updatedPw = res?.account_password || cleanPw
+      setUsers((prev) =>
+        prev.map((item) =>
+          item.id === targetUser.id
+            ? { ...item, ...(res?.user || {}), account_password: updatedPw }
+            : item
+        )
+      )
+      setInspectorUser((prev: any) =>
+        prev && prev.id === targetUser.id
+          ? { ...prev, ...(res?.user || {}), account_password: updatedPw }
+          : prev
+      )
+      setCustomPasswordInput(updatedPw)
+      toast.success(`Saved & synced password (${updatedPw}) for ${targetUser.email}!`)
+      onGlobalRefresh()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update password')
+    } finally {
+      setSavingPassword(false)
+    }
+  }
 
   const loadUsers = useCallback(async () => {
     setLoading(true)
@@ -2052,10 +2103,31 @@ function UserVaultModule({
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-gray-400 font-mono break-all mt-0.5">
-                        {u.email || 'No email'} • Affiliate Code:{' '}
-                        <span className="text-emerald-400">{u.affiliate_code || 'N/A'}</span> •
-                        Commission: <span className="text-amber-300 font-bold">{commRate}%</span>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 font-mono break-all mt-1">
+                        <span className="text-white font-bold">{u.email || 'No email'}</span>
+                        <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/50 text-amber-300 font-mono font-black text-xs shadow-sm">
+                          🔑 Password: {u.account_password || 'Not Set'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCredentials(u)}
+                          className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/50 text-emerald-300 font-black text-[11px] flex items-center gap-1 transition"
+                          title="Copy Email & Password for WhatsApp/Email"
+                        >
+                          📋 Copy Credentials
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openUserInspectorModal(u)}
+                          className="px-2.5 py-0.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-black text-[11px] flex items-center gap-1 transition"
+                        >
+                          🔄 Regenerate / Custom Password
+                        </button>
+                        <span>
+                          • Affiliate Code:{' '}
+                          <span className="text-emerald-400">{u.affiliate_code || 'N/A'}</span> •
+                          Commission: <span className="text-amber-300 font-bold">{commRate}%</span>
+                        </span>
                       </div>
 
                       {/* #10 & #11 Live Coin & Affiliate Balance Bar with + / - / Set Exact */}
@@ -2119,6 +2191,15 @@ function UserVaultModule({
 
                   {/* SUPREME PER-USER ACTION TOOLBAR (#12–#20, #24, #26) */}
                   <div className="flex flex-wrap items-center gap-1.5">
+                    {/* User Inspector & Password Manager Modal Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => openUserInspectorModal(u)}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/50 text-amber-300 text-[11px] font-black flex items-center gap-1"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" /> Inspect & Password
+                    </button>
+
                     {/* #12 Freeze/Unfreeze Wallet */}
                     <button
                       type="button"
@@ -2402,6 +2483,146 @@ function UserVaultModule({
                 className="px-4 py-2.5 rounded-xl bg-white/10 text-xs font-bold"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* USER VAULT INSPECTOR & PASSWORD MANAGER MODAL */}
+      {inspectorUser && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="max-w-xl w-full bg-[#0D0D12] border border-amber-500/40 rounded-3xl p-6 space-y-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <img
+                  src={
+                    inspectorUser.avatar_url ||
+                    `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      inspectorUser.full_name || inspectorUser.username || 'U'
+                    )}&background=random`
+                  }
+                  className="w-12 h-12 rounded-2xl object-cover border border-amber-500/30 shrink-0"
+                  alt=""
+                />
+                <div className="min-w-0">
+                  <h3 className="font-black text-base text-white truncate">
+                    {inspectorUser.full_name || 'Citizen'}{' '}
+                    <span className="text-amber-400 font-mono text-xs">
+                      @{inspectorUser.username || 'user'}
+                    </span>
+                  </h3>
+                  <div className="text-xs text-gray-300 font-mono break-all">
+                    {inspectorUser.email || 'No email'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectorUser(null)}
+                className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* High-Visibility Credential Badge + 1-Tap Copy Credentials */}
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/15 via-emerald-500/10 to-black border border-amber-500/40 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-amber-300">
+                    Active Login Credentials
+                  </div>
+                  <div className="text-xs font-mono text-gray-300">
+                    Email: <strong className="text-white">{inspectorUser.email || 'N/A'}</strong>
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-black/80 border border-amber-400/50 text-amber-300 font-mono font-black text-sm">
+                    🔑 Password: {inspectorUser.account_password || 'Not Set'}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyCredentials(inspectorUser)}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"
+                >
+                  📋 Copy Credentials
+                </button>
+              </div>
+            </div>
+
+            {/* 1-Click Admin "🔄 Regenerate / Custom Password" Control */}
+            <div className="p-4 rounded-2xl bg-black/70 border border-white/15 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                  🔄 Regenerate / Custom Password Control
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const generated = `HP-${Math.floor(100000 + Math.random() * 900000)}`
+                    setCustomPasswordInput(generated)
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/40 text-amber-300 font-black text-xs flex items-center gap-1"
+                >
+                  🎲 Generate New Password
+                </button>
+              </div>
+
+              <p className="text-[11px] text-gray-400">
+                Simultaneously updates Supabase Auth (`auth.users`) AND `public.profiles.account_password` so the user can immediately sign in with their Gmail + this password on any device.
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={customPasswordInput}
+                  onChange={(e) => setCustomPasswordInput(e.target.value)}
+                  placeholder="Enter custom password or click Generate..."
+                  className="flex-1 bg-[#09090E] border border-white/20 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-white outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={savingPassword}
+                  onClick={() => handleSaveUserPassword(inspectorUser, customPasswordInput)}
+                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-wider whitespace-nowrap"
+                >
+                  {savingPassword ? 'Saving...' : 'Save Password'}
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Account Snapshot */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs font-mono">
+              <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
+                <div className="text-[10px] text-gray-500 uppercase">Pillar 1</div>
+                <div className="font-black text-amber-300">
+                  {inspectorUser.has_paid_global_chat || inspectorUser.is_paid ? 'UNLOCKED' : 'LOCKED'}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
+                <div className="text-[10px] text-gray-500 uppercase">Pillar 2</div>
+                <div className="font-black text-emerald-400">
+                  {inspectorUser.has_paid_pillar2 || inspectorUser.is_pillar2_paid ? 'ACTIVE' : 'LOCKED'}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
+                <div className="text-[10px] text-gray-500 uppercase">Pillar 3</div>
+                <div className="font-black text-purple-400">
+                  {inspectorUser.has_paid_pillar3
+                    ? `ACTIVE (${inspectorUser.pillar3_tier || 'pro'})`
+                    : 'LOCKED'}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setInspectorUser(null)}
+                className="px-5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-white"
+              >
+                Done
               </button>
             </div>
           </div>
@@ -4593,7 +4814,23 @@ function LicenseModule({
                         @{u.username || 'user'}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-400 font-mono truncate">{u.email}</div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 font-mono mt-0.5">
+                      <span>{u.email}</span>
+                      <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono font-black text-[11px]">
+                        🔑 Password: {u.account_password || 'Not Set'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const creds = `Email: ${u.email || 'N/A'} | Password: ${u.account_password || 'Not Set'}`
+                          navigator.clipboard.writeText(creds)
+                          toast.success(`Copied credentials: ${creds}`)
+                        }}
+                        className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500/40 text-emerald-300 font-black text-[10px]"
+                      >
+                        📋 Copy Credentials
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div className="text-[11px] font-mono text-gray-500">

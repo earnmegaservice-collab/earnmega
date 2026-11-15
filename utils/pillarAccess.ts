@@ -6,11 +6,12 @@ export const APP_DATA_VERSION = 'v_clean_slate_2026_11_14';
 export const RESET_VERSION_STORAGE_KEY = 'earnmega_reset_version';
 
 export const ENTITLEMENT_COLUMNS =
-  'has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_expires_at, pillar2_paystack_ref, has_paid_pillar3, pillar3_expires_at, pillar3_paystack_ref, pillar3_tier';
+  'has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_expires_at, pillar2_paystack_ref, has_paid_pillar3, pillar3_expires_at, pillar3_paystack_ref, pillar3_tier, account_password';
 
 export interface EntitlementRow {
   id?: string;
   email?: string | null;
+  account_password?: string | null;
   has_paid_global_chat?: boolean | null;
   global_chat_paystack_ref?: string | null;
   has_paid_pillar2?: boolean | null;

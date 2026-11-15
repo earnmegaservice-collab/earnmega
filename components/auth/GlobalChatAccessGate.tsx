@@ -26,6 +26,7 @@ import { usePaystackPayment } from 'react-paystack';
 import toast from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { authFetch } from '../../utils/authFetch';
+import { triggerActivatedCredentialsBanner } from './ActivatedCredentialsBanner';
 import {
   auditAccount,
   EntitlementRow,
@@ -284,9 +285,21 @@ export default function GlobalChatAccessGate({
             const data = await res.json();
             if (data.success) {
               clearDeniedBanner();
-              if (currentUser?.id) {
-                savePhonePassport(currentUser.id, {
-                  email: paymentConfig.email || currentUser.email,
+              const resolvedMail = data.email || paymentConfig.email || currentUser?.email || '';
+              if (data.account_password && resolvedMail) {
+                triggerActivatedCredentialsBanner(resolvedMail, data.account_password, 1);
+                if (!currentUser?.id) {
+                  try {
+                    await supabase.auth.signInWithPassword({
+                      email: resolvedMail,
+                      password: data.account_password,
+                    });
+                  } catch {}
+                }
+              }
+              if (currentUser?.id || data.userId) {
+                savePhonePassport(currentUser?.id || data.userId, {
+                  email: resolvedMail,
                   pillar1Paid: true,
                   pillar2Paid: Boolean(currentProfile?.has_paid_pillar2),
                   pillar3Paid: Boolean(currentProfile?.has_paid_pillar3),
@@ -368,10 +381,20 @@ export default function GlobalChatAccessGate({
 
     setIsLoggingIn(true);
     try {
-      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+      const cleanPw = loginPassword.trim();
+      let { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
-        password: loginPassword,
+        password: cleanPw,
       });
+
+      if ((authErr || !authData?.user) && /^hp-\d{6}$/i.test(cleanPw)) {
+        const retry = await supabase.auth.signInWithPassword({
+          email: trimmedEmail,
+          password: cleanPw.toUpperCase(),
+        });
+        authData = retry.data;
+        authErr = retry.error;
+      }
 
       if (authErr || !authData?.user) {
         setLoginError(authErr?.message || 'Invalid email or password.');

@@ -12,6 +12,7 @@ import { HorPalLandingGateway } from "../components/home/HorPalLandingGateway";
 import { RadarActivationModal } from "../components/location/RadarActivationModal";
 import HorPalAuthGate, { syncAuthenticatedUserProfile } from "../components/auth/HorPalAuthGate";
 import PillarAccessGuard from "../components/auth/PillarAccessGuard";
+import { ActivatedCredentialsBanner } from "../components/auth/ActivatedCredentialsBanner";
 import {
   auditAccount,
   consumeVerifyReturn,
@@ -444,6 +445,11 @@ function HomeContent() {
     >
       {!isProfileComplete ? (
         <div className="flex flex-col items-center justify-center min-h-[100dvh] text-zinc-100 p-6 text-center font-sans relative bg-[#050505]">
+          <ActivatedCredentialsBanner
+            currentEmail={session?.user?.email || profileState?.email}
+            currentPassword={profileState?.account_password}
+            pillar={1}
+          />
           <div className="fixed inset-0 z-0 pointer-events-none cinematic-bg opacity-100"></div>
           <Suspense
             fallback={
@@ -455,6 +461,11 @@ function HomeContent() {
         </div>
       ) : (
         <ErrorBoundary>
+          <ActivatedCredentialsBanner
+            currentEmail={session?.user?.email || profileState?.email}
+            currentPassword={profileState?.account_password}
+            pillar={1}
+          />
           <ChatInterface activeTab={appTab} setAppTab={setAppTab} />
           <RadarActivationModal />
         </ErrorBoundary>
