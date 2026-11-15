@@ -3750,9 +3750,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             success: false,
-            error:
-              testRes.error ||
-              'Failed to send test Gmail SMTP email. Verify GMAIL_SMTP_USER and GMAIL_SMTP_APP_PASSWORD.',
+            error: testRes.error || 'Failed to send test Gmail SMTP email.',
             recipient: testRes.recipient,
             smtpUser: testRes.smtpUser,
           },
@@ -3760,12 +3758,14 @@ export async function POST(request: Request) {
         );
       }
 
+      const resolvedSender = testRes.smtpUser || 'horpalservice@gmail.com';
       return NextResponse.json({
         success: true,
         sent: true,
+        message: `✅ Gmail SMTP Connected! Test email sent from ${resolvedSender}.`,
         messageId: testRes.messageId,
         recipient: testRes.recipient,
-        smtpUser: testRes.smtpUser,
+        smtpUser: resolvedSender,
       });
     }
 

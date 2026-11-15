@@ -1246,7 +1246,8 @@ function OverwatchModule({
     try {
       const res = await apiFetch('TEST_GMAIL_SMTP', {})
       toast.success(
-        `✅ Gmail SMTP Test Sent! Delivered from ${res.smtpUser || 'horpalservice@gmail.com'} to ${res.recipient || 'horpalservice@gmail.com'}`
+        res.message ||
+          `✅ Gmail SMTP Connected! Test email sent from ${res.smtpUser || 'horpalservice@gmail.com'}.`
       )
       onRefresh()
     } catch (err: any) {

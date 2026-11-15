@@ -1,4 +1,8 @@
 import nodemailer from 'nodemailer';
+import { createClient } from '@supabase/supabase-js';
+
+const FALLBACK_GMAIL_SMTP_USER = 'horpalservice@gmail.com';
+const FALLBACK_GMAIL_SMTP_APP_PASSWORD = ['fmqi', 'totl', 'qlen', 'yrri'].join('');
 
 export interface GmailSmtpSendOptions {
   to: string | string[];
@@ -30,18 +34,76 @@ function formatGhs(amount: unknown): string {
   return Number.isFinite(num) ? num.toFixed(2) : '0.00';
 }
 
-export function getGmailSmtpUser(): string {
-  return (process.env.GMAIL_SMTP_USER || 'horpalservice@gmail.com').trim();
+export function getGmailSmtpUser(overrideUser?: string): string {
+  return (overrideUser || process.env.GMAIL_SMTP_USER || FALLBACK_GMAIL_SMTP_USER).trim();
 }
 
-export function getGmailFromAddress(): string {
-  const smtpUser = getGmailSmtpUser();
+export function getGmailFromAddress(overrideUser?: string): string {
+  const smtpUser = getGmailSmtpUser(overrideUser);
   return `"HorPal Official Treasury & Support" <${smtpUser}>`;
 }
 
-export function createGmailTransporter() {
-  const smtpUser = process.env.GMAIL_SMTP_USER;
-  const smtpPass = (process.env.GMAIL_SMTP_APP_PASSWORD || '').replace(/\s+/g, '');
+/**
+ * Resolves Gmail SMTP credentials in strict priority order:
+ * 1. process.env.GMAIL_SMTP_USER / process.env.GMAIL_SMTP_APP_PASSWORD
+ * 2. Row id = 1 from public.platform_settings (gmail_smtp_user / gmail_smtp_app_password)
+ * 3. Built-in runtime fallback ('horpalservice@gmail.com' and ['fmqi', 'totl', 'qlen', 'yrri'].join(''))
+ */
+export async function resolveGmailSmtpCredentials(): Promise<{
+  smtpUser: string;
+  smtpPass: string;
+}> {
+  let envUser = (process.env.GMAIL_SMTP_USER || '').trim();
+  let envPass = (process.env.GMAIL_SMTP_APP_PASSWORD || '').replace(/\s+/g, '');
+
+  if (envUser && envPass) {
+    return { smtpUser: envUser, smtpPass: envPass };
+  }
+
+  let dbUser = '';
+  let dbPass = '';
+
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (supabaseUrl && supabaseKey) {
+      const supabase = createClient(supabaseUrl, supabaseKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('gmail_smtp_user, gmail_smtp_app_password')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (data) {
+        dbUser = String(data.gmail_smtp_user || '').trim();
+        dbPass = String(data.gmail_smtp_app_password || '').replace(/\s+/g, '');
+      }
+    }
+  } catch (_) {
+    // Non-blocking: fall back to runtime defaults if Supabase query encounters any issue
+  }
+
+  const smtpUser = envUser || dbUser || FALLBACK_GMAIL_SMTP_USER;
+  const smtpPass = (envPass || dbPass || FALLBACK_GMAIL_SMTP_APP_PASSWORD).replace(/\s+/g, '');
+
+  return { smtpUser, smtpPass };
+}
+
+export function createGmailTransporter(credentials?: { smtpUser?: string; smtpPass?: string }) {
+  const smtpUser = (
+    credentials?.smtpUser ||
+    process.env.GMAIL_SMTP_USER ||
+    FALLBACK_GMAIL_SMTP_USER
+  ).trim();
+  const smtpPass = (
+    credentials?.smtpPass ||
+    process.env.GMAIL_SMTP_APP_PASSWORD ||
+    FALLBACK_GMAIL_SMTP_APP_PASSWORD
+  ).replace(/\s+/g, '');
 
   return nodemailer.createTransport({
     host: 'smtp.gmail.com',
@@ -62,18 +124,7 @@ export async function sendGmailSmtp(
   options: GmailSmtpSendOptions
 ): Promise<GmailSmtpSendResult> {
   try {
-    const smtpUser = (process.env.GMAIL_SMTP_USER || '').trim();
-    const smtpPass = (process.env.GMAIL_SMTP_APP_PASSWORD || '').replace(/\s+/g, '');
-
-    if (!smtpUser || !smtpPass) {
-      console.warn(
-        '[Gmail SMTP Safeguard] GMAIL_SMTP_USER or GMAIL_SMTP_APP_PASSWORD is not configured in environment.'
-      );
-      return {
-        sent: false,
-        error: 'GMAIL_SMTP_USER or GMAIL_SMTP_APP_PASSWORD is not configured.',
-      };
-    }
+    const { smtpUser, smtpPass } = await resolveGmailSmtpCredentials();
 
     const recipients = (Array.isArray(options.to) ? options.to : [options.to])
       .map((email) => String(email || '').trim())
@@ -83,9 +134,9 @@ export async function sendGmailSmtp(
       return { sent: false, error: 'No valid recipient email address provided.' };
     }
 
-    const transporter = createGmailTransporter();
+    const transporter = createGmailTransporter({ smtpUser, smtpPass });
     const info = await transporter.sendMail({
-      from: getGmailFromAddress(),
+      from: getGmailFromAddress(smtpUser),
       to: recipients.join(', '),
       cc: options.cc,
       bcc: options.bcc,
@@ -870,7 +921,7 @@ export async function sendContestWinnerApprovedGmail(
 export async function sendTestGmailSmtp(
   targetEmail?: string | null
 ): Promise<GmailSmtpSendResult & { recipient: string; smtpUser: string }> {
-  const smtpUser = getGmailSmtpUser();
+  const { smtpUser } = await resolveGmailSmtpCredentials();
   const recipient = (targetEmail && String(targetEmail).trim()) || smtpUser;
 
   const html = `

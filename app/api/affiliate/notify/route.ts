@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { getGmailSmtpUser, sendGmailSmtp } from '@/lib/gmailSmtp';
 
 function getResendClient() {
   const apiKey = process.env.RESEND_API_KEY_AFFILIATE || process.env.RESEND_API_KEY || 're_fallback_key';
@@ -45,6 +46,16 @@ export async function POST(request: Request) {
       </div>
     `;
 
+    try {
+      const smtpUser = getGmailSmtpUser();
+      const recipients = Array.from(new Set([adminEmail, smtpUser].filter(Boolean)));
+      await sendGmailSmtp({
+        to: recipients,
+        subject,
+        html: htmlBody,
+      });
+    } catch (_) {}
+
     if (process.env.RESEND_API_KEY_AFFILIATE || process.env.RESEND_API_KEY) {
       const resend = getResendClient();
       await resend.emails.send({
@@ -55,7 +66,7 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({ success: true, message: 'Notification dispatched via Resend.' });
+    return NextResponse.json({ success: true, message: 'Notification dispatched.' });
   } catch (error: any) {
     console.error('[AFFILIATE NOTIFY ERROR]:', error);
     return NextResponse.json(
