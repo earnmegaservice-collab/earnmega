@@ -6,6 +6,7 @@ import {
   ensureUserWithPassword,
   sendBuyerCongratulationsAndAdminPasswordEmails,
 } from '../../../../lib/server/paywall';
+import { sendAffiliateCommissionEarnedGmail } from '../../../../lib/gmailSmtp';
 
 const getSupabaseClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -150,19 +151,21 @@ export async function POST(req: Request) {
     const alreadyProcessed = Boolean(rpcData?.already_processed);
     const affiliateUserId = rpcData?.affiliate_user_id || null;
     let affiliateEmail = rpcData?.affiliate_email || null;
+    let affiliateName: string | null = null;
     let actualNewVerifiedBalance = Number(rpcData?.affiliate_new_balance_ghs ?? 0);
 
     // Query referring affiliate's actual updated affiliate_balance directly from Supabase public.profiles
     if (affiliateUserId) {
       const { data: liveAffProfile } = await supabase
         .from('profiles')
-        .select('affiliate_balance, email')
+        .select('affiliate_balance, email, full_name, first_name')
         .eq('id', affiliateUserId)
         .maybeSingle();
 
       if (liveAffProfile) {
         actualNewVerifiedBalance = Number(liveAffProfile.affiliate_balance ?? 0);
         affiliateEmail = liveAffProfile.email || affiliateEmail;
+        affiliateName = liveAffProfile.full_name || liveAffProfile.first_name || null;
       }
     }
 
@@ -173,10 +176,26 @@ export async function POST(req: Request) {
       accountPassword: provisioned.accountPassword,
       unlockedTitle: `${productTitle} + Official 1-Year Pillar 2 Affiliate Hub Access`,
       pillarLabel: 'Pillar 2 — Digital Course & Affiliate Hub',
+      courseTitle: String(productTitle),
       amountGHS: verifiedGrossGHS,
       reference: cleanRef,
-      sendAdminCopy: false,
+      sendAdminCopy: true,
     });
+
+    // Send Instant "Cha-Ching! You Made a Sale!" Email to Referring Affiliate via Gmail SMTP
+    if (affiliateEmail && !alreadyProcessed) {
+      await sendAffiliateCommissionEarnedGmail({
+        affiliateEmail,
+        affiliateName,
+        affiliateCode: cleanAffCode,
+        productTitle: String(productTitle),
+        grossAmountGhs: verifiedGrossGHS,
+        commissionAmountGhs: commissionCreditedGHS,
+        newBalanceGhs: actualNewVerifiedBalance,
+        buyerName: buyerName || 'Verified Customer',
+        reference: cleanRef,
+      });
+    }
 
     const resend = getResendClient();
     const adminEmail =

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { getAdminClient, paywallErrorResponse, requireAuthedUser } from '../../../../lib/server/paywall';
+import { sendContestSubmissionConfirmationGmail } from '../../../../lib/gmailSmtp';
 
 function getResendClient() {
   const apiKey = process.env.RESEND_API_KEY_AFFILIATE || process.env.RESEND_API_KEY;
@@ -164,14 +165,24 @@ export async function POST(request: Request) {
       });
     } catch (_) {}
 
+    // PHASE 4.2a — Send Contest Submission Confirmation Email to Affiliate via Gmail SMTP
+    const gmailContestRes = await sendContestSubmissionConfirmationGmail({
+      affiliateEmail: emailInput,
+      affiliateName: fullName,
+      affiliateCode,
+      contestTitle,
+      verifiedSalesCount,
+      videoOrProofUrl: videoOrProofUrl || null,
+    });
+
     // Send formatted HTML email straight to Admin Gmail via existing Resend setup
     const resend = getResendClient();
     const adminTo = process.env.ADMIN_CONTACT_EMAIL_AFFILIATE || 'geestablish@gmail.com';
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'HorPal Affiliate Desk <onboarding@resend.dev>';
     const submittedAtIso = insertedRow.created_at || new Date().toISOString();
 
-    let emailSent = false;
-    let emailError: string | null = null;
+    let emailSent = Boolean(gmailContestRes?.sent);
+    let emailError: string | null = gmailContestRes?.error || null;
 
     if (resend) {
       try {

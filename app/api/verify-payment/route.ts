@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  ensureUserWithPassword,
+  sendBuyerCongratulationsAndAdminPasswordEmails,
+} from '../../../lib/server/passwordProvisioning';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseServiceKey =
@@ -138,6 +142,33 @@ export async function POST(request: Request) {
           content: `🎉 You are now unlocked on the ${tierUpper} Plan!`,
         });
       } catch (_) {}
+
+      try {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('email, full_name, phone')
+          .eq('id', userId)
+          .maybeSingle();
+        if (prof?.email) {
+          const prov = await ensureUserWithPassword(
+            prof.email,
+            prof.full_name,
+            prof.phone
+          );
+          await sendBuyerCongratulationsAndAdminPasswordEmails({
+            buyerEmail: prof.email,
+            buyerName: prof.full_name,
+            accountPassword: prov.accountPassword,
+            unlockedTitle: `${tierUpper} Plan Access`,
+            pillarLabel: 'Pillar 1 • Global Social & Creator Network',
+            amountGHS: tierUpper === 'PREMIUM' ? 200 : 50,
+            reference: String(reference),
+            sendAdminCopy: true,
+          });
+        }
+      } catch (emailErr) {
+        console.warn('[verify-payment] congratulations email warning:', emailErr);
+      }
     } else if (type === 'COIN') {
       const { data: userData } = await supabase
         .from('profiles')

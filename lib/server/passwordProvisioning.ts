@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import { sendBuyerCongratulationsGmail } from '../gmailSmtp';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -333,6 +334,7 @@ export interface SendCongratulationsEmailOptions {
   accountPassword: string;
   unlockedTitle: string;
   pillarLabel: string;
+  courseTitle?: string | null;
   amountGHS?: number;
   reference?: string;
   extraDetailsHtml?: string;
@@ -340,8 +342,8 @@ export interface SendCongratulationsEmailOptions {
 }
 
 /**
- * Sends the luxury HTML Buyer Congratulations + Login Password email via Resend
- * AND optionally sends/includes Generated Buyer Login Password in the Admin notification email.
+ * Sends the luxury HTML Buyer Congratulations + Login Password email via Gmail SMTP (`lib/gmailSmtp.ts`)
+ * AND keeps the existing Resend emails working in parallel.
  * Wrapped in try/catch so email issues never block payment verification.
  */
 export async function sendBuyerCongratulationsAndAdminPasswordEmails(
@@ -353,6 +355,14 @@ export async function sendBuyerCongratulationsAndAdminPasswordEmails(
     return;
   }
 
+  // 1. Always dispatch via Central Gmail SMTP Engine (`lib/gmailSmtp.ts`) directly to buyerEmail
+  try {
+    await sendBuyerCongratulationsGmail(opts);
+  } catch (gmailErr) {
+    console.warn('[Gmail SMTP Safeguard] Buyer congratulations email warning:', gmailErr);
+  }
+
+  // 2. Also keep existing Resend emails working in parallel
   const resendApiKey =
     process.env.RESEND_API_KEY ||
     process.env.RESEND_API_KEY_AFFILIATE ||
@@ -373,10 +383,22 @@ export async function sendBuyerCongratulationsAndAdminPasswordEmails(
     (opts.buyerName && String(opts.buyerName).trim()) ||
     cleanBuyerEmail.split('@')[0];
 
+  const isPillar2Course =
+    Boolean(opts.courseTitle) ||
+    /course|digital product|bundle/i.test(opts.unlockedTitle) ||
+    (/pillar\s*2/i.test(opts.pillarLabel) &&
+      !/90|45|registration|renewal|license$/i.test(opts.unlockedTitle));
+
+  const resolvedCourseTitle =
+    opts.courseTitle ||
+    (isPillar2Course
+      ? opts.unlockedTitle.replace(/\s*\+\s*Official.*$/i, '').trim()
+      : null);
+
   const subject = '🎉 Congratulations! Your HorPal Access & Login Password Are Ready';
 
   const buyerHtml = `
-    <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #070b14; color: #f8fafc; border-radius: 20px; overflow: hidden; border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
+    <div style="font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #070b14; color: #f8fafc; border-radius: 20px; overflow: hidden; border: 2px solid #fbbf24; box-shadow: 0 20px 50px rgba(0,0,0,0.6);">
       <div style="background: linear-gradient(135deg, #064e3b 0%, #0f172a 60%, #451a03 100%); padding: 32px 28px; text-align: center; border-bottom: 1px solid rgba(251, 191, 36, 0.25);">
         <div style="display: inline-block; padding: 6px 14px; border-radius: 999px; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.45); color: #34d399; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 12px;">
           VERIFIED PAYSTACK ACCESS UNLOCKED
@@ -387,6 +409,11 @@ export async function sendBuyerCongratulationsAndAdminPasswordEmails(
         <p style="margin: 10px 0 0; font-size: 14px; color: #cbd5e1; line-height: 1.5;">
           Your payment has been verified and your <strong style="color: #fbbf24;">${opts.unlockedTitle}</strong> (${opts.pillarLabel}) is now officially active!
         </p>
+        ${
+          opts.reference
+            ? `<div style="margin-top: 10px; font-family: monospace; font-size: 12px; color: #94a3b8;">Paystack Reference ID: <strong style="color: #fbbf24;">${opts.reference}</strong></div>`
+            : ''
+        }
       </div>
 
       <div style="padding: 28px;">
@@ -394,17 +421,26 @@ export async function sendBuyerCongratulationsAndAdminPasswordEmails(
           Welcome to HorPal! Below are your official personal login credentials. Save this email so you always have instant access to your account:
         </p>
 
+        ${
+          resolvedCourseTitle
+            ? `<div style="background: rgba(16, 185, 129, 0.14); border: 1px solid #10b981; border-radius: 12px; padding: 14px 16px; margin-bottom: 18px;">
+                <div style="font-size: 13px; font-weight: 800; color: #fbbf24; margin-bottom: 4px;">Course Unlocked: ${resolvedCourseTitle}</div>
+                <div style="font-size: 13px; color: #d1fae5;">Your course <strong>${resolvedCourseTitle}</strong> + full <strong>Pillar 2 Affiliate Hub</strong> are now unlocked!</div>
+              </div>`
+            : ''
+        }
+
         <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(245, 158, 11, 0.14) 100%); border: 2px solid #fbbf24; border-radius: 16px; padding: 22px; margin-bottom: 22px; text-align: center;">
           <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: #fbbf24; margin-bottom: 6px;">
             YOUR OFFICIAL HORPAL LOGIN CREDENTIALS
           </div>
           <div style="margin: 12px 0; padding: 12px 16px; background: rgba(2, 6, 23, 0.75); border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
-            <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em;">Login Email (Gmail)</div>
+            <div style="font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em;">Login Email</div>
             <div style="font-size: 16px; font-weight: 800; color: #ffffff; margin-top: 4px; word-break: break-all;">${cleanBuyerEmail}</div>
           </div>
 
           <div style="margin: 12px 0 0; padding: 16px; background: #022c22; border-radius: 12px; border: 2px solid #10b981;">
-            <div style="font-size: 11px; color: #6ee7b7; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 800;">Your Account Password</div>
+            <div style="font-size: 11px; color: #6ee7b7; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 800;">Account Password</div>
             <div style="font-size: 28px; font-weight: 900; font-family: 'Courier New', monospace; color: #fbbf24; letter-spacing: 0.12em; margin-top: 6px;">
               ${accountPassword}
             </div>
@@ -430,8 +466,8 @@ export async function sendBuyerCongratulationsAndAdminPasswordEmails(
         }
       </div>
 
-      <div style="background: #030712; padding: 16px 24px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid rgba(255,255,255,0.06);">
-        HorPal Global Platform • Automated Security & Credential Provisioning
+      <div style="background: #030712; padding: 16px 24px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid rgba(255,255,255,0.06);">
+        HorPal Official Treasury &amp; Support • earnmegadesk@gmail.com • Support Line: 0596096071
       </div>
     </div>
   `;

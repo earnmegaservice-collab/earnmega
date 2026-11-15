@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import {
+  sendPayoutRequestReceivedGmail,
+  sendPayoutSettledGmail,
+} from '../../../../lib/gmailSmtp';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseServiceKey =
@@ -517,6 +521,34 @@ export async function POST(req: Request) {
       body.countryOfResidence || body.country || 'International';
     const settlementRailLabel =
       body.settlementRail || body.settlementMethod || 'Global Settlement Rail';
+
+    // GMAIL SMTP DISPATCH (IN PARALLEL WITH RESEND)
+    if (recipientEmails.length > 0) {
+      const isAutoSuccess = payoutMode === 'PAYSTACK_AUTO' && !isManualFallback && dbPayoutStatus === 'PAID';
+      if (isAutoSuccess) {
+        await sendPayoutSettledGmail({
+          affiliateEmail: recipientEmails[0],
+          affiliateName: fullName,
+          amountGhs: requestedAmount,
+          payoutMethod: bankOrNetworkLabel,
+          accountNumber: accountNumberLabel,
+          accountName: fullName,
+          balanceAfterGhs: newBalance,
+          timestampGmt: new Date().toUTCString(),
+        });
+      } else {
+        await sendPayoutRequestReceivedGmail({
+          affiliateEmail: recipientEmails[0],
+          affiliateName: fullName,
+          amountGhs: requestedAmount,
+          payoutMethod: bankOrNetworkLabel || settlementRailLabel,
+          accountNumber: accountNumberLabel,
+          accountName: fullName,
+          balanceAfterGhs: newBalance,
+          requestId: payoutRef,
+        });
+      }
+    }
 
     // EMAIL #1 — TO THE AFFILIATE USER
     if (recipientEmails.length > 0 && (process.env.RESEND_API_KEY_AFFILIATE || process.env.RESEND_API_KEY)) {

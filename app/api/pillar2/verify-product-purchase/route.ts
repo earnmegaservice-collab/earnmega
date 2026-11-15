@@ -6,6 +6,7 @@ import {
   ensureUserWithPassword,
   sendBuyerCongratulationsAndAdminPasswordEmails,
 } from '../../../../lib/server/paywall';
+import { sendAffiliateCommissionEarnedGmail } from '../../../../lib/gmailSmtp';
 
 const getSupabaseClient = () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -291,19 +292,21 @@ export async function POST(req: Request) {
     const alreadyProcessed = Boolean(rpcData?.already_processed);
     const affiliateUserId = rpcData?.affiliate_user_id || null;
     let affiliateEmail = rpcData?.affiliate_email || null;
+    let affiliateName: string | null = null;
     let actualNewVerifiedBalance = Number(rpcData?.affiliate_new_balance_ghs ?? 0);
 
     // 3. Query the referring affiliate's actual updated affiliate_balance directly from public.profiles
     if (affiliateUserId) {
       const { data: liveAffProfile } = await supabase
         .from('profiles')
-        .select('affiliate_balance, email, affiliate_code')
+        .select('affiliate_balance, email, affiliate_code, full_name, first_name')
         .eq('id', affiliateUserId)
         .maybeSingle();
 
       if (liveAffProfile) {
         actualNewVerifiedBalance = Number(liveAffProfile.affiliate_balance ?? 0);
         affiliateEmail = liveAffProfile.email || affiliateEmail;
+        affiliateName = liveAffProfile.full_name || liveAffProfile.first_name || null;
       }
     }
 
@@ -314,10 +317,26 @@ export async function POST(req: Request) {
       accountPassword: provisioned.accountPassword,
       unlockedTitle: `${productTitle} + Official 1-Year Pillar 2 Affiliate Hub Access`,
       pillarLabel: 'Pillar 2 — Digital Course & Affiliate Hub',
+      courseTitle: String(productTitle),
       amountGHS: verifiedGrossGHS,
       reference: cleanRef,
-      sendAdminCopy: false, // Admin email is sent right below with Generated Buyer Login Password
+      sendAdminCopy: true,
     });
+
+    // 4b. Instant "Cha-Ching! You Made a Sale!" Email to Referring Affiliate via Gmail SMTP
+    if (affiliateEmail && !alreadyProcessed) {
+      await sendAffiliateCommissionEarnedGmail({
+        affiliateEmail,
+        affiliateName,
+        affiliateCode: cleanAffCode,
+        productTitle: String(productTitle),
+        grossAmountGhs: verifiedGrossGHS,
+        commissionAmountGhs: verifiedCommissionGHS,
+        newBalanceGhs: actualNewVerifiedBalance,
+        buyerName: resolvedBuyerName,
+        reference: cleanRef,
+      });
+    }
 
     // 4b. Send Resend Audit Email (preserving exact Resend configuration & HTML structure, with real DB balance + Generated Buyer Login Password)
     const resend = getResendClient();

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { getAdminClient, paywallErrorResponse, requireAuthedUser } from '../../../../lib/server/paywall';
+import { sendPayoutRequestReceivedGmail } from '../../../../lib/gmailSmtp';
 
 function getResendClient() {
   const apiKey = process.env.RESEND_API_KEY_AFFILIATE || process.env.RESEND_API_KEY;
@@ -176,13 +177,30 @@ export async function POST(request: Request) {
       });
     } catch (_) {}
 
+    // PHASE 3 Email #1 — Official Digitstem-style Friday Payout Request Received Email via Gmail SMTP (to affiliate + copy to GMAIL_SMTP_USER)
+    const payoutMethodDisplay =
+      reqRow.bank_or_network && reqRow.bank_or_network !== reqRow.payout_method
+        ? `${reqRow.payout_method} (${reqRow.bank_or_network})`
+        : reqRow.payout_method || payoutMethod;
+
+    const gmailRes = await sendPayoutRequestReceivedGmail({
+      affiliateEmail: reqRow.affiliate_email || affiliateEmail || user.email || '',
+      affiliateName: reqRow.affiliate_name || affiliateName || 'Valued Affiliate',
+      amountGhs: requestedAmount,
+      payoutMethod: payoutMethodDisplay,
+      accountNumber: reqRow.account_number || accountNumber,
+      accountName: reqRow.account_name || accountName,
+      balanceAfterGhs: balanceAfter,
+      requestId: reqRow.id,
+    });
+
     // Dispatch urgent Gmail alert via existing Resend setup
     const resend = getResendClient();
     const adminTo = process.env.ADMIN_CONTACT_EMAIL_AFFILIATE || 'geestablish@gmail.com';
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'HorPal Treasury <onboarding@resend.dev>';
 
-    let emailSent = false;
-    let emailError: string | null = null;
+    let emailSent = Boolean(gmailRes?.sent);
+    let emailError: string | null = gmailRes?.error || null;
 
     if (resend) {
       try {

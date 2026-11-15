@@ -1239,6 +1239,23 @@ function OverwatchModule({
     }
   }
 
+  const [testingSmtp, setTestingSmtp] = useState(false)
+
+  const handleTestGmailSmtp = async () => {
+    setTestingSmtp(true)
+    try {
+      const res = await apiFetch('TEST_GMAIL_SMTP', {})
+      toast.success(
+        `✅ Gmail SMTP Test Sent! Delivered from ${res.smtpUser || 'horpalservice@gmail.com'} to ${res.recipient || 'horpalservice@gmail.com'}`
+      )
+      onRefresh()
+    } catch (err: any) {
+      toast.error(err.message || 'Gmail SMTP test failed')
+    } finally {
+      setTestingSmtp(false)
+    }
+  }
+
   const handleExportCsv = async (type: 'users' | 'payouts') => {
     setExportingCsv(true)
     try {
@@ -1373,8 +1390,16 @@ function OverwatchModule({
           </p>
         </div>
 
-        {/* #8 One-Click CSV Data Exporter */}
+        {/* #8 One-Click CSV Data Exporter & Gmail SMTP Test Button */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={testingSmtp}
+            onClick={handleTestGmailSmtp}
+            className="px-3.5 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/50 text-sky-300 text-xs font-black flex items-center gap-1.5 transition shadow-sm"
+          >
+            {testingSmtp ? '⏳ Sending Test Email...' : '📧 Test Gmail SMTP Delivery'}
+          </button>
           <button
             type="button"
             disabled={exportingCsv}

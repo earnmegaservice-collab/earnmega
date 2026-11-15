@@ -6,7 +6,16 @@ import {
   adminSetUserPassword,
   ensureUserWithPassword,
   generateHorPalPassword,
+  sendBuyerCongratulationsAndAdminPasswordEmails,
 } from '@/lib/server/paywall';
+import {
+  sendPayoutProcessingGmail,
+  sendPayoutSettledGmail,
+  sendPayoutRejectedRefundedGmail,
+  sendContestWinnerApprovedGmail,
+  sendAffiliateCommissionEarnedGmail,
+  sendTestGmailSmtp,
+} from '@/lib/gmailSmtp';
 
 export const dynamic = 'force-dynamic';
 
@@ -1940,11 +1949,72 @@ export async function POST(request: Request) {
           });
         } catch (_) {}
       }
+
+      // PHASE 3: Send Digitstem-style Gmail SMTP Payout Status Email (#2 Processing, #3 Paid & Settled, #4 Rejected & Refunded)
+      let emailSent = false;
+      try {
+        let targetAffiliateEmail = String(updatedReq?.affiliate_email || '').trim();
+        let targetAffiliateName = String(updatedReq?.affiliate_name || '').trim();
+
+        if ((!targetAffiliateEmail || !targetAffiliateName) && updatedReq?.user_id) {
+          const { data: affProf } = await adminSupabase
+            .from('profiles')
+            .select('email, full_name, first_name, username')
+            .eq('id', updatedReq.user_id)
+            .maybeSingle();
+          if (!targetAffiliateEmail && affProf?.email) {
+            targetAffiliateEmail = String(affProf.email).trim();
+          }
+          if (!targetAffiliateName) {
+            targetAffiliateName =
+              affProf?.full_name || affProf?.first_name || affProf?.username || 'Valued Affiliate';
+          }
+        }
+
+        if (targetAffiliateEmail && targetAffiliateEmail.includes('@')) {
+          const payoutMethodLabel =
+            updatedReq?.bank_or_network &&
+            updatedReq.bank_or_network !== updatedReq.payout_method
+              ? `${updatedReq.payout_method} (${updatedReq.bank_or_network})`
+              : String(updatedReq?.payout_method || 'Mobile Money / Bank');
+
+          const commonPayload = {
+            affiliateEmail: targetAffiliateEmail,
+            affiliateName: targetAffiliateName || 'Valued Affiliate',
+            amountGhs: Number(updatedReq?.amount_ghs || 0),
+            payoutMethod: payoutMethodLabel,
+            accountNumber: String(updatedReq?.account_number || ''),
+            accountName: String(updatedReq?.account_name || targetAffiliateName || ''),
+            balanceAfterGhs:
+              rpcData?.affiliate_balance !== undefined
+                ? Number(rpcData.affiliate_balance)
+                : undefined,
+            adminStatusNote: updatedReq?.admin_status_note || adminNote || null,
+            timestampGmt: new Date().toUTCString(),
+            requestId: String(updatedReq?.id || requestId),
+          };
+
+          if (status === 'processing') {
+            const res = await sendPayoutProcessingGmail(commonPayload);
+            emailSent = res.sent;
+          } else if (status === 'paid') {
+            const res = await sendPayoutSettledGmail(commonPayload);
+            emailSent = res.sent;
+          } else if (status === 'rejected') {
+            const res = await sendPayoutRejectedRefundedGmail(commonPayload);
+            emailSent = res.sent;
+          }
+        }
+      } catch (payoutEmailErr) {
+        console.warn('[UPDATE_P2_PAYOUT_STATUS] Gmail SMTP warning:', payoutEmailErr);
+      }
+
       return NextResponse.json({
         success: true,
         request: updatedReq,
         affiliate_balance: rpcData.affiliate_balance,
         affiliate_withdrawn: rpcData.affiliate_withdrawn,
+        emailSent,
       });
     }
 
@@ -2000,7 +2070,27 @@ export async function POST(request: Request) {
           });
         } catch (_) {}
       }
-      return NextResponse.json({ success: true, submission: updatedSub });
+
+      // PHASE 4.2b: When Admin marks contest submission as "🏆 Approved Winner" in /geemings-command-x9v2, email winner!
+      let emailSent = false;
+      if (status === 'approved_winner' && updatedSub.email) {
+        try {
+          const winnerEmailRes = await sendContestWinnerApprovedGmail({
+            affiliateEmail: String(updatedSub.email).trim(),
+            affiliateName: String(updatedSub.full_name || 'Contest Winner').trim(),
+            affiliateCode: updatedSub.affiliate_code || undefined,
+            contestTitle: String(updatedSub.contest_title || 'HorPal Contest'),
+            verifiedSalesCount: Number(updatedSub.verified_sales_count || 0),
+            videoOrProofUrl: updatedSub.video_or_proof_url || null,
+            adminNote: nextNote,
+          });
+          emailSent = winnerEmailRes.sent;
+        } catch (contestEmailErr) {
+          console.warn('[UPDATE_P2_CONTEST_STATUS] Gmail SMTP warning:', contestEmailErr);
+        }
+      }
+
+      return NextResponse.json({ success: true, submission: updatedSub, emailSent });
     }
 
     // -------------------------------------------------------------------------
@@ -2179,6 +2269,44 @@ export async function POST(request: Request) {
         actor_email: 'Admin',
         summary: `[PAYOUT ${nextStatus.toUpperCase()}] Request ${payoutId.slice(0, 8)} marked ${nextStatus}`,
       });
+
+      // Also dispatch Digitstem-style Gmail SMTP payout update if email is available
+      try {
+        let targetEmail = String(reqRow?.affiliate_email || reqRow?.email || '').trim();
+        let targetName = String(reqRow?.affiliate_name || reqRow?.account_name || '').trim();
+        if ((!targetEmail || !targetName) && reqRow?.user_id) {
+          const { data: uProf } = await adminSupabase
+            .from('profiles')
+            .select('email, full_name, username')
+            .eq('id', reqRow.user_id)
+            .maybeSingle();
+          if (!targetEmail && uProf?.email) targetEmail = String(uProf.email).trim();
+          if (!targetName) targetName = uProf?.full_name || uProf?.username || 'Valued Member';
+        }
+        if (targetEmail && targetEmail.includes('@')) {
+          const amt = Number(reqRow?.amount_ghs || reqRow?.amount || 0);
+          const method = String(reqRow?.payout_method || reqRow?.network || 'Mobile Money / Bank');
+          const acctNum = String(reqRow?.account_number || reqRow?.momo_number || '');
+          const acctName = String(reqRow?.account_name || targetName || '');
+          const payloadOpts = {
+            affiliateEmail: targetEmail,
+            affiliateName: targetName || 'Valued Member',
+            amountGhs: amt,
+            payoutMethod: method,
+            accountNumber: acctNum,
+            accountName: acctName,
+            adminStatusNote: adminNotes || null,
+            timestampGmt: new Date().toUTCString(),
+          };
+          if (nextStatus === 'processing') {
+            await sendPayoutProcessingGmail(payloadOpts);
+          } else if (nextStatus === 'paid') {
+            await sendPayoutSettledGmail(payloadOpts);
+          } else if (nextStatus === 'rejected') {
+            await sendPayoutRejectedRefundedGmail(payloadOpts);
+          }
+        }
+      } catch (_) {}
 
       return NextResponse.json({ success: true, status: nextStatus });
     }
@@ -2996,6 +3124,44 @@ export async function POST(request: Request) {
         summary: `[MANUAL P2 SALE] ${productTitle} (GH₵ ${priceGhs}) -> Buyer: ${cleanBuyerEmail} | Affiliate Commission: GH₵ ${commissionGhs}`,
       });
 
+      // Send Buyer Congratulations + Password Email & Referring Affiliate Commission Email
+      try {
+        await sendBuyerCongratulationsAndAdminPasswordEmails({
+          buyerEmail: cleanBuyerEmail,
+          accountPassword: provisionedBuyer.accountPassword,
+          unlockedTitle: `${productTitle} + Official 1-Year Pillar 2 Affiliate Hub Access`,
+          pillarLabel: 'Pillar 2 — Digital Course & Affiliate Hub',
+          courseTitle: String(productTitle),
+          amountGHS: priceGhs,
+          reference: manualRef,
+          sendAdminCopy: true,
+        });
+
+        if (affiliateUser?.email) {
+          const updatedAffBal = Number(
+            (
+              Math.max(
+                Number(affiliateUser.affiliate_balance || 0),
+                Number(affiliateUser.available_balance_ghs || 0),
+                Number(affiliateUser.affiliate_Available_Balance || 0)
+              ) + commissionGhs
+            ).toFixed(2)
+          );
+          await sendAffiliateCommissionEarnedGmail({
+            affiliateEmail: affiliateUser.email,
+            affiliateName: affiliateUser.full_name || affiliateUser.username || 'Top Affiliate',
+            affiliateCode: affiliateUser.affiliate_code || null,
+            productTitle: String(productTitle),
+            grossAmountGhs: priceGhs,
+            commissionAmountGhs: commissionGhs,
+            newBalanceGhs: updatedAffBal,
+            reference: manualRef,
+          });
+        }
+      } catch (manualSaleEmailErr) {
+        console.warn('[RECORD_MANUAL_P2_SALE] email warning:', manualSaleEmailErr);
+      }
+
       return NextResponse.json({
         success: true,
         productTitle,
@@ -3559,6 +3725,47 @@ export async function POST(request: Request) {
         previousBalance: curAvail,
         newBalance,
         directMessage: insertedMsg || null,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // PHASE 4.3: TEST GMAIL SMTP DELIVERY BUTTON IN OVERWATCH
+    // -------------------------------------------------------------------------
+    if (action === 'TEST_GMAIL_SMTP') {
+      const targetEmail = payload?.targetEmail ? String(payload.targetEmail).trim() : null;
+      const testRes = await sendTestGmailSmtp(targetEmail);
+
+      try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'SMTP_TEST',
+          actor_email: 'Admin',
+          target_user: testRes.recipient,
+          summary: testRes.sent
+            ? `[GMAIL SMTP TEST SUCCESS] Sent test email from ${testRes.smtpUser} to ${testRes.recipient}`
+            : `[GMAIL SMTP TEST FAILED] ${testRes.error || 'Unknown error'}`,
+        });
+      } catch (_) {}
+
+      if (!testRes.sent) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              testRes.error ||
+              'Failed to send test Gmail SMTP email. Verify GMAIL_SMTP_USER and GMAIL_SMTP_APP_PASSWORD.',
+            recipient: testRes.recipient,
+            smtpUser: testRes.smtpUser,
+          },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        sent: true,
+        messageId: testRes.messageId,
+        recipient: testRes.recipient,
+        smtpUser: testRes.smtpUser,
       });
     }
 
