@@ -49,7 +49,7 @@ async function handleVerifyPillarStatus(userIdParam: string | null, pillarParam:
   let { data: profile } = await admin
     .from('profiles')
     .select(
-      'id, email, account_password, has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
+      'id, email, account_password, is_suspended, suspension_reason, suspended_at, has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
     )
     .eq('id', userId)
     .maybeSingle();
@@ -64,6 +64,44 @@ async function handleVerifyPillarStatus(userIdParam: string | null, pillarParam:
     } catch {
       // Ignore admin lookup failure
     }
+  }
+
+  if (profile?.is_suspended) {
+    const suspensionReason =
+      profile.suspension_reason ||
+      'Your account has been temporarily suspended by Administration. Please contact support to resolve.';
+    return NextResponse.json(
+      {
+        allowed: false,
+        error: 'Account is currently suspended',
+        is_suspended: true,
+        suspension_reason: suspensionReason,
+        suspended_at: profile.suspended_at || null,
+        pillar: targetPillar,
+        userId,
+        email: userEmail || profile?.email || '',
+        pillar1Paid: false,
+        pillar2Paid: false,
+        pillar3Paid: false,
+        entitlements: {
+          userId,
+          email: userEmail || profile?.email || '',
+          p1Paid: false,
+          p1Ref: null,
+          p2Paid: false,
+          p2Ref: null,
+          p2ExpiresAt: null,
+          p2DaysLeft: 0,
+          p3Paid: false,
+          p3Ref: null,
+          p3Tier: 'none',
+          p3ExpiresAt: null,
+          p3DaysLeft: 0,
+        },
+        bounceMessage: 'Account is currently suspended',
+      },
+      { status: 403, headers: NO_STORE_HEADERS }
+    );
   }
 
   // Auto-claim any unclaimed Paystack pass in the specific ledger for this email before verifying
@@ -169,7 +207,7 @@ async function handleVerifyPillarStatus(userIdParam: string | null, pillarParam:
     const refreshed = await admin
       .from('profiles')
       .select(
-        'id, email, account_password, has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
+        'id, email, account_password, is_suspended, suspension_reason, suspended_at, has_paid_global_chat, global_chat_paystack_ref, has_paid_pillar2, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at'
       )
       .eq('id', userId)
       .maybeSingle();

@@ -73,7 +73,7 @@ export async function GET(request: Request) {
         adminSupabase
           .from('profiles')
           .select(
-            'id, email, username, account_password, is_banned, is_suspended, status, is_wallet_frozen, is_verified, unlocked_p2_courses, has_p2_exam_certificate, custom_commission_rate, shadow_muted_until, force_logout_at, is_pinned_explore, hide_from_radar, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, global_chat_paystack_ref, is_paid, subscription_tier, is_pro, is_premium, subscription_started_at, subscription_expires_at, has_paid_pillar2, is_pillar2_paid, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, license_activated_at, license_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at, allow_early_payout_override, last_seen_at, current_active_pillar, updated_at'
+            'id, email, username, account_password, is_banned, is_suspended, suspension_reason, suspended_at, status, is_wallet_frozen, is_verified, unlocked_p2_courses, has_p2_exam_certificate, custom_commission_rate, shadow_muted_until, force_logout_at, is_pinned_explore, hide_from_radar, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, global_chat_paystack_ref, is_paid, subscription_tier, is_pro, is_premium, subscription_started_at, subscription_expires_at, has_paid_pillar2, is_pillar2_paid, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, license_activated_at, license_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at, allow_early_payout_override, last_seen_at, current_active_pillar, updated_at'
           )
           .eq('id', cleanUid)
           .maybeSingle(),
@@ -1631,58 +1631,124 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, user: updatedUser });
     }
 
-    if (action === 'SUSPEND_USER') {
-      const { userId } = payload;
-      if (!userId || typeof userId !== 'string') {
-        return NextResponse.json({ success: false, error: 'Invalid userId' });
+    if (
+      action === 'toggle_suspend_user' ||
+      action === 'TOGGLE_SUSPEND_USER' ||
+      action === 'SUSPEND_USER' ||
+      action === 'UNSUSPEND_USER'
+    ) {
+      const userId = String(payload?.userId || body?.userId || '').trim();
+      if (!userId) {
+        return NextResponse.json({ success: false, error: 'Invalid userId' }, { status: 400 });
       }
-      const { data: updatedUser } = await adminSupabase
+
+      const { data: currentProf } = await adminSupabase
         .from('profiles')
-        .update({
-          is_suspended: true,
-          status: 'suspended',
-          updated_at: new Date().toISOString(),
-        })
+        .select('id, email, username, is_suspended, suspension_reason')
+        .eq('id', userId)
+        .maybeSingle();
+
+      const explicitFlag =
+        typeof payload?.isSuspended === 'boolean'
+          ? payload.isSuspended
+          : typeof payload?.is_suspended === 'boolean'
+          ? payload.is_suspended
+          : typeof body?.isSuspended === 'boolean'
+          ? body.isSuspended
+          : typeof body?.is_suspended === 'boolean'
+          ? body.is_suspended
+          : undefined;
+
+      const nextSuspended =
+        action === 'SUSPEND_USER'
+          ? true
+          : action === 'UNSUSPEND_USER'
+          ? false
+          : typeof explicitFlag === 'boolean'
+          ? explicitFlag
+          : !Boolean(currentProf?.is_suspended);
+
+      const defaultSuspensionReason =
+        'Your account has been temporarily suspended by Administration. Please contact support to resolve.';
+      const rawReason =
+        payload?.reason ??
+        payload?.suspension_reason ??
+        payload?.suspensionReason ??
+        body?.reason ??
+        body?.suspension_reason ??
+        body?.suspensionReason;
+      const cleanReason =
+        typeof rawReason === 'string' && rawReason.trim().length > 0
+          ? rawReason.trim()
+          : defaultSuspensionReason;
+
+      const nowIso = new Date().toISOString();
+      const updatePayload: Record<string, any> = {
+        is_suspended: nextSuspended,
+        suspension_reason: nextSuspended ? cleanReason : null,
+        suspended_at: nextSuspended ? nowIso : null,
+        is_banned: nextSuspended ? false : false,
+        status: nextSuspended ? 'suspended' : 'active',
+        updated_at: nowIso,
+      };
+
+      const { data: updatedUser, error: suspErr } = await adminSupabase
+        .from('profiles')
+        .update(updatePayload)
         .eq('id', userId)
         .select('*')
         .maybeSingle();
 
-      try {
-        await adminSupabase.channel('horpal_godmode_command').send({
-          type: 'broadcast',
-          event: 'ACCOUNT_SUSPENDED',
-          payload: { target: userId, is_suspended: true, profile: updatedUser },
-        });
-      } catch (_) {}
-
-      return NextResponse.json({ success: true, user: updatedUser });
-    }
-
-    if (action === 'UNSUSPEND_USER') {
-      const { userId } = payload;
-      if (!userId || typeof userId !== 'string') {
-        return NextResponse.json({ success: false, error: 'Invalid userId' });
+      if (suspErr) {
+        return NextResponse.json({ success: false, error: suspErr.message }, { status: 500 });
       }
-      const { data: updatedUser } = await adminSupabase
-        .from('profiles')
-        .update({
-          is_suspended: false,
-          status: 'active',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', userId)
-        .select('*')
-        .maybeSingle();
 
       try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: nextSuspended ? 'USER_SUSPENDED' : 'USER_UNSUSPENDED',
+          actor_email: 'Admin',
+          target_user: updatedUser?.email || currentProf?.email || userId,
+          summary: nextSuspended
+            ? `[ACCOUNT SUSPENDED] Suspended ${updatedUser?.email || currentProf?.email || userId} — Reason: "${cleanReason}"`
+            : `[ACCOUNT UNSUSPENDED] Restored active access for ${updatedUser?.email || currentProf?.email || userId}`,
+        });
+
         await adminSupabase.channel('horpal_godmode_command').send({
           type: 'broadcast',
-          event: 'ACCOUNT_RESTORED',
-          payload: { target: userId, profile: updatedUser },
+          event: nextSuspended ? 'ACCOUNT_SUSPENDED' : 'ACCOUNT_RESTORED',
+          payload: {
+            target: userId,
+            userId,
+            is_suspended: nextSuspended,
+            suspension_reason: nextSuspended ? cleanReason : null,
+            suspended_at: nextSuspended ? nowIso : null,
+            profile: updatedUser,
+            timestamp: Date.now(),
+          },
+        });
+
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'USER_ENFORCEMENT_UPDATED',
+          payload: {
+            userId,
+            is_suspended: nextSuspended,
+            suspension_reason: nextSuspended ? cleanReason : null,
+            profile: updatedUser,
+            timestamp: Date.now(),
+          },
         });
       } catch (_) {}
 
-      return NextResponse.json({ success: true, user: updatedUser });
+      return NextResponse.json({
+        success: true,
+        userId,
+        is_suspended: nextSuspended,
+        suspension_reason: nextSuspended ? cleanReason : null,
+        suspended_at: nextSuspended ? nowIso : null,
+        user: updatedUser,
+        profile: updatedUser,
+      });
     }
 
     if (action === 'FREEZE_WALLET') {

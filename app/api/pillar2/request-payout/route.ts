@@ -30,7 +30,7 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: false }),
       admin
         .from('profiles')
-        .select('affiliate_balance, affiliate_withdrawn, affiliate_total_earned, affiliate_total_sales, allow_early_payout_override')
+        .select('affiliate_balance, affiliate_withdrawn, affiliate_total_earned, affiliate_total_sales, allow_early_payout_override, is_suspended, suspension_reason')
         .eq('id', user.id)
         .maybeSingle(),
       admin
@@ -71,10 +71,23 @@ export async function POST(request: Request) {
         .maybeSingle(),
       admin
         .from('profiles')
-        .select('allow_early_payout_override')
+        .select('allow_early_payout_override, is_suspended, suspension_reason')
         .eq('id', user.id)
         .maybeSingle(),
     ]);
+
+    if (userProfile?.is_suspended) {
+      return NextResponse.json(
+        {
+          error: 'Account is currently suspended',
+          is_suspended: true,
+          suspension_reason:
+            userProfile.suspension_reason ||
+            'Your account has been temporarily suspended by Administration. Please contact support to resolve.',
+        },
+        { status: 403 }
+      );
+    }
 
     if (platformSettings?.freeze_p2_withdrawals) {
       return NextResponse.json(

@@ -521,6 +521,191 @@ function formatPresenceStatus(user: any): {
   }
 }
 
+const DEFAULT_SUSPENSION_REASON =
+  'Your account has been temporarily suspended by Administration. Please contact support to resolve.'
+
+const adminModalCloseStack: Array<() => void> = []
+let adminPopstateListenerAttached = false
+
+function ensureAdminPopstateListener() {
+  if (adminPopstateListenerAttached || typeof window === 'undefined') return
+  adminPopstateListenerAttached = true
+  window.addEventListener('popstate', () => {
+    if (adminModalCloseStack.length > 0) {
+      const topClose = adminModalCloseStack.pop()
+      if (topClose) topClose()
+    }
+  })
+}
+
+function useAdminModalBackGuard(isOpen: boolean, onClose: () => void) {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return
+    ensureAdminPopstateListener()
+    const handler = () => {
+      onCloseRef.current()
+    }
+    adminModalCloseStack.push(handler)
+    try {
+      window.history.pushState({ adminModal: true }, '')
+    } catch {}
+
+    return () => {
+      const idx = adminModalCloseStack.lastIndexOf(handler)
+      if (idx !== -1) {
+        adminModalCloseStack.splice(idx, 1)
+      }
+    }
+  }, [isOpen])
+}
+
+function SuspendUserModal({
+  targetUser,
+  onClose,
+  apiFetch,
+  onSuccess
+}: {
+  targetUser: any
+  onClose: () => void
+  apiFetch: any
+  onSuccess: (updatedUser: any) => void
+}) {
+  useAdminModalBackGuard(true, onClose)
+  const [reason, setReason] = useState(
+    targetUser?.suspension_reason || DEFAULT_SUSPENSION_REASON
+  )
+  const [submitting, setSubmitting] = useState(false)
+
+  const displayName =
+    targetUser?.full_name ||
+    targetUser?.username ||
+    (targetUser?.email ? targetUser.email.split('@')[0] : 'Citizen')
+
+  const handleConfirmSuspend = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    try {
+      const cleanReason = reason.trim() || DEFAULT_SUSPENSION_REASON
+      const res = await apiFetch('toggle_suspend_user', {
+        userId: targetUser.id,
+        isSuspended: true,
+        reason: cleanReason,
+        suspension_reason: cleanReason
+      })
+      toast.success(`🚫 Suspended ${displayName} (${targetUser.email || 'user'}) in real time!`)
+      onSuccess(
+        res?.user || {
+          ...targetUser,
+          is_suspended: true,
+          suspension_reason: cleanReason,
+          suspended_at: new Date().toISOString(),
+          status: 'suspended'
+        }
+      )
+      onClose()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to suspend user')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+      <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-[0_0_80px_rgba(239,68,68,0.35)]">
+        {/* Pinned Sticky Top Navigation Bar */}
+        <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5 transition"
+          >
+            ← Back to Users
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close modal"
+            className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center hover:bg-red-500/35 transition"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Scrollable Modal Body */}
+        <div className="overflow-y-auto flex-1 p-4 space-y-4">
+          <div>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] font-black uppercase tracking-widest mb-1.5">
+              🚫 Real-Time Account Suspension
+            </span>
+            <h3 className="text-lg font-black text-white">
+              🚫 Suspend User Account
+            </h3>
+            <p className="text-xs font-mono text-gray-300 mt-1">
+              Target: <strong className="text-white">{displayName}</strong> ({targetUser?.email || 'No email'})
+            </p>
+          </div>
+
+          <form onSubmit={handleConfirmSuspend} className="space-y-4">
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-gray-300 block mb-1.5">
+                Suspension Reason (Shown Live on User&apos;s Lock Screen)
+              </label>
+              <textarea
+                rows={3}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder={DEFAULT_SUSPENSION_REASON}
+                className="w-full bg-black border border-red-500/40 focus:border-red-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white outline-none"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setReason(DEFAULT_SUSPENSION_REASON)}
+                className="px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-200 text-[10px] font-bold"
+              >
+                Default Support Notice
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setReason(
+                    'Your account has been temporarily suspended for security verification. Please contact support to verify and restore access.'
+                  )
+                }
+                className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-200 text-[10px] font-bold"
+              >
+                Security Verification Hold
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full py-3 px-5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/30 transition"
+            >
+              {submitting ? 'Suspending Account...' : '🚫 Confirm & Lock User Screen Immediately'}
+            </button>
+          </form>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full min-h-[44px] py-3 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-white text-sm font-bold flex items-center justify-center gap-2 transition"
+          >
+            ← Close & Return to User Vault
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PrivateVipBeamModal({
   targetUser,
   onClose,
@@ -532,6 +717,7 @@ function PrivateVipBeamModal({
   apiFetch: any
   onSent?: () => void
 }) {
+  useAdminModalBackGuard(true, onClose)
   const [theme, setTheme] = useState<'royal_gold' | 'emerald_vip' | 'crimson_alert' | 'cyber_diamond'>('royal_gold')
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
@@ -651,10 +837,30 @@ function PrivateVipBeamModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-      <div className="max-w-2xl w-full bg-[#0B0D14] border-2 border-amber-500/50 rounded-3xl p-5 sm:p-6 space-y-5 shadow-[0_0_80px_rgba(245,158,11,0.3)] my-8">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
-          <div>
+    <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+      <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-[0_0_80px_rgba(245,158,11,0.3)]">
+        {/* Pinned Sticky Top Navigation Bar Inside the Modal (Always Visible on Screen) */}
+        <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5 transition"
+          >
+            ← Back to Users
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close modal"
+            className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center hover:bg-red-500/35 transition"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Internal Scrollable Body */}
+        <div className="overflow-y-auto flex-1 p-4 space-y-5">
+          <div className="border-b border-white/10 pb-3.5">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-widest mb-1.5">
               💬 Private 1-on-1 VIP Top-Screen Beam
             </div>
@@ -665,14 +871,6 @@ function PrivateVipBeamModal({
               To: <strong className="text-white">{displayName}</strong> ({targetUser?.email || 'No email'}) — Only you and this user will see this message
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-gray-300"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
 
         <form onSubmit={handleSendBeam} className="space-y-4">
           {/* 1 of 4 Luxury Card Themes */}
@@ -887,6 +1085,16 @@ function PrivateVipBeamModal({
             </div>
           )}
         </div>
+
+        {/* Bottom Close & Return to User Vault Button */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full min-h-[46px] py-3 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-amber-500/30 text-white text-sm font-black flex items-center justify-center gap-2 transition"
+        >
+          ← Close &amp; Return to User Vault
+        </button>
+        </div>
       </div>
     </div>
   )
@@ -906,6 +1114,8 @@ function MilestoneBonusModal({
   const [amountGhs, setAmountGhs] = useState('50')
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  useAdminModalBackGuard(true, onClose)
 
   const displayName =
     targetUser?.full_name ||
@@ -939,9 +1149,30 @@ function MilestoneBonusModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-[#0B0D14] border-2 border-cyan-400/60 rounded-3xl p-6 space-y-4 shadow-[0_0_70px_rgba(56,189,248,0.3)]">
-        <div className="flex items-start justify-between gap-3">
+    <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+      <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-[0_0_70px_rgba(56,189,248,0.3)]">
+        <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5"
+          >
+            ← Back to Users
+          </button>
+          <span className="text-[11px] font-black uppercase tracking-widest text-cyan-300">
+            🏆 Milestone Booster
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center"
+            aria-label="Close modal"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-4 space-y-4">
           <div>
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-[10px] font-black uppercase tracking-widest mb-1">
               🏆 Executive Milestone Booster
@@ -953,73 +1184,74 @@ function MilestoneBonusModal({
               Recipient: <strong className="text-white">{displayName}</strong> ({targetUser?.email})
             </p>
           </div>
+
+          <form onSubmit={handleAward} className="space-y-3.5">
+            <div>
+              <label className="text-[11px] font-black uppercase text-gray-300 block mb-1">
+                Bonus Amount to Credit (+GH₵)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  required
+                  value={amountGhs}
+                  onChange={(e) => setAmountGhs(e.target.value)}
+                  className="flex-1 bg-black border border-white/15 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-base font-mono font-black text-emerald-400 outline-none"
+                />
+                {['50', '100', '250', '500'].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setAmountGhs(preset)}
+                    className="px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs font-mono font-bold text-cyan-300"
+                  >
+                    +{preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-black uppercase text-gray-300 block mb-1">
+                Celebratory Top-Screen Trophy Message (Optional)
+              </label>
+              <textarea
+                rows={3}
+                placeholder={`Leave blank for default celebratory message to ${displayName}...`}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                className="w-full bg-black border border-white/15 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+              />
+            </div>
+
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 py-2.5 rounded-xl bg-white/10 text-xs font-bold text-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-400 via-sky-400 to-amber-300 text-black font-black text-xs uppercase tracking-wider"
+              >
+                {submitting ? 'Crediting & Beaming...' : `🏆 Credit +GH₵ ${amountGhs || 0} & Beam Trophy`}
+              </button>
+            </div>
+          </form>
+
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-gray-300"
+            className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-white text-sm font-bold flex items-center justify-center gap-1.5"
           >
-            <X className="w-4 h-4" />
+            ← Close &amp; Return to User Vault
           </button>
         </div>
-
-        <form onSubmit={handleAward} className="space-y-3.5">
-          <div>
-            <label className="text-[11px] font-black uppercase text-gray-300 block mb-1">
-              Bonus Amount to Credit (+GH₵)
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                step="0.01"
-                min="1"
-                required
-                value={amountGhs}
-                onChange={(e) => setAmountGhs(e.target.value)}
-                className="flex-1 bg-black border border-white/15 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-base font-mono font-black text-emerald-400 outline-none"
-              />
-              {['50', '100', '250', '500'].map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => setAmountGhs(preset)}
-                  className="px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs font-mono font-bold text-cyan-300"
-                >
-                  +{preset}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[11px] font-black uppercase text-gray-300 block mb-1">
-              Celebratory Top-Screen Trophy Message (Optional)
-            </label>
-            <textarea
-              rows={3}
-              placeholder={`Leave blank for default celebratory message to ${displayName}...`}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              className="w-full bg-black border border-white/15 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
-            />
-          </div>
-
-          <div className="flex gap-2.5 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl bg-white/10 text-xs font-bold text-gray-300"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-400 via-sky-400 to-amber-300 text-black font-black text-xs uppercase tracking-wider"
-            >
-              {submitting ? 'Crediting & Beaming...' : `🏆 Credit +GH₵ ${amountGhs || 0} & Beam Trophy`}
-            </button>
-          </div>
-        </form>
       </div>
     </div>
   )
@@ -1101,6 +1333,11 @@ function OverwatchModule({
   } | null>(null)
   const [confirmText, setConfirmText] = useState('')
   const [executingSwitch, setExecutingSwitch] = useState(false)
+
+  useAdminModalBackGuard(Boolean(pendingKillSwitch), () => {
+    setPendingKillSwitch(null)
+    setConfirmText('')
+  })
 
   useEffect(() => {
     const s = platformSettings || stats?.platformSettings || stats?.settings
@@ -2127,57 +2364,97 @@ function OverwatchModule({
 
       {/* PHASE 2.2: MANDATORY 2-STEP CONFIRMATION MODAL BEFORE ANY KILL SWITCH TRIGGERS */}
       {pendingKillSwitch && (
-        <div className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-[#120709] border-2 border-red-500 rounded-3xl p-6 shadow-[0_0_80px_rgba(239,68,68,0.4)] space-y-5">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/50 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-7 h-7 text-red-500 animate-bounce" />
-              </div>
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-red-400">
-                  Mandatory 2-Step Verification
-                </span>
-                <h3 className="text-lg font-black text-white">CRITICAL CONFIRMATION</h3>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-red-950/40 border border-red-500/40 text-xs sm:text-sm text-red-100 leading-relaxed font-semibold">
-              ⚠️ CRITICAL CONFIRMATION: Are you 100% sure you want to{' '}
-              {pendingKillSwitch.targetValue ? 'activate' : 'deactivate'}{' '}
-              <span className="text-amber-300 font-black">[{pendingKillSwitch.name}]</span>? Type{' '}
-              <span className="font-mono underline text-white">&apos;CONFIRM&apos;</span> or tap{' '}
-              <span className="text-emerald-300 font-black">&apos;Yes, Execute Now&apos;</span> to apply across all users.
-            </div>
-
-            <div>
-              <input
-                type="text"
-                placeholder="Optional: Type CONFIRM here..."
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                className="w-full bg-black/80 border border-red-500/40 rounded-xl px-4 py-3 text-sm font-mono text-center text-white focus:border-red-400 outline-none"
-              />
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
+        <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+          <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-[0_0_80px_rgba(239,68,68,0.4)]">
+            <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30">
               <button
                 type="button"
                 onClick={() => {
                   setPendingKillSwitch(null)
                   setConfirmText('')
                 }}
-                disabled={executingSwitch}
-                className="flex-1 py-3 px-4 rounded-xl bg-white/10 hover:bg-white/15 text-gray-200 font-bold text-xs uppercase tracking-wider"
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5"
               >
-                Cancel
+                ← Back to Users
               </button>
+              <span className="text-[11px] font-black uppercase tracking-widest text-red-400">
+                ⚠️ Security Confirmation
+              </span>
               <button
                 type="button"
-                onClick={executeConfirmedKillSwitch}
-                disabled={executingSwitch}
-                className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/40"
+                onClick={() => {
+                  setPendingKillSwitch(null)
+                  setConfirmText('')
+                }}
+                className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center"
+                aria-label="Close modal"
               >
-                {executingSwitch ? 'Executing...' : 'Yes, Execute Now'}
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-4 space-y-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/50 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-7 h-7 text-red-500 animate-bounce" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-red-400">
+                    Mandatory 2-Step Verification
+                  </span>
+                  <h3 className="text-lg font-black text-white">CRITICAL CONFIRMATION</h3>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-red-950/40 border border-red-500/40 text-xs sm:text-sm text-red-100 leading-relaxed font-semibold">
+                ⚠️ CRITICAL CONFIRMATION: Are you 100% sure you want to{' '}
+                {pendingKillSwitch.targetValue ? 'activate' : 'deactivate'}{' '}
+                <span className="text-amber-300 font-black">[{pendingKillSwitch.name}]</span>? Type{' '}
+                <span className="font-mono underline text-white">&apos;CONFIRM&apos;</span> or tap{' '}
+                <span className="text-emerald-300 font-black">&apos;Yes, Execute Now&apos;</span> to apply across all users.
+              </div>
+
+              <div>
+                <input
+                  type="text"
+                  placeholder="Optional: Type CONFIRM here..."
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  className="w-full bg-black/80 border border-red-500/40 rounded-xl px-4 py-3 text-sm font-mono text-center text-white focus:border-red-400 outline-none"
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingKillSwitch(null)
+                    setConfirmText('')
+                  }}
+                  disabled={executingSwitch}
+                  className="flex-1 py-3 px-4 rounded-xl bg-white/10 hover:bg-white/15 text-gray-200 font-bold text-xs uppercase tracking-wider"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={executeConfirmedKillSwitch}
+                  disabled={executingSwitch}
+                  className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-red-600/40"
+                >
+                  {executingSwitch ? 'Executing...' : 'Yes, Execute Now'}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingKillSwitch(null)
+                  setConfirmText('')
+                }}
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-white text-sm font-bold flex items-center justify-center gap-1.5"
+              >
+                ← Close &amp; Return to User Vault
               </button>
             </div>
           </div>
@@ -2459,6 +2736,39 @@ function UserVaultModule({
   const [savingPassword, setSavingPassword] = useState<boolean>(false)
   const [vipBeamUser, setVipBeamUser] = useState<any | null>(null)
   const [milestoneBonusUser, setMilestoneBonusUser] = useState<any | null>(null)
+  const [suspendModalUser, setSuspendModalUser] = useState<any | null>(null)
+
+  useAdminModalBackGuard(Boolean(inspectorUser), () => setInspectorUser(null))
+  useAdminModalBackGuard(Boolean(courseGrantUser), () => setCourseGrantUser(null))
+  useAdminModalBackGuard(Boolean(generatedLinkModal), () => setGeneratedLinkModal(null))
+
+  const handleUnsuspendUser = async (u: any) => {
+    try {
+      const res = await apiFetch('toggle_suspend_user', {
+        userId: u.id,
+        isSuspended: false
+      })
+      const updatedFields = res?.user || {
+        is_suspended: false,
+        is_banned: false,
+        suspension_reason: null,
+        suspended_at: null,
+        status: 'active'
+      }
+      setUsers((prev) =>
+        prev.map((item) => (item.id === u.id ? { ...item, ...updatedFields } : item))
+      )
+      setInspectorUser((prev: any) =>
+        prev && prev.id === u.id ? { ...prev, ...updatedFields } : prev
+      )
+      toast.success(
+        `✅ Account unsuspended for @${u.username || u.email}! Their lock screen has been cleared in real time.`
+      )
+      onGlobalRefresh()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to unsuspend user')
+    }
+  }
 
   const handleToggleEarlyPayoutPass = async (u: any) => {
     const nextVal = !u.allow_early_payout_override
@@ -2865,7 +3175,19 @@ function UserVaultModule({
                             📌 EXPLORE PINNED
                           </span>
                         )}
-                        {(u.is_banned || u.is_suspended) && (
+                        {u.is_suspended ? (
+                          <span
+                            className="px-2.5 py-0.5 rounded-full bg-red-600/90 border border-red-400 text-white text-[10px] font-black uppercase animate-pulse shadow-sm shadow-red-600/40"
+                            title={u.suspension_reason || DEFAULT_SUSPENSION_REASON}
+                          >
+                            🚫 SUSPENDED{u.suspension_reason ? ` — ${u.suspension_reason}` : ''}
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-[10px] font-black uppercase">
+                            🟢 ACTIVE
+                          </span>
+                        )}
+                        {u.is_banned && !u.is_suspended && (
                           <span className="px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-black uppercase">
                             BANNED
                           </span>
@@ -3157,26 +3479,24 @@ function UserVaultModule({
                       🔗 Magic Link
                     </button>
 
-                    {/* Ban / Unban */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleUpdateUserField(
-                          u,
-                          {
-                            is_banned: !u.is_banned,
-                            is_suspended: !u.is_banned,
-                            status: !u.is_banned ? 'banned' : 'active'
-                          },
-                          !u.is_banned
-                            ? `@${u.username || u.email} BANNED & kicked!`
-                            : `@${u.username || u.email} unbanned!`
-                        )
-                      }
-                      className="px-2.5 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 text-[11px] font-black"
-                    >
-                      {u.is_banned || u.is_suspended ? 'Unban' : '🚫 Ban'}
-                    </button>
+                    {/* Real-Time Suspend / Unsuspend User Button */}
+                    {u.is_suspended ? (
+                      <button
+                        type="button"
+                        onClick={() => handleUnsuspendUser(u)}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/60 text-emerald-200 text-[11px] font-black flex items-center gap-1 shadow-sm shadow-emerald-500/20 transition"
+                      >
+                        ✅ Unsuspend Account
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSuspendModalUser(u)}
+                        className="px-3 py-1.5 rounded-lg bg-red-600/25 hover:bg-red-600/40 border border-red-500/60 text-red-200 text-[11px] font-black flex items-center gap-1 shadow-sm shadow-red-600/20 transition"
+                      >
+                        🚫 Suspend User
+                      </button>
+                    )}
 
                     {/* #20 Hard Delete */}
                     <button
@@ -3204,59 +3524,89 @@ function UserVaultModule({
 
       {/* #14 GRANT / UNLOCK PILLAR 2 COURSE MODAL */}
       {courseGrantUser && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-[#0D0D12] border border-emerald-500/40 rounded-3xl p-6 space-y-4">
-            <h3 className="font-black text-base text-emerald-400">
-              📚 Unlock Pillar 2 Course for @{courseGrantUser.username || courseGrantUser.email}
-            </h3>
-            <p className="text-xs text-gray-400">
-              Currently Unlocked:{' '}
-              {Array.isArray(courseGrantUser.unlocked_p2_courses) &&
-              courseGrantUser.unlocked_p2_courses.length > 0
-                ? courseGrantUser.unlocked_p2_courses.join(', ')
-                : 'None'}
-            </p>
-            <select
-              value={selectedCourseToGrant}
-              onChange={(e) => setSelectedCourseToGrant(e.target.value)}
-              className="w-full bg-black border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white"
-            >
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title} (GH₵ {p.price_ghs})
-                </option>
-              ))}
-            </select>
-            <div className="flex gap-2.5">
+        <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+          <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-2xl">
+            <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30">
               <button
                 type="button"
                 onClick={() => setCourseGrantUser(null)}
-                className="flex-1 py-2.5 rounded-xl bg-white/10 text-xs font-bold"
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5"
               >
-                Cancel
+                ← Back to Users
               </button>
+              <span className="text-[11px] font-black uppercase tracking-widest text-emerald-400">
+                📚 Unlock P2 Course
+              </span>
               <button
                 type="button"
-                onClick={async () => {
-                  try {
-                    const res = await apiFetch('GRANT_USER_P2_COURSE', {
-                      userId: courseGrantUser.id,
-                      courseId: selectedCourseToGrant
-                    })
-                    if (res?.user) {
-                      setUsers((prev) =>
-                        prev.map((u) => (u.id === courseGrantUser.id ? { ...u, ...res.user } : u))
-                      )
-                    }
-                    toast.success(`Course unlocked in user's vault!`)
-                    setCourseGrantUser(null)
-                  } catch (err: any) {
-                    toast.error(err.message)
-                  }
-                }}
-                className="flex-1 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-xs uppercase"
+                onClick={() => setCourseGrantUser(null)}
+                className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center"
+                aria-label="Close modal"
               >
-                Unlock Course Now
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-4 space-y-4">
+              <h3 className="font-black text-base text-emerald-400">
+                📚 Unlock Pillar 2 Course for @{courseGrantUser.username || courseGrantUser.email}
+              </h3>
+              <p className="text-xs text-gray-400">
+                Currently Unlocked:{' '}
+                {Array.isArray(courseGrantUser.unlocked_p2_courses) &&
+                courseGrantUser.unlocked_p2_courses.length > 0
+                  ? courseGrantUser.unlocked_p2_courses.join(', ')
+                  : 'None'}
+              </p>
+              <select
+                value={selectedCourseToGrant}
+                onChange={(e) => setSelectedCourseToGrant(e.target.value)}
+                className="w-full bg-black border border-white/15 rounded-xl px-3.5 py-2.5 text-xs text-white"
+              >
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title} (GH₵ {p.price_ghs})
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCourseGrantUser(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-white/10 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const res = await apiFetch('GRANT_USER_P2_COURSE', {
+                        userId: courseGrantUser.id,
+                        courseId: selectedCourseToGrant
+                      })
+                      if (res?.user) {
+                        setUsers((prev) =>
+                          prev.map((u) => (u.id === courseGrantUser.id ? { ...u, ...res.user } : u))
+                        )
+                      }
+                      toast.success(`Course unlocked in user's vault!`)
+                      setCourseGrantUser(null)
+                    } catch (err: any) {
+                      toast.error(err.message)
+                    }
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-xs uppercase"
+                >
+                  Unlock Course Now
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCourseGrantUser(null)}
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-white text-sm font-bold flex items-center justify-center gap-1.5"
+              >
+                ← Close &amp; Return to User Vault
               </button>
             </div>
           </div>
@@ -3265,34 +3615,64 @@ function UserVaultModule({
 
       {/* #19 MAGIC ACCESS / RECOVERY LINK MODAL */}
       {generatedLinkModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-lg w-full bg-[#0D0D12] border border-indigo-500/40 rounded-3xl p-6 space-y-4">
-            <h3 className="font-black text-base text-indigo-400">
-              🔗 Direct Magic Access / Recovery Link for {generatedLinkModal.email}
-            </h3>
-            <input
-              type="text"
-              readOnly
-              value={generatedLinkModal.link}
-              className="w-full bg-black border border-white/15 rounded-xl px-3.5 py-2.5 text-xs font-mono text-gray-200"
-            />
-            <div className="flex gap-2.5">
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(generatedLinkModal.link)
-                  toast.success('Copied magic login link to clipboard!')
-                }}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-500 text-white font-black text-xs uppercase"
-              >
-                Copy Link to Send to User
-              </button>
+        <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+          <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-2xl">
+            <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30">
               <button
                 type="button"
                 onClick={() => setGeneratedLinkModal(null)}
-                className="px-4 py-2.5 rounded-xl bg-white/10 text-xs font-bold"
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5"
               >
-                Close
+                ← Back to Users
+              </button>
+              <span className="text-[11px] font-black uppercase tracking-widest text-indigo-400">
+                🔗 Magic Access Link
+              </span>
+              <button
+                type="button"
+                onClick={() => setGeneratedLinkModal(null)}
+                className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-4 space-y-4">
+              <h3 className="font-black text-base text-indigo-400">
+                🔗 Direct Magic Access / Recovery Link for {generatedLinkModal.email}
+              </h3>
+              <input
+                type="text"
+                readOnly
+                value={generatedLinkModal.link}
+                className="w-full bg-black border border-white/15 rounded-xl px-3.5 py-2.5 text-xs font-mono text-gray-200"
+              />
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedLinkModal.link)
+                    toast.success('Copied magic login link to clipboard!')
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-500 text-white font-black text-xs uppercase"
+                >
+                  Copy Link to Send to User
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGeneratedLinkModal(null)}
+                  className="px-4 py-2.5 rounded-xl bg-white/10 text-xs font-bold"
+                >
+                  Close
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGeneratedLinkModal(null)}
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-white text-sm font-bold flex items-center justify-center gap-1.5"
+              >
+                ← Close &amp; Return to User Vault
               </button>
             </div>
           </div>
@@ -3301,191 +3681,262 @@ function UserVaultModule({
 
       {/* USER VAULT INSPECTOR & PASSWORD MANAGER MODAL */}
       {inspectorUser && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="max-w-xl w-full bg-[#0D0D12] border border-amber-500/40 rounded-3xl p-6 space-y-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3.5 min-w-0">
-                <img
-                  src={
-                    inspectorUser.avatar_url ||
-                    `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                      inspectorUser.full_name || inspectorUser.username || 'U'
-                    )}&background=random`
-                  }
-                  className="w-12 h-12 rounded-2xl object-cover border border-amber-500/30 shrink-0"
-                  alt=""
-                />
-                <div className="min-w-0">
-                  <h3 className="font-black text-base text-white truncate">
-                    {inspectorUser.full_name || 'Citizen'}{' '}
-                    <span className="text-amber-400 font-mono text-xs">
-                      @{inspectorUser.username || 'user'}
-                    </span>
-                  </h3>
-                  <div className="text-xs text-gray-300 font-mono break-all">
-                    {inspectorUser.email || 'No email'}
-                  </div>
-                </div>
-              </div>
+        <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+          <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-2xl">
+            <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30">
               <button
                 type="button"
                 onClick={() => setInspectorUser(null)}
-                className="w-8 h-8 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white"
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5"
               >
-                <X className="w-4 h-4" />
+                ← Back to Users
+              </button>
+              <span className="text-[11px] font-black uppercase tracking-widest text-amber-400">
+                🔑 User Inspect &amp; Controls
+              </span>
+              <button
+                type="button"
+                onClick={() => setInspectorUser(null)}
+                className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center"
+                aria-label="Close modal"
+              >
+                ✕
               </button>
             </div>
 
-            {/* High-Visibility Credential Badge + 1-Tap Copy Credentials */}
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/15 via-emerald-500/10 to-black border border-amber-500/40 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="space-y-1">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-amber-300">
-                    Active Login Credentials
+            <div className="overflow-y-auto flex-1 p-4 space-y-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <img
+                    src={
+                      inspectorUser.avatar_url ||
+                      `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                        inspectorUser.full_name || inspectorUser.username || 'U'
+                      )}&background=random`
+                    }
+                    className="w-12 h-12 rounded-2xl object-cover border border-amber-500/30 shrink-0"
+                    alt=""
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-black text-base text-white truncate">
+                        {inspectorUser.full_name || 'Citizen'}{' '}
+                        <span className="text-amber-400 font-mono text-xs">
+                          @{inspectorUser.username || 'user'}
+                        </span>
+                      </h3>
+                      {inspectorUser.is_suspended ? (
+                        <span className="px-2.5 py-0.5 rounded-full bg-red-600/90 border border-red-400 text-white text-[10px] font-black uppercase animate-pulse">
+                          🚫 SUSPENDED
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-[10px] font-black uppercase">
+                          🟢 ACTIVE
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-300 font-mono break-all mt-0.5">
+                      {inspectorUser.email || 'No email'}
+                    </div>
+                    {inspectorUser.is_suspended && inspectorUser.suspension_reason && (
+                      <div className="text-[11px] text-red-300 font-semibold mt-1 bg-red-950/50 border border-red-500/30 rounded-lg px-2.5 py-1">
+                        Reason: {inspectorUser.suspension_reason}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-xs font-mono text-gray-300">
-                    Email: <strong className="text-white">{inspectorUser.email || 'N/A'}</strong>
+                </div>
+              </div>
+
+              {/* High-Visibility Credential Badge + 1-Tap Copy Credentials */}
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/15 via-emerald-500/10 to-black border border-amber-500/40 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-amber-300">
+                      Active Login Credentials
+                    </div>
+                    <div className="text-xs font-mono text-gray-300">
+                      Email: <strong className="text-white">{inspectorUser.email || 'N/A'}</strong>
+                    </div>
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-black/80 border border-amber-400/50 text-amber-300 font-mono font-black text-sm">
+                      🔑 Password: {inspectorUser.account_password || 'Not Set'}
+                    </div>
                   </div>
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-black/80 border border-amber-400/50 text-amber-300 font-mono font-black text-sm">
-                    🔑 Password: {inspectorUser.account_password || 'Not Set'}
+
+                  <button
+                    type="button"
+                    onClick={() => handleCopyCredentials(inspectorUser)}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"
+                  >
+                    📋 Copy Credentials
+                  </button>
+                </div>
+              </div>
+
+              {/* 1-Click Admin "🔄 Regenerate / Custom Password" Control */}
+              <div className="p-4 rounded-2xl bg-black/70 border border-white/15 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                    🔄 Regenerate / Custom Password Control
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const generated = `HP-${Math.floor(100000 + Math.random() * 900000)}`
+                      setCustomPasswordInput(generated)
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/40 text-amber-300 font-black text-xs flex items-center gap-1"
+                  >
+                    🎲 Generate New Password
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-gray-400">
+                  Simultaneously updates Supabase Auth (`auth.users`) AND `public.profiles.account_password` so the user can immediately sign in with their Gmail + this password on any device.
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={customPasswordInput}
+                    onChange={(e) => setCustomPasswordInput(e.target.value)}
+                    placeholder="Enter custom password or click Generate..."
+                    className="flex-1 bg-[#09090E] border border-white/20 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-white outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={savingPassword}
+                    onClick={() => handleSaveUserPassword(inspectorUser, customPasswordInput)}
+                    className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-wider whitespace-nowrap"
+                  >
+                    {savingPassword ? 'Saving...' : 'Save Password'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Account Snapshot */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs font-mono">
+                <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
+                  <div className="text-[10px] text-gray-500 uppercase">Pillar 1</div>
+                  <div className="font-black text-amber-300">
+                    {inspectorUser.has_paid_global_chat || inspectorUser.is_paid ? 'UNLOCKED' : 'LOCKED'}
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleCopyCredentials(inspectorUser)}
-                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-emerald-500/20"
-                >
-                  📋 Copy Credentials
-                </button>
-              </div>
-            </div>
-
-            {/* 1-Click Admin "🔄 Regenerate / Custom Password" Control */}
-            <div className="p-4 rounded-2xl bg-black/70 border border-white/15 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase tracking-wider text-amber-400">
-                  🔄 Regenerate / Custom Password Control
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const generated = `HP-${Math.floor(100000 + Math.random() * 900000)}`
-                    setCustomPasswordInput(generated)
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/40 text-amber-300 font-black text-xs flex items-center gap-1"
-                >
-                  🎲 Generate New Password
-                </button>
-              </div>
-
-              <p className="text-[11px] text-gray-400">
-                Simultaneously updates Supabase Auth (`auth.users`) AND `public.profiles.account_password` so the user can immediately sign in with their Gmail + this password on any device.
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  value={customPasswordInput}
-                  onChange={(e) => setCustomPasswordInput(e.target.value)}
-                  placeholder="Enter custom password or click Generate..."
-                  className="flex-1 bg-[#09090E] border border-white/20 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-white outline-none"
-                />
-                <button
-                  type="button"
-                  disabled={savingPassword}
-                  onClick={() => handleSaveUserPassword(inspectorUser, customPasswordInput)}
-                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-black text-xs uppercase tracking-wider whitespace-nowrap"
-                >
-                  {savingPassword ? 'Saving...' : 'Save Password'}
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Account Snapshot */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs font-mono">
-              <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
-                <div className="text-[10px] text-gray-500 uppercase">Pillar 1</div>
-                <div className="font-black text-amber-300">
-                  {inspectorUser.has_paid_global_chat || inspectorUser.is_paid ? 'UNLOCKED' : 'LOCKED'}
+                <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
+                  <div className="text-[10px] text-gray-500 uppercase">Pillar 2</div>
+                  <div className="font-black text-emerald-400">
+                    {inspectorUser.has_paid_pillar2 || inspectorUser.is_pillar2_paid ? 'ACTIVE' : 'LOCKED'}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
+                  <div className="text-[10px] text-gray-500 uppercase">Pillar 3</div>
+                  <div className="font-black text-purple-400">
+                    {inspectorUser.has_paid_pillar3
+                      ? `ACTIVE (${inspectorUser.pillar3_tier || 'pro'})`
+                      : 'LOCKED'}
+                  </div>
                 </div>
               </div>
-              <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
-                <div className="text-[10px] text-gray-500 uppercase">Pillar 2</div>
-                <div className="font-black text-emerald-400">
-                  {inspectorUser.has_paid_pillar2 || inspectorUser.is_pillar2_paid ? 'ACTIVE' : 'LOCKED'}
+
+              {/* Executive 1-on-1 VIP Direct Controls inside Inspector Modal */}
+              <div className="p-4 rounded-2xl bg-black/70 border border-amber-500/30 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-amber-300">
+                    👑 1-on-1 Executive VIP Controls &amp; Presence
+                  </span>
+                  <span className="text-[11px] font-mono text-emerald-300 font-bold">
+                    📍 Currently inside: {formatPresenceStatus(inspectorUser).pillarLabel} •{' '}
+                    {formatPresenceStatus(inspectorUser).timeAgoLabel}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVipBeamUser(inspectorUser)}
+                    className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500/30 to-yellow-500/20 hover:from-amber-500/50 hover:to-yellow-500/40 border border-amber-400/60 text-amber-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
+                  >
+                    👑 Send Private Top-Screen Message
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleEarlyPayoutPass(inspectorUser)}
+                    className={`px-3 py-2 rounded-xl border text-xs font-black flex items-center justify-center gap-1.5 transition ${
+                      inspectorUser.allow_early_payout_override
+                        ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-200 hover:bg-emerald-500/40'
+                        : 'bg-amber-500/15 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
+                    }`}
+                  >
+                    {inspectorUser.allow_early_payout_override
+                      ? '⚡ Revoke Early Payout Pass'
+                      : '⚡ Grant 1-Time Early Payout Pass'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBeamFlashUpgrade(inspectorUser, 'P2')}
+                    className="px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
+                  >
+                    🎯 Beam Pillar 2 VIP Invitation
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMilestoneBonusUser(inspectorUser)}
+                    className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/50 text-emerald-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
+                  >
+                    🏆 Award Instant Milestone Bonus
+                  </button>
+                </div>
+
+                {/* Prominent Suspend / Unsuspend Action Button inside User Inspect Modal */}
+                <div className="pt-2 border-t border-white/10">
+                  {inspectorUser.is_suspended ? (
+                    <button
+                      type="button"
+                      onClick={() => handleUnsuspendUser(inspectorUser)}
+                      className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/30 transition"
+                    >
+                      ✅ Unsuspend Account
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setSuspendModalUser(inspectorUser)}
+                      className="w-full py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg shadow-red-600/30 transition"
+                    >
+                      🚫 Suspend User
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="p-2.5 rounded-xl bg-black/50 border border-white/10">
-                <div className="text-[10px] text-gray-500 uppercase">Pillar 3</div>
-                <div className="font-black text-purple-400">
-                  {inspectorUser.has_paid_pillar3
-                    ? `ACTIVE (${inspectorUser.pillar3_tier || 'pro'})`
-                    : 'LOCKED'}
-                </div>
-              </div>
-            </div>
 
-            {/* Executive 1-on-1 VIP Direct Controls inside Inspector Modal */}
-            <div className="p-4 rounded-2xl bg-black/70 border border-amber-500/30 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] font-black uppercase tracking-wider text-amber-300">
-                  👑 1-on-1 Executive VIP Controls & Presence
-                </span>
-                <span className="text-[11px] font-mono text-emerald-300 font-bold">
-                  📍 Currently inside: {formatPresenceStatus(inspectorUser).pillarLabel} •{' '}
-                  {formatPresenceStatus(inspectorUser).timeAgoLabel}
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setVipBeamUser(inspectorUser)}
-                  className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500/30 to-yellow-500/20 hover:from-amber-500/50 hover:to-yellow-500/40 border border-amber-400/60 text-amber-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
-                >
-                  👑 Send Private Top-Screen Message
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleToggleEarlyPayoutPass(inspectorUser)}
-                  className={`px-3 py-2 rounded-xl border text-xs font-black flex items-center justify-center gap-1.5 transition ${
-                    inspectorUser.allow_early_payout_override
-                      ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-200 hover:bg-emerald-500/40'
-                      : 'bg-amber-500/15 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
-                  }`}
-                >
-                  {inspectorUser.allow_early_payout_override
-                    ? '⚡ Revoke Early Payout Pass'
-                    : '⚡ Grant 1-Time Early Payout Pass'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBeamFlashUpgrade(inspectorUser, 'P2')}
-                  className="px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
-                >
-                  🎯 Beam Pillar 2 VIP Invitation
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMilestoneBonusUser(inspectorUser)}
-                  className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/50 text-emerald-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
-                >
-                  🏆 Award Instant Milestone Bonus
-                </button>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
               <button
                 type="button"
                 onClick={() => setInspectorUser(null)}
-                className="px-5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold text-white"
+                className="w-full min-h-[46px] py-3 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-amber-500/30 text-white text-sm font-black flex items-center justify-center gap-2 transition"
               >
-                Done
+                ← Close &amp; Return to User Vault
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* SUSPEND USER MODAL */}
+      {suspendModalUser && (
+        <SuspendUserModal
+          targetUser={suspendModalUser}
+          apiFetch={apiFetch}
+          onClose={() => setSuspendModalUser(null)}
+          onSuccess={(updatedUser: any) => {
+            setUsers((prev) =>
+              prev.map((item) =>
+                item.id === suspendModalUser.id ? { ...item, ...updatedUser } : item
+              )
+            )
+            setInspectorUser((prev: any) =>
+              prev && prev.id === suspendModalUser.id ? { ...prev, ...updatedUser } : prev
+            )
+            onGlobalRefresh()
+          }}
+        />
       )}
 
       {/* PRIVATE 1-ON-1 VIP TOP-SCREEN MESSAGE BEAM COMPOSER MODAL */}
@@ -4028,6 +4479,8 @@ function LiveRadarModule({ apiFetch }: { apiFetch: any }) {
   const livekitRoomRef = useRef<Room | null>(null)
   const supabase = createClient()
 
+  useAdminModalBackGuard(Boolean(ghostWatchSession), () => setGhostWatchSession(null))
+
   const loadStreams = useCallback(async () => {
     try {
       const res = await apiFetch('FETCH_ACTIVE_STREAMS')
@@ -4297,33 +4750,53 @@ function LiveRadarModule({ apiFetch }: { apiFetch: any }) {
       )}
 
       {ghostWatchSession && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-2xl w-full bg-[#0D0D12] border-2 border-cyan-500/50 rounded-3xl overflow-hidden shadow-2xl">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-black/60">
-              <div className="flex items-center gap-2.5">
+        <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+          <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-2xl">
+            <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30">
+              <button
+                type="button"
+                onClick={() => setGhostWatchSession(null)}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5"
+              >
+                ← Back to Users
+              </button>
+              <span className="text-[11px] font-black uppercase tracking-widest text-cyan-300">
+                👁️ Ghost Observer
+              </span>
+              <button
+                type="button"
+                onClick={() => setGhostWatchSession(null)}
+                className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 space-y-4">
+              <div className="flex items-center justify-between gap-2">
                 <span className="px-2.5 py-1 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[10px] font-black uppercase">
-                  👁️ Ghost Observer Mode (Invisible to Host & Viewers)
+                  👁️ Ghost Observer Mode (Invisible to Host &amp; Viewers)
                 </span>
                 <span className="text-sm font-black text-white">
                   @{ghostWatchSession.hostUsername}
                 </span>
               </div>
+              <div
+                ref={videoContainerRef}
+                className="w-full aspect-video bg-black rounded-xl border border-white/10 flex flex-col items-center justify-center text-gray-400 text-xs p-4"
+              >
+                <Video className="w-10 h-10 text-cyan-400 animate-pulse mb-2" />
+                <span>
+                  Connecting invisible LiveKit observer feed for {ghostWatchSession.roomName}...
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setGhostWatchSession(null)}
-                className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-white text-sm font-bold flex items-center justify-center gap-1.5"
               >
-                Close Stream
+                ← Close &amp; Return to User Vault
               </button>
-            </div>
-            <div
-              ref={videoContainerRef}
-              className="w-full aspect-video bg-black flex flex-col items-center justify-center text-gray-400 text-xs p-4"
-            >
-              <Video className="w-10 h-10 text-cyan-400 animate-pulse mb-2" />
-              <span>
-                Connecting invisible LiveKit observer feed for {ghostWatchSession.roomName}...
-              </span>
             </div>
           </div>
         </div>
@@ -4341,6 +4814,8 @@ function GroupCommandModule({ apiFetch }: { apiFetch: any }) {
   const [inspectGroup, setInspectGroup] = useState<any | null>(null)
   const [inspectMessages, setInspectMessages] = useState<any[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
+
+  useAdminModalBackGuard(Boolean(inspectGroup), () => setInspectGroup(null))
 
   // #25 Admin Official Group Creator state
   const [officialName, setOfficialName] = useState('')
@@ -4589,9 +5064,30 @@ function GroupCommandModule({ apiFetch }: { apiFetch: any }) {
       )}
 
       {inspectGroup && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-2xl w-full bg-[#0D0D12] border border-cyan-500/40 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between">
+        <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+          <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-2xl">
+            <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30">
+              <button
+                type="button"
+                onClick={() => setInspectGroup(null)}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5"
+              >
+                ← Back to Users
+              </button>
+              <span className="text-[11px] font-black uppercase tracking-widest text-cyan-300">
+                👁️ Group Inspector
+              </span>
+              <button
+                type="button"
+                onClick={() => setInspectGroup(null)}
+                className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 p-4 space-y-3">
               <div>
                 <h3 className="font-black text-white text-base">
                   👁️ Inspecting: {inspectGroup.name || inspectGroup.title}
@@ -4600,54 +5096,55 @@ function GroupCommandModule({ apiFetch }: { apiFetch: any }) {
                   Showing latest {inspectMessages.length} messages in this group
                 </p>
               </div>
+
+              <div className="space-y-2.5">
+                {loadingMessages ? (
+                  <div className="p-8 text-center text-gray-500 text-xs">
+                    Loading group messages...
+                  </div>
+                ) : inspectMessages.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500 text-xs">
+                    No messages found in this group.
+                  </div>
+                ) : (
+                  inspectMessages.map((m) => (
+                    <div
+                      key={m.id}
+                      className="p-3 rounded-xl bg-black/60 border border-white/10 flex items-start justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="font-bold text-amber-400">
+                            {m.sender_username || m.sender_name || 'Member'}
+                          </span>
+                          <span className="text-[10px] text-gray-500 font-mono">
+                            {m.created_at ? new Date(m.created_at).toLocaleString() : ''}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-200 mt-1 break-words">
+                          {m.content || m.text || '[Media / Voice Attachment]'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSingleMessage(m.id)}
+                        className="p-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/30 text-red-400 shrink-0"
+                        title="Delete message"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => setInspectGroup(null)}
-                className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-white text-sm font-bold flex items-center justify-center gap-1.5"
               >
-                Close
+                ← Close &amp; Return to User Vault
               </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-              {loadingMessages ? (
-                <div className="p-8 text-center text-gray-500 text-xs">
-                  Loading group messages...
-                </div>
-              ) : inspectMessages.length === 0 ? (
-                <div className="p-8 text-center text-gray-500 text-xs">
-                  No messages found in this group.
-                </div>
-              ) : (
-                inspectMessages.map((m) => (
-                  <div
-                    key={m.id}
-                    className="p-3 rounded-xl bg-black/60 border border-white/10 flex items-start justify-between gap-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="font-bold text-amber-400">
-                          {m.sender_username || m.sender_name || 'Member'}
-                        </span>
-                        <span className="text-[10px] text-gray-500 font-mono">
-                          {m.created_at ? new Date(m.created_at).toLocaleString() : ''}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-200 mt-1 break-words">
-                        {m.content || m.text || '[Media / Voice Attachment]'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteSingleMessage(m.id)}
-                      className="p-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/30 text-red-400 shrink-0"
-                      title="Delete message"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))
-              )}
             </div>
           </div>
         </div>
@@ -4664,6 +5161,8 @@ function WhitelistModule({ apiFetch }: { apiFetch: any }) {
   const [loading, setLoading] = useState(true)
   const [publishing, setPublishing] = useState(false)
   const [editingProduct, setEditingProduct] = useState<any | null>(null)
+
+  useAdminModalBackGuard(Boolean(editingProduct), () => setEditingProduct(null))
 
   const [newProd, setNewProd] = useState({
     title: '',
@@ -5031,109 +5530,129 @@ function WhitelistModule({ apiFetch }: { apiFetch: any }) {
       </div>
 
       {editingProduct && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <form
-            onSubmit={handleSaveEditProduct}
-            className="max-w-lg w-full bg-[#0D0D12] border border-cyan-500/40 rounded-3xl p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <h3 className="font-black text-base text-cyan-400">✏️ Edit Marketplace Product</h3>
+        <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-md overflow-y-auto flex items-start justify-center p-3 pt-5 pb-20">
+          <div className="w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl overflow-hidden border border-amber-500/30 bg-zinc-950 shadow-2xl">
+            <div className="sticky top-0 z-30 flex items-center justify-between bg-zinc-950/95 backdrop-blur-md px-4 py-3 border-b border-amber-500/30">
               <button
                 type="button"
                 onClick={() => setEditingProduct(null)}
-                className="text-gray-400 hover:text-white"
+                className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-bold flex items-center gap-1.5"
+              >
+                ← Back to Users
+              </button>
+              <span className="text-[11px] font-black uppercase tracking-widest text-cyan-400">
+                ✏️ Edit Marketplace Product
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingProduct(null)}
+                className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-bold flex items-center justify-center"
+                aria-label="Close modal"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">
-                  Product Title
-                </label>
-                <input
-                  type="text"
-                  value={editingProduct.title || ''}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, title: e.target.value })}
-                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+            <form
+              onSubmit={handleSaveEditProduct}
+              className="overflow-y-auto flex-1 p-4 space-y-4"
+            >
+              <div className="space-y-3">
                 <div>
                   <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">
-                    Price (GH₵)
+                    Product Title
                   </label>
                   <input
-                    type="number"
-                    value={editingProduct.price_ghs || 0}
+                    type="text"
+                    value={editingProduct.title || ''}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, title: e.target.value })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">
+                      Price (GH₵)
+                    </label>
+                    <input
+                      type="number"
+                      value={editingProduct.price_ghs || 0}
+                      onChange={(e) =>
+                        setEditingProduct({ ...editingProduct, price_ghs: e.target.value })
+                      }
+                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">
+                      Creator Name
+                    </label>
+                    <input
+                      type="text"
+                      value={editingProduct.creator_name || ''}
+                      onChange={(e) =>
+                        setEditingProduct({ ...editingProduct, creator_name: e.target.value })
+                      }
+                      className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editingProduct.description || ''}
                     onChange={(e) =>
-                      setEditingProduct({ ...editingProduct, price_ghs: e.target.value })
+                      setEditingProduct({ ...editingProduct, description: e.target.value })
                     }
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono"
+                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white resize-none"
                   />
                 </div>
                 <div>
                   <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">
-                    Creator Name
+                    Google Drive Delivery URL
                   </label>
                   <input
-                    type="text"
-                    value={editingProduct.creator_name || ''}
+                    type="url"
+                    value={editingProduct.drive_delivery_url || ''}
                     onChange={(e) =>
-                      setEditingProduct({ ...editingProduct, creator_name: e.target.value })
+                      setEditingProduct({
+                        ...editingProduct,
+                        drive_delivery_url: e.target.value
+                      })
                     }
                     className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white"
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">
-                  Description
-                </label>
-                <textarea
-                  rows={2}
-                  value={editingProduct.description || ''}
-                  onChange={(e) =>
-                    setEditingProduct({ ...editingProduct, description: e.target.value })
-                  }
-                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white resize-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">
-                  Google Drive Delivery URL
-                </label>
-                <input
-                  type="url"
-                  value={editingProduct.drive_delivery_url || ''}
-                  onChange={(e) =>
-                    setEditingProduct({
-                      ...editingProduct,
-                      drive_delivery_url: e.target.value
-                    })
-                  }
-                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white"
-                />
-              </div>
-            </div>
 
-            <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingProduct(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-white/10 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-cyan-500 text-black font-black text-xs uppercase"
+                >
+                  Save Changes Live
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setEditingProduct(null)}
-                className="flex-1 py-2.5 rounded-xl bg-white/10 text-xs font-bold"
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-white text-sm font-bold flex items-center justify-center gap-1.5"
               >
-                Cancel
+                ← Close &amp; Return to User Vault
               </button>
-              <button
-                type="submit"
-                className="flex-1 py-2.5 rounded-xl bg-cyan-500 text-black font-black text-xs uppercase"
-              >
-                Save Changes Live
-              </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
       )}
     </div>

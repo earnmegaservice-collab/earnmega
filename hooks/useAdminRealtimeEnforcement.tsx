@@ -270,7 +270,7 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
         }
       }
 
-      // 1. Check Ban / Suspension immediately
+      // 1. Check Ban / Suspension immediately (keep session alive so Unsuspend unlocks in real time!)
       const banned =
         rawProfile.is_banned === true ||
         rawProfile.is_suspended === true ||
@@ -280,17 +280,12 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
       if (banned && !adminFlag) {
         setIsBannedOrSuspended(true)
         setBanReason(
-          rawProfile.is_banned
-            ? 'Your account has been permanently banned by Earnmega Trust & Safety.'
-            : 'Your account has been suspended by an Administrator.'
+          rawProfile.suspension_reason ||
+            'Your account has been temporarily suspended by Administration. Please contact support to resolve.'
         )
-        try {
-          const supabase = createClient()
-          await supabase.auth.signOut()
-        } catch {}
-        return
       } else {
         setIsBannedOrSuspended(false)
+        setBanReason('')
       }
 
       // 2. Check Pillar 1, Pillar 2, Pillar 3 Access Transitions
@@ -645,9 +640,32 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
           }
         })
         .on('broadcast', { event: 'ACCOUNT_SUSPENDED' }, (payload: any) => {
-          if (activeUid && payload?.payload?.target === activeUid) {
-            setIsBannedOrSuspended(true)
-            void supabase.auth.signOut()
+          const p = payload?.payload
+          const targetId = p?.target || p?.userId
+          if (activeUid && targetId === activeUid) {
+            if (p?.profile) {
+              void applyProfile(p.profile)
+            } else {
+              setIsBannedOrSuspended(true)
+              setBanReason(
+                p?.suspension_reason ||
+                  'Your account has been temporarily suspended by Administration. Please contact support to resolve.'
+              )
+              void pollEnforcementState(activeUid)
+            }
+          }
+        })
+        .on('broadcast', { event: 'ACCOUNT_RESTORED' }, (payload: any) => {
+          const p = payload?.payload
+          const targetId = p?.target || p?.userId
+          if (activeUid && targetId === activeUid) {
+            setIsBannedOrSuspended(false)
+            setBanReason('')
+            if (p?.profile) {
+              void applyProfile(p.profile)
+            } else {
+              void pollEnforcementState(activeUid)
+            }
           }
         })
         .on('broadcast', { event: 'PILLAR_ACCESS_UPDATED' }, (payload: any) => {
@@ -764,6 +782,7 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
 export function AdminRealtimeEnforcementOverlay() {
   const {
     settings,
+    profile,
     isAdminUser,
     isBannedOrSuspended,
     banReason,
@@ -789,36 +808,72 @@ export function AdminRealtimeEnforcementOverlay() {
 
   const isOnAdminRoute = pathname.startsWith('/geemings-command-x9v2')
 
-  // 1. Banned or Suspended Full-Screen Red Enforcement Screen
+  // 1. Suspended / Banned Non-Dismissible Full-Screen Crimson Security Lock Screen
   if (isBannedOrSuspended && !isOnAdminRoute) {
+    const resolvedReason =
+      banReason ||
+      profile?.suspension_reason ||
+      'Your account has been temporarily suspended by Administration. Please contact support to resolve.'
     return (
-      <div className="fixed inset-0 z-[999999] bg-gradient-to-b from-[#1f0306] via-[#0d0103] to-black flex flex-col items-center justify-center p-6 text-center select-none">
-        <div className="max-w-md w-full bg-red-950/40 border-2 border-red-500/60 rounded-3xl p-8 shadow-[0_0_90px_rgba(239,68,68,0.35)] backdrop-blur-xl">
-          <div className="w-20 h-20 rounded-2xl bg-red-500/20 border border-red-500/50 flex items-center justify-center mx-auto mb-6 animate-pulse">
+      <div className="fixed inset-0 z-[999999] bg-gradient-to-b from-[#220307] via-[#110104] to-black flex flex-col items-center justify-center p-4 sm:p-6 text-center select-none overflow-y-auto">
+        <div className="max-w-md w-full bg-red-950/50 border-2 border-red-500/70 rounded-3xl p-6 sm:p-8 shadow-[0_0_100px_rgba(239,68,68,0.45)] backdrop-blur-2xl space-y-5 my-auto">
+          <div className="w-20 h-20 rounded-2xl bg-red-500/20 border-2 border-red-500/60 flex items-center justify-center mx-auto animate-pulse shadow-lg shadow-red-500/30">
             <ShieldAlert className="w-11 h-11 text-red-500" />
           </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 text-[11px] font-black uppercase tracking-widest mb-4">
-            Access Terminated
+
+          <div>
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-red-500/25 border border-red-400/50 text-red-200 text-[11px] font-black uppercase tracking-widest mb-3">
+              <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
+              Real-Time Security Enforcement
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+              🚫 ACCOUNT SUSPENDED
+            </h1>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-3">
-            ACCOUNT SUSPENDED / BANNED
-          </h1>
-          <p className="text-red-200/80 text-sm leading-relaxed mb-6">
-            {banReason ||
-              'Your Earnmega account has been suspended or banned for violating platform Trust & Safety policies. Your active session has been signed out.'}
-          </p>
-          <button
-            onClick={async () => {
-              try {
-                const supabase = createClient()
-                await supabase.auth.signOut()
-              } catch {}
-              window.location.href = '/login'
-            }}
-            className="w-full py-3.5 px-6 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition shadow-lg shadow-red-600/30"
-          >
-            <LogOut className="w-4 h-4" /> Return to Login
-          </button>
+
+          <div className="p-4 rounded-2xl bg-black/60 border border-red-500/40 text-left space-y-2">
+            <div className="text-[10px] font-black uppercase tracking-widest text-red-300">
+              Official Administrative Reason
+            </div>
+            <p className="text-red-100 text-xs sm:text-sm font-semibold leading-relaxed">
+              {resolvedReason}
+            </p>
+            {profile?.email && (
+              <div className="pt-2 border-t border-white/10 text-xs font-mono text-gray-300">
+                Account Email: <strong className="text-white">{profile.email}</strong>
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 rounded-2xl bg-red-900/25 border border-red-400/30 text-left space-y-2">
+            <div className="text-[10px] font-black uppercase tracking-widest text-amber-300">
+              Official Support & Resolution Desk
+            </div>
+            <div className="text-xs text-gray-200 space-y-1 font-mono">
+              <div>
+                📧 Email:{' '}
+                <a
+                  href="mailto:earnmegadesk@gmail.com"
+                  className="text-amber-300 font-bold underline"
+                >
+                  earnmegadesk@gmail.com
+                </a>
+              </div>
+              <div>
+                📞 Support Line:{' '}
+                <a href="tel:0596096071" className="text-emerald-300 font-bold underline">
+                  0596096071
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-[11px] text-red-200/80 flex items-center justify-center gap-2 pt-1">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-red-400 shrink-0" />
+            <span>
+              Live sync active — this screen automatically unlocks the moment Administration unsuspends your account.
+            </span>
+          </div>
         </div>
       </div>
     )
