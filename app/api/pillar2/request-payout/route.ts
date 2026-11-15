@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     const admin = getAdminClient();
     const user = await requireAuthedUser(request, admin);
 
-    const [{ data: requests, error: reqErr }, { data: profile }] = await Promise.all([
+    const [{ data: requests, error: reqErr }, { data: profile }, { data: platformSettings }] = await Promise.all([
       admin
         .from('pillar2_payout_requests')
         .select('*')
@@ -29,8 +29,13 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: false }),
       admin
         .from('profiles')
-        .select('affiliate_balance, affiliate_withdrawn, affiliate_total_earned, affiliate_total_sales')
+        .select('affiliate_balance, affiliate_withdrawn, affiliate_total_earned, affiliate_total_sales, allow_early_payout_override')
         .eq('id', user.id)
+        .maybeSingle(),
+      admin
+        .from('platform_settings')
+        .select('force_open_friday_payouts, freeze_p2_withdrawals')
+        .eq('id', 1)
         .maybeSingle(),
     ]);
 
@@ -43,6 +48,8 @@ export async function GET(request: Request) {
       requests: requests || [],
       affiliate_balance: Number(profile?.affiliate_balance ?? 0),
       affiliate_withdrawn: Number(profile?.affiliate_withdrawn ?? 0),
+      allow_early_payout_override: Boolean(profile?.allow_early_payout_override),
+      force_open_friday_payouts: Boolean(platformSettings?.force_open_friday_payouts),
     });
   } catch (err) {
     return paywallErrorResponse(err);
@@ -54,16 +61,37 @@ export async function POST(request: Request) {
     const admin = getAdminClient();
     const user = await requireAuthedUser(request, admin);
 
-    // Phase 2 Kill Switch Check: freeze_p2_withdrawals
-    const { data: platformSettings } = await admin
-      .from('platform_settings')
-      .select('freeze_p2_withdrawals')
-      .eq('id', 1)
-      .maybeSingle();
+    // Phase 2 Kill Switch Check & Friday Payout Override Check
+    const [{ data: platformSettings }, { data: userProfile }] = await Promise.all([
+      admin
+        .from('platform_settings')
+        .select('freeze_p2_withdrawals, force_open_friday_payouts')
+        .eq('id', 1)
+        .maybeSingle(),
+      admin
+        .from('profiles')
+        .select('allow_early_payout_override')
+        .eq('id', user.id)
+        .maybeSingle(),
+    ]);
 
     if (platformSettings?.freeze_p2_withdrawals) {
       return NextResponse.json(
         { error: '⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.' },
+        { status: 403 }
+      );
+    }
+
+    // Strict GMT Friday Detection (or Admin Override)
+    const isFridayGMT = new Date().getUTCDay() === 5;
+    const isFridayPayoutWindowOpen =
+      isFridayGMT ||
+      Boolean(platformSettings?.force_open_friday_payouts) ||
+      Boolean(userProfile?.allow_early_payout_override);
+
+    if (!isFridayPayoutWindowOpen) {
+      return NextResponse.json(
+        { error: 'Payout requests are strictly restricted to Fridays (00:00 - 23:59 GMT).' },
         { status: 403 }
       );
     }
@@ -125,6 +153,17 @@ export async function POST(request: Request) {
     const reqRow = rpcData.request;
     const balanceBefore = Number(rpcData.balance_before_ghs ?? reqRow.balance_before_ghs ?? 0);
     const balanceAfter = Number(rpcData.balance_after_ghs ?? reqRow.balance_after_ghs ?? 0);
+
+    // If user used their 1-Time Early Payout Pass on a non-Friday (or whenever active), automatically reset it to false
+    const earlyPassConsumed = Boolean(userProfile?.allow_early_payout_override);
+    if (earlyPassConsumed) {
+      try {
+        await admin
+          .from('profiles')
+          .update({ allow_early_payout_override: false })
+          .eq('id', user.id);
+      } catch (_) {}
+    }
 
     // Notify affiliate inside dashboard bell
     try {
@@ -235,6 +274,7 @@ export async function POST(request: Request) {
       request: reqRow,
       balance_before_ghs: balanceBefore,
       balance_after_ghs: balanceAfter,
+      early_pass_consumed: earlyPassConsumed,
       emailSent,
       emailError,
     });

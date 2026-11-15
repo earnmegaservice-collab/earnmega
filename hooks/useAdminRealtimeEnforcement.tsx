@@ -2,8 +2,23 @@
 
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { ShieldAlert, Lock, Wrench, LogOut, Sparkles, RefreshCw, ExternalLink, X } from 'lucide-react'
+import { ShieldAlert, Lock, Wrench, LogOut, Sparkles, RefreshCw, ExternalLink, X, Crown, Gem, AlertTriangle, Trophy, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+export interface AdminDirectMessage {
+  id: string
+  target_user_id: string
+  target_email?: string | null
+  theme: 'royal_gold' | 'emerald_vip' | 'crimson_alert' | 'cyber_diamond'
+  badge_label: string
+  title: string
+  message: string
+  cta_text?: string | null
+  cta_url?: string | null
+  is_active: boolean
+  acknowledged_at?: string | null
+  created_at: string
+}
 
 export interface PlatformSettings {
   id: number
@@ -11,6 +26,7 @@ export interface PlatformSettings {
   maintenance_message: string
   freeze_p1_withdrawals: boolean
   freeze_p2_withdrawals: boolean
+  force_open_friday_payouts?: boolean
   disable_live_streams: boolean
   disable_new_signups: boolean
   lock_pillar1: boolean
@@ -42,6 +58,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettings = {
   maintenance_message: 'Earnmega is undergoing a scheduled system upgrade. Back shortly!',
   freeze_p1_withdrawals: false,
   freeze_p2_withdrawals: false,
+  force_open_friday_payouts: false,
   disable_live_streams: false,
   disable_new_signups: false,
   lock_pillar1: false,
@@ -129,16 +146,35 @@ function checkIsPillar1PaidValid(profile: any): boolean {
   return profile.has_paid_global_chat === true || profile.is_paid === true
 }
 
+function resolveCurrentActivePillar(): string {
+  if (typeof window === 'undefined') return 'Homepage'
+  const path = window.location.pathname || '/'
+  if (path.startsWith('/affiliate')) return 'Pillar 2 Affiliate'
+  if (path.startsWith('/horpal-ai')) return 'Pillar 3 AI'
+  if (
+    path.startsWith('/chats') ||
+    path.startsWith('/explore') ||
+    path.startsWith('/live') ||
+    path.startsWith('/profile') ||
+    path.startsWith('/wallet')
+  ) {
+    return 'Pillar 1 Chat'
+  }
+  return 'Homepage'
+}
+
 export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcementOptions = {}) {
   const { pillar, onForceOpenPaywall, onForceUnlockPillar, onSettingsChanged, onProfileChanged } =
     options
   const [settings, setSettings] = useState<PlatformSettings>(DEFAULT_PLATFORM_SETTINGS)
   const [profile, setProfile] = useState<any>(null)
+  const [activeDirectMessage, setActiveDirectMessage] = useState<AdminDirectMessage | null>(null)
   const [isBannedOrSuspended, setIsBannedOrSuspended] = useState(false)
   const [banReason, setBanReason] = useState<string>('')
   const [isAdminUser, setIsAdminUser] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const mountTimestampRef = useRef<number>(Date.now())
+  const acknowledgedIdsRef = useRef<Set<string>>(new Set())
 
   const prevAccessRef = useRef<{
     initialized: boolean
@@ -174,6 +210,7 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
       maintenance_mode: Boolean(payloadObj.maintenance_mode),
       freeze_p1_withdrawals: Boolean(payloadObj.freeze_p1_withdrawals),
       freeze_p2_withdrawals: Boolean(payloadObj.freeze_p2_withdrawals),
+      force_open_friday_payouts: Boolean(payloadObj.force_open_friday_payouts),
       disable_live_streams: Boolean(payloadObj.disable_live_streams),
       disable_new_signups: Boolean(payloadObj.disable_new_signups),
       lock_pillar1: Boolean(payloadObj.lock_pillar1),
@@ -393,8 +430,9 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
   const pollEnforcementState = useCallback(
     async (uid: string | null) => {
       try {
+        const currentPillar = resolveCurrentActivePillar()
         const query = uid
-          ? `?userId=${encodeURIComponent(uid)}&_t=${Date.now()}`
+          ? `?userId=${encodeURIComponent(uid)}&pillar=${encodeURIComponent(currentPillar)}&_t=${Date.now()}`
           : `?_t=${Date.now()}`
         const res = await fetch(`/api/admin/action${query}`, {
           method: 'GET',
@@ -408,9 +446,51 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
         if (data?.profile) {
           await applyProfile(data.profile)
         }
+        if (uid) {
+          const dms: AdminDirectMessage[] = Array.isArray(data?.directMessages)
+            ? data.directMessages
+            : data?.activeDirectMessage
+            ? [data.activeDirectMessage]
+            : []
+          const nextActive =
+            dms.find(
+              (m) => m && m.is_active && !acknowledgedIdsRef.current.has(String(m.id))
+            ) || null
+          setActiveDirectMessage(nextActive)
+        } else {
+          setActiveDirectMessage(null)
+        }
       } catch {}
     },
     [applySettings, applyProfile]
+  )
+
+  const acknowledgeDirectMessage = useCallback(
+    async (messageId: string) => {
+      if (!messageId) return
+      acknowledgedIdsRef.current.add(messageId)
+      setActiveDirectMessage((prev) => (prev?.id === messageId ? null : prev))
+
+      try {
+        await fetch('/api/admin/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'ACKNOWLEDGE_DIRECT_MESSAGE',
+            payload: { messageId, userId }
+          })
+        })
+      } catch {}
+
+      try {
+        const supabase = createClient()
+        await supabase
+          .from('admin_direct_messages')
+          .update({ is_active: false, acknowledged_at: new Date().toISOString() })
+          .eq('id', messageId)
+      } catch {}
+    },
+    [userId]
   )
 
   useEffect(() => {
@@ -447,6 +527,23 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
             (payload: any) => {
               if (payload?.new) {
                 void applyProfile(payload.new)
+              }
+            }
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'admin_direct_messages',
+              filter: `target_user_id=eq.${uid}`
+            },
+            (payload: any) => {
+              const row = payload?.new as AdminDirectMessage | undefined
+              if (row && row.is_active && !acknowledgedIdsRef.current.has(String(row.id))) {
+                setActiveDirectMessage(row)
+              } else {
+                void pollEnforcementState(uid)
               }
             }
           )
@@ -571,6 +668,27 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
             }
           }
         })
+        .on('broadcast', { event: 'DIRECT_MESSAGE_BEAMED' }, (payload: any) => {
+          const p = payload?.payload
+          if (activeUid && p?.targetUserId === activeUid) {
+            if (p?.directMessage && !acknowledgedIdsRef.current.has(String(p.directMessage.id))) {
+              setActiveDirectMessage(p.directMessage)
+            } else {
+              void pollEnforcementState(activeUid)
+            }
+          }
+        })
+        .on('broadcast', { event: 'DIRECT_MESSAGE_CLEARED' }, (payload: any) => {
+          const p = payload?.payload
+          if (activeUid && (!p?.targetUserId || p.targetUserId === activeUid)) {
+            setActiveDirectMessage((prev) => {
+              if (!prev) return null
+              if (p?.messageId && prev.id !== p.messageId) return prev
+              return null
+            })
+            void pollEnforcementState(activeUid)
+          }
+        })
         .on('broadcast', { event: 'COIN_AIRDROP_CELEBRATION' }, (payload: any) => {
           const p = payload?.payload
           if (p?.bonus) {
@@ -602,7 +720,7 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
 
     const intervalId = setInterval(() => {
       void pollEnforcementState(activeUid)
-    }, 5000)
+    }, 4000)
 
     const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
       const nextUid = session?.user?.id || null
@@ -637,14 +755,24 @@ export function useAdminRealtimeEnforcement(options: UseAdminRealtimeEnforcement
     isAdminUser,
     isBannedOrSuspended,
     banReason,
+    activeDirectMessage,
+    acknowledgeDirectMessage,
     refreshEnforcement: () => pollEnforcementState(userId)
   }
 }
 
 export function AdminRealtimeEnforcementOverlay() {
-  const { settings, isAdminUser, isBannedOrSuspended, banReason } = useAdminRealtimeEnforcement()
+  const {
+    settings,
+    isAdminUser,
+    isBannedOrSuspended,
+    banReason,
+    activeDirectMessage,
+    acknowledgeDirectMessage
+  } = useAdminRealtimeEnforcement()
   const [pathname, setPathname] = useState<string>('')
   const [dismissedPopupId, setDismissedPopupId] = useState<string>('')
+  const [isAcknowledging, setIsAcknowledging] = useState<boolean>(false)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -806,8 +934,150 @@ export function AdminRealtimeEnforcementOverlay() {
     Boolean(settings.full_screen_popup_message) &&
     settings.full_screen_popup_id !== dismissedPopupId
 
+  const dmTheme = activeDirectMessage?.theme || 'royal_gold'
+  const dmStyles =
+    dmTheme === 'emerald_vip'
+      ? {
+          outerBorder:
+            'from-emerald-400 via-teal-300 to-emerald-500 shadow-[0_20px_70px_rgba(16,185,129,0.45)]',
+          badgeBg: 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300',
+          sealText: 'text-emerald-300',
+          iconBg: 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300',
+          ctaBtn:
+            'bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-500 text-black hover:brightness-110 shadow-lg shadow-emerald-500/30',
+          ackBtn:
+            'bg-emerald-950/80 hover:bg-emerald-900/90 border border-emerald-400/40 text-emerald-200',
+          IconComp: Gem
+        }
+      : dmTheme === 'crimson_alert'
+      ? {
+          outerBorder:
+            'from-rose-500 via-red-400 to-amber-500 shadow-[0_20px_70px_rgba(244,63,94,0.45)]',
+          badgeBg: 'bg-rose-500/20 border-rose-400/50 text-rose-200',
+          sealText: 'text-rose-300',
+          iconBg: 'bg-rose-500/20 border-rose-400/50 text-rose-300',
+          ctaBtn:
+            'bg-gradient-to-r from-rose-500 via-red-500 to-orange-500 text-white hover:brightness-110 shadow-lg shadow-rose-500/30',
+          ackBtn:
+            'bg-rose-950/80 hover:bg-rose-900/90 border border-rose-400/40 text-rose-100',
+          IconComp: AlertTriangle
+        }
+      : dmTheme === 'cyber_diamond'
+      ? {
+          outerBorder:
+            'from-cyan-400 via-fuchsia-400 to-amber-300 shadow-[0_20px_70px_rgba(56,189,248,0.45)]',
+          badgeBg: 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200',
+          sealText: 'text-cyan-300',
+          iconBg: 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300',
+          ctaBtn:
+            'bg-gradient-to-r from-cyan-400 via-sky-400 to-amber-300 text-black hover:brightness-110 shadow-lg shadow-cyan-500/30',
+          ackBtn:
+            'bg-slate-900/90 hover:bg-slate-800 border border-cyan-400/40 text-cyan-200',
+          IconComp: Trophy
+        }
+      : {
+          outerBorder:
+            'from-amber-300 via-yellow-500 to-amber-400 shadow-[0_20px_70px_rgba(245,158,11,0.45)]',
+          badgeBg: 'bg-amber-500/20 border-amber-400/50 text-amber-200',
+          sealText: 'text-amber-300',
+          iconBg: 'bg-amber-500/20 border-amber-400/50 text-amber-300',
+          ctaBtn:
+            'bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-400 text-black hover:brightness-110 shadow-lg shadow-amber-500/30',
+          ackBtn:
+            'bg-amber-950/70 hover:bg-amber-900/80 border border-amber-400/40 text-amber-200',
+          IconComp: Crown
+        }
+
+  const DmIcon = dmStyles.IconComp
+
   return (
     <>
+      {/* UPGRADE 2.3: ULTRA-PREMIUM TOP-OF-SCREEN PRIVATE 1-ON-1 MESSAGE BEAM */}
+      {activeDirectMessage && !isOnAdminRoute && (
+        <div className="fixed top-3 left-3 right-3 z-[999999] max-w-lg mx-auto pointer-events-auto animate-in fade-in slide-in-from-top-4 duration-300">
+          <div
+            className={`p-[2px] rounded-2xl bg-gradient-to-r ${dmStyles.outerBorder} transition-all duration-300`}
+          >
+            <div className="rounded-[14px] backdrop-blur-2xl bg-black/90 px-4 py-3.5 sm:px-5 sm:py-4 text-left relative overflow-hidden">
+              {/* Subtle luxury ambient glow */}
+              <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-amber-400/10 blur-2xl pointer-events-none" />
+
+              {/* Top Verified Seal Row */}
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <span
+                    className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wider ${dmStyles.sealText}`}
+                  >
+                    👑 PRIVATE MESSAGE FROM GERALD (FOUNDER) • FOR YOUR EYES ONLY
+                  </span>
+                </div>
+                <span
+                  className={`hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${dmStyles.badgeBg}`}
+                >
+                  {activeDirectMessage.badge_label || '👑 EXECUTIVE DIRECTIVE'}
+                </span>
+              </div>
+
+              {/* Main Content Row */}
+              <div className="flex items-start gap-3">
+                <div
+                  className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 ${dmStyles.iconBg}`}
+                >
+                  <DmIcon className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="sm:hidden mb-1">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${dmStyles.badgeBg}`}
+                    >
+                      {activeDirectMessage.badge_label || '👑 EXECUTIVE DIRECTIVE'}
+                    </span>
+                  </div>
+                  <h3 className="text-sm sm:text-base font-black text-white leading-snug mb-1">
+                    {activeDirectMessage.title}
+                  </h3>
+                  <p className="text-xs sm:text-[13px] text-slate-200/95 leading-relaxed whitespace-pre-wrap">
+                    {activeDirectMessage.message}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons Row */}
+              <div className="mt-3.5 pt-2.5 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
+                {activeDirectMessage.cta_text && activeDirectMessage.cta_url && (
+                  <a
+                    href={activeDirectMessage.cta_url}
+                    onClick={async () => {
+                      setIsAcknowledging(true)
+                      await acknowledgeDirectMessage(activeDirectMessage.id)
+                      setIsAcknowledging(false)
+                    }}
+                    className={`py-2 px-3.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition ${dmStyles.ctaBtn}`}
+                  >
+                    <span>{activeDirectMessage.cta_text}</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  disabled={isAcknowledging}
+                  onClick={async () => {
+                    setIsAcknowledging(true)
+                    await acknowledgeDirectMessage(activeDirectMessage.id)
+                    setIsAcknowledging(false)
+                  }}
+                  className={`py-2 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition ${dmStyles.ackBtn}`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{isAcknowledging ? 'Confirming...' : '✓ Acknowledge & Dismiss'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* #5 Global Sticky Announcement Marquee */}
       {settings.global_announcement_banner &&
         settings.global_announcement_banner.trim().length > 0 &&

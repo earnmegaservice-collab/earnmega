@@ -467,6 +467,565 @@ export default function GodModeCommandCenter({ adminEmail }: { adminEmail?: stri
 }
 
 /* ============================================================================
+   SHARED HELPERS: LIVE ONLINE PRESENCE RADAR, PRIVATE 1-ON-1 VIP TOP-SCREEN
+   MESSAGE BEAM COMPOSER MODAL & MILESTONE BONUS BOOSTER MODAL
+   ============================================================================ */
+function formatPresenceStatus(user: any): {
+  isOnlineNow: boolean
+  pillarLabel: string
+  timeAgoLabel: string
+  secondsAgo: number
+} {
+  const rawPillar = String(user?.current_active_pillar || '').trim()
+  const pillarLabel =
+    rawPillar === 'Pillar 2 Affiliate'
+      ? 'Pillar 2 Affiliate Hub'
+      : rawPillar === 'Pillar 1 Chat'
+      ? 'Pillar 1 Global Chat'
+      : rawPillar === 'Pillar 3 AI'
+      ? 'Pillar 3 HorPal AI'
+      : rawPillar || 'Homepage'
+
+  if (!user?.last_seen_at) {
+    return {
+      isOnlineNow: false,
+      pillarLabel,
+      timeAgoLabel: 'No live heartbeat yet',
+      secondsAgo: 999999
+    }
+  }
+  const seenMs = new Date(user.last_seen_at).getTime()
+  if (isNaN(seenMs)) {
+    return {
+      isOnlineNow: false,
+      pillarLabel,
+      timeAgoLabel: 'Offline',
+      secondsAgo: 999999
+    }
+  }
+  const secondsAgo = Math.max(0, Math.floor((Date.now() - seenMs) / 1000))
+  const isOnlineNow = secondsAgo <= 60
+  let timeAgoLabel = `Active ${secondsAgo}s ago`
+  if (secondsAgo >= 86400) {
+    timeAgoLabel = `Active ${Math.floor(secondsAgo / 86400)}d ago`
+  } else if (secondsAgo >= 3600) {
+    timeAgoLabel = `Active ${Math.floor(secondsAgo / 3600)}h ago`
+  } else if (secondsAgo >= 60) {
+    timeAgoLabel = `Active ${Math.floor(secondsAgo / 60)}m ago`
+  }
+  return {
+    isOnlineNow,
+    pillarLabel,
+    timeAgoLabel,
+    secondsAgo
+  }
+}
+
+function PrivateVipBeamModal({
+  targetUser,
+  onClose,
+  apiFetch,
+  onSent
+}: {
+  targetUser: any
+  onClose: () => void
+  apiFetch: any
+  onSent?: () => void
+}) {
+  const [theme, setTheme] = useState<'royal_gold' | 'emerald_vip' | 'crimson_alert' | 'cyber_diamond'>('royal_gold')
+  const [title, setTitle] = useState('')
+  const [message, setMessage] = useState('')
+  const [ctaText, setCtaText] = useState('')
+  const [ctaUrl, setCtaUrl] = useState('')
+  const [sending, setSending] = useState(false)
+  const [history, setHistory] = useState<any[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+
+  const displayName =
+    targetUser?.full_name ||
+    targetUser?.username ||
+    (targetUser?.email ? targetUser.email.split('@')[0] : 'Citizen')
+
+  const loadUserBeamHistory = useCallback(async () => {
+    if (!targetUser?.id) return
+    setLoadingHistory(true)
+    try {
+      const res = await apiFetch('FETCH_USER_DIRECT_MESSAGES', {
+        targetUserId: targetUser.id,
+        limit: 15
+      })
+      setHistory(res?.messages || [])
+    } catch {} finally {
+      setLoadingHistory(false)
+    }
+  }, [apiFetch, targetUser?.id])
+
+  useEffect(() => {
+    void loadUserBeamHistory()
+    const timer = setInterval(() => {
+      void loadUserBeamHistory()
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [loadUserBeamHistory])
+
+  const luxuryThemes: Array<{
+    id: 'royal_gold' | 'emerald_vip' | 'crimson_alert' | 'cyber_diamond'
+    title: string
+    subtitle: string
+    badgeLabel: string
+    borderClass: string
+  }> = [
+    {
+      id: 'royal_gold',
+      title: '👑 Royal Gold VIP',
+      subtitle: '24K Gold metallic border, obsidian glass background, floating crown icon',
+      badgeLabel: '👑 EXECUTIVE DIRECTIVE',
+      borderClass: 'border-amber-400 bg-amber-500/15 text-amber-200'
+    },
+    {
+      id: 'emerald_vip',
+      title: '💎 Emerald Treasury',
+      subtitle: 'Emerald neon glow, wealth/payout verification badge',
+      badgeLabel: '💎 EMERALD TREASURY VERIFIED',
+      borderClass: 'border-emerald-400 bg-emerald-500/15 text-emerald-200'
+    },
+    {
+      id: 'crimson_alert',
+      title: '🚨 Priority Security Notice',
+      subtitle: 'Ruby crimson executive alert border',
+      badgeLabel: '🚨 PRIORITY SECURITY NOTICE',
+      borderClass: 'border-rose-500 bg-rose-500/15 text-rose-200'
+    },
+    {
+      id: 'cyber_diamond',
+      title: '🎉 Prestigious Congratulations',
+      subtitle: 'Animated confetti shimmer + diamond trophy badge',
+      badgeLabel: '🎉 PRESTIGIOUS CONGRATULATIONS',
+      borderClass: 'border-cyan-400 bg-cyan-500/15 text-cyan-200'
+    }
+  ]
+
+  const handleSendBeam = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!title.trim() || !message.trim()) {
+      toast.error('Please enter both a Headline Title and Message Body')
+      return
+    }
+    setSending(true)
+    try {
+      const selectedThemeObj = luxuryThemes.find((t) => t.id === theme)
+      await apiFetch('SEND_DIRECT_USER_MESSAGE', {
+        targetUserId: targetUser.id,
+        targetEmail: targetUser.email || '',
+        theme,
+        badgeLabel: selectedThemeObj?.badgeLabel || '👑 EXECUTIVE DIRECTIVE',
+        title: title.trim(),
+        message: message.trim(),
+        ctaText: ctaText.trim() || null,
+        ctaUrl: ctaUrl.trim() || null
+      })
+      toast.success(`👑 Private top-screen message beamed to ${displayName}!`)
+      setTitle('')
+      setMessage('')
+      await loadUserBeamHistory()
+      onSent?.()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to beam message')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleRecallMessage = async (msgId?: string) => {
+    try {
+      await apiFetch('CLEAR_DIRECT_USER_MESSAGE', {
+        messageId: msgId,
+        targetUserId: targetUser.id
+      })
+      toast.success('🗑️ Active top-screen message recalled from user screen!')
+      await loadUserBeamHistory()
+      onSent?.()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to recall message')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+      <div className="max-w-2xl w-full bg-[#0B0D14] border-2 border-amber-500/50 rounded-3xl p-5 sm:p-6 space-y-5 shadow-[0_0_80px_rgba(245,158,11,0.3)] my-8">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-widest mb-1.5">
+              💬 Private 1-on-1 VIP Top-Screen Beam
+            </div>
+            <h3 className="text-lg sm:text-xl font-black text-white">
+              👑 Send Private Top-Screen Message
+            </h3>
+            <p className="text-xs font-mono text-amber-300 mt-1">
+              To: <strong className="text-white">{displayName}</strong> ({targetUser?.email || 'No email'}) — Only you and this user will see this message
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-gray-300"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSendBeam} className="space-y-4">
+          {/* 1 of 4 Luxury Card Themes */}
+          <div>
+            <label className="text-[11px] font-black uppercase tracking-wider text-gray-300 block mb-2">
+              1. Pick Luxury Card Theme
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {luxuryThemes.map((t) => {
+                const isSelected = theme === t.id
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTheme(t.id)}
+                    className={`p-3 rounded-2xl border text-left transition ${
+                      isSelected
+                        ? `${t.borderClass} border-2 shadow-lg`
+                        : 'bg-black/60 border-white/10 text-gray-400 hover:border-white/25'
+                    }`}
+                  >
+                    <div className="font-black text-xs text-white mb-0.5">{t.title}</div>
+                    <div className="text-[10px] text-gray-300 leading-snug">{t.subtitle}</div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Quick Presets */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase text-gray-400 mr-1">Quick Fill:</span>
+            <button
+              type="button"
+              onClick={() => {
+                setTheme('royal_gold')
+                setTitle(`👑 Executive Message for ${displayName}`)
+                setMessage(
+                  `Hi ${displayName}, this is Gerald (Founder). Your account is under VIP executive priority. Let's scale your daily results this week!`
+                )
+                setCtaText('Open Pillar 2 Hub')
+                setCtaUrl('/affiliate')
+              }}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-bold"
+            >
+              👑 Executive VIP Greeting
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTheme('emerald_vip')
+                setTitle('💎 Treasury Payout Verification Update')
+                setMessage(
+                  `Hi ${displayName}, your affiliate treasury profile has been verified by Admin. Your settlement is being processed with priority.`
+                )
+                setCtaText('View Payout Status')
+                setCtaUrl('/affiliate?section=payouts')
+              }}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold"
+            >
+              💎 Treasury Verification
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTheme('cyber_diamond')
+                setTitle(`🎉 Prestigious Congratulations, ${displayName}!`)
+                setMessage(
+                  `Outstanding performance! Gerald (Founder) is recognizing your momentum on Earnmega. Keep pushing to the top of the leaderboard!`
+                )
+                setCtaText('Open Affiliate Dashboard')
+                setCtaUrl('/affiliate')
+              }}
+              className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold"
+            >
+              🎉 Congratulations Card
+            </button>
+          </div>
+
+          {/* Headline Title & Message Body */}
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-gray-300 block mb-1">
+                2. Headline Title
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. 👑 Personal Executive Note from Gerald (Founder)"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full bg-black border border-white/15 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-bold text-white outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-gray-300 block mb-1">
+                3. Private Message Body
+              </label>
+              <textarea
+                rows={3}
+                required
+                placeholder="Type your private 1-on-1 message that will pin to the very top of ONLY this user's phone screen..."
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                className="w-full bg-black border border-white/15 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="text-[10px] font-bold uppercase text-gray-400 block mb-1">
+                  Optional Action Button Text
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Open Pillar 2 Hub"
+                  value={ctaText}
+                  onChange={(e) => setCtaText(e.target.value)}
+                  className="w-full bg-black border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase text-gray-400 block mb-1">
+                  Optional Action Link URL
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. /affiliate"
+                  value={ctaUrl}
+                  onChange={(e) => setCtaUrl(e.target.value)}
+                  className="w-full bg-black border border-white/15 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <button
+              type="submit"
+              disabled={sending}
+              className="flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-400 to-orange-400 hover:brightness-110 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/25"
+            >
+              {sending ? 'Beaming to User Screen...' : '👑 Beam Private Message to Top of User Screen'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRecallMessage()}
+              className="py-3 px-4 rounded-xl bg-red-500/15 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-black text-xs uppercase tracking-wider"
+            >
+              🗑️ Clear / Recall Active Message
+            </button>
+          </div>
+        </form>
+
+        {/* Live Delivery & Read Status */}
+        <div className="border-t border-white/10 pt-4 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+              📡 Live Delivery & Read Status ({history.length})
+            </span>
+            <button
+              type="button"
+              onClick={loadUserBeamHistory}
+              className="text-[11px] text-gray-400 hover:text-white flex items-center gap-1"
+            >
+              <RefreshCw className={`w-3 h-3 ${loadingHistory ? 'animate-spin' : ''}`} /> Refresh Status
+            </button>
+          </div>
+
+          {history.length === 0 ? (
+            <div className="p-4 rounded-xl bg-black/50 border border-white/5 text-center text-xs text-gray-500">
+              No private top-screen messages sent to this user yet.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {history.map((m: any) => (
+                <div
+                  key={m.id}
+                  className="p-3 rounded-xl bg-black/60 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-black text-white truncate">{m.title}</span>
+                      {m.is_active ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-black">
+                          🟢 Active on User&apos;s Screen
+                        </span>
+                      ) : m.acknowledged_at ? (
+                        <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[10px] font-black">
+                          ✅ Read & Acknowledged by User at {new Date(m.acknowledged_at).toLocaleTimeString()}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-white/10 text-gray-400 text-[10px] font-bold">
+                          Recalled / Cleared
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-400 truncate mt-0.5">{m.message}</p>
+                  </div>
+                  {m.is_active && (
+                    <button
+                      type="button"
+                      onClick={() => handleRecallMessage(m.id)}
+                      className="shrink-0 px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/35 border border-red-500/40 text-red-300 text-[10px] font-black"
+                    >
+                      🗑️ Clear / Recall Message
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MilestoneBonusModal({
+  targetUser,
+  onClose,
+  apiFetch,
+  onSuccess
+}: {
+  targetUser: any
+  onClose: () => void
+  apiFetch: any
+  onSuccess: (updatedBalance: number) => void
+}) {
+  const [amountGhs, setAmountGhs] = useState('50')
+  const [reason, setReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const displayName =
+    targetUser?.full_name ||
+    targetUser?.username ||
+    (targetUser?.email ? targetUser.email.split('@')[0] : 'VIP Affiliate')
+
+  const handleAward = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const num = Number(amountGhs)
+    if (!Number.isFinite(num) || num <= 0) {
+      toast.error('Please enter a valid positive GH₵ bonus amount')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await apiFetch('AWARD_MILESTONE_BONUS', {
+        targetUserId: targetUser.id,
+        amountGhs: num,
+        reason: reason.trim() || undefined
+      })
+      toast.success(
+        `🏆 Awarded +GH₵ ${num.toFixed(2)} Milestone Bonus to ${displayName} & beamed celebratory trophy card!`
+      )
+      onSuccess(Number(res?.newBalance ?? 0))
+      onClose()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to award milestone bonus')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-[#0B0D14] border-2 border-cyan-400/60 rounded-3xl p-6 space-y-4 shadow-[0_0_70px_rgba(56,189,248,0.3)]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-[10px] font-black uppercase tracking-widest mb-1">
+              🏆 Executive Milestone Booster
+            </span>
+            <h3 className="text-lg font-black text-white">
+              Award Instant Milestone Bonus (+GH₵)
+            </h3>
+            <p className="text-xs text-gray-400 font-mono mt-0.5">
+              Recipient: <strong className="text-white">{displayName}</strong> ({targetUser?.email})
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-gray-300"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleAward} className="space-y-3.5">
+          <div>
+            <label className="text-[11px] font-black uppercase text-gray-300 block mb-1">
+              Bonus Amount to Credit (+GH₵)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                step="0.01"
+                min="1"
+                required
+                value={amountGhs}
+                onChange={(e) => setAmountGhs(e.target.value)}
+                className="flex-1 bg-black border border-white/15 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-base font-mono font-black text-emerald-400 outline-none"
+              />
+              {['50', '100', '250', '500'].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setAmountGhs(preset)}
+                  className="px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs font-mono font-bold text-cyan-300"
+                >
+                  +{preset}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-black uppercase text-gray-300 block mb-1">
+              Celebratory Top-Screen Trophy Message (Optional)
+            </label>
+            <textarea
+              rows={3}
+              placeholder={`Leave blank for default celebratory message to ${displayName}...`}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full bg-black border border-white/15 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+            />
+          </div>
+
+          <div className="flex gap-2.5 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl bg-white/10 text-xs font-bold text-gray-300"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-400 via-sky-400 to-amber-300 text-black font-black text-xs uppercase tracking-wider"
+            >
+              {submitting ? 'Crediting & Beaming...' : `🏆 Credit +GH₵ ${amountGhs || 0} & Beam Trophy`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+/* ============================================================================
    MODULE 1: OVERWATCH & MATRIX (#1, #3, #4, #5, #6, #7, #8, #21, #35 + PHASE 2 VAULT)
    ============================================================================ */
 function OverwatchModule({
@@ -480,6 +1039,8 @@ function OverwatchModule({
   onRefresh: () => void
   apiFetch: any
 }) {
+  // Private 1-on-1 VIP Beam Modal state from Overwatch Live Presence Radar
+  const [beamTargetUser, setBeamTargetUser] = useState<any | null>(null)
   // #6 Full-Screen Popup Broadcast Modal state
   const [popupTitle, setPopupTitle] = useState('')
   const [popupMessage, setPopupMessage] = useState('')
@@ -896,6 +1457,90 @@ function OverwatchModule({
           color="red"
         />
       </div>
+
+      {/* UPGRADE 3.2: 🕵️‍♂️ LIVE ONLINE PRESENCE & PILLAR ACTIVITY RADAR (WHO IS INSIDE WHICH PILLAR RIGHT NOW) */}
+      <div className="bg-[#080C14] border-2 border-emerald-500/40 rounded-2xl p-4 sm:p-5 shadow-[0_0_40px_rgba(16,185,129,0.12)] space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+            <div>
+              <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-emerald-400">
+                🕵️‍♂️ Live Online Presence & Pillar Activity Radar
+              </h3>
+              <p className="text-[11px] text-gray-400">
+                Real-time 4-second heartbeat radar showing who is online right now and which Pillar they are inside.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-black">
+              🟢 {stats?.onlineRightNowCount ?? kpi.onlineNow ?? 0} ONLINE NOW
+            </span>
+          </div>
+        </div>
+
+        {(stats?.onlineUsers || []).length === 0 ? (
+          <div className="p-6 rounded-xl bg-black/60 border border-white/5 text-center text-xs text-gray-400">
+            Waiting for live user heartbeats — users appear here automatically as they browse Homepage, Pillar 1, Pillar 2, or Pillar 3.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+            {(stats?.onlineUsers || []).slice(0, 24).map((u: any) => {
+              const pres = formatPresenceStatus(u)
+              return (
+                <div
+                  key={u.id}
+                  className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                    pres.isOnlineNow
+                      ? 'bg-emerald-950/20 border-emerald-500/40'
+                      : 'bg-black/60 border-white/10'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {pres.isOnlineNow ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 text-[10px] font-black">
+                          🟢 ONLINE NOW
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white/10 text-gray-400 text-[10px] font-bold">
+                          ⚪ {pres.timeAgoLabel}
+                        </span>
+                      )}
+                      <span className="font-black text-xs text-white truncate">
+                        {u.full_name || u.username || 'Citizen'}
+                      </span>
+                      <span className="text-[11px] font-mono text-gray-400 truncate">
+                        ({u.email || '@user'})
+                      </span>
+                    </div>
+                    <div className="text-[11px] font-mono text-amber-300 mt-1">
+                      📍 Currently inside: <strong className="text-white">{pres.pillarLabel}</strong> • {pres.timeAgoLabel}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setBeamTargetUser(u)}
+                    className="shrink-0 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black font-black text-[11px] flex items-center justify-center gap-1 shadow-md shadow-amber-500/20"
+                  >
+                    👑 Send Private Top-Screen Message
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {beamTargetUser && (
+        <PrivateVipBeamModal
+          targetUser={beamTargetUser}
+          onClose={() => setBeamTargetUser(null)}
+          apiFetch={apiFetch}
+          onSent={onRefresh}
+        />
+      )}
 
       {/* #35 LIVE ADMIN AUDIT TRAIL (OVERWATCH MATRIX) */}
       <div className="bg-[#080A0F] border border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-xl">
@@ -1786,6 +2431,65 @@ function UserVaultModule({
   const [inspectorUser, setInspectorUser] = useState<any | null>(null)
   const [customPasswordInput, setCustomPasswordInput] = useState<string>('')
   const [savingPassword, setSavingPassword] = useState<boolean>(false)
+  const [vipBeamUser, setVipBeamUser] = useState<any | null>(null)
+  const [milestoneBonusUser, setMilestoneBonusUser] = useState<any | null>(null)
+
+  const handleToggleEarlyPayoutPass = async (u: any) => {
+    const nextVal = !u.allow_early_payout_override
+    try {
+      const res = await apiFetch('TOGGLE_USER_EARLY_PAYOUT_PASS', {
+        userId: u.id,
+        enabled: nextVal
+      })
+      if (res?.user) {
+        setUsers((prev) =>
+          prev.map((item) => (item.id === u.id ? { ...item, ...res.user } : item))
+        )
+        setInspectorUser((prev: any) =>
+          prev && prev.id === u.id ? { ...prev, ...res.user } : prev
+        )
+      } else {
+        setUsers((prev) =>
+          prev.map((item) =>
+            item.id === u.id ? { ...item, allow_early_payout_override: nextVal } : item
+          )
+        )
+        setInspectorUser((prev: any) =>
+          prev && prev.id === u.id ? { ...prev, allow_early_payout_override: nextVal } : prev
+        )
+      }
+      toast.success(
+        nextVal
+          ? `⚡ Granted 1-Time Early Payout Pass to @${u.username || u.email}!`
+          : `🔒 Revoked Early Payout Pass for @${u.username || u.email}`
+      )
+      onGlobalRefresh()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update Early Payout Pass')
+    }
+  }
+
+  const handleBeamFlashUpgrade = async (u: any, pillarTarget: 'P1' | 'P2' | 'P3' = 'P2') => {
+    try {
+      await apiFetch('BEAM_FLASH_UPGRADE_INVITATION', {
+        targetUserId: u.id,
+        targetEmail: u.email,
+        pillarTarget
+      })
+      toast.success(
+        `🎯 Beamed ${
+          pillarTarget === 'P2'
+            ? 'Pillar 2 VIP Invitation (GH₵ 90)'
+            : pillarTarget === 'P3'
+            ? 'Pillar 3 AI Studio Invitation'
+            : 'Pillar 1 Global Chat Invitation'
+        } to ${u.email || u.username}'s top screen!`
+      )
+      onGlobalRefresh()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to beam Flash Upgrade Invitation')
+    }
+  }
 
   const openUserInspectorModal = (u: any) => {
     setInspectorUser(u)
@@ -1838,8 +2542,15 @@ function UserVaultModule({
   const loadUsers = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await apiFetch('FETCH_USERS_VAULT', { search, filter })
-      setUsers(data.users || [])
+      const apiFilter = filter === 'ONLINE_NOW' || filter === 'EARLY_PASS' ? 'ALL' : filter
+      const data = await apiFetch('FETCH_USERS_VAULT', { search, filter: apiFilter })
+      let fetched = data.users || []
+      if (filter === 'ONLINE_NOW') {
+        fetched = fetched.filter((u: any) => formatPresenceStatus(u).isOnlineNow)
+      } else if (filter === 'EARLY_PASS') {
+        fetched = fetched.filter((u: any) => Boolean(u.allow_early_payout_override))
+      }
+      setUsers(fetched)
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -2019,6 +2730,8 @@ function UserVaultModule({
             className="bg-[#0D0D12] border border-white/10 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none min-h-[42px]"
           >
             <option value="ALL">All Citizens</option>
+            <option value="ONLINE_NOW">🟢 Online Right Now</option>
+            <option value="EARLY_PASS">⚡ Early Payout Pass Active</option>
             <option value="P1_PAID">P1 Paid</option>
             <option value="P2_PAID">P2 Paid</option>
             <option value="P3_PAID">P3 Paid</option>
@@ -2047,6 +2760,7 @@ function UserVaultModule({
             const commRate = Math.round(Number(u.custom_commission_rate || 0.5) * 100)
             const isShadowMuted =
               u.shadow_muted_until && new Date(u.shadow_muted_until).getTime() > Date.now()
+            const pres = formatPresenceStatus(u)
 
             return (
               <div
@@ -2054,21 +2768,31 @@ function UserVaultModule({
                 className={`bg-[#0D0D12] border rounded-2xl p-4 sm:p-5 transition space-y-3 ${
                   u.is_banned || u.is_suspended
                     ? 'border-red-500/60 bg-red-950/10'
+                    : pres.isOnlineNow
+                    ? 'border-emerald-500/40 hover:border-emerald-500/60'
                     : 'border-white/10 hover:border-white/20'
                 }`}
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                    <img
-                      src={
-                        u.avatar_url ||
-                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                          u.full_name || u.username || 'U'
-                        )}&background=random`
-                      }
-                      className="w-12 h-12 rounded-2xl object-cover border border-white/15 shrink-0"
-                      alt=""
-                    />
+                    <div className="relative shrink-0">
+                      <img
+                        src={
+                          u.avatar_url ||
+                          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                            u.full_name || u.username || 'U'
+                          )}&background=random`
+                        }
+                        className="w-12 h-12 rounded-2xl object-cover border border-white/15 shrink-0"
+                        alt=""
+                      />
+                      {pres.isOnlineNow && (
+                        <span
+                          className="w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-[#0D0D12] absolute -bottom-0.5 -right-0.5 shadow-lg shadow-emerald-500/60"
+                          title="Online Right Now"
+                        />
+                      )}
+                    </div>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-black text-white text-sm sm:text-base truncate">
@@ -2077,6 +2801,24 @@ function UserVaultModule({
                         <span className="text-xs text-amber-400 font-mono">
                           @{u.username || 'user'}
                         </span>
+                        {pres.isOnlineNow ? (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 text-[10px] font-black flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                            🟢 ONLINE NOW
+                          </span>
+                        ) : pres.secondsAgo <= 900 ? (
+                          <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-black">
+                            🟡 ACTIVE RECENTLY
+                          </span>
+                        ) : null}
+                        <span className="px-2 py-0.5 rounded bg-white/5 text-gray-300 border border-white/10 text-[10px] font-mono font-bold">
+                          📍 Currently inside: {pres.pillarLabel} • {pres.timeAgoLabel}
+                        </span>
+                        {u.allow_early_payout_override && (
+                          <span className="px-2 py-0.5 rounded bg-amber-500/25 text-amber-200 border border-amber-400/60 text-[10px] font-black">
+                            ⚡ 1-TIME EARLY PAYOUT PASS ACTIVE
+                          </span>
+                        )}
                         {u.is_verified && (
                           <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[10px] font-black">
                             ✓ VERIFIED TICK
@@ -2189,8 +2931,50 @@ function UserVaultModule({
                     </div>
                   </div>
 
-                  {/* SUPREME PER-USER ACTION TOOLBAR (#12–#20, #24, #26) */}
+                  {/* SUPREME PER-USER ACTION TOOLBAR (#12–#20, #24, #26 + VIP BEAM, EARLY PAYOUT PASS, FLASH UPGRADE, MILESTONE BONUS) */}
                   <div className="flex flex-wrap items-center gap-1.5">
+                    {/* 👑 Send Private Top-Screen Message */}
+                    <button
+                      type="button"
+                      onClick={() => setVipBeamUser(u)}
+                      className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/30 to-yellow-500/20 hover:from-amber-500/50 hover:to-yellow-500/40 border border-amber-400/60 text-amber-200 text-[11px] font-black flex items-center gap-1 shadow-sm shadow-amber-500/20 transition"
+                    >
+                      👑 Send Private Top-Screen Message
+                    </button>
+
+                    {/* ⚡ Grant 1-Time Early Payout Pass */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleEarlyPayoutPass(u)}
+                      className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-black flex items-center gap-1 transition ${
+                        u.allow_early_payout_override
+                          ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-200 hover:bg-emerald-500/40'
+                          : 'bg-amber-500/15 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
+                      }`}
+                    >
+                      {u.allow_early_payout_override
+                        ? '⚡ Revoke Early Payout Pass'
+                        : '⚡ Grant 1-Time Early Payout Pass'}
+                    </button>
+
+                    {/* 🎯 Beam Pillar 2 VIP Invitation */}
+                    <button
+                      type="button"
+                      onClick={() => handleBeamFlashUpgrade(u, 'P2')}
+                      className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-200 text-[11px] font-black flex items-center gap-1 transition"
+                    >
+                      🎯 Beam Pillar 2 VIP Invitation
+                    </button>
+
+                    {/* 🏆 Award Instant Milestone Bonus */}
+                    <button
+                      type="button"
+                      onClick={() => setMilestoneBonusUser(u)}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/50 text-emerald-200 text-[11px] font-black flex items-center gap-1 transition"
+                    >
+                      🏆 Award Instant Milestone Bonus
+                    </button>
+
                     {/* User Inspector & Password Manager Modal Trigger */}
                     <button
                       type="button"
@@ -2616,6 +3400,55 @@ function UserVaultModule({
               </div>
             </div>
 
+            {/* Executive 1-on-1 VIP Direct Controls inside Inspector Modal */}
+            <div className="p-4 rounded-2xl bg-black/70 border border-amber-500/30 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-300">
+                  👑 1-on-1 Executive VIP Controls & Presence
+                </span>
+                <span className="text-[11px] font-mono text-emerald-300 font-bold">
+                  📍 Currently inside: {formatPresenceStatus(inspectorUser).pillarLabel} •{' '}
+                  {formatPresenceStatus(inspectorUser).timeAgoLabel}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVipBeamUser(inspectorUser)}
+                  className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500/30 to-yellow-500/20 hover:from-amber-500/50 hover:to-yellow-500/40 border border-amber-400/60 text-amber-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
+                >
+                  👑 Send Private Top-Screen Message
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleEarlyPayoutPass(inspectorUser)}
+                  className={`px-3 py-2 rounded-xl border text-xs font-black flex items-center justify-center gap-1.5 transition ${
+                    inspectorUser.allow_early_payout_override
+                      ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-200 hover:bg-emerald-500/40'
+                      : 'bg-amber-500/15 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
+                  }`}
+                >
+                  {inspectorUser.allow_early_payout_override
+                    ? '⚡ Revoke Early Payout Pass'
+                    : '⚡ Grant 1-Time Early Payout Pass'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBeamFlashUpgrade(inspectorUser, 'P2')}
+                  className="px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
+                >
+                  🎯 Beam Pillar 2 VIP Invitation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMilestoneBonusUser(inspectorUser)}
+                  className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/50 text-emerald-200 text-xs font-black flex items-center justify-center gap-1.5 transition"
+                >
+                  🏆 Award Instant Milestone Bonus
+                </button>
+              </div>
+            </div>
+
             <div className="flex justify-end">
               <button
                 type="button"
@@ -2627,6 +3460,53 @@ function UserVaultModule({
             </div>
           </div>
         </div>
+      )}
+
+      {/* PRIVATE 1-ON-1 VIP TOP-SCREEN MESSAGE BEAM COMPOSER MODAL */}
+      {vipBeamUser && (
+        <PrivateVipBeamModal
+          targetUser={vipBeamUser}
+          apiFetch={apiFetch}
+          onClose={() => setVipBeamUser(null)}
+          onSent={() => {
+            void loadUsers()
+            onGlobalRefresh()
+          }}
+        />
+      )}
+
+      {/* INSTANT MILESTONE BONUS BOOSTER MODAL */}
+      {milestoneBonusUser && (
+        <MilestoneBonusModal
+          targetUser={milestoneBonusUser}
+          apiFetch={apiFetch}
+          onClose={() => setMilestoneBonusUser(null)}
+          onSuccess={(updatedBalance: number) => {
+            setUsers((prev) =>
+              prev.map((item) =>
+                item.id === milestoneBonusUser.id
+                  ? {
+                      ...item,
+                      affiliate_balance: updatedBalance,
+                      available_balance_ghs: updatedBalance,
+                      affiliate_Available_Balance: updatedBalance
+                    }
+                  : item
+              )
+            )
+            setInspectorUser((prev: any) =>
+              prev && prev.id === milestoneBonusUser.id
+                ? {
+                    ...prev,
+                    affiliate_balance: updatedBalance,
+                    available_balance_ghs: updatedBalance,
+                    affiliate_Available_Balance: updatedBalance
+                  }
+                : prev
+            )
+            onGlobalRefresh()
+          }}
+        />
       )}
     </div>
   )
@@ -2656,6 +3536,37 @@ function TreasuryModule({
   const [saleAffiliateCode, setSaleAffiliateCode] = useState('')
   const [saleBuyerEmail, setSaleBuyerEmail] = useState('')
   const [recordingSale, setRecordingSale] = useState(false)
+  const [togglingFridayOverride, setTogglingFridayOverride] = useState(false)
+
+  const isFridayGMT = new Date().getUTCDay() === 5
+  const isForceOpenFriday = Boolean(data?.platformSettings?.force_open_friday_payouts)
+
+  const handleToggleForceOpenFridayPayouts = async () => {
+    const nextEnabled = !isForceOpenFriday
+    setTogglingFridayOverride(true)
+    try {
+      await apiFetch('TOGGLE_FORCE_OPEN_FRIDAY_PAYOUTS', {
+        enabled: nextEnabled
+      })
+      setData((prev: any) => ({
+        ...prev,
+        platformSettings: {
+          ...(prev?.platformSettings || {}),
+          force_open_friday_payouts: nextEnabled
+        }
+      }))
+      toast.success(
+        nextEnabled
+          ? '🔓 Friday Payout Portal FORCE-OPENED globally for all affiliates today!'
+          : '🔒 Global Override OFF — Payout Portal returned to strict Friday-Only (00:00–23:59 GMT) schedule!'
+      )
+      onGlobalRefresh()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to toggle Friday Payout Override')
+    } finally {
+      setTogglingFridayOverride(false)
+    }
+  }
 
   const loadTreasury = useCallback(async () => {
     setLoading(true)
@@ -2769,6 +3680,60 @@ function TreasuryModule({
           className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold flex items-center gap-1.5"
         >
           <RefreshCw className="w-3.5 h-3.5 text-amber-400" /> Refresh Desk
+        </button>
+      </div>
+
+      {/* NEW FEATURE 1: ⚡ FRIDAY PAYOUT LOCK OVERRIDE MASTER SWITCH */}
+      <div
+        className={`rounded-2xl p-4 sm:p-5 border transition flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+          isForceOpenFriday || isFridayGMT
+            ? 'bg-gradient-to-r from-emerald-950/60 via-[#0D0D12] to-black border-emerald-500/50 shadow-lg shadow-emerald-950/30'
+            : 'bg-gradient-to-r from-amber-950/40 via-[#0D0D12] to-black border-amber-500/40'
+        }`}
+      >
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm sm:text-base font-black text-white">
+              ⚡ Friday Payout Portal Master Control
+            </span>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                isForceOpenFriday
+                  ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-200'
+                  : isFridayGMT
+                  ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                  : 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+              }`}
+            >
+              {isForceOpenFriday
+                ? '🟢 GLOBAL OVERRIDE ACTIVE (OPEN NOW)'
+                : isFridayGMT
+                ? '🟢 LIVE FRIDAY GMT WINDOW OPEN'
+                : '🔒 STRICT FRIDAY-ONLY LOCK ACTIVE'}
+            </span>
+          </div>
+          <p className="text-xs text-gray-300 leading-relaxed max-w-2xl">
+            {isForceOpenFriday
+              ? 'Global Override is ON: All affiliates can currently submit withdrawals on any day of the week. Tap the switch on the right to lock payouts back to Friday-only (00:00–23:59 GMT).'
+              : 'By default, Pillar 2 withdrawals are strictly locked Monday–Thursday & Saturday–Sunday and open automatically every Friday (00:00–23:59 GMT). You can force-open the portal globally below, or grant a 1-Time Early Payout Pass to a single user inside User Vault.'}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          disabled={togglingFridayOverride}
+          onClick={handleToggleForceOpenFridayPayouts}
+          className={`px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wider whitespace-nowrap transition shadow-lg ${
+            isForceOpenFriday
+              ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/20'
+              : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/25'
+          } disabled:opacity-50`}
+        >
+          {togglingFridayOverride
+            ? 'Updating Portal Lock...'
+            : isForceOpenFriday
+            ? '🔒 Close Global Override (Return to Strict Friday-Only)'
+            : '🔓 Force Open Friday Payout Portal Today (Global Override)'}
         </button>
       </div>
 

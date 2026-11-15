@@ -123,16 +123,6 @@ export async function GET(req: Request) {
 // ============================================================================
 export async function POST(req: Request) {
   try {
-    // 1. STRICT FRIDAY GMT CHECK
-    const now = new Date();
-    const isFridayGMT = now.getUTCDay() === 5;
-    if (!isFridayGMT) {
-      return NextResponse.json(
-        { error: 'Payout desk is strictly open on Fridays (00:00 - 23:59 GMT).' },
-        { status: 403 }
-      );
-    }
-
     const body = await req.json();
     const userId = (body.userId || '').trim();
     const payoutMode: 'PAYSTACK_AUTO' | 'GLOBAL_MANUAL' =
@@ -142,12 +132,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized: Missing userId.' }, { status: 400 });
     }
 
-    // 2. REAL DATABASE PROFILE & LEDGER AUDIT (ZERO TRUST IN CLIENT STATE)
+    // 1. REAL DATABASE PROFILE, PLATFORM SETTINGS & FRIDAY LOCK AUDIT
+    const { data: platformSettings } = await supabaseAdmin
+      .from('platform_settings')
+      .select('freeze_p2_withdrawals, force_open_friday_payouts')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (platformSettings?.freeze_p2_withdrawals) {
+      return NextResponse.json(
+        { error: '⏸️ Withdrawals are temporarily paused for scheduled settlement auditing.' },
+        { status: 403 }
+      );
+    }
+
     let profile: any = null;
     const { data: explicitProf, error: explicitErr } = await supabaseAdmin
       .from('profiles')
       .select(
-        'id, email, full_name, username, affiliate_code, affiliate_balance, total_withdrawn, is_banned, is_wallet_frozen'
+        'id, email, full_name, username, affiliate_code, affiliate_balance, total_withdrawn, is_banned, is_wallet_frozen, allow_early_payout_override'
       )
       .eq('id', userId)
       .single();
@@ -168,6 +171,20 @@ export async function POST(req: Request) {
         );
       }
       profile = fullProf;
+    }
+
+    const now = new Date();
+    const isFridayGMT = now.getUTCDay() === 5;
+    const isFridayPayoutWindowOpen =
+      isFridayGMT ||
+      Boolean(platformSettings?.force_open_friday_payouts) ||
+      Boolean(profile?.allow_early_payout_override);
+
+    if (!isFridayPayoutWindowOpen) {
+      return NextResponse.json(
+        { error: 'Payout requests are strictly restricted to Fridays (00:00 - 23:59 GMT).' },
+        { status: 403 }
+      );
     }
 
     if (profile.is_banned || profile.is_wallet_frozen) {
@@ -261,6 +278,7 @@ export async function POST(req: Request) {
       .update({
         affiliate_balance: newBalance,
         total_withdrawn: newTotalWithdrawn,
+        ...(profile?.allow_early_payout_override ? { allow_early_payout_override: false } : {}),
       })
       .eq('id', userId);
 

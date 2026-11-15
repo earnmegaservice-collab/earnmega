@@ -952,6 +952,10 @@ export default function HorPalAffiliatePillar({
   // Marketplace Search, Filter & Modals
   const [products, setProducts] = useState<MarketplaceProduct[]>(INITIAL_PRODUCTS);
   const [freezeP2Withdrawals, setFreezeP2Withdrawals] = useState<boolean>(false);
+  const [forceOpenFridayPayouts, setForceOpenFridayPayouts] = useState<boolean>(false);
+  const [allowEarlyPayoutOverride, setAllowEarlyPayoutOverride] = useState<boolean>(
+    Boolean(currentProfile?.allow_early_payout_override)
+  );
 
   // Phase 6 & Phase 2: Live sync Pillar 2 Marketplace products from public.pillar2_products + freeze_p2_withdrawals
   useEffect(() => {
@@ -1064,6 +1068,7 @@ export default function HorPalAffiliatePillar({
         const data = await res.json();
         if (isMounted && data?.settings) {
           setFreezeP2Withdrawals(Boolean(data.settings.freeze_p2_withdrawals));
+          setForceOpenFridayPayouts(Boolean(data.settings.force_open_friday_payouts));
         }
       } catch {}
     };
@@ -1074,12 +1079,23 @@ export default function HorPalAffiliatePillar({
     const onSettingsEvent = (e: any) => {
       if (e?.detail) {
         setFreezeP2Withdrawals(Boolean(e.detail.freeze_p2_withdrawals));
+        setForceOpenFridayPayouts(Boolean(e.detail.force_open_friday_payouts));
+      }
+    };
+    const onEnforcementSyncEvent = (e: any) => {
+      if (e?.detail?.settings) {
+        setFreezeP2Withdrawals(Boolean(e.detail.settings.freeze_p2_withdrawals));
+        setForceOpenFridayPayouts(Boolean(e.detail.settings.force_open_friday_payouts));
+      }
+      if (e?.detail?.profile) {
+        setAllowEarlyPayoutOverride(Boolean(e.detail.profile.allow_early_payout_override));
       }
     };
     const onProductsUpdatedEvent = () => {
       void syncMarketplaceProducts();
     };
     window.addEventListener('earnmega:platform-settings-updated', onSettingsEvent);
+    window.addEventListener('earnmega:admin-enforcement-sync', onEnforcementSyncEvent);
     window.addEventListener('earnmega:products-updated', onProductsUpdatedEvent);
 
     let prodChannel: any = null;
@@ -1099,6 +1115,7 @@ export default function HorPalAffiliatePillar({
           (payload: any) => {
             if (payload?.new) {
               setFreezeP2Withdrawals(Boolean(payload.new.freeze_p2_withdrawals));
+              setForceOpenFridayPayouts(Boolean(payload.new.force_open_friday_payouts));
             }
           }
         )
@@ -1115,8 +1132,16 @@ export default function HorPalAffiliatePillar({
         .channel(cmdChannelName)
         .on('broadcast', { event: 'PRODUCTS_UPDATED' }, () => void syncMarketplaceProducts())
         .on('broadcast', { event: 'PLATFORM_SETTINGS_UPDATED' }, (payload: any) => {
-          if (payload?.payload) {
-            setFreezeP2Withdrawals(Boolean(payload.payload.freeze_p2_withdrawals));
+          const s = payload?.payload?.settings || payload?.payload;
+          if (s) {
+            setFreezeP2Withdrawals(Boolean(s.freeze_p2_withdrawals));
+            setForceOpenFridayPayouts(Boolean(s.force_open_friday_payouts));
+          }
+        })
+        .on('broadcast', { event: 'USER_ENFORCEMENT_UPDATED' }, (payload: any) => {
+          const p = payload?.payload;
+          if (p && typeof p.allow_early_payout_override === 'boolean') {
+            setAllowEarlyPayoutOverride(Boolean(p.allow_early_payout_override));
           }
         })
         .subscribe();
@@ -1127,6 +1152,7 @@ export default function HorPalAffiliatePillar({
     return () => {
       isMounted = false;
       window.removeEventListener('earnmega:platform-settings-updated', onSettingsEvent);
+      window.removeEventListener('earnmega:admin-enforcement-sync', onEnforcementSyncEvent);
       window.removeEventListener('earnmega:products-updated', onProductsUpdatedEvent);
       if (prodChannel) supabase.removeChannel(prodChannel);
       if (cmdChannel) supabase.removeChannel(cmdChannel);
@@ -2033,6 +2059,12 @@ export default function HorPalAffiliatePillar({
             }
             if (typeof payoutJson.affiliate_withdrawn === 'number') {
               setWithdrawnBalanceGHS(payoutJson.affiliate_withdrawn);
+            }
+            if (typeof payoutJson.allow_early_payout_override === 'boolean') {
+              setAllowEarlyPayoutOverride(payoutJson.allow_early_payout_override);
+            }
+            if (typeof payoutJson.force_open_friday_payouts === 'boolean') {
+              setForceOpenFridayPayouts(payoutJson.force_open_friday_payouts);
             }
           }
         }
@@ -3137,6 +3169,29 @@ export default function HorPalAffiliatePillar({
     minutes: string;
     seconds: string;
   }>({ days: 0, hours: '00', minutes: '00', seconds: '00' });
+  const [fridayCloseCountdown, setFridayCloseCountdown] = useState<{
+    hours: string;
+    minutes: string;
+    seconds: string;
+  }>({ hours: '23', minutes: '59', seconds: '59' });
+
+  const isFridayPayoutWindowOpen =
+    isFridayGMT || forceOpenFridayPayouts || allowEarlyPayoutOverride;
+
+  const triggerFridayLockWarning = () => {
+    const msg = `🔒 Payouts are strictly open on Fridays only! Next payout window opens in [${fridayCountdown.days}d : ${fridayCountdown.hours}h : ${fridayCountdown.minutes}m : ${fridayCountdown.seconds}s].`;
+    setPayoutFeedback({ type: 'error', text: msg });
+    toast.error(msg, {
+      id: 'strict-friday-payout-lock',
+      duration: 5000,
+      style: {
+        background: '#0f172a',
+        color: '#fde68a',
+        border: '1px solid rgba(245, 158, 11, 0.55)',
+        fontWeight: '800',
+      },
+    });
+  };
 
   useEffect(() => {
     const computeFridayCountdown = () => {
@@ -3147,6 +3202,24 @@ export default function HorPalAffiliatePillar({
 
       if (isFri) {
         setFridayCountdown({ days: 0, hours: '00', minutes: '00', seconds: '00' });
+        const endOfFridayUTC = Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate() + 1,
+          0,
+          0,
+          0,
+          0
+        );
+        const closeDiffMs = Math.max(0, endOfFridayUTC - now.getTime());
+        const ch = Math.floor(closeDiffMs / (1000 * 60 * 60));
+        const cm = Math.floor((closeDiffMs % (1000 * 60 * 60)) / (1000 * 60));
+        const cs = Math.floor((closeDiffMs % (1000 * 60)) / 1000);
+        setFridayCloseCountdown({
+          hours: ch.toString().padStart(2, '0'),
+          minutes: cm.toString().padStart(2, '0'),
+          seconds: cs.toString().padStart(2, '0'),
+        });
         return;
       }
 
@@ -3395,6 +3468,11 @@ export default function HorPalAffiliatePillar({
     e.preventDefault();
     setPayoutFeedback(null);
 
+    if (!isFridayPayoutWindowOpen) {
+      triggerFridayLockWarning();
+      return;
+    }
+
     if (freezeP2Withdrawals) {
       setPayoutFeedback({
         type: 'error',
@@ -3478,6 +3556,9 @@ export default function HorPalAffiliatePillar({
       if (resData?.request) {
         setPayoutRequests((prev) => [resData.request, ...prev]);
       }
+      if (resData?.early_pass_consumed || allowEarlyPayoutOverride) {
+        setAllowEarlyPayoutOverride(false);
+      }
       setPayoutAmountGHS('');
       const msg =
         `💸 Payout Request of GH₵ ${amount.toFixed(2)} (${resolvedPayoutMethod} • ${paystackAccountNumber.trim()}) submitted! Track live Admin status below.`;
@@ -3508,6 +3589,11 @@ export default function HorPalAffiliatePillar({
   const handleGlobalManualPayoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPayoutFeedback(null);
+
+    if (!isFridayPayoutWindowOpen) {
+      triggerFridayLockWarning();
+      return;
+    }
 
     if (freezeP2Withdrawals) {
       setPayoutFeedback({
@@ -3630,6 +3716,9 @@ export default function HorPalAffiliatePillar({
       }
       if (resData?.request) {
         setPayoutRequests((prev) => [resData.request, ...prev]);
+      }
+      if (resData?.early_pass_consumed || allowEarlyPayoutOverride) {
+        setAllowEarlyPayoutOverride(false);
       }
       setPayoutAmountGHS('');
       setPayoutFeedback({
@@ -4863,10 +4952,25 @@ export default function HorPalAffiliatePillar({
                   Promote Products
                 </button>
                 <button
-                  onClick={() => setActiveSection('payouts')}
-                  className="py-3 col-span-2 md:col-span-1 rounded-xl bg-white hover:bg-gray-100 text-indigo-950 font-black text-xs transition-all"
+                  type="button"
+                  onClick={() => {
+                    if (!isFridayPayoutWindowOpen) {
+                      triggerFridayLockWarning();
+                      return;
+                    }
+                    setActiveSection('payouts');
+                  }}
+                  className={`py-3 px-2 col-span-2 md:col-span-1 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 ${
+                    isFridayPayoutWindowOpen
+                      ? 'bg-white hover:bg-gray-100 text-indigo-950 shadow-lg'
+                      : 'bg-gradient-to-r from-[#231a08] via-[#1c1507] to-[#231a08] border border-amber-500/50 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.18)]'
+                  }`}
                 >
-                  Pay Out Now
+                  {isFridayPayoutWindowOpen ? (
+                    <span>Pay Out Now</span>
+                  ) : (
+                    <span>🔒 Locked Until Friday (00:00 GMT)</span>
+                  )}
                 </button>
               </div>
             </div>
@@ -5843,12 +5947,14 @@ export default function HorPalAffiliatePillar({
               <div className="flex flex-wrap items-center gap-2.5">
                 <div
                   className={`px-3.5 py-2 rounded-xl border text-xs font-black flex items-center gap-1.5 ${
-                    isFridayGMT
-                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                      : 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+                    isFridayPayoutWindowOpen
+                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
+                      : 'bg-gradient-to-r from-[#231a08] via-[#1c1507] to-[#231a08] border-amber-500/50 text-amber-300'
                   }`}
                 >
-                  {isFridayGMT ? '🟢 Friday Express Window LIVE (GMT)' : '💸 Payout Requests Open 24/7 • Friday Schedule'}
+                  {isFridayPayoutWindowOpen
+                    ? '🟢 FRIDAY PAYOUT WINDOW IS LIVE!'
+                    : '🔒 Locked Until Friday (00:00 GMT)'}
                 </div>
                 <button
                   type="button"
@@ -5869,24 +5975,24 @@ export default function HorPalAffiliatePillar({
             </div>
 
             <div className="max-w-7xl mx-auto space-y-6">
-              {/* FRIDAY SETTLEMENT SCHEDULE & 24/7 ADMIN REQUEST BANNER */}
-              {!isFridayGMT ? (
-                <div className="bg-gradient-to-r from-indigo-950/90 via-[#0f172a] to-emerald-950/70 border border-indigo-500/40 rounded-3xl p-5 md:p-6 shadow-[0_0_30px_rgba(59,130,246,0.12)] flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* STRICT FRIDAY-ONLY PAYOUT WINDOW BANNER */}
+              {!isFridayPayoutWindowOpen ? (
+                <div className="bg-gradient-to-r from-[#1f1606] via-[#0f172a] to-[#1f1606] border-2 border-amber-500/50 rounded-3xl p-5 md:p-6 shadow-[0_0_35px_rgba(245,158,11,0.18)] flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-start gap-3.5">
-                    <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 mt-0.5">
-                      <Send className="w-5 h-5 text-emerald-400" />
+                    <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center shrink-0 mt-0.5">
+                      <Lock className="w-5 h-5 text-amber-400" />
                     </div>
                     <div>
-                      <h3 className="text-base md:text-lg font-black text-white">
-                        💸 Submit Payout Requests Anytime — Live Admin Treasury Tracking
+                      <h3 className="text-base md:text-lg font-black text-amber-300">
+                        🔒 Payout Portal Locked — Opens Strictly on Fridays (00:00 GMT)
                       </h3>
-                      <p className="text-xs text-indigo-200/80 mt-1">
-                        Submit your Mobile Money (MTN / Telecel / AT) or Bank Transfer request below right now. Your verified balance is reserved immediately and tracked live from Pending Review → Processing → Paid & Settled.
+                      <p className="text-xs md:text-sm text-amber-100/85 mt-1 leading-relaxed">
+                        Affiliate commission withdrawals are strictly locked from Saturday to Thursday and open exclusively every Friday (00:00 – 23:59 GMT). Wait for the countdown timer below to reach 00:00:00 to submit your payout.
                       </p>
                     </div>
                   </div>
-                  <div className="bg-black/50 border border-indigo-500/40 rounded-2xl px-4 py-3 text-center shrink-0">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-300 block mb-1">
+                  <div className="bg-black/60 border border-amber-500/50 rounded-2xl px-4 py-3 text-center shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-amber-300 block mb-1">
                       NEXT FRIDAY CYCLE (00:00 GMT)
                     </span>
                     <div className="font-mono text-lg md:text-xl font-black text-white tracking-wider">
@@ -5895,21 +6001,36 @@ export default function HorPalAffiliatePillar({
                   </div>
                 </div>
               ) : (
-                <div className="bg-gradient-to-r from-emerald-950/90 via-[#0d221c] to-emerald-950/90 border-2 border-emerald-500/50 rounded-3xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <Unlock className="w-6 h-6 text-emerald-400 shrink-0" />
+                <div className="bg-gradient-to-r from-emerald-950/90 via-[#0d221c] to-emerald-950/90 border-2 border-emerald-400/70 rounded-3xl p-5 md:p-6 shadow-[0_0_40px_rgba(16,185,129,0.28)] flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center shrink-0 mt-0.5">
+                      <Unlock className="w-5 h-5 text-emerald-400" />
+                    </div>
                     <div>
-                      <h3 className="text-base font-black text-white">
-                        🟢 Friday Express Settlement Window Is LIVE (00:00 – 23:59 GMT)
+                      <h3 className="text-base md:text-lg font-black text-emerald-300">
+                        🟢 FRIDAY PAYOUT WINDOW IS LIVE! — Submit Your Withdrawal Now
                       </h3>
-                      <p className="text-xs text-emerald-200/80">
-                        Submit Mobile Money, Bank Transfer, or Global Settlement requests for priority Admin dispatch.
+                      <p className="text-xs md:text-sm text-emerald-100/85 mt-1">
+                        {allowEarlyPayoutOverride && !isFridayGMT
+                          ? '⚡ VIP 1-Time Early Payout Pass unlocked by Gerald (Founder)! You may submit 1 commission withdrawal right now.'
+                          : forceOpenFridayPayouts && !isFridayGMT
+                          ? '🔓 Global Admin Payout Override is active! All payout forms and corridors are unlocked right now.'
+                          : 'All Mobile Money, Local Bank Transfer, and Global Manual Settlement corridors are unlocked until Friday 23:59:59 GMT.'}
                       </p>
                     </div>
                   </div>
-                  <span className="text-xs font-mono font-bold bg-emerald-500 text-black px-3 py-1.5 rounded-xl">
-                    ACTIVE NOW
-                  </span>
+                  <div className="bg-black/60 border border-emerald-400/50 rounded-2xl px-4 py-3 text-center shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-300 block mb-1">
+                      {isFridayGMT ? 'WINDOW CLOSES (23:59 GMT)' : 'VIP OVERRIDE WINDOW'}
+                    </span>
+                    <div className="font-mono text-base md:text-lg font-black text-emerald-300 tracking-wider">
+                      {isFridayGMT
+                        ? `${fridayCloseCountdown.hours}h : ${fridayCloseCountdown.minutes}m : ${fridayCloseCountdown.seconds}s`
+                        : allowEarlyPayoutOverride
+                        ? '⚡ 1-TIME EARLY PASS'
+                        : '🔓 FORCE OPEN LIVE'}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -5950,12 +6071,24 @@ export default function HorPalAffiliatePillar({
                   <button
                     type="button"
                     onClick={() => {
+                      if (!isFridayPayoutWindowOpen) {
+                        triggerFridayLockWarning();
+                        return;
+                      }
                       setPayoutCorridor('GLOBAL_MANUAL');
                       setPayoutFeedback(null);
                     }}
-                    className="shrink-0 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20"
+                    className={`shrink-0 px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 ${
+                      isFridayPayoutWindowOpen
+                        ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/20'
+                        : 'bg-gradient-to-r from-[#231a08] via-[#1c1507] to-[#231a08] border border-amber-500/50 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.18)]'
+                    }`}
                   >
-                    🌍 Global Manual Payout Form
+                    {isFridayPayoutWindowOpen ? (
+                      <span>🌍 Global Manual Payout Form</span>
+                    ) : (
+                      <span>🌍 Global Manual Payout Form • 🔒 Locked Until Friday (00:00 GMT)</span>
+                    )}
                   </button>
                 </div>
 
@@ -5965,6 +6098,10 @@ export default function HorPalAffiliatePillar({
                     type="button"
                     onClick={() => {
                       setPayoutCorridor('PAYSTACK_AUTO');
+                      if (!isFridayPayoutWindowOpen) {
+                        triggerFridayLockWarning();
+                        return;
+                      }
                       setPayoutFeedback(null);
                     }}
                     className={`py-4 px-5 rounded-2xl font-black text-xs md:text-sm border-2 transition-all flex items-center justify-center gap-2.5 ${
@@ -5981,6 +6118,10 @@ export default function HorPalAffiliatePillar({
                     type="button"
                     onClick={() => {
                       setPayoutCorridor('GLOBAL_MANUAL');
+                      if (!isFridayPayoutWindowOpen) {
+                        triggerFridayLockWarning();
+                        return;
+                      }
                       setPayoutFeedback(null);
                     }}
                     className={`py-4 px-5 rounded-2xl font-black text-xs md:text-sm border-2 transition-all flex items-center justify-center gap-2.5 ${
@@ -6069,7 +6210,34 @@ export default function HorPalAffiliatePillar({
                 </div>
 
                 {/* Right Column: Active Corridor Withdrawal Form */}
-                <div className="lg:col-span-7 bg-[#0f172a] border border-white/10 rounded-3xl p-6 md:p-8 shadow-2xl">
+                <div
+                  onClickCapture={(e) => {
+                    if (!isFridayPayoutWindowOpen) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      triggerFridayLockWarning();
+                    }
+                  }}
+                  className={`lg:col-span-7 bg-[#0f172a] border rounded-3xl p-6 md:p-8 shadow-2xl relative ${
+                    isFridayPayoutWindowOpen
+                      ? 'border-white/10'
+                      : 'border-amber-500/40 select-none cursor-not-allowed'
+                  }`}
+                >
+                  {!isFridayPayoutWindowOpen && (
+                    <div className="mb-5 p-4 rounded-2xl bg-gradient-to-r from-[#231a08] via-[#171105] to-[#231a08] border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span className="text-xs sm:text-sm font-black text-amber-300">
+                          🔒 Locked Until Friday (00:00 GMT)
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-mono font-bold text-amber-200/90">
+                        Opens in {fridayCountdown.days}d : {fridayCountdown.hours}h : {fridayCountdown.minutes}m : {fridayCountdown.seconds}s
+                      </span>
+                    </div>
+                  )}
+
                   {payoutFeedback && (
                     <div
                       className={`p-4 rounded-2xl mb-6 text-xs md:text-sm font-bold border ${
@@ -6293,21 +6461,36 @@ export default function HorPalAffiliatePillar({
 
                       <button
                         type="submit"
-                        disabled={isSubmittingPayout || availableBalanceGHS <= 0 || freezeP2Withdrawals}
-                        className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black transition-all text-sm md:text-base shadow-[0_0_25px_rgba(16,185,129,0.25)] disabled:bg-gray-700 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        disabled={
+                          !isFridayPayoutWindowOpen ||
+                          isSubmittingPayout ||
+                          availableBalanceGHS <= 0 ||
+                          freezeP2Withdrawals
+                        }
+                        className={`w-full py-4 rounded-2xl font-black transition-all text-sm md:text-base flex items-center justify-center gap-2 ${
+                          !isFridayPayoutWindowOpen
+                            ? 'bg-gradient-to-r from-[#231a08] via-[#1c1507] to-[#231a08] border border-amber-500/50 text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.18)] cursor-not-allowed'
+                            : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_25px_rgba(16,185,129,0.25)] disabled:bg-gray-700 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed'
+                        }`}
                       >
-                        {isSubmittingPayout ? (
-                          <RefreshCcw className="w-5 h-5 animate-spin" />
+                        {!isFridayPayoutWindowOpen ? (
+                          <span>🔒 Locked Until Friday (00:00 GMT)</span>
                         ) : (
-                          <Zap className="w-5 h-5" />
+                          <>
+                            {isSubmittingPayout ? (
+                              <RefreshCcw className="w-5 h-5 animate-spin" />
+                            ) : (
+                              <Zap className="w-5 h-5" />
+                            )}
+                            <span>
+                              {availableBalanceGHS <= 0
+                                ? 'Available Balance GH₵ 0.00 — Earn Commissions First'
+                                : isSubmittingPayout
+                                ? 'Submitting Payout Request...'
+                                : 'Request Payout Now (Instant Admin Alert)'}
+                            </span>
+                          </>
                         )}
-                        <span>
-                          {availableBalanceGHS <= 0
-                            ? 'Available Balance GH₵ 0.00 — Earn Commissions First'
-                            : isSubmittingPayout
-                            ? 'Submitting Payout Request...'
-                            : 'Request Payout Now (Instant Admin Alert)'}
-                        </span>
                       </button>
                     </form>
                   ) : (
@@ -6735,21 +6918,36 @@ export default function HorPalAffiliatePillar({
 
                       <button
                         type="submit"
-                        disabled={isSubmittingPayout || availableBalanceGHS <= 0 || freezeP2Withdrawals}
-                        className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black font-black transition-all text-sm md:text-base shadow-[0_0_25px_rgba(245,158,11,0.25)] disabled:from-gray-700 disabled:to-gray-700 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        disabled={
+                          !isFridayPayoutWindowOpen ||
+                          isSubmittingPayout ||
+                          availableBalanceGHS <= 0 ||
+                          freezeP2Withdrawals
+                        }
+                        className={`w-full py-4 rounded-2xl font-black transition-all text-sm md:text-base flex items-center justify-center gap-2 ${
+                          !isFridayPayoutWindowOpen
+                            ? 'bg-gradient-to-r from-[#231a08] via-[#1c1507] to-[#231a08] border border-amber-500/50 text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.18)] cursor-not-allowed'
+                            : 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:brightness-110 text-black shadow-[0_0_25px_rgba(245,158,11,0.25)] disabled:from-gray-700 disabled:to-gray-700 disabled:text-gray-400 disabled:shadow-none disabled:cursor-not-allowed'
+                        }`}
                       >
-                        {isSubmittingPayout ? (
-                          <RefreshCcw className="w-5 h-5 animate-spin" />
+                        {!isFridayPayoutWindowOpen ? (
+                          <span>🔒 Locked Until Friday (00:00 GMT)</span>
                         ) : (
-                          <Globe className="w-5 h-5" />
+                          <>
+                            {isSubmittingPayout ? (
+                              <RefreshCcw className="w-5 h-5 animate-spin" />
+                            ) : (
+                              <Globe className="w-5 h-5" />
+                            )}
+                            <span>
+                              {availableBalanceGHS <= 0
+                                ? 'Available Balance GH₵ 0.00'
+                                : isSubmittingPayout
+                                ? 'Dispatching Global Settlement Request...'
+                                : 'Submit Global Manual Payout Request'}
+                            </span>
+                          </>
                         )}
-                        <span>
-                          {availableBalanceGHS <= 0
-                            ? 'Available Balance GH₵ 0.00'
-                            : isSubmittingPayout
-                            ? 'Dispatching Global Settlement Request...'
-                            : 'Submit Global Manual Payout Request'}
-                        </span>
                       </button>
                     </form>
                   )}

@@ -37,6 +37,7 @@ export async function GET(request: Request) {
     const adminSupabase = getAdminSupabase();
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
+    const activePillarParam = searchParams.get('pillar');
 
     const { data: settingsRow } = await adminSupabase
       .from('platform_settings')
@@ -45,15 +46,38 @@ export async function GET(request: Request) {
       .maybeSingle();
 
     let profileRow = null;
+    let directMessages: any[] = [];
     if (userId && /^[0-9a-fA-F-]{36}$/.test(userId.trim())) {
-      const { data: prof } = await adminSupabase
-        .from('profiles')
-        .select(
-          'id, email, username, account_password, is_banned, is_suspended, status, is_wallet_frozen, is_verified, unlocked_p2_courses, has_p2_exam_certificate, custom_commission_rate, shadow_muted_until, force_logout_at, is_pinned_explore, hide_from_radar, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, global_chat_paystack_ref, is_paid, subscription_tier, is_pro, is_premium, subscription_started_at, subscription_expires_at, has_paid_pillar2, is_pillar2_paid, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, license_activated_at, license_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at, updated_at'
-        )
-        .eq('id', userId.trim())
-        .maybeSingle();
+      const cleanUid = userId.trim();
+      const nowIso = new Date().toISOString();
+
+      // Silently update live online presence & active pillar heartbeat
+      try {
+        const presenceUpdate: Record<string, any> = { last_seen_at: nowIso };
+        if (activePillarParam && activePillarParam.trim()) {
+          presenceUpdate.current_active_pillar = activePillarParam.trim();
+        }
+        await adminSupabase.from('profiles').update(presenceUpdate).eq('id', cleanUid);
+      } catch (_) {}
+
+      const [{ data: prof }, { data: dmRows }] = await Promise.all([
+        adminSupabase
+          .from('profiles')
+          .select(
+            'id, email, username, account_password, is_banned, is_suspended, status, is_wallet_frozen, is_verified, unlocked_p2_courses, has_p2_exam_certificate, custom_commission_rate, shadow_muted_until, force_logout_at, is_pinned_explore, hide_from_radar, coins, coin_balance, affiliate_balance, available_balance_ghs, has_paid_global_chat, global_chat_paystack_ref, is_paid, subscription_tier, is_pro, is_premium, subscription_started_at, subscription_expires_at, has_paid_pillar2, is_pillar2_paid, pillar2_paystack_ref, pillar2_paid_at, pillar2_expires_at, license_activated_at, license_expires_at, has_paid_pillar3, pillar3_paystack_ref, pillar3_tier, pillar3_started_at, pillar3_expires_at, allow_early_payout_override, last_seen_at, current_active_pillar, updated_at'
+          )
+          .eq('id', cleanUid)
+          .maybeSingle(),
+        adminSupabase
+          .from('admin_direct_messages')
+          .select('*')
+          .eq('target_user_id', cleanUid)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(5),
+      ]);
       profileRow = prof || null;
+      directMessages = dmRows || [];
     }
 
     return NextResponse.json(
@@ -65,6 +89,7 @@ export async function GET(request: Request) {
           maintenance_message: 'Earnmega is undergoing a scheduled system upgrade. Back shortly!',
           freeze_p1_withdrawals: false,
           freeze_p2_withdrawals: false,
+          force_open_friday_payouts: false,
           disable_live_streams: false,
           disable_new_signups: false,
           lock_pillar1: false,
@@ -79,6 +104,8 @@ export async function GET(request: Request) {
           global_announcement_banner: '',
         },
         profile: profileRow,
+        directMessages,
+        activeDirectMessage: directMessages[0] || null,
       },
       { headers: { 'Cache-Control': 'no-store, max-age=0' } }
     );
@@ -100,6 +127,62 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const { action, payload = {} } = body;
+
+    // Allow user heartbeat updates & 1-on-1 direct message acknowledgement without master admin token
+    if (action === 'USER_HEARTBEAT') {
+      const { userId, pillar } = payload;
+      if (userId && /^[0-9a-fA-F-]{36}$/.test(String(userId).trim())) {
+        const nowIso = new Date().toISOString();
+        const updates: Record<string, any> = { last_seen_at: nowIso };
+        if (typeof pillar === 'string' && pillar.trim()) {
+          updates.current_active_pillar = pillar.trim();
+        }
+        await adminSupabase.from('profiles').update(updates).eq('id', String(userId).trim());
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'ACKNOWLEDGE_DIRECT_MESSAGE') {
+      const { messageId, userId } = payload;
+      const nowIso = new Date().toISOString();
+      if (messageId && messageId !== 'ALL') {
+        const { data: ackRow } = await adminSupabase
+          .from('admin_direct_messages')
+          .update({ is_active: false, acknowledged_at: nowIso })
+          .eq('id', messageId)
+          .select('*')
+          .maybeSingle();
+
+        try {
+          await adminSupabase.from('admin_audit_logs').insert({
+            event_type: 'VIP_BEAM_READ',
+            actor_email: ackRow?.target_email || userId || 'User',
+            target_user: ackRow?.target_email || ackRow?.target_user_id || userId || '',
+            summary: `[VIP BEAM READ] ${ackRow?.target_email || 'User'} acknowledged private message: "${ackRow?.title || 'Executive Directive'}"`,
+          });
+          await adminSupabase.channel('horpal_godmode_command').send({
+            type: 'broadcast',
+            event: 'DIRECT_MESSAGE_UPDATED',
+            payload: {
+              messageId,
+              targetUserId: ackRow?.target_user_id || userId,
+              acknowledged_at: nowIso,
+              timestamp: Date.now(),
+            },
+          });
+        } catch (_) {}
+
+        return NextResponse.json({ success: true, acknowledged_at: nowIso, message: ackRow });
+      } else if (userId && /^[0-9a-fA-F-]{36}$/.test(String(userId).trim())) {
+        await adminSupabase
+          .from('admin_direct_messages')
+          .update({ is_active: false, acknowledged_at: nowIso })
+          .eq('target_user_id', String(userId).trim())
+          .eq('is_active', true);
+        return NextResponse.json({ success: true, acknowledged_at: nowIso });
+      }
+      return NextResponse.json({ success: false, error: 'Missing messageId or userId' }, { status: 400 });
+    }
 
     // Allow in-app user live report submissions or silent Pillar 2 Help Bot submissions without requiring master admin token
     if (action === 'SUBMIT_P2_HELP_MESSAGE') {
@@ -203,6 +286,7 @@ export async function POST(request: Request) {
         'maintenance_mode',
         'freeze_p1_withdrawals',
         'freeze_p2_withdrawals',
+        'force_open_friday_payouts',
         'disable_live_streams',
         'disable_new_signups',
         'lock_pillar1',
@@ -300,6 +384,8 @@ export async function POST(request: Request) {
         { data: recentAuditRows },
         { data: recentUsers },
         { data: recentStreams },
+        { data: onlineUsersRows },
+        { data: recentDirectMessages },
       ] = await Promise.all([
         adminSupabase.from('profiles').select('*', { count: 'exact', head: true }),
         adminSupabase
@@ -337,6 +423,17 @@ export async function POST(request: Request) {
         adminSupabase.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(25),
         adminSupabase.from('profiles').select('id, username, email, created_at').order('created_at', { ascending: false }).limit(10),
         adminSupabase.from('active_live_streams').select('id, host_username, stream_title, is_live, started_at').order('started_at', { ascending: false }).limit(8),
+        adminSupabase
+          .from('profiles')
+          .select('id, username, full_name, email, avatar_url, last_seen_at, current_active_pillar, is_paid, has_paid_global_chat, has_paid_pillar2, is_pillar2_paid, has_paid_pillar3, affiliate_balance, available_balance_ghs, allow_early_payout_override')
+          .not('last_seen_at', 'is', null)
+          .order('last_seen_at', { ascending: false })
+          .limit(60),
+        adminSupabase
+          .from('admin_direct_messages')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(30),
       ]);
 
       const coins = (coinsData || []).reduce(
@@ -435,6 +532,18 @@ export async function POST(request: Request) {
         (a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
       );
 
+      const nowMsForPresence = Date.now();
+      const onlineUsers = (onlineUsersRows || []).map((u: any) => {
+        const seenMs = u.last_seen_at ? new Date(u.last_seen_at).getTime() : 0;
+        const secondsAgo = seenMs > 0 ? Math.max(0, Math.floor((nowMsForPresence - seenMs) / 1000)) : 999999;
+        return {
+          ...u,
+          secondsAgo,
+          isOnlineNow: secondsAgo <= 60,
+        };
+      });
+      const onlineRightNowCount = onlineUsers.filter((u: any) => u.isOnlineNow).length;
+
       return NextResponse.json({
         success: true,
         totalUsers: users || 0,
@@ -449,6 +558,9 @@ export async function POST(request: Request) {
         pendingPayoutsAmountGhs: totalPendingGhs,
         platformSettings: settingsRow || null,
         matrixEvents: matrixEvents.slice(0, 35),
+        onlineUsers,
+        onlineRightNowCount,
+        recentDirectMessages: recentDirectMessages || [],
         stats: {
           users: users || 0,
           p1Paid: p1Paid || 0,
@@ -460,6 +572,7 @@ export async function POST(request: Request) {
           paystackRev: totalVerifiedPaystackRevenueGhs,
           pending: totalPendingCount,
           pendingAmountGhs: totalPendingGhs,
+          onlineNow: onlineRightNowCount,
         },
         settings: settingsRow || null,
       });
@@ -1903,6 +2016,7 @@ export async function POST(request: Request) {
         { data: p2Passes },
         { data: p3Passes },
         { data: p2Sales },
+        { data: settingsRow },
       ] = await Promise.all([
         adminSupabase
           .from('pillar2_payout_requests')
@@ -1934,6 +2048,11 @@ export async function POST(request: Request) {
           .select('*')
           .order('created_at', { ascending: false })
           .limit(100),
+        adminSupabase
+          .from('platform_settings')
+          .select('*')
+          .eq('id', 1)
+          .maybeSingle(),
       ]);
 
       // Build unified Paystack transaction ledger (#2)
@@ -1992,6 +2111,7 @@ export async function POST(request: Request) {
         p1Payouts: p1Payouts || [],
         payouts: [...(p2Payouts || []), ...(p1Payouts || [])],
         paystackLedger,
+        platformSettings: settingsRow || null,
       });
     }
 
@@ -2942,6 +3062,504 @@ export async function POST(request: Request) {
         .sort((a, b) => b.totalGhs - a.totalGhs);
 
       return NextResponse.json({ success: true, leaderboard: ranked });
+    }
+
+    // -------------------------------------------------------------------------
+    // UPGRADE 1 & 3.1: STRICT FRIDAY PAYOUT LOCK OVERRIDE & 1-USER EARLY PASS
+    // -------------------------------------------------------------------------
+    if (action === 'TOGGLE_FORCE_OPEN_FRIDAY_PAYOUTS') {
+      const enabled = Boolean(payload?.enabled);
+      const { data: updatedSettings, error: setErr } = await adminSupabase
+        .from('platform_settings')
+        .upsert(
+          {
+            id: 1,
+            force_open_friday_payouts: enabled,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        )
+        .select('*')
+        .single();
+
+      if (setErr) {
+        return NextResponse.json({ success: false, error: setErr.message }, { status: 500 });
+      }
+
+      try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'FRIDAY_PAYOUT_OVERRIDE',
+          actor_email: 'Admin',
+          summary: `[FRIDAY PAYOUT PORTAL] Global Friday Payout Portal Override set to ${enabled ? 'FORCE OPEN (ACTIVE TODAY)' : 'STRICT FRIDAY-ONLY LOCK'}`,
+        });
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'PLATFORM_SETTINGS_UPDATED',
+          payload: { settings: updatedSettings, timestamp: Date.now() },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({
+        success: true,
+        force_open_friday_payouts: enabled,
+        settings: updatedSettings,
+      });
+    }
+
+    if (action === 'TOGGLE_USER_EARLY_PAYOUT_PASS') {
+      const { userId, enabled, notifyUser = true } = payload || {};
+      if (!userId) {
+        return NextResponse.json({ success: false, error: 'Missing userId' }, { status: 400 });
+      }
+
+      const nextVal = Boolean(enabled);
+      const { data: updatedUser, error: uErr } = await adminSupabase
+        .from('profiles')
+        .update({
+          allow_early_payout_override: nextVal,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select('*')
+        .maybeSingle();
+
+      if (uErr) {
+        return NextResponse.json({ success: false, error: uErr.message }, { status: 500 });
+      }
+
+      if (nextVal && notifyUser) {
+        try {
+          await adminSupabase
+            .from('admin_direct_messages')
+            .update({ is_active: false })
+            .eq('target_user_id', userId)
+            .eq('is_active', true);
+
+          await adminSupabase.from('admin_direct_messages').insert({
+            target_user_id: userId,
+            target_email: updatedUser?.email || null,
+            theme: 'emerald_vip',
+            badge_label: '💎 VIP EARLY CASHOUT PASS UNLOCKED',
+            title: '⚡ Your 1-Time Early Payout Pass Is Active!',
+            message:
+              'Gerald (Founder) has unlocked a special 1-Time Early Payout Pass for your account! You can submit 1 affiliate commission withdrawal right now inside the Pillar 2 Payouts tab without waiting until Friday.',
+            cta_text: 'Open Pillar 2 Payout Portal →',
+            cta_url: '/affiliate',
+            is_active: true,
+          });
+        } catch (_) {}
+      }
+
+      try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'EARLY_PAYOUT_PASS',
+          actor_email: 'Admin',
+          target_user: updatedUser?.email || userId,
+          summary: `[1-TIME EARLY PAYOUT PASS] ${nextVal ? 'GRANTED to' : 'REVOKED from'} ${updatedUser?.email || updatedUser?.username || userId}`,
+        });
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'USER_ENFORCEMENT_UPDATED',
+          payload: {
+            userId,
+            allow_early_payout_override: nextVal,
+            profile: updatedUser,
+            timestamp: Date.now(),
+          },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({
+        success: true,
+        userId,
+        allow_early_payout_override: nextVal,
+        user: updatedUser,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // UPGRADE 2: PRIVATE 1-ON-1 ADMIN-TO-USER TOP-OF-SCREEN MESSAGE BEAM
+    // -------------------------------------------------------------------------
+    if (action === 'SEND_DIRECT_USER_MESSAGE') {
+      const {
+        targetUserId,
+        targetEmail,
+        theme = 'royal_gold',
+        badgeLabel,
+        title,
+        message,
+        ctaText,
+        ctaUrl,
+      } = payload || {};
+
+      if (!targetUserId || !title || !message) {
+        return NextResponse.json(
+          { success: false, error: 'targetUserId, title, and message are required.' },
+          { status: 400 }
+        );
+      }
+
+      const defaultBadgeByTheme: Record<string, string> = {
+        royal_gold: '👑 EXECUTIVE DIRECTIVE',
+        emerald_vip: '💎 EMERALD TREASURY VERIFIED',
+        crimson_alert: '🚨 PRIORITY SECURITY NOTICE',
+        cyber_diamond: '🎉 PRESTIGIOUS CONGRATULATIONS',
+      };
+      const resolvedTheme = ['royal_gold', 'emerald_vip', 'crimson_alert', 'cyber_diamond'].includes(theme)
+        ? theme
+        : 'royal_gold';
+      const resolvedBadge =
+        typeof badgeLabel === 'string' && badgeLabel.trim()
+          ? badgeLabel.trim()
+          : defaultBadgeByTheme[resolvedTheme] || '👑 EXECUTIVE DIRECTIVE';
+
+      // Deactivate any previous active top-screen message for this user so the new beam takes top priority
+      try {
+        await adminSupabase
+          .from('admin_direct_messages')
+          .update({ is_active: false })
+          .eq('target_user_id', targetUserId)
+          .eq('is_active', true);
+      } catch (_) {}
+
+      const { data: insertedMsg, error: insErr } = await adminSupabase
+        .from('admin_direct_messages')
+        .insert({
+          target_user_id: targetUserId,
+          target_email: targetEmail || null,
+          theme: resolvedTheme,
+          badge_label: resolvedBadge,
+          title: String(title).trim(),
+          message: String(message).trim(),
+          cta_text: typeof ctaText === 'string' && ctaText.trim() ? ctaText.trim() : null,
+          cta_url: typeof ctaUrl === 'string' && ctaUrl.trim() ? ctaUrl.trim() : null,
+          is_active: true,
+        })
+        .select('*')
+        .single();
+
+      if (insErr) {
+        return NextResponse.json({ success: false, error: insErr.message }, { status: 500 });
+      }
+
+      try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'VIP_PRIVATE_BEAM',
+          actor_email: 'Admin',
+          target_user: targetEmail || targetUserId,
+          summary: `[PRIVATE TOP-SCREEN BEAM] Sent (${resolvedTheme}) to ${targetEmail || targetUserId}: "${String(title).trim()}"`,
+        });
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'DIRECT_MESSAGE_BEAMED',
+          payload: {
+            targetUserId,
+            directMessage: insertedMsg,
+            timestamp: Date.now(),
+          },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({
+        success: true,
+        directMessage: insertedMsg,
+      });
+    }
+
+    if (action === 'FETCH_USER_DIRECT_MESSAGES') {
+      const { targetUserId, limit = 30 } = payload || {};
+      let query = adminSupabase
+        .from('admin_direct_messages')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(Math.min(100, Number(limit) || 30));
+
+      if (targetUserId && /^[0-9a-fA-F-]{36}$/.test(String(targetUserId).trim())) {
+        query = query.eq('target_user_id', String(targetUserId).trim());
+      }
+
+      const { data: rows, error: fErr } = await query;
+      if (fErr) {
+        return NextResponse.json({ success: false, error: fErr.message }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        messages: rows || [],
+      });
+    }
+
+    if (action === 'CLEAR_DIRECT_USER_MESSAGE') {
+      const { messageId, targetUserId } = payload || {};
+      if (messageId) {
+        await adminSupabase
+          .from('admin_direct_messages')
+          .update({ is_active: false })
+          .eq('id', messageId);
+      } else if (targetUserId) {
+        await adminSupabase
+          .from('admin_direct_messages')
+          .update({ is_active: false })
+          .eq('target_user_id', targetUserId)
+          .eq('is_active', true);
+      } else {
+        return NextResponse.json({ success: false, error: 'Missing messageId or targetUserId' }, { status: 400 });
+      }
+
+      try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'VIP_BEAM_RECALLED',
+          actor_email: 'Admin',
+          target_user: targetUserId || messageId || '',
+          summary: `[VIP BEAM RECALLED] Cleared active top-screen message (${messageId || targetUserId})`,
+        });
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'DIRECT_MESSAGE_CLEARED',
+          payload: {
+            messageId: messageId || null,
+            targetUserId: targetUserId || null,
+            timestamp: Date.now(),
+          },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({ success: true });
+    }
+
+    // -------------------------------------------------------------------------
+    // UPGRADE 3.3: 1-ON-1 PERSONAL FLASH UPGRADE OFFER & MILESTONE BOOSTER
+    // -------------------------------------------------------------------------
+    if (action === 'BEAM_FLASH_UPGRADE_INVITATION') {
+      const {
+        targetUserId,
+        targetEmail,
+        targetName,
+        pillarTarget = 'P2',
+      } = payload || {};
+
+      if (!targetUserId) {
+        return NextResponse.json({ success: false, error: 'Missing targetUserId' }, { status: 400 });
+      }
+
+      const displayName = targetName || (targetEmail ? targetEmail.split('@')[0] : 'VIP Member');
+      let theme = 'royal_gold';
+      let badgeLabel = '🎯 VIP FLASH UPGRADE INVITATION';
+      let title = '👑 Personal Invitation: Unlock Pillar 2 Affiliate Hub (GH₵ 90)';
+      let message = `Hi ${displayName}, you have been personally selected by Gerald (Founder) to unlock the Pillar 2 Digital Products & Affiliate Hub (GH₵ 90)! Earn GH₵ 50.00 instant commission per referral plus verified Friday payouts. Tap below to activate your Pillar 2 access in 1 click.`;
+      let ctaText = 'Unlock Pillar 2 Affiliate Hub (GH₵ 90) →';
+      let ctaUrl = '/affiliate';
+
+      if (pillarTarget === 'P1') {
+        theme = 'royal_gold';
+        badgeLabel = '🎯 VIP FLASH UPGRADE INVITATION';
+        title = '👑 Personal Invitation: Unlock Pillar 1 Anonymous Chat & Live Video';
+        message = `Hi ${displayName}, Gerald (Founder) has beamed you a personal invitation to join Pillar 1 Global Anonymous Chat, Live Video Rooms & Coin Gifts! Tap below to enter Pillar 1 now.`;
+        ctaText = 'Open Pillar 1 Global Chat →';
+        ctaUrl = '/chats';
+      } else if (pillarTarget === 'P3') {
+        theme = 'cyber_diamond';
+        badgeLabel = '🎯 VIP AI EXECUTIVE INVITATION';
+        title = '🤖 Personal Invitation: Unlock Pillar 3 HorPal AI Studio';
+        message = `Hi ${displayName}, Gerald (Founder) invites you to experience Pillar 3 HorPal AI Studio — your 24/7 executive AI co-pilot for business, content, and code. Tap below to launch Pillar 3.`;
+        ctaText = 'Launch Pillar 3 HorPal AI →';
+        ctaUrl = '/horpal-ai';
+      }
+
+      try {
+        await adminSupabase
+          .from('admin_direct_messages')
+          .update({ is_active: false })
+          .eq('target_user_id', targetUserId)
+          .eq('is_active', true);
+      } catch (_) {}
+
+      const { data: insertedMsg, error: insErr } = await adminSupabase
+        .from('admin_direct_messages')
+        .insert({
+          target_user_id: targetUserId,
+          target_email: targetEmail || null,
+          theme,
+          badge_label: badgeLabel,
+          title,
+          message,
+          cta_text: ctaText,
+          cta_url: ctaUrl,
+          is_active: true,
+        })
+        .select('*')
+        .single();
+
+      if (insErr) {
+        return NextResponse.json({ success: false, error: insErr.message }, { status: 500 });
+      }
+
+      try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'FLASH_UPGRADE_OFFER',
+          actor_email: 'Admin',
+          target_user: targetEmail || targetUserId,
+          summary: `[FLASH UPGRADE BEAM] Sent ${pillarTarget} VIP Invitation to ${targetEmail || targetName || targetUserId}`,
+        });
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'DIRECT_MESSAGE_BEAMED',
+          payload: {
+            targetUserId,
+            directMessage: insertedMsg,
+            timestamp: Date.now(),
+          },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({
+        success: true,
+        directMessage: insertedMsg,
+      });
+    }
+
+    if (action === 'AWARD_MILESTONE_BONUS') {
+      const {
+        targetUserId,
+        amountGhs,
+        reason,
+      } = payload || {};
+
+      const bonusAmount = Number(Number(amountGhs || 0).toFixed(2));
+      if (!targetUserId || !Number.isFinite(bonusAmount) || bonusAmount <= 0) {
+        return NextResponse.json(
+          { success: false, error: 'Valid targetUserId and positive amountGhs are required.' },
+          { status: 400 }
+        );
+      }
+
+      const { data: prof, error: profErr } = await adminSupabase
+        .from('profiles')
+        .select('*')
+        .eq('id', targetUserId)
+        .maybeSingle();
+
+      if (profErr || !prof) {
+        return NextResponse.json({ success: false, error: 'Target user profile not found.' }, { status: 404 });
+      }
+
+      const curAvail = Math.max(
+        Number(prof.affiliate_balance || 0),
+        Number(prof.available_balance_ghs || 0),
+        Number(prof.affiliate_Available_Balance || 0)
+      );
+      const curTotal = Math.max(
+        Number(prof.total_earnings_ghs || 0),
+        Number(prof.affiliate_total_earned || 0),
+        Number(prof.affiliate_Total_Earned || 0),
+        curAvail
+      );
+
+      const newBalance = Number((curAvail + bonusAmount).toFixed(2));
+      const newTotalEarned = Number((curTotal + bonusAmount).toFixed(2));
+
+      // Update primary balance columns safely
+      const { error: balErr } = await adminSupabase
+        .from('profiles')
+        .update({
+          affiliate_balance: newBalance,
+          available_balance_ghs: newBalance,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', targetUserId);
+
+      if (balErr) {
+        return NextResponse.json({ success: false, error: balErr.message }, { status: 500 });
+      }
+
+      // Best-effort sync of optional total_earnings columns
+      try {
+        await adminSupabase
+          .from('profiles')
+          .update({
+            total_earnings_ghs: newTotalEarned,
+            affiliate_total_earned: newTotalEarned,
+          })
+          .eq('id', targetUserId);
+      } catch (_) {}
+
+      const displayName = prof.full_name || prof.username || (prof.email ? prof.email.split('@')[0] : 'VIP Affiliate');
+      const milestoneNote =
+        typeof reason === 'string' && reason.trim()
+          ? reason.trim()
+          : `Congratulations ${displayName}! Gerald (Founder) has awarded a +GH₵ ${bonusAmount.toFixed(2)} Executive Milestone Bonus directly to your Pillar 2 Affiliate Balance! Your updated balance is GH₵ ${newBalance.toFixed(2)}.`;
+
+      // Insert affiliate notification & wallet ledger record
+      try {
+        await adminSupabase.from('affiliate_notifications').insert({
+          user_id: targetUserId,
+          title: `🏆 +GH₵ ${bonusAmount.toFixed(2)} Milestone Bonus Awarded!`,
+          subtitle: milestoneNote,
+          amount_ghs: bonusAmount,
+          read: false,
+        });
+      } catch (_) {}
+
+      // Deactivate previous active direct messages and beam celebratory trophy message
+      try {
+        await adminSupabase
+          .from('admin_direct_messages')
+          .update({ is_active: false })
+          .eq('target_user_id', targetUserId)
+          .eq('is_active', true);
+      } catch (_) {}
+
+      const { data: insertedMsg } = await adminSupabase
+        .from('admin_direct_messages')
+        .insert({
+          target_user_id: targetUserId,
+          target_email: prof.email || null,
+          theme: 'cyber_diamond',
+          badge_label: '🏆 MILESTONE BONUS AWARDED',
+          title: `🎉 Congratulations! +GH₵ ${bonusAmount.toFixed(2)} Milestone Bonus Credited!`,
+          message: milestoneNote,
+          cta_text: 'View My Affiliate Balance →',
+          cta_url: '/affiliate',
+          is_active: true,
+        })
+        .select('*')
+        .maybeSingle();
+
+      try {
+        await adminSupabase.from('admin_audit_logs').insert({
+          event_type: 'MILESTONE_BONUS',
+          actor_email: 'Admin',
+          target_user: prof.email || targetUserId,
+          summary: `[MILESTONE BONUS] Awarded +GH₵ ${bonusAmount.toFixed(2)} to ${prof.email || displayName} (Balance: GH₵ ${curAvail.toFixed(2)} → GH₵ ${newBalance.toFixed(2)})`,
+        });
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'DIRECT_MESSAGE_BEAMED',
+          payload: {
+            targetUserId,
+            directMessage: insertedMsg,
+            newBalance,
+            timestamp: Date.now(),
+          },
+        });
+        await adminSupabase.channel('horpal_godmode_command').send({
+          type: 'broadcast',
+          event: 'USER_ENFORCEMENT_UPDATED',
+          payload: {
+            userId: targetUserId,
+            affiliate_balance: newBalance,
+            timestamp: Date.now(),
+          },
+        });
+      } catch (_) {}
+
+      return NextResponse.json({
+        success: true,
+        amountGhs: bonusAmount,
+        previousBalance: curAvail,
+        newBalance,
+        directMessage: insertedMsg || null,
+      });
     }
 
     return NextResponse.json({ success: false, error: 'Invalid action' }, { status: 400 });
