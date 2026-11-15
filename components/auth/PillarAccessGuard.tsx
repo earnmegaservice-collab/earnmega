@@ -24,6 +24,7 @@ interface Props {
   /** Rendered (full screen) whenever the live DB row does not grant this pillar. */
   renderPaywall: (ctx: PillarGuardPaywallContext) => React.ReactNode;
   intervalMs?: number;
+  initialGranted?: boolean;
 }
 
 type Status = 'verifying' | 'granted' | 'denied' | 'error';
@@ -35,12 +36,18 @@ const MAX_SILENT_FAILURES = 3;
  * signed-in user's fresh public.profiles row proves they paid for THIS pillar, and is re-checked
  * every 15s and on window focus so an unpaid / expired session can never linger inside.
  */
-export default function PillarAccessGuard({ pillar, children, renderPaywall, intervalMs = 5000 }: Props) {
-  const [status, setStatus] = useState<Status>('verifying');
+export default function PillarAccessGuard({
+  pillar,
+  children,
+  renderPaywall,
+  intervalMs = 5000,
+  initialGranted = false,
+}: Props) {
+  const [status, setStatus] = useState<Status>(initialGranted ? 'granted' : 'verifying');
   const [user, setUser] = useState<any | null>(null);
   const [entitlements, setEntitlements] = useState<EntitlementRow | null>(null);
 
-  const statusRef = useRef<Status>('verifying');
+  const statusRef = useRef<Status>(initialGranted ? 'granted' : 'verifying');
   const failuresRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
   const mountedRef = useRef(true);

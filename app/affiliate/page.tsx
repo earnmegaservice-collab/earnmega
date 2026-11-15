@@ -44,13 +44,30 @@ function AffiliatePageContent() {
           : prev
       );
     };
-    const onGranted = (e: any) => {
+    const onGranted = async (e: any) => {
       if (e?.detail?.pillar && e.detail.pillar !== 2) return;
       const updatedProfile = e?.detail?.profile;
       setDeniedAudit(null);
       if (updatedProfile) {
         setProfile((prev: any) => ({ ...(prev || {}), ...updatedProfile }));
       }
+      try {
+        const {
+          data: { session: activeSession },
+        } = await supabase.auth.getSession();
+        if (activeSession?.user) {
+          setSession(activeSession);
+        } else if (updatedProfile?.id) {
+          setSession((prev: any) =>
+            prev || {
+              user: {
+                id: updatedProfile.id,
+                email: updatedProfile.email || updatedProfile.pillar2_email || "",
+              },
+            }
+          );
+        }
+      } catch (_) {}
     };
     const onEnforcementSync = (e: any) => {
       const updatedProfile = e?.detail?.profile;
@@ -176,8 +193,8 @@ function AffiliatePageContent() {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event, nextSession) => {
         if (nextSession?.user) {
-          setSession(nextSession);
           await hydrateAndAudit(nextSession.user);
+          setSession(nextSession);
         } else {
           setSession(null);
           setProfile(null);
@@ -208,8 +225,31 @@ function AffiliatePageContent() {
     return (
       <div className="min-h-screen bg-[#050508] relative">
         <HorPalAffiliatePillar
-          currentProfile={null}
-          onRefreshProfile={async () => {}}
+          currentProfile={profile}
+          onRefreshProfile={async () => {
+            const {
+              data: { session: activeSession },
+            } = await supabase.auth.getSession();
+            if (activeSession?.user) {
+              const [synced, liveEnt] = await Promise.all([
+                syncAuthenticatedUserProfile(activeSession.user),
+                auditAccount(
+                  activeSession.user.id,
+                  activeSession.user.email || ""
+                ).catch(() => null),
+              ]);
+              if (liveEnt) {
+                setProfile((prev: any) => ({
+                  ...(prev || {}),
+                  ...(synced || {}),
+                  ...liveEnt,
+                }));
+              } else if (synced) {
+                setProfile((prev: any) => ({ ...(prev || {}), ...synced }));
+              }
+              setSession(activeSession);
+            }
+          }}
         />
       </div>
     );
@@ -344,6 +384,7 @@ function AffiliatePageContent() {
   return (
     <PillarAccessGuard
       pillar={2}
+      initialGranted={hasPillar2Access(profile)}
       renderPaywall={({ user, entitlements, recheck }) => {
         const guardEmail = user.email || "";
         return (

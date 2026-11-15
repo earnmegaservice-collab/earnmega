@@ -104,9 +104,12 @@ export async function POST(req: Request) {
     )
       .trim()
       .toLowerCase();
+    const resolvedBuyerName = String(buyerName || 'Verified Customer').trim();
+    const resolvedBuyerPhone = String(buyerPhone || 'N/A').trim();
 
-    const supabase = getSupabaseClient();
-    if (!supabase) {
+    const supabaseAdmin = getSupabaseClient();
+    const supabase = supabaseAdmin;
+    if (!supabaseAdmin) {
       return NextResponse.json(
         { error: 'Supabase configuration is missing.' },
         { status: 500 }
@@ -114,7 +117,7 @@ export async function POST(req: Request) {
     }
 
     const crossPillarConflict = await findOtherPillarConflict(
-      supabase,
+      supabaseAdmin,
       cleanRef,
       verifyJson.data?.metadata || null
     );
@@ -127,11 +130,62 @@ export async function POST(req: Request) {
         ? String(affiliateCode).trim()
         : null;
 
+    // 1b. Auto-Account & Session Provisioning for Buyer via supabaseAdmin (SUPABASE_SERVICE_ROLE_KEY)
+    let resolvedUserId: string | null = buyerUserId ? String(buyerUserId).trim() : null;
+
+    if (!resolvedUserId) {
+      const { data: existingProfByEmail } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .ilike('email', verifiedBuyerEmail)
+        .maybeSingle();
+      if (existingProfByEmail?.id) {
+        resolvedUserId = String(existingProfByEmail.id);
+      }
+    }
+
+    if (resolvedUserId) {
+      const { data: existingAuthData, error: existingAuthErr } =
+        await supabaseAdmin.auth.admin.getUserById(resolvedUserId);
+      if (existingAuthErr || !existingAuthData?.user) {
+        resolvedUserId = null;
+      }
+    }
+
+    if (!resolvedUserId) {
+      const { data: createdAuthData } = await supabaseAdmin.auth.admin.createUser({
+        email: verifiedBuyerEmail,
+        email_confirm: true,
+        user_metadata: {
+          full_name: resolvedBuyerName,
+          phone: resolvedBuyerPhone,
+        },
+      });
+      if (createdAuthData?.user?.id) {
+        resolvedUserId = createdAuthData.user.id;
+      }
+    }
+
+    // Generate instant one-time magiclink login token for buyerEmail
+    let tokenHash: string | null = null;
+    try {
+      const { data: linkData } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'magiclink',
+        email: verifiedBuyerEmail,
+      });
+      tokenHash = linkData?.properties?.hashed_token || null;
+      if (!resolvedUserId && linkData?.user?.id) {
+        resolvedUserId = linkData.user.id;
+      }
+    } catch (linkErr) {
+      console.warn('generateLink warning in verify-product-purchase:', linkErr);
+    }
+
     // 2. Atomic post-purchase execution via SECURITY DEFINER RPC:
     // - Credits referring affiliate 50% commission (affiliate_balance += 50%, affiliate_total_earned += 50%, affiliate_total_sales += 1)
     // - Inserts into public.pillar2_sales & public.pillar2_unlocked_courses
     // - Automatically sets buyer's has_paid_pillar2 = TRUE, pillar2_paid_at = NOW(), pillar2_expires_at = NOW() + 365 days
-    const { data: rpcData, error: rpcError } = await supabase.rpc(
+    const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc(
       'record_pillar2_sale_rpc',
       {
         p_reference: cleanRef,
@@ -140,10 +194,10 @@ export async function POST(req: Request) {
         p_gross_amount_ghs: verifiedGrossGHS,
         p_commission_amount_ghs: verifiedCommissionGHS,
         p_affiliate_code: cleanAffCode,
-        p_buyer_user_id: buyerUserId || null,
-        p_buyer_name: buyerName || 'Verified Customer',
+        p_buyer_user_id: resolvedUserId || buyerUserId || null,
+        p_buyer_name: resolvedBuyerName,
         p_buyer_email: verifiedBuyerEmail,
-        p_buyer_phone: buyerPhone || 'N/A',
+        p_buyer_phone: resolvedBuyerPhone,
       }
     );
 
@@ -153,6 +207,94 @@ export async function POST(req: Request) {
         { error: rpcError.message || 'Failed to record verified product purchase.' },
         { status: 500 }
       );
+    }
+
+    // Upsert buyer's row in public.profiles with full Pillar 2 entitlement & affiliate_code
+    const nowIso = new Date().toISOString();
+    const defaultExpiresIso = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    let updatedBuyerProfile: any = null;
+
+    if (resolvedUserId) {
+      const { data: currentBuyerProf } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('id', resolvedUserId)
+        .maybeSingle();
+
+      const existingExpiresIso = currentBuyerProf?.pillar2_expires_at || null;
+      const existingExpiresValid =
+        existingExpiresIso && new Date(existingExpiresIso).getTime() > Date.now();
+      const finalExpiresIso = existingExpiresValid
+        ? existingExpiresIso
+        : rpcData?.pillar2_expires_at || defaultExpiresIso;
+
+      const randomHex6 = Array.from({ length: 6 }, () =>
+        Math.floor(Math.random() * 16).toString(16)
+      )
+        .join('')
+        .toUpperCase();
+      const existingAffCode =
+        currentBuyerProf?.affiliate_code &&
+        !String(currentBuyerProf.affiliate_code).endsWith('-TEST')
+          ? String(currentBuyerProf.affiliate_code)
+          : null;
+      const finalAffiliateCode = existingAffCode || `HP-${randomHex6}`;
+
+      const nameParts = resolvedBuyerName.split(/\s+/).filter(Boolean);
+      const firstNameVal =
+        currentBuyerProf?.first_name ||
+        currentBuyerProf?.pillar2_first_name ||
+        nameParts[0] ||
+        'Partner';
+      const lastNameVal =
+        currentBuyerProf?.last_name ||
+        currentBuyerProf?.pillar2_last_name ||
+        nameParts.slice(1).join(' ') ||
+        '';
+      const cleanPhoneVal =
+        resolvedBuyerPhone && resolvedBuyerPhone !== 'N/A'
+          ? resolvedBuyerPhone
+          : currentBuyerProf?.phone || currentBuyerProf?.phone_number || null;
+
+      const profileUpsertPayload: Record<string, any> = {
+        id: resolvedUserId,
+        email: verifiedBuyerEmail,
+        pillar2_email: currentBuyerProf?.pillar2_email || verifiedBuyerEmail,
+        full_name: currentBuyerProf?.full_name || resolvedBuyerName,
+        first_name: firstNameVal,
+        last_name: lastNameVal,
+        pillar2_first_name: currentBuyerProf?.pillar2_first_name || firstNameVal,
+        pillar2_last_name: currentBuyerProf?.pillar2_last_name || lastNameVal,
+        phone: currentBuyerProf?.phone || cleanPhoneVal,
+        phone_number: currentBuyerProf?.phone_number || cleanPhoneVal,
+        pillar2_phone: currentBuyerProf?.pillar2_phone || cleanPhoneVal,
+        has_paid_pillar2: true,
+        is_pillar2_paid: true,
+        pillar2_paid_at: nowIso,
+        pillar2_expires_at: finalExpiresIso,
+        license_activated_at: nowIso,
+        license_expires_at: finalExpiresIso,
+        pillar2_paystack_ref: cleanRef,
+        affiliate_code: finalAffiliateCode,
+        updated_at: nowIso,
+      };
+
+      const { data: upsertedProf } = await supabaseAdmin
+        .from('profiles')
+        .upsert(profileUpsertPayload, { onConflict: 'id' })
+        .select('*')
+        .maybeSingle();
+
+      updatedBuyerProfile = upsertedProf || {
+        ...(currentBuyerProf || {}),
+        ...profileUpsertPayload,
+      };
+
+      // Ensure pillar2_unlocked_courses & pillar2_sales rows are bound to resolvedUserId
+      await supabaseAdmin
+        .from('pillar2_unlocked_courses')
+        .update({ user_id: resolvedUserId })
+        .eq('paystack_reference', cleanRef);
     }
 
     const alreadyProcessed = Boolean(rpcData?.already_processed);
@@ -219,6 +361,7 @@ export async function POST(req: Request) {
       alreadyProcessed,
       reference: cleanRef,
       productId,
+      unlockedProductId: String(productId),
       productTitle,
       grossAmountGHS: verifiedGrossGHS,
       commissionCreditedGHS: verifiedCommissionGHS,
@@ -227,10 +370,17 @@ export async function POST(req: Request) {
       affiliateEmail,
       newBalanceGHS: actualNewVerifiedBalance,
       buyerGrantedPillar2Access: true,
-      pillar2_paid_at: rpcData?.pillar2_paid_at || new Date().toISOString(),
+      userId: resolvedUserId,
+      profile: updatedBuyerProfile,
+      token_hash: tokenHash,
+      pillar2_paid_at:
+        updatedBuyerProfile?.pillar2_paid_at ||
+        rpcData?.pillar2_paid_at ||
+        nowIso,
       pillar2_expires_at:
+        updatedBuyerProfile?.pillar2_expires_at ||
         rpcData?.pillar2_expires_at ||
-        new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        defaultExpiresIso,
       emailSent,
     });
   } catch (err: any) {

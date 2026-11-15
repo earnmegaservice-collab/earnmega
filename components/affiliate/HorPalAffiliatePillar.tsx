@@ -4,7 +4,7 @@ import Link from 'next/link';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { authFetch } from '../../utils/authFetch';
-import { hasPillar2Access, purgeLegacyAccessFlags } from '../../utils/pillarAccess';
+import { hasPillar2Access, purgeLegacyAccessFlags, savePhonePassport } from '../../utils/pillarAccess';
 import Pillar2AccessGate from './Pillar2AccessGate';
 import { toast } from 'react-hot-toast';
 import { ShieldCheck,
@@ -926,6 +926,7 @@ export default function HorPalAffiliatePillar({
     ? Math.max(0, initialExpiresMs - Date.now())
     : 365 * 24 * 60 * 60 * 1000 - 1000;
   const [hasActivePaidLicense, setHasActivePaidLicense] = useState<boolean>(initialHasLicense);
+  const [hasPaidPillar2, setHasPaidPillar2] = useState<boolean>(initialHasLicense);
   const [licenseActivatedAt, setLicenseActivatedAt] = useState<number>(
     initialHasLicense ? initialActivatedMs : 0
   );
@@ -1138,6 +1139,16 @@ export default function HorPalAffiliatePillar({
 
   // Buyer Sales Page & Digitstem 2-Step Checkout State (Triggered when visiting an Affiliate Link!)
   const [activeSalesPageProduct, setActiveSalesPageProduct] = useState<MarketplaceProduct | null>(null);
+  const [showCheckoutModal, setShowCheckoutModal] = useState<boolean>(false);
+  const [selectedProductForCheckout, setSelectedProductForCheckout] = useState<MarketplaceProduct | null>(null);
+  const [sharedProductId, setSharedProductId] = useState<string | null>(null);
+  const [isSharedProductLanding, setIsSharedProductLanding] = useState<boolean>(false);
+  const [welcomePurchaseBanner, setWelcomePurchaseBanner] = useState<{
+    message: string;
+    productId: string;
+    productTitle: string;
+    deliveryUrl?: string;
+  } | null>(null);
   const [isDirectEnrollmentCheckout, setIsDirectEnrollmentCheckout] = useState<boolean>(false);
   const [attributedRefCode, setAttributedRefCode] = useState<string>('');
   const referredByCode = attributedRefCode;
@@ -1438,11 +1449,30 @@ export default function HorPalAffiliatePillar({
         if (matched) {
           hasProdLanding = true;
           setActiveSalesPageProduct(matched);
+          setSharedProductId(matched.id);
+          setIsSharedProductLanding(true);
           try {
             sessionStorage.removeItem('horpal_active_prod');
           } catch (_) {}
         }
       }
+
+      try {
+        const savedCelebrationRaw = sessionStorage.getItem('horpal_p2_welcome_purchase_banner');
+        if (savedCelebrationRaw) {
+          const parsedCelebration = JSON.parse(savedCelebrationRaw);
+          if (parsedCelebration?.message) {
+            setWelcomePurchaseBanner(parsedCelebration);
+            if (parsedCelebration.productId) {
+              setUnlockedProductIds((prev) =>
+                prev.includes(parsedCelebration.productId)
+                  ? prev
+                  : [...prev, parsedCelebration.productId]
+              );
+            }
+          }
+        }
+      } catch (_) {}
 
       if (paystackCallbackRef && !paystackCallbackRef.toUpperCase().startsWith('HP_TEST_')) {
         try {
@@ -1719,6 +1749,7 @@ export default function HorPalAffiliatePillar({
         // Reflect real database license state (strictly verified Pillar 2 payment + ref + expiry)
         const dbPaid = hasPillar2Access(prof);
         setHasActivePaidLicense(dbPaid);
+        setHasPaidPillar2(dbPaid);
         const resolvedExpiresIso = prof?.pillar2_expires_at || prof?.license_expires_at || null;
         const resolvedPaidIso = prof?.pillar2_paid_at || prof?.license_activated_at || null;
         const resolvedExpMs = resolvedExpiresIso ? new Date(resolvedExpiresIso).getTime() : 0;
@@ -1864,7 +1895,7 @@ export default function HorPalAffiliatePillar({
         );
 
         const mergedUnlocked = validUnlockedRows.map((r: any) => String(r.product_id));
-        setUnlockedProductIds(Array.from(new Set(mergedUnlocked)));
+        setUnlockedProductIds((prev) => Array.from(new Set([...prev, ...mergedUnlocked])));
 
         const certMap: Record<string, string> = {};
         validUnlockedRows.forEach((r: any) => {
@@ -2284,34 +2315,124 @@ export default function HorPalAffiliatePillar({
     });
 
     const verifyData = await verifyRes.json();
-    if (!verifyRes.ok || !verifyData?.success) {
-      toast.error(verifyData?.error || 'Paystack could not verify this product purchase.');
+    const data = verifyData;
+    if (!verifyRes.ok || !data?.success) {
+      toast.error(data?.error || 'Paystack could not verify this product purchase.');
       return;
     }
 
-    // 1. Unlock course immediately in buyer's My Unlocked Courses & Drive Vault
-    setUnlockedProductIds((prev) => (prev.includes(prod.id) ? prev : [...prev, prod.id]));
+    // 1. Clean URL query parameters (?aff=...&product=... / ?ref=...&prod=...) and storage locks FIRST
+    // so any auth state transition or page refresh keeps the buyer inside their Affiliate Hub.
+    try {
+      sessionStorage.removeItem('horpal_active_prod');
+      localStorage.removeItem('horpal_affiliate_prod');
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch (_) {}
 
-    // 2. Grant Buyer full Pillar 2 Affiliate Hub access automatically (no separate GH₵ 90 fee needed!)
-    const paidMs = verifyData.pillar2_paid_at ? new Date(verifyData.pillar2_paid_at).getTime() : Date.now();
-    const expMs = verifyData.pillar2_expires_at ? new Date(verifyData.pillar2_expires_at).getTime() : paidMs + 365 * 24 * 60 * 60 * 1000;
+    // 2. Silent Instant Session Binding (No Manual Login Needed)
+    try {
+      const { data: currentSessData } = await supabase.auth.getSession();
+      const signedInEmail =
+        currentSessData?.session?.user?.email?.trim().toLowerCase() || '';
+      if ((!signedInEmail || signedInEmail !== resolvedBuyerEmail) && data.token_hash) {
+        await supabase.auth.verifyOtp({
+          token_hash: data.token_hash,
+          type: 'magiclink',
+        });
+      }
+    } catch (otpErr) {
+      console.warn('Silent auto-login verifyOtp warning:', otpErr);
+    }
+
+    const resolvedUid = data.userId || data.profile?.id || userId;
+    if (resolvedUid) {
+      setUserId(resolvedUid);
+      savePhonePassport(resolvedUid, {
+        email: resolvedBuyerEmail,
+        pillar1Paid: Boolean(data.profile?.has_paid_global_chat),
+        pillar2Paid: true,
+        pillar3Paid: Boolean(data.profile?.has_paid_pillar3),
+        pillar2ExpiresAt: data.pillar2_expires_at || null,
+      });
+    }
+    if (resolvedBuyerEmail) {
+      setPillar2Email(resolvedBuyerEmail);
+      setGlobalVerifiedEmail(resolvedBuyerEmail);
+    }
+    if (data.profile?.affiliate_code) {
+      setUserAffiliateCode(data.profile.affiliate_code);
+    }
+
+    // 3. Unlock course immediately in buyer's My Unlocked Courses & Drive Vault
+    const unlockedId = String(data.unlockedProductId || prod.id);
+    setUnlockedProductIds((prev) =>
+      prev.includes(unlockedId) ? prev : [...prev, unlockedId]
+    );
+
+    // 4. Automatically Close Product Page & Enter the Pillar 2 Affiliate Hub Dashboard
+    const paidMs = data.pillar2_paid_at
+      ? new Date(data.pillar2_paid_at).getTime()
+      : Date.now();
+    const expMs = data.pillar2_expires_at
+      ? new Date(data.pillar2_expires_at).getTime()
+      : paidMs + 365 * 24 * 60 * 60 * 1000;
+
+    setHasPaidPillar2(true);
     setHasActivePaidLicense(true);
     setLicenseActivatedAt(paidMs);
     setLicenseExpiresAt(expMs);
-    setIsLockedDashboardModalOpen(false);
-
+    setShowCheckoutModal(false);
+    setSelectedProductForCheckout(null);
     setCheckoutStep(null);
+    setSharedProductId(null);
+    setIsSharedProductLanding(false);
+    setActiveSalesPageProduct(null);
+    setIsLockedDashboardModalOpen(false);
+    setActiveSection('dashboard');
+
+    const celebrationMsg =
+      '🎉 Payment Confirmed! Welcome to your Affiliate Hub — Your purchased course is unlocked in My Courses & Vault!';
+    const bannerPayload = {
+      message: celebrationMsg,
+      productId: unlockedId,
+      productTitle: prod.title,
+      deliveryUrl: prod.deliveryUrl,
+    };
+    setWelcomePurchaseBanner(bannerPayload);
+    try {
+      sessionStorage.setItem(
+        'horpal_p2_welcome_purchase_banner',
+        JSON.stringify(bannerPayload)
+      );
+    } catch (_) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('earnmega:pillar-access-granted', {
+          detail: {
+            pillar: 2,
+            profile: data.profile || {
+              id: resolvedUid,
+              email: resolvedBuyerEmail,
+              has_paid_pillar2: true,
+              is_pillar2_paid: true,
+              pillar2_paid_at: data.pillar2_paid_at,
+              pillar2_expires_at: data.pillar2_expires_at,
+              pillar2_paystack_ref: cleanRef,
+            },
+          },
+        })
+      );
+    }
+
     setTimeout(() => {
-      loadSupabaseData();
-    }, 400);
+      loadSupabaseData(false);
+    }, 300);
     onRefreshProfile?.();
 
-    toast.success(
-      `Payment Verified! "${prod.title}" is now unlocked in your Drive Vault & your Pillar 2 Affiliate Hub is active!`
-    );
-    alert(
-      `✅ Verified Paystack Purchase Confirmed!\n\nOrder ID: ${uniqueOrderUid}\nReference: ${cleanRef}\nBuyer: ${resolvedFullName} (${resolvedBuyerEmail})\nCourse Unlocked: ${prod.title}\n50% Affiliate Commission Credited (${activeRef || 'DIRECT'}): GH₵ ${(verifyData.commissionCreditedGHS ?? commGHS).toFixed(2)}\n\nYour course is now unlocked inside My Unlocked Courses & Drive Vault, and your full Pillar 2 Affiliate Hub access is now ACTIVE!`
-    );
+    toast.success(celebrationMsg, { duration: 6000 });
   };
 
   const handleLivePaystackCheckout = async () => {
@@ -3824,7 +3945,7 @@ export default function HorPalAffiliatePillar({
   // ============================================================================
   const isPillar2Verified =
     Boolean(userId || currentProfile?.id) &&
-    (hasPillar2Access(currentProfile) || hasActivePaidLicense);
+    (hasPillar2Access(currentProfile) || hasActivePaidLicense || hasPaidPillar2);
 
   // Checkout modals (Step 1 details form / Step 2 payment) - shared by the dashboard view and
   // the unpaid Product Landing / Paywall Gate views so closing them never exposes the dashboard.
@@ -4443,6 +4564,46 @@ export default function HorPalAffiliatePillar({
       {/* MAIN WORKSPACE CONTAINER */}
       {/* ==================================================================== */}
       <main className="max-w-7xl mx-auto px-4 py-6">
+        {welcomePurchaseBanner && (
+          <div className="mb-5 bg-gradient-to-r from-emerald-950/95 via-teal-950/95 to-emerald-900/90 border border-emerald-400/50 text-white px-5 py-4 rounded-2xl shadow-[0_0_30px_rgba(16,185,129,0.25)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-xs sm:text-sm font-black text-emerald-300">
+                {welcomePurchaseBanner.message}
+              </p>
+              {welcomePurchaseBanner.productTitle && (
+                <p className="text-xs text-gray-300">
+                  Unlocked Course: <strong className="text-white">{welcomePurchaseBanner.productTitle}</strong>
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  setActiveSection('my_courses');
+                  try {
+                    sessionStorage.removeItem('horpal_p2_welcome_purchase_banner');
+                  } catch (_) {}
+                }}
+                className="px-4 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-black font-black text-xs shadow-lg transition-all flex items-center gap-1.5"
+              >
+                <Folder className="w-4 h-4" />
+                <span>Open Unlocked Course →</span>
+              </button>
+              <button
+                onClick={() => {
+                  setWelcomePurchaseBanner(null);
+                  try {
+                    sessionStorage.removeItem('horpal_p2_welcome_purchase_banner');
+                  } catch (_) {}
+                }}
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-xs"
+                aria-label="Dismiss banner"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
         {settingsSavedBanner && (
           <div className="mb-4 bg-emerald-950/90 border border-emerald-500/40 text-emerald-300 px-4 py-3 rounded-2xl text-xs font-bold flex items-center justify-between">
             <span>{settingsSavedBanner}</span>
